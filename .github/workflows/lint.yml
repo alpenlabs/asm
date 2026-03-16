@@ -25,7 +25,9 @@ jobs:
           persist-credentials: false
 
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@22a6a5b0f9f487c5f5587025ae9d4a1caf2a8a78 # clippy
+        run: |
+          rustup toolchain install nightly --profile minimal --component clippy
+          rustup default nightly
 
       - name: Rust cache
         uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2
@@ -50,9 +52,9 @@ jobs:
           persist-credentials: false
 
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@fcf085fcb4b4b8f63f96906cd713eb52181b5ea4 # stable
-        with:
-          components: rustfmt
+        run: |
+          rustup toolchain install nightly --profile minimal --component rustfmt
+          rustup default nightly
 
       - name: Check Rust formatting
         run: cargo fmt --all --check
