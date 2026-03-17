@@ -1,0 +1,18 @@
+[package]
+name = "strata-bridge-proof-db"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+strata-bridge-primitives.workspace = true
+strata-identifiers = { git = "https://github.com/alpenlabs/alpen.git", rev = "201c3fa0af3b1a2173e8e5ae3cdb5d20c311ed17" }
+
+sled.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true
+tempfile.workspace = true
+tokio.workspace = true
+
+[lints]
+workspace = true

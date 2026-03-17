@@ -4,25 +4,30 @@ resolver = "2"
 members = [
   "crates/common",
   "crates/logs",
-  "crates/params",
+  "crates/manifest-types",
   "crates/msgs/bridge",
   "crates/msgs/checkpoint",
-  "crates/stf",
-  "crates/manifest-types",
+  "crates/params",
+  "crates/proof-db",
   "crates/proof-impl",
+  "crates/rpc",
   "crates/spec",
   "crates/spec-debug",
-  "crates/subprotocols/bridge-v1",
-  "crates/subprotocols/debug-v1",
+  "crates/stf",
   "crates/subprotocols/admin",
-  "crates/txs/admin",
-  "crates/txs/checkpoint-v0",
-  "crates/txs/checkpoint",
-  "crates/subprotocols/checkpoint-v0",
+  "crates/subprotocols/bridge-v1",
   "crates/subprotocols/checkpoint",
-  "crates/txs/test-utils",
+  "crates/subprotocols/checkpoint-v0",
+  "crates/subprotocols/debug-v1",
+  "crates/txs/admin",
   "crates/txs/bridge-v1",
+  "crates/txs/checkpoint",
+  "crates/txs/checkpoint-v0",
+  "crates/txs/test-utils",
   "crates/worker",
+
+  # binaries listed separately
+  "bin/asm-runner",
 ]
 
 [workspace.lints]
@@ -50,6 +55,7 @@ strata-asm-proto-bridge-v1 = { path = "crates/subprotocols/bridge-v1" }
 strata-asm-proto-checkpoint = { path = "crates/subprotocols/checkpoint" }
 strata-asm-proto-checkpoint-v0 = { path = "crates/subprotocols/checkpoint-v0" }
 strata-asm-proto-debug-v1 = { path = "crates/subprotocols/debug-v1" }
+strata-asm-rpc = { path = "crates/rpc" }
 strata-asm-spec = { path = "crates/spec" }
 strata-asm-spec-debug = { path = "crates/spec-debug" }
 strata-asm-stf = { path = "crates/stf" }
@@ -59,6 +65,7 @@ strata-asm-txs-checkpoint = { path = "crates/txs/checkpoint" }
 strata-asm-txs-checkpoint-v0 = { path = "crates/txs/checkpoint-v0" }
 strata-asm-txs-test-utils = { path = "crates/txs/test-utils" }
 strata-asm-worker = { path = "crates/worker" }
+strata-bridge-proof-db = { path = "crates/proof-db" }
 
 # Dependencies from alpenlabs/alpen pinned to commit 787b804 (main @ 2026-03-17)
 # NOTE: keep `typed-sled` pinned in Cargo.lock to 9062bff for compatibility with this alpen rev.
@@ -70,17 +77,24 @@ strata-checkpoint-types = { git = "https://github.com/alpenlabs/alpen.git", rev 
 strata-checkpoint-types-ssz = { git = "https://github.com/alpenlabs/alpen.git", rev = "787b804c41800bbbf8d3632637a7eda332fc9f39" }
 strata-codec-utils = { git = "https://github.com/alpenlabs/alpen.git", rev = "787b804c41800bbbf8d3632637a7eda332fc9f39" }
 strata-crypto = { git = "https://github.com/alpenlabs/alpen.git", rev = "787b804c41800bbbf8d3632637a7eda332fc9f39" }
+strata-db-store-sled = { git = "https://github.com/alpenlabs/alpen.git", rev = "787b804c41800bbbf8d3632637a7eda332fc9f39" }
 strata-identifiers = { git = "https://github.com/alpenlabs/alpen.git", rev = "787b804c41800bbbf8d3632637a7eda332fc9f39" }
 strata-ol-chain-types-new = { git = "https://github.com/alpenlabs/alpen.git", rev = "787b804c41800bbbf8d3632637a7eda332fc9f39" }
 strata-ol-chainstate-types = { git = "https://github.com/alpenlabs/alpen.git", rev = "787b804c41800bbbf8d3632637a7eda332fc9f39" }
 strata-ol-stf = { git = "https://github.com/alpenlabs/alpen.git", rev = "787b804c41800bbbf8d3632637a7eda332fc9f39" }
 strata-primitives = { git = "https://github.com/alpenlabs/alpen.git", rev = "787b804c41800bbbf8d3632637a7eda332fc9f39" }
 strata-state = { git = "https://github.com/alpenlabs/alpen.git", rev = "787b804c41800bbbf8d3632637a7eda332fc9f39" }
+strata-storage = { git = "https://github.com/alpenlabs/alpen.git", rev = "787b804c41800bbbf8d3632637a7eda332fc9f39" }
 strata-test-utils = { git = "https://github.com/alpenlabs/alpen.git", rev = "787b804c41800bbbf8d3632637a7eda332fc9f39" }
 strata-test-utils-btc = { git = "https://github.com/alpenlabs/alpen.git", rev = "787b804c41800bbbf8d3632637a7eda332fc9f39" }
 strata-test-utils-btcio = { git = "https://github.com/alpenlabs/alpen.git", rev = "787b804c41800bbbf8d3632637a7eda332fc9f39" }
 strata-test-utils-l2 = { git = "https://github.com/alpenlabs/alpen.git", rev = "787b804c41800bbbf8d3632637a7eda332fc9f39" }
 strata-test-utils-ssz = { git = "https://github.com/alpenlabs/alpen.git", rev = "787b804c41800bbbf8d3632637a7eda332fc9f39" }
+
+# Dependencies from alpenlabs/strata-bridge pinned to commit fc966d5 (STR-2598-asm-stf-proof-statements @ 2026-03-17)
+btc-tracker = { git = "https://github.com/alpenlabs/strata-bridge.git", rev = "fc966d5f81c773de10a4ef3a66666687ec11d715" }
+strata-bridge-common = { git = "https://github.com/alpenlabs/strata-bridge.git", rev = "fc966d5f81c773de10a4ef3a66666687ec11d715" }
+strata-bridge-primitives = { git = "https://github.com/alpenlabs/strata-bridge.git", rev = "fc966d5f81c773de10a4ef3a66666687ec11d715" }
 
 # Dependencies from alpenlabs/moho pinned to commit 97e9d28 (main @ 2026-03-12)
 moho-runtime-impl = { git = "https://github.com/alpenlabs/moho", rev = "97e9d281f310e9c2e60cf80448c95e855be589b9" }
@@ -122,16 +136,22 @@ bitcoin-bosd = { version = "0.9.0", default-features = false }
 bitcoind-async-client = { version = "0.10.1", features = ["29_0"] }
 bitvec = { version = "1.0.1", features = ["serde"] }
 borsh = { version = "1.5.0", features = ["derive"] }
+clap = { version = "4.5.20", features = ["cargo", "derive", "env"] }
 corepc-node = { version = "0.10.0", features = ["29_0"] }
+futures = "0.3.31"
 hex-literal = "0.4"
+jsonrpsee = "0.24.7"
 proptest = "1.9.0"
 rand = "0.8.5"
 rand_chacha = { version = "0.3.1", default-features = false }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0.94"
 sha2 = "0.10"
+sled = "0.34.7"
+tempfile = "3.10.1"
 thiserror = "2.0.11"
 tokio = { version = "1.37", features = ["full"] }
+toml = "0.8.20"
 tracing = "0.1"
 
 # Temporary override (required for now):
