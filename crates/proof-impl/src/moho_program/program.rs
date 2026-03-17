@@ -1,15 +1,27 @@
+//! [`MohoProgram`] implementation for the ASM STF.
+//!
+//! This module contains the [`AsmStfProgram`] type that implements [`MohoProgram`], wiring the
+//! ASM state transition function into the Moho runtime. It handles block validation, state
+//! commitment via SHA-256, transition execution, and extraction of post-transition artifacts
+//! such as predicate updates and export state entries.
 use bitcoin::hashes::Hash;
+use moho_runtime_interface::MohoProgram;
 use moho_types::{ExportState, InnerStateCommitment, StateReference};
+use sha2::{Digest, Sha256};
 use strata_asm_common::{AnchorState, AsmSpec};
 use strata_asm_logs::{AsmStfUpdate, NewExportEntry};
 use strata_asm_spec::StrataAsmSpec;
-use strata_asm_stf::{AsmStfInput, AsmStfOutput, compute_asm_transition, group_txs_by_subprotocol};
-use strata_crypto::hash::compute_borsh_hash;
+use strata_asm_stf::{compute_asm_transition, group_txs_by_subprotocol, AsmStfInput, AsmStfOutput};
+use strata_identifiers::Buf32;
 use strata_predicate::PredicateKey;
-use strata_primitives::Buf32;
 
-use crate::{input::AsmStepInput, traits::MohoProgram};
+use crate::moho_program::input::AsmStepInput;
 
+/// The ASM STF program adapted for the Moho runtime.
+///
+/// Implements [`MohoProgram`] to define how L1 Bitcoin blocks drive ASM state transitions
+/// within the recursive proof system. Each step validates a block, executes the ASM STF,
+/// and produces updated state, predicate keys, and export entries.
 #[derive(Debug)]
 pub struct AsmStfProgram;
 
@@ -31,7 +43,9 @@ impl MohoProgram for AsmStfProgram {
     }
 
     fn compute_state_commitment(state: &AnchorState) -> InnerStateCommitment {
-        InnerStateCommitment::new(compute_borsh_hash(state).into())
+        let state_raw = borsh::to_vec(&state).expect("borsh serialization is infallible");
+        let state_commitment_raw: [u8; 32] = Sha256::digest(&state_raw).into();
+        InnerStateCommitment::new(state_commitment_raw)
     }
 
     fn process_transition(
@@ -39,6 +53,9 @@ impl MohoProgram for AsmStfProgram {
         spec: &StrataAsmSpec,
         input: &AsmStepInput,
     ) -> AsmStfOutput {
+        // TODO: (@prajworlg) Consolidate block validation logic in a single place
+        // https://alpenlabs.atlassian.net/browse/STR-2619
+
         // 1. Validate the input
         assert!(input.validate_block());
 
@@ -86,9 +103,9 @@ impl MohoProgram for AsmStfProgram {
         })
     }
 
-    fn compute_export_state(export_state: ExportState, output: &Self::StepOutput) -> ExportState {
+    fn compute_next_export_state(prev: ExportState, output: &Self::StepOutput) -> ExportState {
         // Iterate through each AsmLog; if we find an NewExportEntry, add it to ExportState
-        let mut new_export_state = export_state;
+        let mut new_export_state = prev;
         for log in &output.manifest.logs {
             if let Ok(export) = log.try_into_log::<NewExportEntry>() {
                 new_export_state
