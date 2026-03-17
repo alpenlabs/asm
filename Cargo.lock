@@ -795,7 +795,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -1817,6 +1817,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "moho-runtime-impl"
+version = "0.1.0"
+source = "git+https://github.com/alpenlabs/moho?rev=97e9d281f310e9c2e60cf80448c95e855be589b9#97e9d281f310e9c2e60cf80448c95e855be589b9"
+dependencies = [
+ "borsh",
+ "moho-runtime-interface",
+ "moho-types",
+ "ssz",
+ "ssz_derive",
+]
+
+[[package]]
+name = "moho-runtime-interface"
+version = "0.1.0"
+source = "git+https://github.com/alpenlabs/moho?rev=97e9d281f310e9c2e60cf80448c95e855be589b9#97e9d281f310e9c2e60cf80448c95e855be589b9"
+dependencies = [
+ "borsh",
+ "moho-types",
+ "strata-predicate",
+]
+
+[[package]]
 name = "moho-types"
 version = "0.1.0"
 source = "git+https://github.com/alpenlabs/moho?rev=97e9d281f310e9c2e60cf80448c95e855be589b9#97e9d281f310e9c2e60cf80448c95e855be589b9"
@@ -1833,7 +1855,7 @@ dependencies = [
  "thiserror 2.0.18",
  "tree_hash",
  "tree_hash_derive",
- "zkaleido",
+ "zkaleido 0.1.0 (git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc20)",
 ]
 
 [[package]]
@@ -1859,7 +1881,7 @@ version = "0.50.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7957b9740744892f114936ab4a57b3f487491bbeafaf8083688b16841a4240e5"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -2500,7 +2522,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -2925,7 +2947,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3a766e1110788c36f4fa1c2b71b387a7815aa65f88ce0229841826633d93723e"
 dependencies = [
  "libc",
- "windows-sys 0.61.2",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -3137,23 +3159,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "strata-asm-moho-program-impl"
-version = "0.1.0"
-dependencies = [
- "bitcoin",
- "borsh",
- "moho-types",
- "strata-asm-common",
- "strata-asm-logs",
- "strata-asm-spec",
- "strata-asm-stf",
- "strata-crypto",
- "strata-predicate",
- "strata-primitives",
- "strata-test-utils-btc",
-]
-
-[[package]]
 name = "strata-asm-params"
 version = "0.1.0"
 dependencies = [
@@ -3167,6 +3172,33 @@ dependencies = [
  "strata-identifiers",
  "strata-l1-txfmt",
  "strata-predicate",
+]
+
+[[package]]
+name = "strata-asm-proof-impl"
+version = "0.1.0"
+dependencies = [
+ "bitcoin",
+ "borsh",
+ "moho-runtime-impl",
+ "moho-runtime-interface",
+ "moho-types",
+ "serde_json",
+ "sha2",
+ "ssz",
+ "strata-asm-common",
+ "strata-asm-logs",
+ "strata-asm-params",
+ "strata-asm-spec",
+ "strata-asm-stf",
+ "strata-btc-types",
+ "strata-btc-verification",
+ "strata-identifiers",
+ "strata-l1-txfmt",
+ "strata-predicate",
+ "strata-test-utils-btc",
+ "zkaleido 0.1.0 (git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc21)",
+ "zkaleido-native-adapter",
 ]
 
 [[package]]
@@ -3594,7 +3626,7 @@ dependencies = [
  "serde",
  "strata-crypto",
  "strata-identifiers",
- "zkaleido",
+ "zkaleido 0.1.0 (git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc20)",
 ]
 
 [[package]]
@@ -3715,7 +3747,7 @@ dependencies = [
  "thiserror 2.0.18",
  "tokio",
  "tracing",
- "zkaleido",
+ "zkaleido 0.1.0 (git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc20)",
 ]
 
 [[package]]
@@ -3809,7 +3841,7 @@ dependencies = [
  "strata-state",
  "tracing",
  "typed-sled",
- "zkaleido",
+ "zkaleido 0.1.0 (git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc20)",
 ]
 
 [[package]]
@@ -3837,7 +3869,7 @@ dependencies = [
  "strata-storage-common",
  "thiserror 2.0.18",
  "typed-sled",
- "zkaleido",
+ "zkaleido 0.1.0 (git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc20)",
 ]
 
 [[package]]
@@ -4138,7 +4170,7 @@ dependencies = [
  "tokio",
  "tracing",
  "uuid",
- "zkaleido",
+ "zkaleido 0.1.0 (git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc20)",
 ]
 
 [[package]]
@@ -4472,10 +4504,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
 dependencies = [
  "fastrand",
- "getrandom 0.3.4",
+ "getrandom 0.4.2",
  "once_cell",
  "rustix",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -5280,7 +5312,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -5769,6 +5801,32 @@ dependencies = [
 ]
 
 [[package]]
+name = "zkaleido"
+version = "0.1.0"
+source = "git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc21#fdd5003444e7ab60bd84cead503a3da7d6676c18"
+dependencies = [
+ "async-trait",
+ "bincode",
+ "borsh",
+ "serde",
+ "thiserror 1.0.69",
+]
+
+[[package]]
+name = "zkaleido-native-adapter"
+version = "0.1.0"
+source = "git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc21#fdd5003444e7ab60bd84cead503a3da7d6676c18"
+dependencies = [
+ "async-trait",
+ "bincode",
+ "hex",
+ "k256",
+ "rand_core 0.6.4",
+ "serde",
+ "zkaleido 0.1.0 (git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc21)",
+]
+
+[[package]]
 name = "zkaleido-sp1-groth16-verifier"
 version = "0.1.0"
 source = "git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc20#d5b46312a55e8409a08a8437716ca42128e3d085"
@@ -5780,7 +5838,7 @@ dependencies = [
  "sha2",
  "substrate-bn",
  "thiserror 1.0.69",
- "zkaleido",
+ "zkaleido 0.1.0 (git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc20)",
 ]
 
 [[package]]

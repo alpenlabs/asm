@@ -1,17 +1,22 @@
+//! Input types for the ASM STF Moho program.
+//!
+//! This module defines [`AsmStepInput`], the per-step input consumed by the
+//! [`MohoProgram`](moho_runtime_interface::MohoProgram) implementation.
 use std::io::{self, Read, Write};
 
 use bitcoin::{
-    Block,
     consensus::{deserialize, serialize},
     hashes::Hash,
+    Block,
 };
 use borsh::{BorshDeserialize, BorshSerialize};
 use moho_types::StateReference;
 use strata_asm_common::AuxData;
 
-/// Private input to process the next state.
+/// Private input for a single ASM STF step.
 ///
-/// This includes all the L1
+/// Contains the full L1 Bitcoin block and auxiliary data required to execute the state
+/// transition.
 #[derive(Clone, Debug, BorshDeserialize, BorshSerialize)]
 pub struct AsmStepInput {
     /// The full Bitcoin L1 block
@@ -21,10 +26,6 @@ pub struct AsmStepInput {
 }
 
 impl AsmStepInput {
-    pub fn new(block: L1Block, aux_data: AuxData) -> Self {
-        AsmStepInput { block, aux_data }
-    }
-
     /// Computes the state reference.
     ///
     /// In concrete terms, this just computes the blkid/blockhash.
@@ -85,24 +86,5 @@ impl BorshDeserialize for L1Block {
         // Deserialize into a Bitcoin block via consensus rules
         let block = deserialize(&buf).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
         Ok(L1Block(block))
-    }
-}
-
-#[cfg(test)]
-mod tests {
-
-    use strata_test_utils_btc::segment::BtcChainSegment;
-
-    use super::*;
-
-    #[test]
-    fn test_borsh_roundtrip() {
-        let block = BtcChainSegment::load_full_block();
-        let l1_block = L1Block(block);
-
-        let borsh_serialized = borsh::to_vec(&l1_block).unwrap();
-        let borsh_deserialized: L1Block = borsh::from_slice(&borsh_serialized).unwrap();
-
-        assert_eq!(l1_block, borsh_deserialized);
     }
 }

@@ -9,7 +9,7 @@ members = [
   "crates/msgs/checkpoint",
   "crates/stf",
   "crates/manifest-types",
-  "crates/moho-program",
+  "crates/proof-impl",
   "crates/spec",
   "crates/spec-debug",
   "crates/subprotocols/bridge-v1",
@@ -43,8 +43,8 @@ strata-asm-checkpoint-msgs = { path = "crates/msgs/checkpoint" }
 strata-asm-common = { path = "crates/common" }
 strata-asm-logs = { path = "crates/logs" }
 strata-asm-manifest-types = { path = "crates/manifest-types" }
-strata-asm-moho-program-impl = { path = "crates/moho-program" }
 strata-asm-params = { path = "crates/params" }
+strata-asm-proof-impl = { path = "crates/proof-impl" }
 strata-asm-proto-administration = { path = "crates/subprotocols/admin" }
 strata-asm-proto-bridge-v1 = { path = "crates/subprotocols/bridge-v1" }
 strata-asm-proto-checkpoint = { path = "crates/subprotocols/checkpoint" }
@@ -82,7 +82,9 @@ strata-test-utils-btcio = { git = "https://github.com/alpenlabs/alpen.git", rev 
 strata-test-utils-l2 = { git = "https://github.com/alpenlabs/alpen.git", rev = "787b804c41800bbbf8d3632637a7eda332fc9f39" }
 strata-test-utils-ssz = { git = "https://github.com/alpenlabs/alpen.git", rev = "787b804c41800bbbf8d3632637a7eda332fc9f39" }
 
-# dependencies from alpenlabs/moho pineed to commit 97e9d28
+# Dependencies from alpenlabs/moho pinned to commit 97e9d28 (main @ 2026-03-12)
+moho-runtime-impl = { git = "https://github.com/alpenlabs/moho", rev = "97e9d281f310e9c2e60cf80448c95e855be589b9" }
+moho-runtime-interface = { git = "https://github.com/alpenlabs/moho", rev = "97e9d281f310e9c2e60cf80448c95e855be589b9" }
 moho-types = { git = "https://github.com/alpenlabs/moho", rev = "97e9d281f310e9c2e60cf80448c95e855be589b9" }
 
 # dependencies from alpenlabs/strata-common
@@ -106,10 +108,15 @@ ssz_types = { git = "https://github.com/alpenlabs/ssz-gen", tag = "v0.14.0" }
 tree_hash = { git = "https://github.com/alpenlabs/ssz-gen", tag = "v0.14.0" }
 tree_hash_derive = { git = "https://github.com/alpenlabs/ssz-gen", tag = "v0.14.0" }
 
+# dependencies from alpenlabs/zkaleido
+zkaleido = { git = "https://github.com/alpenlabs/zkaleido", tag = "v0.1.0-alpha-rc21" }
+zkaleido-native-adapter = { git = "https://github.com/alpenlabs/zkaleido", tag = "v0.1.0-alpha-rc21" }
+
 # external dependencies
 anyhow = "1.0.86"
 arbitrary = { version = "1.3.2", features = ["derive"] }
 async-trait = "0.1.80"
+bincode = "1.3.3"
 bitcoin = { version = "0.32.6", features = ["serde"] }
 bitcoin-bosd = { version = "0.9.0", default-features = false }
 bitcoind-async-client = { version = "0.10.1", features = ["29_0"] }
@@ -122,6 +129,7 @@ rand = "0.8.5"
 rand_chacha = { version = "0.3.1", default-features = false }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0.94"
+sha2 = "0.10"
 thiserror = "2.0.11"
 tokio = { version = "1.37", features = ["full"] }
 tracing = "0.1"
@@ -138,7 +146,6 @@ strata-asm-checkpoint-msgs = { path = "crates/msgs/checkpoint" }
 strata-asm-common = { path = "crates/common" }
 strata-asm-logs = { path = "crates/logs" }
 strata-asm-manifest-types = { path = "crates/manifest-types" }
-strata-asm-moho-program-impl = { path = "crates/moho-program" }
 strata-asm-params = { path = "crates/params" }
 strata-asm-proto-administration = { path = "crates/subprotocols/admin" }
 strata-asm-proto-bridge-v1 = { path = "crates/subprotocols/bridge-v1" }
