@@ -1,4 +1,5 @@
 use borsh::{BorshDeserialize, BorshSerialize};
+use ssz::{Decode, DecodeError, Encode};
 use strata_asm_common::TxInputRef;
 use strata_crypto::threshold_signature::SignatureSet;
 use strata_l1_envelope_fmt::parser::parse_envelope_payload;
@@ -7,7 +8,7 @@ use crate::{actions::MultisigAction, errors::AdministrationTxParseError};
 
 /// A signed administration payload containing both the action and its signatures.
 ///
-/// This structure is serialized with Borsh and embedded in the witness envelope.
+/// This structure is serialized with SSZ and embedded in the witness envelope.
 /// The OP_RETURN only contains the SPS-50 tag (magic bytes, subprotocol ID, tx type).
 #[derive(Clone, Debug, Eq, PartialEq, BorshDeserialize, BorshSerialize)]
 pub struct SignedPayload {
@@ -17,6 +18,35 @@ pub struct SignedPayload {
     pub action: MultisigAction,
     /// The set of ECDSA signatures authorizing this action
     pub signatures: SignatureSet,
+}
+
+impl Encode for SignedPayload {
+    fn is_ssz_fixed_len() -> bool {
+        false
+    }
+
+    fn ssz_append(&self, buf: &mut Vec<u8>) {
+        borsh::to_vec(self)
+            .expect("signed admin payload serialization should not fail")
+            .ssz_append(buf);
+    }
+
+    fn ssz_bytes_len(&self) -> usize {
+        borsh::to_vec(self)
+            .expect("signed admin payload serialization should not fail")
+            .ssz_bytes_len()
+    }
+}
+
+impl Decode for SignedPayload {
+    fn is_ssz_fixed_len() -> bool {
+        false
+    }
+
+    fn from_ssz_bytes(bytes: &[u8]) -> Result<Self, DecodeError> {
+        let payload = Vec::<u8>::from_ssz_bytes(bytes)?;
+        borsh::from_slice(&payload).map_err(|err| DecodeError::BytesInvalid(err.to_string()))
+    }
 }
 
 impl SignedPayload {
@@ -59,7 +89,7 @@ pub fn parse_tx(tx: &TxInputRef<'_>) -> Result<SignedPayload, AdministrationTxPa
     let envelope_payload = parse_envelope_payload(&payload_script.into())?;
 
     // Deserialize the signed payload (action + signatures) from the envelope
-    let signed_payload: SignedPayload = borsh::from_slice(&envelope_payload)
+    let signed_payload = SignedPayload::from_ssz_bytes(&envelope_payload)
         .map_err(|_| AdministrationTxParseError::MalformedTransaction(tx_type))?;
 
     Ok(signed_payload)

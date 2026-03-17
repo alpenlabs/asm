@@ -7982,6 +7982,7 @@ dependencies = [
  "arbitrary",
  "borsh",
  "serde",
+ "ssz",
  "strata-asm-common",
  "strata-asm-txs-bridge-v1",
  "strata-bridge-types 0.3.0-alpha.1 (git+https://github.com/alpenlabs/alpen.git?rev=787b804c41800bbbf8d3632637a7eda332fc9f39)",
@@ -7993,6 +7994,7 @@ name = "strata-asm-checkpoint-msgs"
 version = "0.1.0"
 dependencies = [
  "borsh",
+ "ssz",
  "strata-asm-common",
  "strata-asm-txs-checkpoint",
  "strata-asm-txs-checkpoint-v0",
@@ -8006,6 +8008,7 @@ version = "0.1.0"
 dependencies = [
  "bitcoin",
  "borsh",
+ "serde",
  "ssz",
  "ssz_codegen",
  "ssz_derive",
@@ -8031,6 +8034,8 @@ name = "strata-asm-logs"
 version = "0.1.0"
 dependencies = [
  "borsh",
+ "ssz",
+ "ssz_derive",
  "strata-asm-common",
  "strata-checkpoint-types",
  "strata-checkpoint-types-ssz",
@@ -8100,7 +8105,6 @@ name = "strata-asm-proof-impl"
 version = "0.1.0"
 dependencies = [
  "bitcoin",
- "borsh",
  "moho-runtime-impl",
  "moho-runtime-interface",
  "moho-types",
@@ -8113,9 +8117,8 @@ dependencies = [
  "strata-asm-params",
  "strata-asm-spec",
  "strata-asm-stf",
- "strata-btc-types 0.1.0 (git+https://github.com/alpenlabs/alpen.git?rev=787b804c41800bbbf8d3632637a7eda332fc9f39)",
- "strata-btc-verification 0.1.0",
- "strata-identifiers 0.1.0 (git+https://github.com/alpenlabs/alpen.git?rev=787b804c41800bbbf8d3632637a7eda332fc9f39)",
+ "strata-btc-types 0.1.0 (git+https://github.com/alpenlabs/alpen.git?rev=cbd7f05da454baeedd2cde6d31e2e71a1b02841a)",
+ "strata-identifiers 0.1.0 (git+https://github.com/alpenlabs/alpen.git?rev=cbd7f05da454baeedd2cde6d31e2e71a1b02841a)",
  "strata-l1-txfmt",
  "strata-predicate",
  "strata-test-utils-btc 0.1.0",
@@ -8140,6 +8143,7 @@ dependencies = [
  "bitcoin",
  "borsh",
  "rand 0.8.5",
+ "ssz",
  "strata-asm-checkpoint-msgs",
  "strata-asm-common",
  "strata-asm-params",
@@ -8163,6 +8167,7 @@ dependencies = [
  "rand 0.8.5",
  "rand_chacha 0.9.0",
  "serde",
+ "ssz",
  "strata-asm-bridge-msgs",
  "strata-asm-checkpoint-msgs",
  "strata-asm-common",
@@ -8210,6 +8215,7 @@ name = "strata-asm-proto-checkpoint-v0"
 version = "0.1.0"
 dependencies = [
  "borsh",
+ "ssz",
  "strata-asm-bridge-msgs",
  "strata-asm-checkpoint-msgs",
  "strata-asm-common",
@@ -8226,8 +8232,9 @@ dependencies = [
 name = "strata-asm-proto-debug-v1"
 version = "0.1.0"
 dependencies = [
- "borsh",
  "serde",
+ "ssz",
+ "ssz_derive",
  "strata-asm-bridge-msgs",
  "strata-asm-common",
  "strata-asm-logs",
@@ -8343,6 +8350,7 @@ dependencies = [
  "hex-literal",
  "proptest",
  "rand 0.8.5",
+ "ssz",
  "strata-asm-common",
  "strata-asm-params",
  "strata-asm-txs-test-utils",
@@ -8430,8 +8438,7 @@ dependencies = [
  "strata-asm-params",
  "strata-asm-spec",
  "strata-asm-stf",
- "strata-btc-types 0.1.0 (git+https://github.com/alpenlabs/alpen.git?rev=787b804c41800bbbf8d3632637a7eda332fc9f39)",
- "strata-btc-verification 0.1.0",
+ "strata-btc-types 0.1.0 (git+https://github.com/alpenlabs/alpen.git?rev=cbd7f05da454baeedd2cde6d31e2e71a1b02841a)",
  "strata-merkle",
  "strata-primitives 0.3.0-alpha.1 (git+https://github.com/alpenlabs/alpen.git?rev=787b804c41800bbbf8d3632637a7eda332fc9f39)",
  "strata-service",

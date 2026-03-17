@@ -9,6 +9,7 @@ use std::any::Any;
 use arbitrary::Arbitrary;
 use borsh::{BorshDeserialize, BorshSerialize};
 use serde::{Deserialize, Serialize};
+use ssz::{Decode, DecodeError, Encode};
 use strata_asm_common::{InterprotoMsg, SubprotocolId};
 use strata_asm_txs_bridge_v1::BRIDGE_V1_SUBPROTOCOL_ID;
 use strata_bridge_types::OperatorSelection;
@@ -33,6 +34,35 @@ pub struct WithdrawOutput {
 
     /// Amount to withdraw (in satoshis).
     pub amt: BitcoinAmount,
+}
+
+impl Encode for WithdrawOutput {
+    fn is_ssz_fixed_len() -> bool {
+        false
+    }
+
+    fn ssz_append(&self, buf: &mut Vec<u8>) {
+        borsh::to_vec(self)
+            .expect("withdraw output serialization should not fail")
+            .ssz_append(buf);
+    }
+
+    fn ssz_bytes_len(&self) -> usize {
+        borsh::to_vec(self)
+            .expect("withdraw output serialization should not fail")
+            .ssz_bytes_len()
+    }
+}
+
+impl Decode for WithdrawOutput {
+    fn is_ssz_fixed_len() -> bool {
+        false
+    }
+
+    fn from_ssz_bytes(bytes: &[u8]) -> Result<Self, DecodeError> {
+        let payload = Vec::<u8>::from_ssz_bytes(bytes)?;
+        borsh::from_slice(&payload).map_err(|err| DecodeError::BytesInvalid(err.to_string()))
+    }
 }
 
 impl WithdrawOutput {
@@ -66,6 +96,35 @@ pub enum BridgeIncomingMsg {
         /// User's operator selection for withdrawal assignment.
         selected_operator: OperatorSelection,
     },
+}
+
+impl Encode for BridgeIncomingMsg {
+    fn is_ssz_fixed_len() -> bool {
+        false
+    }
+
+    fn ssz_append(&self, buf: &mut Vec<u8>) {
+        borsh::to_vec(self)
+            .expect("bridge incoming message serialization should not fail")
+            .ssz_append(buf);
+    }
+
+    fn ssz_bytes_len(&self) -> usize {
+        borsh::to_vec(self)
+            .expect("bridge incoming message serialization should not fail")
+            .ssz_bytes_len()
+    }
+}
+
+impl Decode for BridgeIncomingMsg {
+    fn is_ssz_fixed_len() -> bool {
+        false
+    }
+
+    fn from_ssz_bytes(bytes: &[u8]) -> Result<Self, DecodeError> {
+        let payload = Vec::<u8>::from_ssz_bytes(bytes)?;
+        borsh::from_slice(&payload).map_err(|err| DecodeError::BytesInvalid(err.to_string()))
+    }
 }
 
 impl InterprotoMsg for BridgeIncomingMsg {

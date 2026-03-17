@@ -6,7 +6,8 @@
 //! and export state entries.
 use moho_runtime_interface::MohoProgram;
 use moho_types::{ExportState, InnerStateCommitment, StateReference};
-use sha2::{Digest, Sha256};
+use sha2::Digest;
+use ssz::Encode;
 use strata_asm_common::AnchorState;
 use strata_asm_logs::{AsmStfUpdate, NewExportEntry};
 use strata_asm_spec::StrataAsmSpec;
@@ -41,8 +42,8 @@ impl MohoProgram for AsmStfProgram {
     }
 
     fn compute_state_commitment(state: &AnchorState) -> InnerStateCommitment {
-        let state_raw = borsh::to_vec(&state).expect("borsh serialization is infallible");
-        let state_commitment_raw: [u8; 32] = Sha256::digest(&state_raw).into();
+        let state_raw = state.as_ssz_bytes();
+        let state_commitment_raw: [u8; 32] = sha2::Sha256::digest(&state_raw).into();
         InnerStateCommitment::new(state_commitment_raw)
     }
 
@@ -51,8 +52,10 @@ impl MohoProgram for AsmStfProgram {
         spec: &StrataAsmSpec,
         input: &AsmStepInput,
     ) -> AsmStfOutput {
-        compute_asm_transition(spec, pre_state, &input.block.0, &input.aux_data)
-            .expect("asm: compute transition")
+        assert!(input.validate_block());
+        let block = input.block();
+        let aux_data = input.aux_data();
+        compute_asm_transition(spec, pre_state, &block.0, &aux_data).expect("asm: compute transition")
     }
 
     fn extract_post_state(output: &Self::StepOutput) -> &Self::State {

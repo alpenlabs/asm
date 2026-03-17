@@ -7,6 +7,7 @@
 use std::any::Any;
 
 use borsh::{BorshDeserialize, BorshSerialize};
+use ssz::{Decode, DecodeError, Encode};
 use strata_asm_common::{InterprotoMsg, SubprotocolId};
 use strata_asm_txs_checkpoint::CHECKPOINT_SUBPROTOCOL_ID;
 use strata_asm_txs_checkpoint_v0::CHECKPOINT_V0_SUBPROTOCOL_ID;
@@ -29,6 +30,35 @@ pub enum CheckpointIncomingMsg {
 
     /// Notification that a deposit has been processed by the bridge subprotocol.
     DepositProcessed(BitcoinAmount),
+}
+
+impl Encode for CheckpointIncomingMsg {
+    fn is_ssz_fixed_len() -> bool {
+        false
+    }
+
+    fn ssz_append(&self, buf: &mut Vec<u8>) {
+        borsh::to_vec(self)
+            .expect("checkpoint incoming message serialization should not fail")
+            .ssz_append(buf);
+    }
+
+    fn ssz_bytes_len(&self) -> usize {
+        borsh::to_vec(self)
+            .expect("checkpoint incoming message serialization should not fail")
+            .ssz_bytes_len()
+    }
+}
+
+impl Decode for CheckpointIncomingMsg {
+    fn is_ssz_fixed_len() -> bool {
+        false
+    }
+
+    fn from_ssz_bytes(bytes: &[u8]) -> Result<Self, DecodeError> {
+        let payload = Vec::<u8>::from_ssz_bytes(bytes)?;
+        borsh::from_slice(&payload).map_err(|err| DecodeError::BytesInvalid(err.to_string()))
+    }
 }
 
 impl InterprotoMsg for CheckpointIncomingMsg {

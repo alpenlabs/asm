@@ -1,11 +1,12 @@
 use std::sync::Arc;
 
-use bitcoin::Block;
-use strata_asm_common::{AnchorState, AsmHistoryAccumulatorState, AuxData, ChainViewState};
+use bitcoin::{Block, hashes::Hash};
+use strata_asm_common::{
+    AnchorState, AsmHistoryAccumulatorState, AuxData, ChainViewState, HeaderVerificationState,
+};
 use strata_asm_params::AsmParams;
 use strata_asm_spec::StrataAsmSpec;
 use strata_asm_stf::AsmStfOutput;
-use strata_btc_verification::HeaderVerificationState;
 use strata_primitives::l1::L1BlockCommitment;
 use strata_service::ServiceState;
 use strata_state::asm_state::AsmState;
@@ -71,7 +72,7 @@ impl<W: WorkerContext + Send + Sync + 'static> AsmWorkerServiceState<W> {
                         ),
                         history_accumulator: empty_accumulator,
                     },
-                    sections: vec![],
+                    sections: vec![].into(),
                 };
 
                 // Persist it and update state.
