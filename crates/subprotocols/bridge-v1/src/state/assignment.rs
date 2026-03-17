@@ -7,12 +7,11 @@
 use std::cmp::Ordering;
 
 use arbitrary::Arbitrary;
-use borsh::{BorshDeserialize, BorshSerialize};
 use rand_chacha::{
     ChaChaRng,
     rand_core::{RngCore, SeedableRng},
 };
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, Serializer, de::Error as SerdeDeError};
 use strata_bridge_types::{OperatorIdx, OperatorSelection};
 use strata_primitives::{
     L1BlockCommitment,
@@ -93,9 +92,7 @@ fn filter_eligible_operators(
 ///
 /// Each assignment represents a task, assigned to a specific operator to process
 /// a withdrawal of from a particular deposit UTXO.
-#[derive(
-    Clone, Debug, Eq, PartialEq, Arbitrary, BorshDeserialize, BorshSerialize, Serialize, Deserialize,
-)]
+#[derive(Clone, Debug, Eq, PartialEq, Arbitrary, Serialize, Deserialize)]
 pub struct AssignmentEntry {
     /// Deposit entry that has been assigned
     deposit_entry: DepositEntry,
@@ -317,7 +314,7 @@ impl AssignmentEntry {
 /// - Looking up assignments by deposit index
 /// - Filtering assignments by operator or expiration status
 /// - Removing completed assignments
-#[derive(Clone, Debug, Eq, PartialEq, BorshDeserialize, BorshSerialize)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct AssignmentTable {
     /// Vector of assignment entries, sorted by deposit index.
     ///
@@ -328,6 +325,38 @@ pub struct AssignmentTable {
     /// If the operator fails to complete the withdrawal within this period, the assignment
     /// will be reassigned to another operator.
     assignment_duration: u16,
+}
+
+#[derive(Serialize, Deserialize)]
+struct AssignmentTableSerde {
+    assignments: Vec<AssignmentEntry>,
+    assignment_duration: u16,
+}
+
+impl Serialize for AssignmentTable {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        AssignmentTableSerde {
+            assignments: self.assignments.as_slice().to_vec(),
+            assignment_duration: self.assignment_duration,
+        }
+        .serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for AssignmentTable {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let helper = AssignmentTableSerde::deserialize(deserializer)?;
+        Ok(Self {
+            assignments: SortedVec::try_from(helper.assignments).map_err(SerdeDeError::custom)?,
+            assignment_duration: helper.assignment_duration,
+        })
+    }
 }
 
 impl AssignmentTable {

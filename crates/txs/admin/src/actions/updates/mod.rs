@@ -4,7 +4,7 @@ pub mod predicate;
 pub mod seq;
 
 use arbitrary::Arbitrary;
-use borsh::{BorshDeserialize, BorshSerialize};
+use serde::{Deserialize, Serialize};
 use strata_asm_params::Role;
 
 use crate::{
@@ -19,7 +19,7 @@ use crate::{
 };
 
 /// An action that updates some part of the ASM.
-#[derive(Clone, Debug, Eq, PartialEq, Arbitrary, BorshDeserialize, BorshSerialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Arbitrary, Serialize, Deserialize)]
 pub enum UpdateAction {
     Multisig(MultisigUpdate),
     OperatorSet(OperatorSetUpdate),

@@ -1,9 +1,9 @@
 use arbitrary::Arbitrary;
-use borsh::{BorshDeserialize, BorshSerialize};
+use serde::{Deserialize, Serialize};
 use strata_asm_txs_admin::actions::{UpdateAction, UpdateId};
 use strata_primitives::L1Height;
 
-#[derive(Clone, Debug, Eq, PartialEq, Arbitrary, BorshDeserialize, BorshSerialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Arbitrary, Serialize, Deserialize)]
 pub struct QueuedUpdate {
     id: UpdateId,
     action: UpdateAction,

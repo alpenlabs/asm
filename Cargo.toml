@@ -16,9 +16,7 @@ members = [
   "crates/subprotocols/debug-v1",
   "crates/subprotocols/admin",
   "crates/txs/admin",
-  "crates/txs/checkpoint-v0",
   "crates/txs/checkpoint",
-  "crates/subprotocols/checkpoint-v0",
   "crates/subprotocols/checkpoint",
   "crates/txs/test-utils",
   "crates/txs/bridge-v1",
@@ -48,7 +46,6 @@ strata-asm-proof-impl = { path = "crates/proof-impl" }
 strata-asm-proto-administration = { path = "crates/subprotocols/admin" }
 strata-asm-proto-bridge-v1 = { path = "crates/subprotocols/bridge-v1" }
 strata-asm-proto-checkpoint = { path = "crates/subprotocols/checkpoint" }
-strata-asm-proto-checkpoint-v0 = { path = "crates/subprotocols/checkpoint-v0" }
 strata-asm-proto-debug-v1 = { path = "crates/subprotocols/debug-v1" }
 strata-asm-spec = { path = "crates/spec" }
 strata-asm-spec-debug = { path = "crates/spec-debug" }
@@ -56,7 +53,6 @@ strata-asm-stf = { path = "crates/stf" }
 strata-asm-txs-admin = { path = "crates/txs/admin" }
 strata-asm-txs-bridge-v1 = { path = "crates/txs/bridge-v1" }
 strata-asm-txs-checkpoint = { path = "crates/txs/checkpoint" }
-strata-asm-txs-checkpoint-v0 = { path = "crates/txs/checkpoint-v0" }
 strata-asm-txs-test-utils = { path = "crates/txs/test-utils" }
 strata-asm-worker = { path = "crates/worker" }
 
@@ -120,7 +116,6 @@ bitcoin = { version = "0.32.6", features = ["serde"] }
 bitcoin-bosd = { version = "0.9.0", default-features = false }
 bitcoind-async-client = { version = "0.10.1", features = ["29_0"] }
 bitvec = { version = "1.0.1", features = ["serde"] }
-borsh = { version = "1.5.0", features = ["derive"] }
 corepc-node = { version = "0.10.0", features = ["29_0"] }
 hex-literal = "0.4"
 proptest = "1.9.0"
@@ -149,7 +144,6 @@ strata-asm-params = { path = "crates/params" }
 strata-asm-proto-administration = { path = "crates/subprotocols/admin" }
 strata-asm-proto-bridge-v1 = { path = "crates/subprotocols/bridge-v1" }
 strata-asm-proto-checkpoint = { path = "crates/subprotocols/checkpoint" }
-strata-asm-proto-checkpoint-v0 = { path = "crates/subprotocols/checkpoint-v0" }
 strata-asm-proto-debug-v1 = { path = "crates/subprotocols/debug-v1" }
 strata-asm-spec = { path = "crates/spec" }
 strata-asm-spec-debug = { path = "crates/spec-debug" }
@@ -157,6 +151,5 @@ strata-asm-stf = { path = "crates/stf" }
 strata-asm-txs-admin = { path = "crates/txs/admin" }
 strata-asm-txs-bridge-v1 = { path = "crates/txs/bridge-v1" }
 strata-asm-txs-checkpoint = { path = "crates/txs/checkpoint" }
-strata-asm-txs-checkpoint-v0 = { path = "crates/txs/checkpoint-v0" }
 strata-asm-txs-test-utils = { path = "crates/txs/test-utils" }
 strata-asm-worker = { path = "crates/worker" }

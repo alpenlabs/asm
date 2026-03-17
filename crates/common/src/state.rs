@@ -1,5 +1,4 @@
-use bitcoin::{Network, block::Header};
-use borsh::{BorshDeserialize, BorshSerialize, io};
+use bitcoin::{Network, Work, block::Header, params::Params};
 use serde::{Deserialize, Deserializer, Serialize, Serializer, de::Error as SerdeDeError};
 use ssz::{Decode, Encode};
 use ssz_types::FixedBytes;
@@ -13,14 +12,14 @@ use crate::{
     HeaderVerificationState, Mismatched, SectionState, Subprotocol, SubprotocolId, TimestampStore,
 };
 
-#[derive(BorshSerialize, BorshDeserialize)]
-struct TimestampStoreBorsh {
+#[derive(Serialize, Deserialize)]
+struct TimestampStoreSerde {
     buffer: [u32; strata_btc_types::TIMESTAMPS_FOR_MEDIAN],
     head: usize,
 }
 
-#[derive(BorshSerialize, BorshDeserialize)]
-struct HeaderVerificationStateBorsh {
+#[derive(Serialize, Deserialize)]
+struct HeaderVerificationStateSerde {
     params: strata_btc_types::BtcParams,
     last_verified_block: strata_identifiers::L1BlockCommitment,
     next_block_target: u32,
@@ -33,20 +32,6 @@ impl AnchorState {
     /// Gets a section by protocol ID by doing a linear scan.
     pub fn find_section(&self, id: SubprotocolId) -> Option<&SectionState> {
         self.sections.iter().find(|s| s.id == id)
-    }
-}
-
-impl BorshSerialize for AnchorState {
-    fn serialize<W: io::Write>(&self, writer: &mut W) -> io::Result<()> {
-        BorshSerialize::serialize(&self.as_ssz_bytes(), writer)
-    }
-}
-
-impl BorshDeserialize for AnchorState {
-    fn deserialize_reader<R: io::Read>(reader: &mut R) -> io::Result<Self> {
-        let bytes = Vec::<u8>::deserialize_reader(reader)?;
-        Self::from_ssz_bytes(&bytes)
-            .map_err(|err| io::Error::new(io::ErrorKind::InvalidData, err.to_string()))
     }
 }
 
@@ -108,29 +93,41 @@ impl SectionState {
 impl BtcParams {
     /// Creates ASM SSZ params from the native Bitcoin params wrapper.
     pub fn from_native(params: strata_btc_types::BtcParams) -> Self {
-        let network = borsh::to_vec(&params)
-            .ok()
-            .and_then(|bytes| borsh::from_slice::<u8>(&bytes).ok())
-            .expect("asm: native Bitcoin params must stay borsh-compatible");
+        let network = match params.inner().network {
+            bitcoin::Network::Bitcoin => 0,
+            bitcoin::Network::Testnet => 1,
+            bitcoin::Network::Signet => 2,
+            bitcoin::Network::Regtest => 3,
+            other => panic!("asm: unsupported Bitcoin network {other:?}"),
+        };
 
         Self { network }
     }
 
     /// Converts ASM SSZ params back into the native Bitcoin params wrapper.
     pub fn into_native(self) -> strata_btc_types::BtcParams {
-        let bytes =
-            borsh::to_vec(&self.network).expect("asm: network id serialization is infallible");
-        borsh::from_slice(&bytes).expect("asm: stored network id must remain valid")
+        let network = match self.network {
+            0 => bitcoin::Network::Bitcoin,
+            1 => bitcoin::Network::Testnet,
+            2 => bitcoin::Network::Signet,
+            3 => bitcoin::Network::Regtest,
+            other => panic!("asm: invalid stored Bitcoin network {other}"),
+        };
+        strata_btc_types::BtcParams::from(Params::from(network))
     }
 }
 
 impl BtcWork {
     /// Creates ASM SSZ work from the native work wrapper.
     pub fn from_native(work: strata_btc_verification::BtcWork) -> Self {
-        let bytes = borsh::to_vec(&work)
-            .ok()
-            .and_then(|raw| borsh::from_slice::<[u8; 32]>(&raw).ok())
-            .expect("asm: native accumulated work must stay borsh-compatible");
+        let work_hex: String = serde_json::from_str(
+            &serde_json::to_string(&work)
+                .expect("asm: native accumulated work JSON serialization should not fail"),
+        )
+        .expect("asm: native accumulated work JSON should deserialize into a string");
+        let bytes = Work::from_hex(&work_hex)
+            .expect("asm: native accumulated work JSON should stay hex-encoded")
+            .to_le_bytes();
 
         Self {
             bytes_le: FixedBytes::from(bytes),
@@ -144,19 +141,18 @@ impl BtcWork {
             .as_ref()
             .try_into()
             .expect("asm: accumulated work must be 32 bytes");
-        let encoded =
-            borsh::to_vec(&bytes).expect("asm: accumulated work serialization is infallible");
-        borsh::from_slice(&encoded).expect("asm: stored accumulated work must remain valid")
+        strata_btc_verification::BtcWork::from(Work::from_le_bytes(bytes))
     }
 }
 
 impl TimestampStore {
     /// Creates ASM SSZ timestamp state from the native timestamp store.
     pub fn from_native(store: strata_btc_verification::TimestampStore) -> Self {
-        let decoded: TimestampStoreBorsh = borsh::to_vec(&store)
-            .ok()
-            .and_then(|raw| borsh::from_slice(&raw).ok())
-            .expect("asm: native timestamp store must stay borsh-compatible");
+        let decoded: TimestampStoreSerde = serde_json::from_value(
+            serde_json::to_value(store)
+                .expect("asm: native timestamp store JSON serialization should not fail"),
+        )
+        .expect("asm: native timestamp store JSON should match the expected shape");
 
         Self {
             buffer: decoded.buffer.to_vec().into(),
@@ -176,23 +172,22 @@ impl TimestampStore {
             .collect::<Vec<_>>()
             .try_into()
             .expect("asm: timestamp store buffer must contain the expected number of entries");
-        let encoded = borsh::to_vec(&TimestampStoreBorsh {
+        serde_json::from_value(serde_json::json!(TimestampStoreSerde {
             buffer,
             head: usize::from(self.head),
-        })
-        .expect("asm: timestamp store serialization is infallible");
-
-        borsh::from_slice(&encoded).expect("asm: stored timestamp state must remain valid")
+        }))
+        .expect("asm: stored timestamp state must remain valid JSON")
     }
 }
 
 impl HeaderVerificationState {
     /// Creates ASM-local header verification state from the native Bitcoin verifier state.
     pub fn from_native(state: NativeHeaderVerificationState) -> Self {
-        let decoded: HeaderVerificationStateBorsh = borsh::to_vec(&state)
-            .ok()
-            .and_then(|raw| borsh::from_slice(&raw).ok())
-            .expect("asm: native header verification state must stay borsh-compatible");
+        let decoded: HeaderVerificationStateSerde = serde_json::from_value(
+            serde_json::to_value(state)
+                .expect("asm: native header verification state JSON serialization should not fail"),
+        )
+        .expect("asm: native header verification state JSON should match the expected shape");
 
         Self {
             params: BtcParams::from_native(decoded.params),
@@ -206,18 +201,15 @@ impl HeaderVerificationState {
 
     /// Converts ASM-local header verification state back into the native verifier state.
     pub fn into_native(self) -> NativeHeaderVerificationState {
-        let encoded = borsh::to_vec(&HeaderVerificationStateBorsh {
+        serde_json::from_value(serde_json::json!(HeaderVerificationStateSerde {
             params: self.params.into_native(),
             last_verified_block: self.last_verified_block,
             next_block_target: self.next_block_target,
             epoch_start_timestamp: self.epoch_start_timestamp,
             block_timestamp_history: self.block_timestamp_history.into_native(),
             total_accumulated_pow: self.total_accumulated_pow.into_native(),
-        })
-        .expect("asm: header verification state serialization is infallible");
-
-        borsh::from_slice(&encoded)
-            .expect("asm: stored header verification state must remain valid")
+        }))
+        .expect("asm: stored header verification state must remain valid JSON")
     }
 
     /// Constructs a new state from the L1 genesis view.

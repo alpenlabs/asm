@@ -1,7 +1,10 @@
 use std::{mem::take, num::NonZero};
 
-use borsh::{BorshDeserialize, BorshSerialize};
+use serde::{Deserialize, Serialize};
 use ssz::{Decode, DecodeError, Encode};
+use strata_asm_common::{
+    from_ssz_bytes_via_serde_json, ssz_append_via_serde_json, ssz_bytes_len_via_serde_json,
+};
 use strata_asm_params::{AdministrationInitConfig, Role};
 use strata_asm_txs_admin::actions::UpdateId;
 use strata_crypto::threshold_signature::ThresholdConfigUpdate;
@@ -13,7 +16,7 @@ use crate::{
 
 /// Holds the state for the Administration Subprotocol, including the various
 /// multisignature authorities and any actions still pending execution.
-#[derive(Clone, Debug, Eq, PartialEq, BorshDeserialize, BorshSerialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct AdministrationSubprotoState {
     /// List of configurations for multisignature authorities.
     /// Each entry specifies who the signers are and how many signatures
@@ -45,15 +48,11 @@ impl Encode for AdministrationSubprotoState {
     }
 
     fn ssz_append(&self, buf: &mut Vec<u8>) {
-        borsh::to_vec(self)
-            .expect("administration state serialization should not fail")
-            .ssz_append(buf);
+        ssz_append_via_serde_json(self, buf, "administration state");
     }
 
     fn ssz_bytes_len(&self) -> usize {
-        borsh::to_vec(self)
-            .expect("administration state serialization should not fail")
-            .ssz_bytes_len()
+        ssz_bytes_len_via_serde_json(self, "administration state")
     }
 }
 
@@ -63,8 +62,7 @@ impl Decode for AdministrationSubprotoState {
     }
 
     fn from_ssz_bytes(bytes: &[u8]) -> Result<Self, DecodeError> {
-        let payload = Vec::<u8>::from_ssz_bytes(bytes)?;
-        borsh::from_slice(&payload).map_err(|err| DecodeError::BytesInvalid(err.to_string()))
+        from_ssz_bytes_via_serde_json(bytes)
     }
 }
 

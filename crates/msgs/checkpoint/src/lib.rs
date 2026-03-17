@@ -6,11 +6,13 @@
 
 use std::any::Any;
 
-use borsh::{BorshDeserialize, BorshSerialize};
+use serde::{Deserialize, Serialize};
 use ssz::{Decode, DecodeError, Encode};
-use strata_asm_common::{InterprotoMsg, SubprotocolId};
+use strata_asm_common::{
+    InterprotoMsg, SubprotocolId, from_ssz_bytes_via_serde_json, ssz_append_via_serde_json,
+    ssz_bytes_len_via_serde_json,
+};
 use strata_asm_txs_checkpoint::CHECKPOINT_SUBPROTOCOL_ID;
-use strata_asm_txs_checkpoint_v0::CHECKPOINT_V0_SUBPROTOCOL_ID;
 use strata_predicate::PredicateKey;
 use strata_primitives::{buf::Buf32, l1::BitcoinAmount};
 
@@ -19,7 +21,7 @@ use strata_primitives::{buf::Buf32, l1::BitcoinAmount};
 /// Messages are routed to both the checkpoint-v0 and the new checkpoint.
 /// Admin configuration updates target both, while deposit notifications
 /// target the new checkpoint subprotocol.
-#[derive(Clone, Debug, BorshDeserialize, BorshSerialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum CheckpointIncomingMsg {
     /// Update the Schnorr public key used to verify sequencer signatures embedded in checkpoints.
     // TODO: (@PG) make this directly take PredicateKey
@@ -38,15 +40,11 @@ impl Encode for CheckpointIncomingMsg {
     }
 
     fn ssz_append(&self, buf: &mut Vec<u8>) {
-        borsh::to_vec(self)
-            .expect("checkpoint incoming message serialization should not fail")
-            .ssz_append(buf);
+        ssz_append_via_serde_json(self, buf, "checkpoint incoming message");
     }
 
     fn ssz_bytes_len(&self) -> usize {
-        borsh::to_vec(self)
-            .expect("checkpoint incoming message serialization should not fail")
-            .ssz_bytes_len()
+        ssz_bytes_len_via_serde_json(self, "checkpoint incoming message")
     }
 }
 
@@ -56,21 +54,13 @@ impl Decode for CheckpointIncomingMsg {
     }
 
     fn from_ssz_bytes(bytes: &[u8]) -> Result<Self, DecodeError> {
-        let payload = Vec::<u8>::from_ssz_bytes(bytes)?;
-        borsh::from_slice(&payload).map_err(|err| DecodeError::BytesInvalid(err.to_string()))
+        from_ssz_bytes_via_serde_json(bytes)
     }
 }
 
 impl InterprotoMsg for CheckpointIncomingMsg {
     fn id(&self) -> SubprotocolId {
-        match self {
-            // Admin config updates target checkpoint V0.
-            Self::UpdateSequencerKey(_) | Self::UpdateCheckpointPredicate(_) => {
-                CHECKPOINT_V0_SUBPROTOCOL_ID
-            }
-            // Deposit notifications target the new checkpoint subprotocol.
-            Self::DepositProcessed(_) => CHECKPOINT_SUBPROTOCOL_ID,
-        }
+        CHECKPOINT_SUBPROTOCOL_ID
     }
 
     fn as_dyn_any(&self) -> &dyn Any {

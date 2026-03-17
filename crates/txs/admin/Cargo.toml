@@ -18,8 +18,8 @@ strata-primitives.workspace = true
 
 arbitrary.workspace = true
 bitcoin = { workspace = true, optional = true }
-borsh.workspace = true
 hex-literal.workspace = true
+serde.workspace = true
 ssz.workspace = true
 thiserror.workspace = true
 

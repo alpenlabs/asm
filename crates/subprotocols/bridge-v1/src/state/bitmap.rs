@@ -3,11 +3,8 @@
 //! This module contains bitmap types and operations for efficiently tracking
 //! and filtering operators in various contexts.
 
-use std::io;
-
 use arbitrary::Arbitrary;
 use bitvec::prelude::*;
-use borsh::{BorshDeserialize, BorshSerialize};
 use serde::{Deserialize, Serialize};
 use strata_bridge_types::OperatorIdx;
 
@@ -30,34 +27,6 @@ pub struct OperatorBitmap {
     /// Bitmap where bit `i` is set if operator index `i` is active.
     /// Uses `BitVec<u8>` for dynamic sizing and memory efficiency.
     pub(crate) bits: BitVec<u8>,
-}
-
-impl BorshSerialize for OperatorBitmap {
-    fn serialize<W: io::Write>(&self, writer: &mut W) -> io::Result<()> {
-        // Serialize as bytes: [length, data...]
-        let bytes = self.bits.as_raw_slice();
-        let bit_len = self.bits.len();
-
-        // Serialize the bit length first
-        BorshSerialize::serialize(&bit_len, writer)?;
-        // Then serialize the byte data
-        BorshSerialize::serialize(&bytes, writer)
-    }
-}
-
-impl BorshDeserialize for OperatorBitmap {
-    fn deserialize_reader<R: io::Read>(reader: &mut R) -> io::Result<Self> {
-        // Deserialize bit length first
-        let bit_len = usize::deserialize_reader(reader)?;
-        // Then deserialize the byte data
-        let bytes = Vec::<u8>::deserialize_reader(reader)?;
-
-        // Reconstruct BitVec from bytes and bit length
-        let mut bits = BitVec::from_vec(bytes);
-        bits.truncate(bit_len);
-
-        Ok(Self { bits })
-    }
 }
 
 impl OperatorBitmap {
@@ -304,8 +273,8 @@ mod tests {
     fn test_operator_bitmap_serialization_roundtrip() {
         let mut arb = ArbitraryGenerator::new();
         let bitmap: OperatorBitmap = arb.generate();
-        let serialized_bytes = borsh::to_vec(&bitmap).unwrap();
-        let deserialized_bitmap = borsh::from_slice(&serialized_bytes).unwrap();
+        let serialized_bytes = serde_json::to_vec(&bitmap).unwrap();
+        let deserialized_bitmap = serde_json::from_slice(&serialized_bytes).unwrap();
         assert_eq!(bitmap, deserialized_bitmap);
     }
 }

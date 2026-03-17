@@ -5,8 +5,7 @@
 use std::cmp;
 
 use bitcoin::{ScriptBuf, secp256k1::SECP256K1};
-use borsh::{BorshDeserialize, BorshSerialize};
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, Serializer, de::Error as SerdeDeError};
 use strata_bridge_types::OperatorIdx;
 use strata_btc_types::BitcoinScriptBuf;
 use strata_crypto::{EvenPublicKey, aggregate_schnorr_keys};
@@ -26,9 +25,7 @@ use super::bitmap::OperatorBitmap;
 /// The `musig2_pk` follows [BIP 340](https://github.com/bitcoin/bips/blob/master/bip-0340.mediawiki#design)
 /// standard, corresponding to a [`PublicKey`](bitcoin::secp256k1::PublicKey) with even parity
 /// for compatibility with Bitcoin's Taproot and MuSig2 implementations.
-#[derive(
-    Clone, Debug, Eq, PartialEq, Hash, BorshDeserialize, BorshSerialize, Serialize, Deserialize,
-)]
+#[derive(Clone, Debug, Eq, PartialEq, Hash, Serialize, Deserialize)]
 pub struct OperatorEntry {
     /// Global operator index.
     idx: OperatorIdx,
@@ -104,7 +101,7 @@ pub(crate) fn build_nn_script(agg_key: &BitcoinXOnlyPublicKey) -> BitcoinScriptB
 /// can support at most `u32::MAX - 1` unique operator registrations over its entire
 /// lifetime. Index `u32::MAX` is reserved as a sentinel for "no selected operator"
 /// in the withdrawal assignment protocol.
-#[derive(Clone, Debug, Eq, PartialEq, BorshDeserialize, BorshSerialize)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct OperatorTable {
     /// Next unassigned operator index for new registrations.
     next_idx: OperatorIdx,
@@ -147,6 +144,57 @@ pub struct OperatorTable {
     /// By storing the ScriptBuf directly instead of just keys, we avoid recomputing P2TR scripts
     /// during validation, improving performance.
     historical_nn_scripts: Vec<BitcoinScriptBuf>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct OperatorTableSerde {
+    next_idx: OperatorIdx,
+    operators: Vec<OperatorEntry>,
+    active_operators: OperatorBitmap,
+    agg_key: BitcoinXOnlyPublicKey,
+    historical_nn_scripts: Vec<Vec<u8>>,
+}
+
+impl Serialize for OperatorTable {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        OperatorTableSerde {
+            next_idx: self.next_idx,
+            operators: self.operators.as_slice().to_vec(),
+            active_operators: self.active_operators.clone(),
+            agg_key: self.agg_key,
+            historical_nn_scripts: self
+                .historical_nn_scripts
+                .iter()
+                .map(|script| script.inner().to_bytes())
+                .collect(),
+        }
+        .serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for OperatorTable {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let helper = OperatorTableSerde::deserialize(deserializer)?;
+        let operators = SortedVec::try_from(helper.operators).map_err(SerdeDeError::custom)?;
+        let historical_nn_scripts = helper
+            .historical_nn_scripts
+            .into_iter()
+            .map(|script| BitcoinScriptBuf::from(ScriptBuf::from(script)))
+            .collect();
+        Ok(Self {
+            next_idx: helper.next_idx,
+            operators,
+            active_operators: helper.active_operators,
+            agg_key: helper.agg_key,
+            historical_nn_scripts,
+        })
+    }
 }
 
 impl OperatorTable {

@@ -34,7 +34,8 @@ pub(crate) fn handle_pending_updates(
 
         match action {
             UpdateAction::Multisig(update) => {
-                match state.apply_multisig_update(update.role(), update.config()) {
+                let config = update.config();
+                match state.apply_multisig_update(update.role(), &config) {
                     Ok(_) => {
                         info!(
                             update_id = update_id,

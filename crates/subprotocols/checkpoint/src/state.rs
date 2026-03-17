@@ -1,13 +1,13 @@
 use std::collections::BTreeMap;
 
-use borsh::{BorshDeserialize, BorshSerialize};
 use ssz::{Decode, DecodeError, Encode};
+use ssz_derive::{Decode as DeriveDecode, Encode as DeriveEncode};
 use strata_asm_bridge_msgs::WithdrawOutput;
 use strata_asm_params::CheckpointInitConfig;
 use strata_btc_types::BitcoinAmount;
 use strata_checkpoint_types_ssz::CheckpointTip;
 use strata_identifiers::L2BlockCommitment;
-use strata_predicate::PredicateKey;
+use strata_predicate::{PredicateKey, PredicateKeyBuf};
 
 use crate::errors::InvalidCheckpointPayload;
 
@@ -23,7 +23,7 @@ use crate::errors::InvalidCheckpointPayload;
 pub struct VerifiedWithdrawals(BTreeMap<BitcoinAmount, u32>);
 
 /// Checkpoint subprotocol state.
-#[derive(Clone, Debug, PartialEq, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct CheckpointState {
     /// Predicate for sequencer signature verification.
     /// Updated via `UpdateSequencerKey` message from admin subprotocol.
@@ -45,21 +45,31 @@ pub struct CheckpointState {
     available_funds: BTreeMap<BitcoinAmount, u32>,
 }
 
+#[derive(Clone, Debug, DeriveEncode, DeriveDecode)]
+struct CheckpointStateSsz {
+    sequencer_predicate: Vec<u8>,
+    checkpoint_predicate: Vec<u8>,
+    verified_tip: CheckpointTip,
+    available_funds: Vec<AvailableFundsEntrySsz>,
+}
+
+#[derive(Clone, Debug, DeriveEncode, DeriveDecode)]
+struct AvailableFundsEntrySsz {
+    sats: u64,
+    count: u32,
+}
+
 impl Encode for CheckpointState {
     fn is_ssz_fixed_len() -> bool {
         false
     }
 
     fn ssz_append(&self, buf: &mut Vec<u8>) {
-        borsh::to_vec(self)
-            .expect("checkpoint state serialization should not fail")
-            .ssz_append(buf);
+        self.as_ssz().ssz_append(buf);
     }
 
     fn ssz_bytes_len(&self) -> usize {
-        borsh::to_vec(self)
-            .expect("checkpoint state serialization should not fail")
-            .ssz_bytes_len()
+        self.as_ssz().ssz_bytes_len()
     }
 }
 
@@ -69,12 +79,45 @@ impl Decode for CheckpointState {
     }
 
     fn from_ssz_bytes(bytes: &[u8]) -> Result<Self, DecodeError> {
-        let payload = Vec::<u8>::from_ssz_bytes(bytes)?;
-        borsh::from_slice(&payload).map_err(|err| DecodeError::BytesInvalid(err.to_string()))
+        CheckpointStateSsz::from_ssz_bytes(bytes).and_then(Self::from_ssz)
     }
 }
 
 impl CheckpointState {
+    fn as_ssz(&self) -> CheckpointStateSsz {
+        CheckpointStateSsz {
+            sequencer_predicate: self.sequencer_predicate.as_buf_ref().to_bytes(),
+            checkpoint_predicate: self.checkpoint_predicate.as_buf_ref().to_bytes(),
+            verified_tip: self.verified_tip.clone(),
+            available_funds: self
+                .available_funds
+                .iter()
+                .map(|(amount, count)| AvailableFundsEntrySsz {
+                    sats: amount.to_sat(),
+                    count: *count,
+                })
+                .collect(),
+        }
+    }
+
+    fn from_ssz(value: CheckpointStateSsz) -> Result<Self, DecodeError> {
+        let available_funds = value
+            .available_funds
+            .into_iter()
+            .map(|entry| (BitcoinAmount::from_sat(entry.sats), entry.count))
+            .collect();
+        Ok(Self {
+            sequencer_predicate: PredicateKeyBuf::try_from(value.sequencer_predicate.as_slice())
+                .map_err(|err| DecodeError::BytesInvalid(err.to_string()))?
+                .to_owned(),
+            checkpoint_predicate: PredicateKeyBuf::try_from(value.checkpoint_predicate.as_slice())
+                .map_err(|err| DecodeError::BytesInvalid(err.to_string()))?
+                .to_owned(),
+            verified_tip: value.verified_tip,
+            available_funds,
+        })
+    }
+
     /// Initializes checkpoint state from configuration.
     pub fn init(config: CheckpointInitConfig) -> Self {
         let genesis_epoch = 0;

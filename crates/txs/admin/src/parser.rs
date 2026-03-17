@@ -1,7 +1,10 @@
-use borsh::{BorshDeserialize, BorshSerialize};
+use serde::{Deserialize, Serialize};
 use ssz::{Decode, DecodeError, Encode};
-use strata_asm_common::TxInputRef;
-use strata_crypto::threshold_signature::SignatureSet;
+use strata_asm_common::{
+    TxInputRef, from_ssz_bytes_via_serde_json, ssz_append_via_serde_json,
+    ssz_bytes_len_via_serde_json,
+};
+use strata_crypto::threshold_signature::{IndexedSignature, SignatureSet};
 use strata_l1_envelope_fmt::parser::parse_envelope_payload;
 
 use crate::{actions::MultisigAction, errors::AdministrationTxParseError};
@@ -10,7 +13,7 @@ use crate::{actions::MultisigAction, errors::AdministrationTxParseError};
 ///
 /// This structure is serialized with SSZ and embedded in the witness envelope.
 /// The OP_RETURN only contains the SPS-50 tag (magic bytes, subprotocol ID, tx type).
-#[derive(Clone, Debug, Eq, PartialEq, BorshDeserialize, BorshSerialize)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct SignedPayload {
     /// Sequence number used to prevent replay attacks and enforce ordering.
     pub seqno: u64,
@@ -20,21 +23,30 @@ pub struct SignedPayload {
     pub signatures: SignatureSet,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+struct SignedPayloadJson {
+    seqno: u64,
+    action: MultisigAction,
+    signatures: Vec<IndexedSignatureJson>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+struct IndexedSignatureJson {
+    index: u8,
+    signature: Vec<u8>,
+}
+
 impl Encode for SignedPayload {
     fn is_ssz_fixed_len() -> bool {
         false
     }
 
     fn ssz_append(&self, buf: &mut Vec<u8>) {
-        borsh::to_vec(self)
-            .expect("signed admin payload serialization should not fail")
-            .ssz_append(buf);
+        ssz_append_via_serde_json(&self.as_json(), buf, "signed admin payload");
     }
 
     fn ssz_bytes_len(&self) -> usize {
-        borsh::to_vec(self)
-            .expect("signed admin payload serialization should not fail")
-            .ssz_bytes_len()
+        ssz_bytes_len_via_serde_json(&self.as_json(), "signed admin payload")
     }
 }
 
@@ -44,12 +56,56 @@ impl Decode for SignedPayload {
     }
 
     fn from_ssz_bytes(bytes: &[u8]) -> Result<Self, DecodeError> {
-        let payload = Vec::<u8>::from_ssz_bytes(bytes)?;
-        borsh::from_slice(&payload).map_err(|err| DecodeError::BytesInvalid(err.to_string()))
+        let payload: SignedPayloadJson = from_ssz_bytes_via_serde_json(bytes)?;
+        Ok(Self::from_json(payload))
     }
 }
 
 impl SignedPayload {
+    fn as_json(&self) -> SignedPayloadJson {
+        SignedPayloadJson {
+            seqno: self.seqno,
+            action: self.action.clone(),
+            signatures: self
+                .signatures
+                .signatures()
+                .iter()
+                .map(|signature| {
+                    let mut encoded = [0u8; 65];
+                    encoded[0] = signature.recovery_id();
+                    encoded[1..33].copy_from_slice(signature.r());
+                    encoded[33..65].copy_from_slice(signature.s());
+                    IndexedSignatureJson {
+                        index: signature.index(),
+                        signature: encoded.to_vec(),
+                    }
+                })
+                .collect(),
+        }
+    }
+
+    fn from_json(payload: SignedPayloadJson) -> Self {
+        let signatures = SignatureSet::new(
+            payload
+                .signatures
+                .into_iter()
+                .map(|signature| {
+                    let encoded: [u8; 65] = signature
+                        .signature
+                        .try_into()
+                        .expect("signed admin payload should preserve 65-byte signatures");
+                    IndexedSignature::new(signature.index, encoded)
+                })
+                .collect(),
+        )
+        .expect("signed admin payload should preserve a valid signature set");
+        Self {
+            seqno: payload.seqno,
+            action: payload.action,
+            signatures,
+        }
+    }
+
     /// Creates a new signed payload combining an action with its signatures.
     pub fn new(seqno: u64, action: MultisigAction, signatures: SignatureSet) -> Self {
         Self {

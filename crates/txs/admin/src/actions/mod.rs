@@ -1,5 +1,5 @@
 use arbitrary::Arbitrary;
-use borsh::{BorshDeserialize, BorshSerialize};
+use serde::{Deserialize, Serialize};
 use strata_l1_txfmt::TagData;
 
 mod cancel;
@@ -15,7 +15,7 @@ use crate::constants::{ADMINISTRATION_SUBPROTOCOL_ID, AdminTxType};
 pub type UpdateId = u32;
 
 /// A high‐level multisig operation that participants can propose.
-#[derive(Clone, Debug, Eq, PartialEq, Arbitrary, BorshDeserialize, BorshSerialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Arbitrary, Serialize, Deserialize)]
 pub enum MultisigAction {
     /// Cancel a pending action.
     Cancel(CancelAction),

@@ -3,7 +3,7 @@ use strata_asm_common::AsmLog;
 use strata_codec::Codec;
 use strata_codec_utils::CodecSsz;
 use strata_msg_fmt::TypeId;
-use strata_predicate::PredicateKey;
+use strata_predicate::{PredicateKey, PredicateKeyBuf};
 
 use crate::constants::ASM_STF_UPDATE_LOG_TYPE;
 
@@ -22,16 +22,20 @@ struct PredicateKeySsz {
 impl PredicateKeySsz {
     fn new(inner: PredicateKey) -> Self {
         Self {
-            bytes: borsh::to_vec(&inner).expect("predicate key serialization should not fail"),
+            bytes: inner.as_buf_ref().to_bytes(),
         }
     }
 
     fn into_inner(self) -> PredicateKey {
-        borsh::from_slice(&self.bytes).expect("predicate key deserialization should not fail")
+        PredicateKeyBuf::try_from(self.bytes.as_slice())
+            .expect("predicate key bytes should remain valid")
+            .to_owned()
     }
 
     fn to_inner(&self) -> PredicateKey {
-        borsh::from_slice(&self.bytes).expect("predicate key deserialization should not fail")
+        PredicateKeyBuf::try_from(self.bytes.as_slice())
+            .expect("predicate key bytes should remain valid")
+            .to_owned()
     }
 }
 

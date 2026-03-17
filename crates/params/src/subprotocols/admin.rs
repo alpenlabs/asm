@@ -2,7 +2,6 @@ use std::num::NonZero;
 
 #[cfg(feature = "arbitrary")]
 use arbitrary::Arbitrary;
-use borsh::{BorshDeserialize, BorshSerialize};
 use serde::{Deserialize, Serialize};
 use strata_crypto::threshold_signature::ThresholdConfig;
 
@@ -14,7 +13,7 @@ use strata_crypto::threshold_signature::ThresholdConfig;
 /// provided when constructing this struct. However, it does NOT prevent logical errors
 /// like using the same config for multiple roles or mismatched role-field assignments.
 /// The benefit is avoiding missing fields at compile-time rather than runtime validation.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct AdministrationInitConfig {
     /// ThresholdConfig for [StrataAdministrator](Role::StrataAdministrator).
     pub strata_administrator: ThresholdConfig,
@@ -46,8 +45,6 @@ pub struct AdministrationInitConfig {
     Hash,
     Serialize,
     Deserialize,
-    BorshSerialize,
-    BorshDeserialize,
 )]
 #[cfg_attr(feature = "arbitrary", derive(Arbitrary))]
 #[repr(u8)]

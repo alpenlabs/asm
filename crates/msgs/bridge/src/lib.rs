@@ -7,10 +7,12 @@
 use std::any::Any;
 
 use arbitrary::Arbitrary;
-use borsh::{BorshDeserialize, BorshSerialize};
 use serde::{Deserialize, Serialize};
 use ssz::{Decode, DecodeError, Encode};
-use strata_asm_common::{InterprotoMsg, SubprotocolId};
+use strata_asm_common::{
+    InterprotoMsg, SubprotocolId, from_ssz_bytes_via_serde_json, ssz_append_via_serde_json,
+    ssz_bytes_len_via_serde_json,
+};
 use strata_asm_txs_bridge_v1::BRIDGE_V1_SUBPROTOCOL_ID;
 use strata_bridge_types::OperatorSelection;
 use strata_primitives::{bitcoin_bosd::Descriptor, l1::BitcoinAmount};
@@ -25,9 +27,7 @@ use strata_primitives::{bitcoin_bosd::Descriptor, l1::BitcoinAmount};
 ///
 /// The destination uses Bitcoin Output Script Descriptors (BOSD), which provide
 /// a standardized way to specify Bitcoin addresses and locking conditions.
-#[derive(
-    Clone, Debug, Eq, PartialEq, BorshDeserialize, BorshSerialize, Serialize, Deserialize, Arbitrary,
-)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, Arbitrary)]
 pub struct WithdrawOutput {
     /// Bitcoin Output Script Descriptor specifying the destination address.
     pub destination: Descriptor,
@@ -42,15 +42,11 @@ impl Encode for WithdrawOutput {
     }
 
     fn ssz_append(&self, buf: &mut Vec<u8>) {
-        borsh::to_vec(self)
-            .expect("withdraw output serialization should not fail")
-            .ssz_append(buf);
+        ssz_append_via_serde_json(self, buf, "withdraw output");
     }
 
     fn ssz_bytes_len(&self) -> usize {
-        borsh::to_vec(self)
-            .expect("withdraw output serialization should not fail")
-            .ssz_bytes_len()
+        ssz_bytes_len_via_serde_json(self, "withdraw output")
     }
 }
 
@@ -60,8 +56,7 @@ impl Decode for WithdrawOutput {
     }
 
     fn from_ssz_bytes(bytes: &[u8]) -> Result<Self, DecodeError> {
-        let payload = Vec::<u8>::from_ssz_bytes(bytes)?;
-        borsh::from_slice(&payload).map_err(|err| DecodeError::BytesInvalid(err.to_string()))
+        from_ssz_bytes_via_serde_json(bytes)
     }
 }
 
@@ -86,7 +81,7 @@ impl WithdrawOutput {
 ///
 /// This enum represents all possible message types that the bridge subprotocol can
 /// receive from other subprotocols in the ASM.
-#[derive(Clone, Debug, Eq, PartialEq, BorshDeserialize, BorshSerialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub enum BridgeIncomingMsg {
     /// Emitted after a checkpoint proof has been validated. Contains the withdrawal command
     /// specifying the destination descriptor and amount to be withdrawn.
@@ -104,15 +99,11 @@ impl Encode for BridgeIncomingMsg {
     }
 
     fn ssz_append(&self, buf: &mut Vec<u8>) {
-        borsh::to_vec(self)
-            .expect("bridge incoming message serialization should not fail")
-            .ssz_append(buf);
+        ssz_append_via_serde_json(self, buf, "bridge incoming message");
     }
 
     fn ssz_bytes_len(&self) -> usize {
-        borsh::to_vec(self)
-            .expect("bridge incoming message serialization should not fail")
-            .ssz_bytes_len()
+        ssz_bytes_len_via_serde_json(self, "bridge incoming message")
     }
 }
 
@@ -122,8 +113,7 @@ impl Decode for BridgeIncomingMsg {
     }
 
     fn from_ssz_bytes(bytes: &[u8]) -> Result<Self, DecodeError> {
-        let payload = Vec::<u8>::from_ssz_bytes(bytes)?;
-        borsh::from_slice(&payload).map_err(|err| DecodeError::BytesInvalid(err.to_string()))
+        from_ssz_bytes_via_serde_json(bytes)
     }
 }
 

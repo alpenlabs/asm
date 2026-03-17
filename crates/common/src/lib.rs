@@ -11,6 +11,7 @@ mod spec;
 mod state;
 mod subprotocol;
 mod tx;
+mod serde_ssz;
 
 #[allow(
     clippy::all,
@@ -41,6 +42,7 @@ pub use ssz_generated::ssz::{
         ChainViewState, ChainViewStateRef, SectionState, SectionStateRef,
     },
 };
+pub use serde_ssz::*;
 pub use subprotocol::*;
 use tracing as _;
 pub use tx::*;

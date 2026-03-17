@@ -5,11 +5,9 @@
 //! to subprotocols after verification.
 use bitcoin::{
     Transaction, Txid,
-    consensus::{deserialize, encode::Error as ConsensusEncodeError},
+    consensus::{deserialize, encode::Error as ConsensusEncodeError, serialize},
     hashes::Hash,
 };
-use borsh::{BorshDeserialize, BorshSerialize, io};
-use ssz::{Decode as _, Encode as _};
 use ssz_derive::{Decode, Encode};
 use strata_asm_manifest_types::Hash32;
 
@@ -89,20 +87,6 @@ impl AuxData {
     /// Returns a slice of raw Bitcoin transactions.
     pub fn bitcoin_txs(&self) -> &[RawBitcoinTx] {
         &self.bitcoin_txs
-    }
-}
-
-impl BorshSerialize for AuxData {
-    fn serialize<W: io::Write>(&self, writer: &mut W) -> io::Result<()> {
-        BorshSerialize::serialize(&self.as_ssz_bytes(), writer)
-    }
-}
-
-impl BorshDeserialize for AuxData {
-    fn deserialize_reader<R: io::Read>(reader: &mut R) -> io::Result<Self> {
-        let bytes = Vec::<u8>::deserialize_reader(reader)?;
-        Self::from_ssz_bytes(&bytes)
-            .map_err(|err| io::Error::new(io::ErrorKind::InvalidData, err.to_string()))
     }
 }
 
@@ -234,12 +218,9 @@ impl RawBitcoinTx {
 
     /// Creates an ASM-local raw Bitcoin transaction from the native wrapper.
     pub fn from_native(raw_tx: strata_btc_types::RawBitcoinTx) -> Self {
-        let bytes = borsh::to_vec(&raw_tx)
-            .ok()
-            .and_then(|raw| borsh::from_slice::<Vec<u8>>(&raw).ok())
-            .expect("asm: native raw bitcoin tx must stay borsh-compatible");
-
-        Self::from_raw_bytes(bytes)
+        let tx = Transaction::try_from(&raw_tx)
+            .expect("asm: native raw bitcoin tx should decode into a Bitcoin transaction");
+        Self::from_raw_bytes(serialize(&tx))
     }
 
     /// Converts the ASM-local raw Bitcoin transaction back into the native wrapper.
