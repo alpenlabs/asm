@@ -4843,9 +4843,8 @@ dependencies = [
 [[package]]
 name = "moho-runtime-impl"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/moho?rev=97e9d281f310e9c2e60cf80448c95e855be589b9#97e9d281f310e9c2e60cf80448c95e855be589b9"
+source = "git+https://github.com/alpenlabs/moho?rev=97b9f2af3bc292857e53b7ab9852ae385d5eff2d#97b9f2af3bc292857e53b7ab9852ae385d5eff2d"
 dependencies = [
- "borsh",
  "moho-runtime-interface",
  "moho-types",
  "ssz",
@@ -4855,17 +4854,17 @@ dependencies = [
 [[package]]
 name = "moho-runtime-interface"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/moho?rev=97e9d281f310e9c2e60cf80448c95e855be589b9#97e9d281f310e9c2e60cf80448c95e855be589b9"
+source = "git+https://github.com/alpenlabs/moho?rev=97b9f2af3bc292857e53b7ab9852ae385d5eff2d#97b9f2af3bc292857e53b7ab9852ae385d5eff2d"
 dependencies = [
- "borsh",
  "moho-types",
+ "ssz",
  "strata-predicate",
 ]
 
 [[package]]
 name = "moho-types"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/moho?rev=97e9d281f310e9c2e60cf80448c95e855be589b9#97e9d281f310e9c2e60cf80448c95e855be589b9"
+source = "git+https://github.com/alpenlabs/moho?rev=97b9f2af3bc292857e53b7ab9852ae385d5eff2d#97b9f2af3bc292857e53b7ab9852ae385d5eff2d"
 dependencies = [
  "hex",
  "sha2",
@@ -6694,7 +6693,7 @@ dependencies = [
  "security-framework",
  "security-framework-sys",
  "webpki-root-certs 0.26.11",
- "windows-sys 0.59.0",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -10888,15 +10887,6 @@ name = "windows-sys"
 version = "0.52.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "282be5f36a8ce781fad8c8ae18fa3f9beff57ec1b52cb3de0789201425d9a33d"
-dependencies = [
- "windows-targets 0.52.6",
-]
-
-[[package]]
-name = "windows-sys"
-version = "0.59.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1e38bc4d79ed67fd075bcc251a1c39b32a1776bbe92e5bef1f0bf1f8c531853b"
 dependencies = [
  "windows-targets 0.52.6",
 ]
