@@ -3198,6 +3198,7 @@ dependencies = [
  "arbitrary",
  "borsh",
  "serde",
+ "ssz",
  "strata-asm-common",
  "strata-asm-txs-bridge-v1",
  "strata-bridge-types",
@@ -3209,6 +3210,7 @@ name = "strata-asm-checkpoint-msgs"
 version = "0.1.0"
 dependencies = [
  "borsh",
+ "ssz",
  "strata-asm-common",
  "strata-asm-txs-checkpoint",
  "strata-asm-txs-checkpoint-v0",
@@ -3222,6 +3224,7 @@ version = "0.1.0"
 dependencies = [
  "bitcoin",
  "borsh",
+ "serde",
  "ssz",
  "ssz_codegen",
  "ssz_derive",
@@ -3247,6 +3250,8 @@ name = "strata-asm-logs"
 version = "0.1.0"
 dependencies = [
  "borsh",
+ "ssz",
+ "ssz_derive",
  "strata-asm-common",
  "strata-checkpoint-types",
  "strata-checkpoint-types-ssz",
@@ -3302,7 +3307,6 @@ name = "strata-asm-proof-impl"
 version = "0.1.0"
 dependencies = [
  "bitcoin",
- "borsh",
  "moho-runtime-impl",
  "moho-runtime-interface",
  "moho-types",
@@ -3316,7 +3320,6 @@ dependencies = [
  "strata-asm-spec",
  "strata-asm-stf",
  "strata-btc-types",
- "strata-btc-verification",
  "strata-identifiers",
  "strata-l1-txfmt",
  "strata-predicate",
@@ -3333,6 +3336,7 @@ dependencies = [
  "bitcoin",
  "borsh",
  "rand 0.8.5",
+ "ssz",
  "strata-asm-checkpoint-msgs",
  "strata-asm-common",
  "strata-asm-params",
@@ -3356,6 +3360,7 @@ dependencies = [
  "rand 0.8.5",
  "rand_chacha 0.3.1",
  "serde",
+ "ssz",
  "strata-asm-bridge-msgs",
  "strata-asm-checkpoint-msgs",
  "strata-asm-common",
@@ -3403,6 +3408,7 @@ name = "strata-asm-proto-checkpoint-v0"
 version = "0.1.0"
 dependencies = [
  "borsh",
+ "ssz",
  "strata-asm-bridge-msgs",
  "strata-asm-checkpoint-msgs",
  "strata-asm-common",
@@ -3421,6 +3427,8 @@ version = "0.1.0"
 dependencies = [
  "borsh",
  "serde",
+ "ssz",
+ "ssz_derive",
  "strata-asm-bridge-msgs",
  "strata-asm-common",
  "strata-asm-logs",
@@ -3475,6 +3483,7 @@ dependencies = [
  "hex-literal",
  "proptest",
  "rand 0.8.5",
+ "ssz",
  "strata-asm-common",
  "strata-asm-params",
  "strata-asm-txs-test-utils",
@@ -3563,7 +3572,6 @@ dependencies = [
  "strata-asm-spec",
  "strata-asm-stf",
  "strata-btc-types",
- "strata-btc-verification",
  "strata-merkle",
  "strata-primitives",
  "strata-service",

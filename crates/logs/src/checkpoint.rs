@@ -1,9 +1,9 @@
-use borsh::{BorshDeserialize, BorshSerialize};
+use ssz_derive::{Decode, Encode};
 use strata_asm_common::AsmLog;
 use strata_checkpoint_types::{BatchInfo, Checkpoint};
 use strata_checkpoint_types_ssz::CheckpointTip;
 use strata_codec::Codec;
-use strata_codec_utils::{CodecBorsh, CodecSsz};
+use strata_codec_utils::CodecSsz;
 use strata_msg_fmt::TypeId;
 use strata_primitives::{epoch::EpochCommitment, l1::BitcoinTxid};
 
@@ -14,16 +14,67 @@ use crate::constants::{CHECKPOINT_TIP_UPDATE_LOG_TYPE, CHECKPOINT_UPDATE_LOG_TYP
 /// Contains full checkpoint metadata including batch info, chainstate transition,
 /// and the L1 transaction ID. Superseded by [`CheckpointTipUpdate`] in the main
 /// (v1) checkpoint subprotocol.
-#[derive(Debug, Clone, BorshSerialize, BorshDeserialize, Codec)]
+#[derive(Debug, Clone, Codec)]
 pub struct CheckpointUpdate {
     /// Commitment to the epoch terminal block.
-    epoch_commitment: EpochCommitment,
+    epoch_commitment: CodecSsz<EpochCommitmentSsz>,
 
     /// Metadata describing the checkpoint batch.
-    batch_info: CodecBorsh<BatchInfo>,
+    batch_info: CodecSsz<BatchInfoSsz>,
 
     /// Hash of the L1 transaction that carried the checkpoint proof.
-    checkpoint_txid: CodecBorsh<BitcoinTxid>,
+    checkpoint_txid: CodecSsz<BitcoinTxidSsz>,
+}
+
+#[derive(Debug, Clone, Encode, Decode)]
+struct EpochCommitmentSsz {
+    bytes: Vec<u8>,
+}
+
+impl EpochCommitmentSsz {
+    fn new(inner: EpochCommitment) -> Self {
+        Self {
+            bytes: borsh::to_vec(&inner).expect("epoch commitment serialization should not fail"),
+        }
+    }
+
+    fn to_inner(&self) -> EpochCommitment {
+        borsh::from_slice(&self.bytes).expect("epoch commitment deserialization should not fail")
+    }
+}
+
+#[derive(Debug, Clone, Encode, Decode)]
+struct BatchInfoSsz {
+    bytes: Vec<u8>,
+}
+
+impl BatchInfoSsz {
+    fn new(inner: BatchInfo) -> Self {
+        Self {
+            bytes: borsh::to_vec(&inner).expect("batch info serialization should not fail"),
+        }
+    }
+
+    fn to_inner(&self) -> BatchInfo {
+        borsh::from_slice(&self.bytes).expect("batch info deserialization should not fail")
+    }
+}
+
+#[derive(Debug, Clone, Encode, Decode)]
+struct BitcoinTxidSsz {
+    bytes: Vec<u8>,
+}
+
+impl BitcoinTxidSsz {
+    fn new(inner: BitcoinTxid) -> Self {
+        Self {
+            bytes: borsh::to_vec(&inner).expect("bitcoin txid serialization should not fail"),
+        }
+    }
+
+    fn to_inner(&self) -> BitcoinTxid {
+        borsh::from_slice(&self.bytes).expect("bitcoin txid deserialization should not fail")
+    }
 }
 
 impl CheckpointUpdate {
@@ -34,9 +85,9 @@ impl CheckpointUpdate {
         checkpoint_txid: BitcoinTxid,
     ) -> Self {
         Self {
-            epoch_commitment,
-            batch_info: CodecBorsh::new(batch_info),
-            checkpoint_txid: CodecBorsh::new(checkpoint_txid),
+            epoch_commitment: CodecSsz::new(EpochCommitmentSsz::new(epoch_commitment)),
+            batch_info: CodecSsz::new(BatchInfoSsz::new(batch_info)),
+            checkpoint_txid: CodecSsz::new(BitcoinTxidSsz::new(checkpoint_txid)),
         }
     }
 
@@ -52,15 +103,15 @@ impl CheckpointUpdate {
     }
 
     pub fn epoch_commitment(&self) -> EpochCommitment {
-        self.epoch_commitment
+        self.epoch_commitment.inner().to_inner()
     }
 
-    pub fn batch_info(&self) -> &BatchInfo {
-        self.batch_info.inner()
+    pub fn batch_info(&self) -> BatchInfo {
+        self.batch_info.inner().to_inner()
     }
 
-    pub fn checkpoint_txid(&self) -> &BitcoinTxid {
-        self.checkpoint_txid.inner()
+    pub fn checkpoint_txid(&self) -> BitcoinTxid {
+        self.checkpoint_txid.inner().to_inner()
     }
 }
 

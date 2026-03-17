@@ -7,7 +7,8 @@
 use bitcoin::hashes::Hash;
 use moho_runtime_interface::MohoProgram;
 use moho_types::{ExportState, InnerStateCommitment, StateReference};
-use sha2::{Digest, Sha256};
+use sha2::Digest;
+use ssz::Encode;
 use strata_asm_common::{AnchorState, AsmSpec};
 use strata_asm_logs::{AsmStfUpdate, NewExportEntry};
 use strata_asm_spec::StrataAsmSpec;
@@ -43,8 +44,8 @@ impl MohoProgram for AsmStfProgram {
     }
 
     fn compute_state_commitment(state: &AnchorState) -> InnerStateCommitment {
-        let state_raw = borsh::to_vec(&state).expect("borsh serialization is infallible");
-        let state_commitment_raw: [u8; 32] = Sha256::digest(&state_raw).into();
+        let state_raw = state.as_ssz_bytes();
+        let state_commitment_raw: [u8; 32] = sha2::Sha256::digest(&state_raw).into();
         InnerStateCommitment::new(state_commitment_raw)
     }
 
@@ -58,31 +59,23 @@ impl MohoProgram for AsmStfProgram {
 
         // 1. Validate the input
         assert!(input.validate_block());
+        let block = input.block();
 
         // For blocks without witness data (pre-SegWit or legacy-only transactions),
         // the witness merkle root equals the transaction merkle root per Bitcoin protocol.
-        let wtxids_root: Buf32 = input
-            .block
+        let wtxids_root: Buf32 = block
             .0
             .witness_root()
             .map(|root| root.as_raw_hash().to_byte_array())
-            .unwrap_or_else(|| {
-                input
-                    .block
-                    .0
-                    .header
-                    .merkle_root
-                    .as_raw_hash()
-                    .to_byte_array()
-            })
+            .unwrap_or_else(|| block.0.header.merkle_root.as_raw_hash().to_byte_array())
             .into();
 
         // 2. Restructure the raw input to be formatted according to what we want.
-        let protocol_txs = group_txs_by_subprotocol(spec.magic_bytes(), &input.block.0.txdata);
+        let protocol_txs = group_txs_by_subprotocol(spec.magic_bytes(), &block.0.txdata);
         let stf_input = AsmStfInput {
             protocol_txs,
-            header: &input.block.0.header,
-            aux_data: input.aux_data.clone(),
+            header: &block.0.header,
+            aux_data: input.aux_data(),
             wtxids_root,
         };
 

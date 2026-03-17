@@ -1,6 +1,7 @@
 use std::collections::BTreeMap;
 
 use borsh::{BorshDeserialize, BorshSerialize};
+use ssz::{Decode, DecodeError, Encode};
 use strata_asm_bridge_msgs::WithdrawOutput;
 use strata_asm_params::CheckpointInitConfig;
 use strata_btc_types::BitcoinAmount;
@@ -42,6 +43,35 @@ pub struct CheckpointState {
     /// been processed by the bridge but not yet consumed by withdrawal dispatches. Used for
     /// rejecting checkpoints whose withdrawal intents cannot be matched to available UTXOs.
     available_funds: BTreeMap<BitcoinAmount, u32>,
+}
+
+impl Encode for CheckpointState {
+    fn is_ssz_fixed_len() -> bool {
+        false
+    }
+
+    fn ssz_append(&self, buf: &mut Vec<u8>) {
+        borsh::to_vec(self)
+            .expect("checkpoint state serialization should not fail")
+            .ssz_append(buf);
+    }
+
+    fn ssz_bytes_len(&self) -> usize {
+        borsh::to_vec(self)
+            .expect("checkpoint state serialization should not fail")
+            .ssz_bytes_len()
+    }
+}
+
+impl Decode for CheckpointState {
+    fn is_ssz_fixed_len() -> bool {
+        false
+    }
+
+    fn from_ssz_bytes(bytes: &[u8]) -> Result<Self, DecodeError> {
+        let payload = Vec::<u8>::from_ssz_bytes(bytes)?;
+        borsh::from_slice(&payload).map_err(|err| DecodeError::BytesInvalid(err.to_string()))
+    }
 }
 
 impl CheckpointState {

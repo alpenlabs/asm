@@ -10,6 +10,7 @@ workspace = true
 arbitrary.workspace = true
 borsh.workspace = true
 serde.workspace = true
+ssz.workspace = true
 
 strata-asm-common.workspace = true
 strata-asm-txs-bridge-v1.workspace = true

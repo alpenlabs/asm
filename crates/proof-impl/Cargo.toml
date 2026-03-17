@@ -11,6 +11,7 @@ moho-runtime-impl.workspace = true
 moho-runtime-interface.workspace = true
 moho-types.workspace = true
 ssz.workspace = true
+ssz_derive.workspace = true
 strata-asm-common.workspace = true
 strata-asm-logs.workspace = true
 strata-asm-spec.workspace = true
@@ -20,7 +21,6 @@ strata-predicate.workspace = true
 zkaleido.workspace = true
 
 bitcoin.workspace = true
-borsh.workspace = true
 sha2.workspace = true
 
 [target.'cfg(not(target_os = "zkvm"))'.dependencies]
@@ -30,6 +30,5 @@ zkaleido-native-adapter.workspace = true
 serde_json.workspace = true
 strata-asm-params.workspace = true
 strata-btc-types.workspace = true
-strata-btc-verification.workspace = true
 strata-l1-txfmt.workspace = true
 strata-test-utils-btc.workspace = true

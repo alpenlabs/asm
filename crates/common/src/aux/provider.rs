@@ -6,10 +6,9 @@ use std::collections::HashMap;
 
 use bitcoin::{OutPoint, Transaction, TxOut, Txid};
 use strata_asm_manifest_types::Hash32;
-use strata_btc_types::RawBitcoinTx;
 
 use crate::{
-    AsmHistoryAccumulatorState, AuxError, AuxResult,
+    AsmHistoryAccumulatorState, AuxError, AuxResult, RawBitcoinTx,
     aux::data::{AuxData, VerifiableManifestHash},
 };
 
@@ -216,7 +215,7 @@ mod tests {
         let txid = tx.compute_txid().as_raw_hash().to_byte_array();
 
         let accumulator_state = AsmHistoryAccumulatorState::new(16);
-        let aux_data = AuxData::new(vec![], vec![raw_tx]);
+        let aux_data = AuxData::new(vec![], vec![raw_tx.into()]);
 
         let verified = VerifiedAuxData::try_new(&aux_data, &accumulator_state).unwrap();
 

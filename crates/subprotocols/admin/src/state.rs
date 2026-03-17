@@ -1,6 +1,7 @@
 use std::{mem::take, num::NonZero};
 
 use borsh::{BorshDeserialize, BorshSerialize};
+use ssz::{Decode, DecodeError, Encode};
 use strata_asm_params::{AdministrationInitConfig, Role};
 use strata_asm_txs_admin::actions::UpdateId;
 use strata_crypto::threshold_signature::ThresholdConfigUpdate;
@@ -36,6 +37,35 @@ pub struct AdministrationSubprotoState {
     ///
     /// A payload with `seqno > last_seqno + max_seqno_gap` is rejected.
     max_seqno_gap: NonZero<u8>,
+}
+
+impl Encode for AdministrationSubprotoState {
+    fn is_ssz_fixed_len() -> bool {
+        false
+    }
+
+    fn ssz_append(&self, buf: &mut Vec<u8>) {
+        borsh::to_vec(self)
+            .expect("administration state serialization should not fail")
+            .ssz_append(buf);
+    }
+
+    fn ssz_bytes_len(&self) -> usize {
+        borsh::to_vec(self)
+            .expect("administration state serialization should not fail")
+            .ssz_bytes_len()
+    }
+}
+
+impl Decode for AdministrationSubprotoState {
+    fn is_ssz_fixed_len() -> bool {
+        false
+    }
+
+    fn from_ssz_bytes(bytes: &[u8]) -> Result<Self, DecodeError> {
+        let payload = Vec::<u8>::from_ssz_bytes(bytes)?;
+        borsh::from_slice(&payload).map_err(|err| DecodeError::BytesInvalid(err.to_string()))
+    }
 }
 
 impl AdministrationSubprotoState {

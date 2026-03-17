@@ -21,10 +21,10 @@
 use std::fmt;
 
 use strata_asm_common::{
-    AsmMerkleProof, AuxData, AuxRequests, ManifestHashRange, VerifiableManifestHash,
+    AsmMerkleProof, AuxData, AuxRequests, BitcoinTxid, ManifestHashRange, RawBitcoinTx,
+    VerifiableManifestHash,
 };
 use strata_asm_manifest_types::Hash32;
-use strata_btc_types::BitcoinTxid;
 use strata_primitives::prelude::*;
 use tracing::*;
 
@@ -143,7 +143,7 @@ impl<'a> AuxDataResolver<'a> {
             .iter()
             .map(|txid| {
                 trace!(?txid, "Fetching Bitcoin transaction");
-                self.context.get_bitcoin_tx(txid)
+                self.context.get_bitcoin_tx(&(*txid).into()).map(Into::into)
             })
             .collect()
     }

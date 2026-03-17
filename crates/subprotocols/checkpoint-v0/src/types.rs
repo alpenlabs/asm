@@ -7,6 +7,7 @@
 //! checkpoint system. Future versions will be fully SPS-62 compatible.
 
 use borsh::{BorshDeserialize, BorshSerialize};
+use ssz::{Decode, DecodeError, Encode};
 use strata_checkpoint_types::Checkpoint;
 use strata_identifiers::Epoch;
 use strata_predicate::PredicateKey;
@@ -32,6 +33,35 @@ pub struct CheckpointV0VerifierState {
 
     /// Predicate used to verify the validity of the checkpoint
     pub predicate: PredicateKey,
+}
+
+impl Encode for CheckpointV0VerifierState {
+    fn is_ssz_fixed_len() -> bool {
+        false
+    }
+
+    fn ssz_append(&self, buf: &mut Vec<u8>) {
+        borsh::to_vec(self)
+            .expect("checkpoint-v0 state serialization should not fail")
+            .ssz_append(buf);
+    }
+
+    fn ssz_bytes_len(&self) -> usize {
+        borsh::to_vec(self)
+            .expect("checkpoint-v0 state serialization should not fail")
+            .ssz_bytes_len()
+    }
+}
+
+impl Decode for CheckpointV0VerifierState {
+    fn is_ssz_fixed_len() -> bool {
+        false
+    }
+
+    fn from_ssz_bytes(bytes: &[u8]) -> Result<Self, DecodeError> {
+        let payload = Vec::<u8>::from_ssz_bytes(bytes)?;
+        borsh::from_slice(&payload).map_err(|err| DecodeError::BytesInvalid(err.to_string()))
+    }
 }
 
 /// Verification parameters for checkpoint v0
