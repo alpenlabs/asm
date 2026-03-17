@@ -26,6 +26,14 @@ toml-lint:
 toml-check-fmt:
   taplo format --check
 
+# Check formatting of functional tests
+functional-check-fmt:
+  cd functional-tests && uv run ruff format --check
+
+# Lint and typecheck functional tests
+functional-lint:
+  cd functional-tests && uv run ruff check && uv run ty check
+
 # Rust unit tests with `cargo-nextest`
 unit-test:
   cargo --locked nextest run --all-features
@@ -34,8 +42,12 @@ unit-test:
 doctest:
   cargo test --doc --all-features
 
+# Run functional tests
+functional-test:
+  cd functional-tests && ./run_test.sh
+
 # Run all lints and formatting checks
-lints: toml-check-fmt toml-lint check-fmt clippy
+lints: toml-check-fmt toml-lint check-fmt clippy functional-check-fmt functional-lint
 
 # Rust all tests
 test: unit-test doctest

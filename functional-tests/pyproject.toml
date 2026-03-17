@@ -1,0 +1,39 @@
+[project]
+name = "functional-tests"
+version = "0.1.0"
+description = "functional tests for ASM runner"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "bitcoinlib>=0.7.5,<0.8",
+  "requests>=2.32",
+  "toml>=0.10",
+  "websockets~=15.0",
+  "flexitest",
+]
+
+[dependency-groups]
+dev = ["ruff==0.14.5", "ty>=0.0.12"]
+
+[tool.uv]
+[tool.uv.sources]
+flexitest = { git = "https://codeberg.org/treyd/flexitest.git" }
+
+[tool.ruff]
+line-length = 100
+indent-width = 4
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+docstring-code-format = true
+
+[tool.ruff.lint]
+select = ["E", "F", "UP", "B", "SIM", "I"]
+ignore = ["F405", "F403", "SIM102"]
+
+[tool.ruff.lint.pycodestyle]
+max-line-length = 100
+
+[tool.ty.rules]
+unresolved-attribute = "ignore"
