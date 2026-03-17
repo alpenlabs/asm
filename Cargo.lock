@@ -3178,7 +3178,6 @@ dependencies = [
 name = "strata-asm-proof-impl"
 version = "0.1.0"
 dependencies = [
- "bincode",
  "bitcoin",
  "borsh",
  "moho-runtime-impl",
@@ -3197,6 +3196,7 @@ dependencies = [
  "strata-identifiers",
  "strata-l1-txfmt",
  "strata-predicate",
+ "strata-test-utils-btc",
  "zkaleido 0.1.0 (git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc21)",
  "zkaleido-native-adapter",
 ]

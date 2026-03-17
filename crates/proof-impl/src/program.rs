@@ -74,7 +74,6 @@ impl AsmStfProofProgram {
 
 #[cfg(test)]
 mod tests {
-    use std::fs::read;
 
     use bitcoin::Block;
     use moho_runtime_impl::RuntimeInput;
@@ -88,6 +87,7 @@ mod tests {
     use strata_identifiers::L1BlockCommitment;
     use strata_l1_txfmt::MagicBytes;
     use strata_predicate::PredicateKey;
+    use strata_test_utils_btc::segment::BtcChainSegment;
 
     use crate::{
         moho_program::{
@@ -97,17 +97,8 @@ mod tests {
         program::AsmStfProofProgram,
     };
 
-    fn load_test_blocks() -> Vec<Block> {
-        let bytes = read("../../test-data/blocks.bin").expect("Failed to read blocks.bin");
-        bincode::deserialize(&bytes).expect("Failed to deserialize blocks")
-    }
-
     fn create_asm_step_input() -> AsmStepInput {
-        let blocks = load_test_blocks();
-        let block = blocks
-            .into_iter()
-            .next()
-            .expect("expected at least one block");
+        let block = BtcChainSegment::load_full_block();
         AsmStepInput {
             block: L1Block(block),
             aux_data: AuxData::default(),
