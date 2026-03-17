@@ -126,8 +126,14 @@ impl<'a> Arbitrary<'a> for DepositEntry {
         // Generate a random deposit index
         let deposit_idx: u32 = u.arbitrary()?;
 
-        // Create OperatorBitmap directly by setting sequential operators as active
-        let notary_operators = u.arbitrary()?;
+        // Generate operator bitmap and enforce the DepositEntry invariant:
+        // deposits must have at least one notary operator.
+        let mut notary_operators: OperatorBitmap = u.arbitrary()?;
+        if notary_operators.active_count() == 0 {
+            notary_operators
+                .try_set(0, true)
+                .map_err(|_| arbitrary::Error::IncorrectFormat)?;
+        }
 
         // Generate a random Bitcoin amount (between 1 satoshi and 21 million BTC)
         let amount: BitcoinAmount = u.arbitrary()?;
@@ -294,6 +300,15 @@ mod tests {
             result,
             Err(DepositValidationError::EmptyOperators)
         ));
+    }
+
+    #[test]
+    fn test_deposit_entry_arbitrary_has_active_notary() {
+        let mut arb = ArbitraryGenerator::new();
+        for _ in 0..256 {
+            let entry: DepositEntry = arb.generate();
+            assert!(entry.notary_operators().active_count() > 0);
+        }
     }
 
     #[test]
