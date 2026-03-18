@@ -6,6 +6,13 @@ version = "0.1.0"
 [lints]
 workspace = true
 
+[[bin]]
+name = "strata-asm-prover-perf"
+path = "src/main.rs"
+test = false
+bench = false
+doc = false
+
 [dependencies]
 strata-asm-proof-impl = { workspace = true, features = ["test-utils"] }
 zkaleido = { workspace = true, features = ["perf"] }
