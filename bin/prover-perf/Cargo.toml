@@ -1,0 +1,23 @@
+[package]
+edition = "2021"
+name = "strata-asm-prover-perf"
+version = "0.1.0"
+
+[lints]
+workspace = true
+
+[dependencies]
+strata-asm-proof-impl = { workspace = true, features = ["test-utils"] }
+zkaleido = { workspace = true, features = ["perf"] }
+
+anyhow.workspace = true
+clap.workspace = true
+num-format = "0.4.4"
+sp1-sdk = "5.2.1"
+# FIXME: (@prajwolrg) use a proper tag
+zkaleido-sp1-host = { git = "https://github.com/alpenlabs/zkaleido", rev = "750c209f5850af29e34c39c250c24e1c69ffa2aa", features = [
+  "perf",
+] }
+
+[build-dependencies]
+sp1-build = "5.2.1"

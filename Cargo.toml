@@ -29,6 +29,7 @@ members = [
 
   # binaries listed separately
   "bin/asm-runner",
+  "bin/prover-perf",
 ]
 
 [workspace.lints]

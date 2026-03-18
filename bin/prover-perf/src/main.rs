@@ -1,0 +1,33 @@
+//! Prover performance evaluation for ASM STF SP1 guest.
+
+use std::process;
+
+use anyhow::Result;
+use clap::Parser;
+use sp1_sdk::utils::setup_logger;
+
+mod args;
+mod format;
+mod programs;
+
+use args::{parse_programs, EvalArgs};
+use format::{format_header, format_results};
+
+fn main() -> Result<()> {
+    setup_logger();
+    let args = EvalArgs::parse();
+
+    let programs = parse_programs(&args.programs).map_err(anyhow::Error::msg)?;
+
+    let mut results_text = vec![format_header()];
+    let sp1_reports = programs::run_sp1_programs(&programs);
+    results_text.push(format_results(&sp1_reports, "SP1".to_string()));
+
+    println!("{}", results_text.join("\n"));
+
+    if !sp1_reports.iter().all(|r| r.success) {
+        process::exit(1);
+    }
+
+    Ok(())
+}
