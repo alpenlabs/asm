@@ -8,7 +8,7 @@ use zkaleido::RemoteProofStatus;
 
 mod sled;
 
-pub use self::sled::SledProofDb;
+pub use self::sled::{RemoteProofMappingError, SledProofDb};
 
 /// Persistence interface for proof storage.
 pub trait ProofDb {
@@ -81,7 +81,16 @@ pub trait RemoteProofMappingDb {
         remote_id: &RemoteProofId,
     ) -> impl Future<Output = Result<Option<ProofId>, Self::Error>> + Send;
 
-    /// Stores a bidirectional mapping between a local proof ID and a remote proof ID.
+    /// Stores a mapping between a local proof ID and a remote proof ID.
+    ///
+    /// A single [`ProofId`] may be associated with multiple [`RemoteProofId`]s
+    /// (e.g. when a proof is resubmitted), so calling this with the same
+    /// `id` but a different `remote_id` is allowed — only the forward lookup
+    /// (`ProofId → RemoteProofId`) is updated to point to the latest remote ID.
+    ///
+    /// However, a [`RemoteProofId`] must map to exactly one [`ProofId`].
+    /// If `remote_id` is already associated with a **different** proof ID,
+    /// this method returns an error.
     fn put_remote_proof_id(
         &self,
         id: ProofId,
