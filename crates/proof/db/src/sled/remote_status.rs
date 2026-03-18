@@ -49,9 +49,11 @@ impl RemoteProofStatusDb for SledProofDb {
         status: RemoteProofStatus,
     ) -> Result<(), Self::Error> {
         let bytes = borsh::to_vec(&status).expect("borsh serialization should not fail");
-        let result = self
-            .remote_proof_status
-            .compare_and_swap(&remote_id.0, None as Option<&[u8]>, Some(bytes))?;
+        let result = self.remote_proof_status.compare_and_swap(
+            &remote_id.0,
+            None as Option<&[u8]>,
+            Some(bytes),
+        )?;
         match result {
             Ok(()) => Ok(()),
             Err(_) => Err(RemoteProofStatusError::AlreadyExists(remote_id.clone())),
@@ -66,9 +68,7 @@ impl RemoteProofStatusDb for SledProofDb {
         let bytes = borsh::to_vec(&status).expect("borsh serialization should not fail");
         let old = self
             .remote_proof_status
-            .fetch_and_update(&remote_id.0, |existing| {
-                existing.map(|_| bytes.clone())
-            })?;
+            .fetch_and_update(&remote_id.0, |existing| existing.map(|_| bytes.clone()))?;
         match old {
             Some(_) => Ok(()),
             None => Err(RemoteProofStatusError::NotFound(remote_id.clone())),
