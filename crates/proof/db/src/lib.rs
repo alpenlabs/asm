@@ -2,8 +2,9 @@
 
 use std::fmt::Debug;
 
-use strata_asm_proof_types::{AsmProof, L1Range, MohoProof};
+use strata_asm_proof_types::{AsmProof, L1Range, MohoProof, ProofId, RemoteProofId};
 use strata_identifiers::L1BlockCommitment;
+use zkaleido::RemoteProofStatus;
 
 mod sled;
 
@@ -57,4 +58,78 @@ pub trait ProofDb {
     ///
     /// Deletes all entries with height strictly less than `before_height`.
     fn prune(&self, before_height: u32) -> impl Future<Output = Result<(), Self::Error>> + Send;
+}
+
+/// Persistent bidirectional mapping between local [`ProofId`]s and
+/// [`RemoteProofId`]s assigned by the remote prover service.
+///
+/// Used to prevent duplicate proof submissions and to recover the association
+/// between local and remote identifiers after restarts.
+pub trait RemoteProofMappingDb {
+    /// The error type returned by database operations.
+    type Error: Debug;
+
+    /// Returns the remote proof ID associated with the given local proof ID, if one exists.
+    fn get_remote_proof_id(
+        &self,
+        id: ProofId,
+    ) -> impl Future<Output = Result<Option<RemoteProofId>, Self::Error>> + Send;
+
+    /// Returns the local proof ID associated with the given remote proof ID, if one exists.
+    fn get_proof_id(
+        &self,
+        remote_id: &RemoteProofId,
+    ) -> impl Future<Output = Result<Option<ProofId>, Self::Error>> + Send;
+
+    /// Stores a bidirectional mapping between a local proof ID and a remote proof ID.
+    fn put_remote_proof_id(
+        &self,
+        id: ProofId,
+        remote_id: RemoteProofId,
+    ) -> impl Future<Output = Result<(), Self::Error>> + Send;
+}
+
+/// Persistent store for the execution status of remote proof jobs.
+///
+/// Tracks only proofs whose results have **not yet been retrieved and stored
+/// locally**. Once a proof is stored via [`ProofDb`], the corresponding status
+/// entry should be removed.
+pub trait RemoteProofStatusDb {
+    /// The error type returned by database operations.
+    type Error: Debug;
+
+    /// Inserts a new status entry for the given remote proof ID.
+    ///
+    /// Returns an error if an entry already exists for this ID.
+    fn put_status(
+        &self,
+        remote_id: &RemoteProofId,
+        status: RemoteProofStatus,
+    ) -> impl Future<Output = Result<(), Self::Error>> + Send;
+
+    /// Updates the status of an existing remote proof entry.
+    ///
+    /// Returns an error if no entry exists for this ID.
+    fn update_status(
+        &self,
+        remote_id: &RemoteProofId,
+        status: RemoteProofStatus,
+    ) -> impl Future<Output = Result<(), Self::Error>> + Send;
+
+    /// Returns the current status of the given remote proof, if tracked.
+    fn get_status(
+        &self,
+        remote_id: &RemoteProofId,
+    ) -> impl Future<Output = Result<Option<RemoteProofStatus>, Self::Error>> + Send;
+
+    /// Returns all remote proofs that are currently active (i.e. `Requested` or `InProgress`).
+    fn get_all_in_progress(
+        &self,
+    ) -> impl Future<Output = Result<Vec<(RemoteProofId, RemoteProofStatus)>, Self::Error>> + Send;
+
+    /// Removes the status entry for the given remote proof ID.
+    fn remove(
+        &self,
+        remote_id: &RemoteProofId,
+    ) -> impl Future<Output = Result<(), Self::Error>> + Send;
 }
