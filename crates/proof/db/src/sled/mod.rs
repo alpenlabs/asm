@@ -7,6 +7,7 @@
 
 use std::path::Path;
 
+use strata_asm_proof_types::L1Range;
 use strata_identifiers::{Buf32, L1BlockCommitment, L1BlockId};
 
 mod proof_db;
@@ -55,32 +56,66 @@ impl SledProofDb {
 }
 
 // ── Key encoding ──────────────────────────────────────────────────────
+//
+// We use a custom big-endian encoding for block commitment keys instead of
+// borsh/bincode because those serialize integers as little-endian. Big-endian
+// encoding ensures that sled's lexicographic key ordering matches block-height
+// ordering, which is required for range scans and `last()` queries.
+
+/// Size of an encoded [`L1BlockCommitment`]: 4-byte BE height + 32-byte block id.
+const ENCODED_L1_COMMITMENT_SIZE: usize = 4 + 32;
+
+/// Size of an encoded [`L1Range`]: two consecutive encoded commitments.
+const ENCODED_L1_RANGE_SIZE: usize = ENCODED_L1_COMMITMENT_SIZE * 2;
+
+/// Encodes an [`L1BlockCommitment`] as 36 bytes: `[height_be(4)][blkid(32)]`.
+pub(crate) fn encode_block_commitment(
+    commitment: &L1BlockCommitment,
+) -> [u8; ENCODED_L1_COMMITMENT_SIZE] {
+    let mut buf = [0u8; ENCODED_L1_COMMITMENT_SIZE];
+    buf[0..4].copy_from_slice(&commitment.height().to_be_bytes());
+    buf[4..36].copy_from_slice(commitment.blkid().as_ref());
+    buf
+}
+
+/// Decodes a 36-byte buffer back into an [`L1BlockCommitment`].
+pub(crate) fn decode_block_commitment(buf: &[u8]) -> L1BlockCommitment {
+    let height = u32::from_be_bytes(buf[0..4].try_into().expect("key is at least 4 bytes"));
+    let blkid: [u8; 32] = buf[4..36].try_into().expect("key is at least 36 bytes");
+    L1BlockCommitment::new(height, L1BlockId::from(Buf32::from(blkid)))
+}
 
 /// Encodes an ASM proof key as 72 bytes:
-/// `[start_height_be(4)][start_blkid(32)][end_height_be(4)][end_blkid(32)]`
-pub(crate) fn encode_asm_key(range: &strata_asm_proof_types::L1Range) -> [u8; 72] {
-    let mut key = [0u8; 72];
-    key[0..4].copy_from_slice(&range.start().height().to_be_bytes());
-    key[4..36].copy_from_slice(range.start().blkid().as_ref());
-    key[36..40].copy_from_slice(&range.end().height().to_be_bytes());
-    key[40..72].copy_from_slice(range.end().blkid().as_ref());
+/// `[start_commitment(36)][end_commitment(36)]`
+pub(crate) fn encode_asm_key(range: &L1Range) -> [u8; ENCODED_L1_RANGE_SIZE] {
+    let mut key = [0u8; ENCODED_L1_RANGE_SIZE];
+    key[..ENCODED_L1_COMMITMENT_SIZE].copy_from_slice(&encode_block_commitment(&range.start()));
+    key[ENCODED_L1_COMMITMENT_SIZE..].copy_from_slice(&encode_block_commitment(&range.end()));
     key
 }
 
-/// Encodes a Moho proof key as 36 bytes:
-/// `[height_be(4)][blkid(32)]`
-pub(crate) fn encode_moho_key(l1ref: &L1BlockCommitment) -> [u8; 36] {
-    let mut key = [0u8; 36];
-    key[0..4].copy_from_slice(&l1ref.height().to_be_bytes());
-    key[4..36].copy_from_slice(l1ref.blkid().as_ref());
-    key
+/// Decodes a 72-byte ASM proof key back into an [`L1Range`].
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "completes the encode/decode pair; useful for key iteration/debugging"
+    )
+)]
+pub(crate) fn decode_asm_key(key: &[u8; ENCODED_L1_RANGE_SIZE]) -> L1Range {
+    let start = decode_block_commitment(&key[..ENCODED_L1_COMMITMENT_SIZE]);
+    let end = decode_block_commitment(&key[ENCODED_L1_COMMITMENT_SIZE..]);
+    L1Range::new(start, end).expect("decoded range must be valid")
 }
 
-/// Decodes a Moho proof key back into an [`L1BlockCommitment`].
+/// Alias: encodes a Moho proof key (same as a single block commitment).
+pub(crate) fn encode_moho_key(l1ref: &L1BlockCommitment) -> [u8; ENCODED_L1_COMMITMENT_SIZE] {
+    encode_block_commitment(l1ref)
+}
+
+/// Alias: decodes a Moho proof key (same as a single block commitment).
 pub(crate) fn decode_moho_key(key: &[u8]) -> L1BlockCommitment {
-    let height = u32::from_be_bytes(key[0..4].try_into().expect("key is at least 4 bytes"));
-    let blkid: [u8; 32] = key[4..36].try_into().expect("key is at least 36 bytes");
-    L1BlockCommitment::new(height, L1BlockId::from(Buf32::from(blkid)))
+    decode_block_commitment(key)
 }
 
 #[cfg(test)]
@@ -131,5 +166,35 @@ pub(crate) mod test_util {
 
     pub(crate) fn arb_moho_proof() -> impl Strategy<Value = MohoProof> {
         arb_proof_receipt_with_metadata().prop_map(MohoProof)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use proptest::prelude::*;
+
+    use super::test_util::{arb_l1_block_commitment, arb_l1_range};
+
+    proptest! {
+        #[test]
+        fn block_commitment_key_roundtrip(commitment in arb_l1_block_commitment()) {
+            let encoded = super::encode_block_commitment(&commitment);
+            let decoded = super::decode_block_commitment(&encoded);
+            prop_assert_eq!(commitment, decoded);
+        }
+
+        #[test]
+        fn asm_key_roundtrip(range in arb_l1_range()) {
+            let encoded = super::encode_asm_key(&range);
+            let decoded = super::decode_asm_key(&encoded);
+            prop_assert_eq!(range, decoded);
+        }
+
+        #[test]
+        fn moho_key_roundtrip(commitment in arb_l1_block_commitment()) {
+            let encoded = super::encode_moho_key(&commitment);
+            let decoded = super::decode_moho_key(&encoded);
+            prop_assert_eq!(commitment, decoded);
+        }
     }
 }
