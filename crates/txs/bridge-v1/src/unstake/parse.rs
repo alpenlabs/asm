@@ -88,9 +88,10 @@ mod tests {
 
     use super::*;
     use crate::{
+        BRIDGE_V1_SUBPROTOCOL_ID,
         errors::TxStructureErrorKind,
         test_utils::{
-            create_connected_stake_and_unstake_txs, create_test_operators, mutate_aux_data,
+            create_connected_stake_and_unstake_txs, create_test_operators, overwrite_aux_data,
             parse_sps50_tx,
         },
     };
@@ -139,7 +140,12 @@ mod tests {
         let (_info, mut tx) = create_slash_tx_with_info();
 
         let larger_aux = [0u8; AUX_LEN + 1].to_vec();
-        mutate_aux_data(&mut tx, larger_aux);
+        overwrite_aux_data(
+            &mut tx,
+            BRIDGE_V1_SUBPROTOCOL_ID,
+            BridgeTxType::Unstake as u8,
+            larger_aux,
+        );
 
         let tx_input = parse_sps50_tx(&tx);
         let err = parse_unstake_tx(&tx_input).unwrap_err();
@@ -150,7 +156,12 @@ mod tests {
         ));
 
         let smaller_aux = [0u8; AUX_LEN - 1].to_vec();
-        mutate_aux_data(&mut tx, smaller_aux);
+        overwrite_aux_data(
+            &mut tx,
+            BRIDGE_V1_SUBPROTOCOL_ID,
+            BridgeTxType::Unstake as u8,
+            smaller_aux,
+        );
 
         let tx_input = parse_sps50_tx(&tx);
         let err = parse_unstake_tx(&tx_input).unwrap_err();

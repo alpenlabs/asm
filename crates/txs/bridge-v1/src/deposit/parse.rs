@@ -66,6 +66,7 @@ mod tests {
     use strata_test_utils_arb::ArbitraryGenerator;
 
     use crate::{
+        BRIDGE_V1_SUBPROTOCOL_ID,
         constants::BridgeTxType,
         deposit::{
             DEPOSIT_OUTPUT_INDEX, DepositInfo, DepositTxHeaderAux, parse::DRT_INPUT_INDEX,
@@ -74,7 +75,7 @@ mod tests {
         deposit_request::{DRT_OUTPUT_INDEX, DrtHeaderAux},
         errors::TxStructureErrorKind,
         test_utils::{
-            create_connected_drt_and_dt, create_test_operators, mutate_aux_data, parse_sps50_tx,
+            create_connected_drt_and_dt, create_test_operators, overwrite_aux_data, parse_sps50_tx,
         },
     };
 
@@ -158,7 +159,12 @@ mod tests {
         let (_, mut tx) = create_deposit_tx_with_info();
 
         let larger_aux = [0u8; AUX_LEN + 1].to_vec();
-        mutate_aux_data(&mut tx, larger_aux);
+        overwrite_aux_data(
+            &mut tx,
+            BRIDGE_V1_SUBPROTOCOL_ID,
+            BridgeTxType::Deposit as u8,
+            larger_aux,
+        );
 
         let tx_input = parse_sps50_tx(&tx);
         let err = parse_deposit_tx(&tx_input).unwrap_err();
@@ -169,7 +175,12 @@ mod tests {
         ));
 
         let smaller_aux = [0u8; AUX_LEN - 1].to_vec();
-        mutate_aux_data(&mut tx, smaller_aux);
+        overwrite_aux_data(
+            &mut tx,
+            BRIDGE_V1_SUBPROTOCOL_ID,
+            BridgeTxType::Deposit as u8,
+            smaller_aux,
+        );
 
         let tx_input = parse_sps50_tx(&tx);
         let err = parse_deposit_tx(&tx_input).unwrap_err();
