@@ -1,7 +1,7 @@
 use std::{mem::take, num::NonZero};
 
-use borsh::{BorshDeserialize, BorshSerialize};
-use ssz::{Decode, DecodeError, Encode};
+use ssz::{Decode as SszDecode, DecodeError, Encode as SszEncode};
+use ssz_derive::{Decode, Encode};
 use strata_asm_params::{AdministrationInitConfig, Role};
 use strata_asm_txs_admin::actions::UpdateId;
 use strata_crypto::threshold_signature::ThresholdConfigUpdate;
@@ -13,7 +13,7 @@ use crate::{
 
 /// Holds the state for the Administration Subprotocol, including the various
 /// multisignature authorities and any actions still pending execution.
-#[derive(Clone, Debug, Eq, PartialEq, BorshDeserialize, BorshSerialize)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct AdministrationSubprotoState {
     /// List of configurations for multisignature authorities.
     /// Each entry specifies who the signers are and how many signatures
@@ -39,32 +39,57 @@ pub struct AdministrationSubprotoState {
     max_seqno_gap: NonZero<u8>,
 }
 
-impl Encode for AdministrationSubprotoState {
+#[derive(Debug, Encode, Decode)]
+struct AdministrationSubprotoStateSsz {
+    authorities: Vec<MultisigAuthority>,
+    queued: Vec<QueuedUpdate>,
+    next_update_id: UpdateId,
+    confirmation_depth: u16,
+    max_seqno_gap: u8,
+}
+
+impl From<&AdministrationSubprotoState> for AdministrationSubprotoStateSsz {
+    fn from(value: &AdministrationSubprotoState) -> Self {
+        Self {
+            authorities: value.authorities.clone(),
+            queued: value.queued.clone(),
+            next_update_id: value.next_update_id,
+            confirmation_depth: value.confirmation_depth,
+            max_seqno_gap: value.max_seqno_gap.get(),
+        }
+    }
+}
+
+impl SszEncode for AdministrationSubprotoState {
     fn is_ssz_fixed_len() -> bool {
         false
     }
 
     fn ssz_append(&self, buf: &mut Vec<u8>) {
-        borsh::to_vec(self)
-            .expect("administration state serialization should not fail")
-            .ssz_append(buf);
+        AdministrationSubprotoStateSsz::from(self).ssz_append(buf);
     }
 
     fn ssz_bytes_len(&self) -> usize {
-        borsh::to_vec(self)
-            .expect("administration state serialization should not fail")
-            .ssz_bytes_len()
+        AdministrationSubprotoStateSsz::from(self).ssz_bytes_len()
     }
 }
 
-impl Decode for AdministrationSubprotoState {
+impl SszDecode for AdministrationSubprotoState {
     fn is_ssz_fixed_len() -> bool {
         false
     }
 
     fn from_ssz_bytes(bytes: &[u8]) -> Result<Self, DecodeError> {
-        let payload = Vec::<u8>::from_ssz_bytes(bytes)?;
-        borsh::from_slice(&payload).map_err(|err| DecodeError::BytesInvalid(err.to_string()))
+        let payload = AdministrationSubprotoStateSsz::from_ssz_bytes(bytes)?;
+        let max_seqno_gap = NonZero::new(payload.max_seqno_gap)
+            .ok_or_else(|| DecodeError::BytesInvalid("max_seqno_gap must be non-zero".into()))?;
+        Ok(Self {
+            authorities: payload.authorities,
+            queued: payload.queued,
+            next_update_id: payload.next_update_id,
+            confirmation_depth: payload.confirmation_depth,
+            max_seqno_gap,
+        })
     }
 }
 

@@ -6,8 +6,8 @@
 //! NOTE: This is checkpoint v0 which focuses on feature parity with the current
 //! checkpoint system. Future versions will be fully SPS-62 compatible.
 
-use borsh::{BorshDeserialize, BorshSerialize};
-use ssz::{Decode, DecodeError, Encode};
+use ssz::{Decode as SszDecode, DecodeError, Encode as SszEncode};
+use ssz_derive::{Decode, Encode};
 use strata_checkpoint_types::Checkpoint;
 use strata_identifiers::Epoch;
 use strata_predicate::PredicateKey;
@@ -17,7 +17,7 @@ use strata_primitives::{L1Height, block_credential::CredRule, buf::Buf32, l1::L1
 ///
 /// NOTE: This maintains state similar to the current core subprotocol but
 /// simplified for checkpoint v0 compatibility
-#[derive(Clone, Debug, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, Debug)]
 pub struct CheckpointV0VerifierState {
     /// The last verified checkpoint
     pub last_checkpoint: Option<Checkpoint>,
@@ -35,32 +35,104 @@ pub struct CheckpointV0VerifierState {
     pub predicate: PredicateKey,
 }
 
-impl Encode for CheckpointV0VerifierState {
+#[derive(Debug, Encode, Decode)]
+struct CredRuleSsz {
+    kind: u8,
+    key: Buf32,
+}
+
+impl From<&CredRule> for CredRuleSsz {
+    fn from(value: &CredRule) -> Self {
+        match value {
+            CredRule::Unchecked => Self {
+                kind: 0,
+                key: Buf32::zero(),
+            },
+            CredRule::SchnorrKey(key) => Self { kind: 1, key: *key },
+        }
+    }
+}
+
+impl TryFrom<CredRuleSsz> for CredRule {
+    type Error = DecodeError;
+
+    fn try_from(value: CredRuleSsz) -> Result<Self, Self::Error> {
+        match value.kind {
+            0 => Ok(Self::Unchecked),
+            1 => Ok(Self::SchnorrKey(value.key)),
+            kind => Err(DecodeError::BytesInvalid(format!(
+                "invalid cred rule kind {kind}"
+            ))),
+        }
+    }
+}
+
+#[derive(Debug, Encode, Decode)]
+struct CheckpointV0VerifierStateSsz {
+    has_last_checkpoint: bool,
+    last_checkpoint_bytes: Vec<u8>,
+    last_checkpoint_l1_height: L1Height,
+    current_verified_epoch: Epoch,
+    cred_rule: CredRuleSsz,
+    predicate: PredicateKey,
+}
+
+impl From<&CheckpointV0VerifierState> for CheckpointV0VerifierStateSsz {
+    fn from(value: &CheckpointV0VerifierState) -> Self {
+        let last_checkpoint_bytes = value
+            .last_checkpoint
+            .as_ref()
+            .map(Checkpoint::to_raw_bytes)
+            .transpose()
+            .expect("checkpoint-v0 state serialization should not fail")
+            .unwrap_or_default();
+        Self {
+            has_last_checkpoint: value.last_checkpoint.is_some(),
+            last_checkpoint_bytes,
+            last_checkpoint_l1_height: value.last_checkpoint_l1_height,
+            current_verified_epoch: value.current_verified_epoch,
+            cred_rule: CredRuleSsz::from(&value.cred_rule),
+            predicate: value.predicate.clone(),
+        }
+    }
+}
+
+impl SszEncode for CheckpointV0VerifierState {
     fn is_ssz_fixed_len() -> bool {
         false
     }
 
     fn ssz_append(&self, buf: &mut Vec<u8>) {
-        borsh::to_vec(self)
-            .expect("checkpoint-v0 state serialization should not fail")
-            .ssz_append(buf);
+        CheckpointV0VerifierStateSsz::from(self).ssz_append(buf);
     }
 
     fn ssz_bytes_len(&self) -> usize {
-        borsh::to_vec(self)
-            .expect("checkpoint-v0 state serialization should not fail")
-            .ssz_bytes_len()
+        CheckpointV0VerifierStateSsz::from(self).ssz_bytes_len()
     }
 }
 
-impl Decode for CheckpointV0VerifierState {
+impl SszDecode for CheckpointV0VerifierState {
     fn is_ssz_fixed_len() -> bool {
         false
     }
 
     fn from_ssz_bytes(bytes: &[u8]) -> Result<Self, DecodeError> {
-        let payload = Vec::<u8>::from_ssz_bytes(bytes)?;
-        borsh::from_slice(&payload).map_err(|err| DecodeError::BytesInvalid(err.to_string()))
+        let payload = CheckpointV0VerifierStateSsz::from_ssz_bytes(bytes)?;
+        let last_checkpoint = if payload.has_last_checkpoint {
+            Some(
+                Checkpoint::from_raw_bytes(&payload.last_checkpoint_bytes)
+                    .map_err(|err| DecodeError::BytesInvalid(err.to_string()))?,
+            )
+        } else {
+            None
+        };
+        Ok(Self {
+            last_checkpoint,
+            last_checkpoint_l1_height: payload.last_checkpoint_l1_height,
+            current_verified_epoch: payload.current_verified_epoch,
+            cred_rule: payload.cred_rule.try_into()?,
+            predicate: payload.predicate,
+        })
     }
 }
 

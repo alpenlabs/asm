@@ -234,12 +234,7 @@ impl RawBitcoinTx {
 
     /// Creates an ASM-local raw Bitcoin transaction from the native wrapper.
     pub fn from_native(raw_tx: strata_btc_types::RawBitcoinTx) -> Self {
-        let bytes = borsh::to_vec(&raw_tx)
-            .ok()
-            .and_then(|raw| borsh::from_slice::<Vec<u8>>(&raw).ok())
-            .expect("asm: native raw bitcoin tx must stay borsh-compatible");
-
-        Self::from_raw_bytes(bytes)
+        Self::from_raw_bytes(raw_tx.into_raw_bytes())
     }
 
     /// Converts the ASM-local raw Bitcoin transaction back into the native wrapper.

@@ -1,5 +1,5 @@
 use arbitrary::Arbitrary;
-use borsh::{BorshDeserialize, BorshSerialize};
+use ssz_derive::{Decode, Encode};
 use strata_asm_params::Role;
 use strata_crypto::threshold_signature::ThresholdConfigUpdate;
 
@@ -9,7 +9,7 @@ use crate::{actions::Sighash, constants::AdminTxType};
 /// - adds new members
 /// - removes old members
 /// - updates the threshold
-#[derive(Clone, Debug, Eq, PartialEq, Arbitrary, BorshDeserialize, BorshSerialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Arbitrary, Encode, Decode)]
 pub struct MultisigUpdate {
     config: ThresholdConfigUpdate,
     role: Role,

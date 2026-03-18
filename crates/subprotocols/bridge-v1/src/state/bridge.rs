@@ -1,5 +1,4 @@
-use borsh::{BorshDeserialize, BorshSerialize};
-use ssz::{Decode, DecodeError, Encode};
+use ssz_derive::{Decode, Encode};
 use strata_asm_bridge_msgs::WithdrawOutput;
 use strata_asm_params::BridgeV1InitConfig;
 use strata_asm_txs_bridge_v1::{deposit::DepositInfo, errors::Mismatch};
@@ -20,7 +19,7 @@ use crate::{
 ///
 /// This structure holds all the persistent state for the bridge, including
 /// operator registrations, deposit tracking, and assignment management.
-#[derive(Debug, Clone, BorshSerialize, BorshDeserialize)]
+#[derive(Debug, Clone, Encode, Decode)]
 pub struct BridgeV1State {
     /// Table of registered bridge operators.
     operators: OperatorTable,
@@ -40,35 +39,6 @@ pub struct BridgeV1State {
     /// Number of blocks after Deposit Request Transaction that the depositor can reclaim
     /// funds if operators fail to process the deposit.
     recovery_delay: u16,
-}
-
-impl Encode for BridgeV1State {
-    fn is_ssz_fixed_len() -> bool {
-        false
-    }
-
-    fn ssz_append(&self, buf: &mut Vec<u8>) {
-        borsh::to_vec(self)
-            .expect("bridge state serialization should not fail")
-            .ssz_append(buf);
-    }
-
-    fn ssz_bytes_len(&self) -> usize {
-        borsh::to_vec(self)
-            .expect("bridge state serialization should not fail")
-            .ssz_bytes_len()
-    }
-}
-
-impl Decode for BridgeV1State {
-    fn is_ssz_fixed_len() -> bool {
-        false
-    }
-
-    fn from_ssz_bytes(bytes: &[u8]) -> Result<Self, DecodeError> {
-        let payload = Vec::<u8>::from_ssz_bytes(bytes)?;
-        borsh::from_slice(&payload).map_err(|err| DecodeError::BytesInvalid(err.to_string()))
-    }
 }
 
 impl BridgeV1State {

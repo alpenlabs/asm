@@ -7,12 +7,13 @@
 use std::cmp::Ordering;
 
 use arbitrary::Arbitrary;
-use borsh::{BorshDeserialize, BorshSerialize};
 use rand_chacha::{
     ChaChaRng,
     rand_core::{RngCore, SeedableRng},
 };
 use serde::{Deserialize, Serialize};
+use ssz::{Decode as SszDecode, DecodeError, Encode as SszEncode};
+use ssz_derive::{Decode, Encode};
 use strata_bridge_types::{OperatorIdx, OperatorSelection};
 use strata_primitives::{
     L1BlockCommitment,
@@ -93,9 +94,7 @@ fn filter_eligible_operators(
 ///
 /// Each assignment represents a task, assigned to a specific operator to process
 /// a withdrawal of from a particular deposit UTXO.
-#[derive(
-    Clone, Debug, Eq, PartialEq, Arbitrary, BorshDeserialize, BorshSerialize, Serialize, Deserialize,
-)]
+#[derive(Clone, Debug, Eq, PartialEq, Arbitrary, Serialize, Deserialize, Encode, Decode)]
 pub struct AssignmentEntry {
     /// Deposit entry that has been assigned
     deposit_entry: DepositEntry,
@@ -317,7 +316,7 @@ impl AssignmentEntry {
 /// - Looking up assignments by deposit index
 /// - Filtering assignments by operator or expiration status
 /// - Removing completed assignments
-#[derive(Clone, Debug, Eq, PartialEq, BorshDeserialize, BorshSerialize)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct AssignmentTable {
     /// Vector of assignment entries, sorted by deposit index.
     ///
@@ -328,6 +327,52 @@ pub struct AssignmentTable {
     /// If the operator fails to complete the withdrawal within this period, the assignment
     /// will be reassigned to another operator.
     assignment_duration: u16,
+}
+
+#[derive(Debug, Encode, Decode)]
+struct AssignmentTableSsz {
+    assignments: Vec<AssignmentEntry>,
+    assignment_duration: u16,
+}
+
+impl From<&AssignmentTable> for AssignmentTableSsz {
+    fn from(value: &AssignmentTable) -> Self {
+        Self {
+            assignments: value.assignments.to_vec(),
+            assignment_duration: value.assignment_duration,
+        }
+    }
+}
+
+impl SszEncode for AssignmentTable {
+    fn is_ssz_fixed_len() -> bool {
+        false
+    }
+
+    fn ssz_append(&self, buf: &mut Vec<u8>) {
+        AssignmentTableSsz::from(self).ssz_append(buf);
+    }
+
+    fn ssz_bytes_len(&self) -> usize {
+        AssignmentTableSsz::from(self).ssz_bytes_len()
+    }
+}
+
+impl SszDecode for AssignmentTable {
+    fn is_ssz_fixed_len() -> bool {
+        false
+    }
+
+    fn from_ssz_bytes(bytes: &[u8]) -> Result<Self, DecodeError> {
+        let payload = AssignmentTableSsz::from_ssz_bytes(bytes)?;
+        let assignments = SortedVec::try_from(payload.assignments).map_err(|_| {
+            DecodeError::BytesInvalid("assignment table entries must stay sorted".into())
+        })?;
+        Ok(Self {
+            assignments,
+            assignment_duration: payload.assignment_duration,
+        })
+    }
 }
 
 impl AssignmentTable {

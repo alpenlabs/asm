@@ -1,11 +1,11 @@
 use arbitrary::Arbitrary;
-use borsh::{BorshDeserialize, BorshSerialize};
+use ssz_derive::{Decode, Encode};
 use strata_predicate::PredicateKey;
 
 use crate::{actions::Sighash, constants::AdminTxType};
 
 /// An update to the verifying key for a given Strata proof layer.
-#[derive(Clone, Debug, Eq, PartialEq, Arbitrary, BorshDeserialize, BorshSerialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Arbitrary, Encode, Decode)]
 pub struct PredicateUpdate {
     key: PredicateKey,
     kind: ProofType,
@@ -50,7 +50,8 @@ impl Sighash for PredicateUpdate {
     }
 }
 
-#[derive(Copy, Clone, Debug, Eq, PartialEq, Arbitrary, BorshDeserialize, BorshSerialize)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Arbitrary, Encode, Decode)]
+#[ssz(enum_behaviour = "tag")]
 pub enum ProofType {
     Asm,
     OLStf,

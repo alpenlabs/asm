@@ -1,5 +1,5 @@
-use borsh::{BorshDeserialize, BorshSerialize};
-use ssz::{Decode, DecodeError, Encode};
+use ssz::Decode;
+use ssz_derive::{Decode as DeriveDecode, Encode as DeriveEncode};
 use strata_asm_common::TxInputRef;
 use strata_crypto::threshold_signature::SignatureSet;
 use strata_l1_envelope_fmt::parser::parse_envelope_payload;
@@ -10,7 +10,7 @@ use crate::{actions::MultisigAction, errors::AdministrationTxParseError};
 ///
 /// This structure is serialized with SSZ and embedded in the witness envelope.
 /// The OP_RETURN only contains the SPS-50 tag (magic bytes, subprotocol ID, tx type).
-#[derive(Clone, Debug, Eq, PartialEq, BorshDeserialize, BorshSerialize)]
+#[derive(Clone, Debug, Eq, PartialEq, DeriveEncode, DeriveDecode)]
 pub struct SignedPayload {
     /// Sequence number used to prevent replay attacks and enforce ordering.
     pub seqno: u64,
@@ -18,35 +18,6 @@ pub struct SignedPayload {
     pub action: MultisigAction,
     /// The set of ECDSA signatures authorizing this action
     pub signatures: SignatureSet,
-}
-
-impl Encode for SignedPayload {
-    fn is_ssz_fixed_len() -> bool {
-        false
-    }
-
-    fn ssz_append(&self, buf: &mut Vec<u8>) {
-        borsh::to_vec(self)
-            .expect("signed admin payload serialization should not fail")
-            .ssz_append(buf);
-    }
-
-    fn ssz_bytes_len(&self) -> usize {
-        borsh::to_vec(self)
-            .expect("signed admin payload serialization should not fail")
-            .ssz_bytes_len()
-    }
-}
-
-impl Decode for SignedPayload {
-    fn is_ssz_fixed_len() -> bool {
-        false
-    }
-
-    fn from_ssz_bytes(bytes: &[u8]) -> Result<Self, DecodeError> {
-        let payload = Vec::<u8>::from_ssz_bytes(bytes)?;
-        borsh::from_slice(&payload).map_err(|err| DecodeError::BytesInvalid(err.to_string()))
-    }
 }
 
 impl SignedPayload {

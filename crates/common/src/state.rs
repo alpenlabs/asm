@@ -1,4 +1,4 @@
-use bitcoin::{Network, block::Header};
+use bitcoin::{Network, block::Header, params::Params};
 use borsh::{BorshDeserialize, BorshSerialize, io};
 use serde::{Deserialize, Deserializer, Serialize, Serializer, de::Error as SerdeDeError};
 use ssz::{Decode, Encode};
@@ -12,22 +12,6 @@ use crate::{
     AnchorState, AsmError, AsmHistoryAccumulatorState, BtcParams, BtcWork, ChainViewState,
     HeaderVerificationState, Mismatched, SectionState, Subprotocol, SubprotocolId, TimestampStore,
 };
-
-#[derive(BorshSerialize, BorshDeserialize)]
-struct TimestampStoreBorsh {
-    buffer: [u32; strata_btc_types::TIMESTAMPS_FOR_MEDIAN],
-    head: usize,
-}
-
-#[derive(BorshSerialize, BorshDeserialize)]
-struct HeaderVerificationStateBorsh {
-    params: strata_btc_types::BtcParams,
-    last_verified_block: strata_identifiers::L1BlockCommitment,
-    next_block_target: u32,
-    epoch_start_timestamp: u32,
-    block_timestamp_history: strata_btc_verification::TimestampStore,
-    total_accumulated_pow: strata_btc_verification::BtcWork,
-}
 
 impl AnchorState {
     /// Gets a section by protocol ID by doing a linear scan.
@@ -108,32 +92,35 @@ impl SectionState {
 impl BtcParams {
     /// Creates ASM SSZ params from the native Bitcoin params wrapper.
     pub fn from_native(params: strata_btc_types::BtcParams) -> Self {
-        let network = borsh::to_vec(&params)
-            .ok()
-            .and_then(|bytes| borsh::from_slice::<u8>(&bytes).ok())
-            .expect("asm: native Bitcoin params must stay borsh-compatible");
+        let network = match params.inner().network {
+            Network::Bitcoin => 0,
+            Network::Testnet => 1,
+            Network::Signet => 2,
+            Network::Regtest => 3,
+            unsupported => panic!("asm: unsupported Bitcoin network {unsupported:?}"),
+        };
 
         Self { network }
     }
 
     /// Converts ASM SSZ params back into the native Bitcoin params wrapper.
     pub fn into_native(self) -> strata_btc_types::BtcParams {
-        let bytes =
-            borsh::to_vec(&self.network).expect("asm: network id serialization is infallible");
-        borsh::from_slice(&bytes).expect("asm: stored network id must remain valid")
+        let network = match self.network {
+            0 => Network::Bitcoin,
+            1 => Network::Testnet,
+            2 => Network::Signet,
+            3 => Network::Regtest,
+            unsupported => panic!("asm: unsupported Bitcoin network id {unsupported}"),
+        };
+        strata_btc_types::BtcParams::from(Params::from(network))
     }
 }
 
 impl BtcWork {
     /// Creates ASM SSZ work from the native work wrapper.
     pub fn from_native(work: strata_btc_verification::BtcWork) -> Self {
-        let bytes = borsh::to_vec(&work)
-            .ok()
-            .and_then(|raw| borsh::from_slice::<[u8; 32]>(&raw).ok())
-            .expect("asm: native accumulated work must stay borsh-compatible");
-
         Self {
-            bytes_le: FixedBytes::from(bytes),
+            bytes_le: FixedBytes::from(work.to_le_bytes()),
         }
     }
 
@@ -144,24 +131,19 @@ impl BtcWork {
             .as_ref()
             .try_into()
             .expect("asm: accumulated work must be 32 bytes");
-        let encoded =
-            borsh::to_vec(&bytes).expect("asm: accumulated work serialization is infallible");
-        borsh::from_slice(&encoded).expect("asm: stored accumulated work must remain valid")
+        strata_btc_verification::BtcWork::from_le_bytes(bytes)
     }
 }
 
 impl TimestampStore {
     /// Creates ASM SSZ timestamp state from the native timestamp store.
     pub fn from_native(store: strata_btc_verification::TimestampStore) -> Self {
-        let decoded: TimestampStoreBorsh = borsh::to_vec(&store)
-            .ok()
-            .and_then(|raw| borsh::from_slice(&raw).ok())
-            .expect("asm: native timestamp store must stay borsh-compatible");
+        let (buffer, head): ([u32; strata_btc_types::TIMESTAMPS_FOR_MEDIAN], usize) =
+            store.into_parts();
 
         Self {
-            buffer: decoded.buffer.to_vec().into(),
-            head: decoded
-                .head
+            buffer: buffer.to_vec().into(),
+            head: head
                 .try_into()
                 .expect("asm: timestamp store head always fits into u8"),
         }
@@ -176,48 +158,49 @@ impl TimestampStore {
             .collect::<Vec<_>>()
             .try_into()
             .expect("asm: timestamp store buffer must contain the expected number of entries");
-        let encoded = borsh::to_vec(&TimestampStoreBorsh {
-            buffer,
-            head: usize::from(self.head),
-        })
-        .expect("asm: timestamp store serialization is infallible");
-
-        borsh::from_slice(&encoded).expect("asm: stored timestamp state must remain valid")
+        strata_btc_verification::TimestampStore::from_parts(buffer, usize::from(self.head))
     }
 }
 
 impl HeaderVerificationState {
     /// Creates ASM-local header verification state from the native Bitcoin verifier state.
     pub fn from_native(state: NativeHeaderVerificationState) -> Self {
-        let decoded: HeaderVerificationStateBorsh = borsh::to_vec(&state)
-            .ok()
-            .and_then(|raw| borsh::from_slice(&raw).ok())
-            .expect("asm: native header verification state must stay borsh-compatible");
+        let (
+            params,
+            last_verified_block,
+            next_block_target,
+            epoch_start_timestamp,
+            block_timestamp_history,
+            total_accumulated_pow,
+        ): (
+            strata_btc_types::BtcParams,
+            strata_identifiers::L1BlockCommitment,
+            u32,
+            u32,
+            strata_btc_verification::TimestampStore,
+            strata_btc_verification::BtcWork,
+        ) = state.into_parts();
 
         Self {
-            params: BtcParams::from_native(decoded.params),
-            last_verified_block: decoded.last_verified_block,
-            next_block_target: decoded.next_block_target,
-            epoch_start_timestamp: decoded.epoch_start_timestamp,
-            block_timestamp_history: TimestampStore::from_native(decoded.block_timestamp_history),
-            total_accumulated_pow: BtcWork::from_native(decoded.total_accumulated_pow),
+            params: BtcParams::from_native(params),
+            last_verified_block,
+            next_block_target,
+            epoch_start_timestamp,
+            block_timestamp_history: TimestampStore::from_native(block_timestamp_history),
+            total_accumulated_pow: BtcWork::from_native(total_accumulated_pow),
         }
     }
 
     /// Converts ASM-local header verification state back into the native verifier state.
     pub fn into_native(self) -> NativeHeaderVerificationState {
-        let encoded = borsh::to_vec(&HeaderVerificationStateBorsh {
-            params: self.params.into_native(),
-            last_verified_block: self.last_verified_block,
-            next_block_target: self.next_block_target,
-            epoch_start_timestamp: self.epoch_start_timestamp,
-            block_timestamp_history: self.block_timestamp_history.into_native(),
-            total_accumulated_pow: self.total_accumulated_pow.into_native(),
-        })
-        .expect("asm: header verification state serialization is infallible");
-
-        borsh::from_slice(&encoded)
-            .expect("asm: stored header verification state must remain valid")
+        NativeHeaderVerificationState::from_parts(
+            self.params.into_native(),
+            self.last_verified_block,
+            self.next_block_target,
+            self.epoch_start_timestamp,
+            self.block_timestamp_history.into_native(),
+            self.total_accumulated_pow.into_native(),
+        )
     }
 
     /// Constructs a new state from the L1 genesis view.

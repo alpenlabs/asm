@@ -5,8 +5,9 @@
 use std::cmp;
 
 use bitcoin::{ScriptBuf, secp256k1::SECP256K1};
-use borsh::{BorshDeserialize, BorshSerialize};
 use serde::{Deserialize, Serialize};
+use ssz::{Decode as SszDecode, DecodeError, Encode as SszEncode};
+use ssz_derive::{Decode, Encode};
 use strata_bridge_types::OperatorIdx;
 use strata_btc_types::BitcoinScriptBuf;
 use strata_crypto::{EvenPublicKey, aggregate_schnorr_keys};
@@ -26,9 +27,7 @@ use super::bitmap::OperatorBitmap;
 /// The `musig2_pk` follows [BIP 340](https://github.com/bitcoin/bips/blob/master/bip-0340.mediawiki#design)
 /// standard, corresponding to a [`PublicKey`](bitcoin::secp256k1::PublicKey) with even parity
 /// for compatibility with Bitcoin's Taproot and MuSig2 implementations.
-#[derive(
-    Clone, Debug, Eq, PartialEq, Hash, BorshDeserialize, BorshSerialize, Serialize, Deserialize,
-)]
+#[derive(Clone, Debug, Eq, PartialEq, Hash, Serialize, Deserialize, Encode, Decode)]
 pub struct OperatorEntry {
     /// Global operator index.
     idx: OperatorIdx,
@@ -104,7 +103,7 @@ pub(crate) fn build_nn_script(agg_key: &BitcoinXOnlyPublicKey) -> BitcoinScriptB
 /// can support at most `u32::MAX - 1` unique operator registrations over its entire
 /// lifetime. Index `u32::MAX` is reserved as a sentinel for "no selected operator"
 /// in the withdrawal assignment protocol.
-#[derive(Clone, Debug, Eq, PartialEq, BorshDeserialize, BorshSerialize)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct OperatorTable {
     /// Next unassigned operator index for new registrations.
     next_idx: OperatorIdx,
@@ -147,6 +146,61 @@ pub struct OperatorTable {
     /// By storing the ScriptBuf directly instead of just keys, we avoid recomputing P2TR scripts
     /// during validation, improving performance.
     historical_nn_scripts: Vec<BitcoinScriptBuf>,
+}
+
+#[derive(Debug, Encode, Decode)]
+struct OperatorTableSsz {
+    next_idx: OperatorIdx,
+    operators: Vec<OperatorEntry>,
+    active_operators: OperatorBitmap,
+    agg_key: BitcoinXOnlyPublicKey,
+    historical_nn_scripts: Vec<BitcoinScriptBuf>,
+}
+
+impl From<&OperatorTable> for OperatorTableSsz {
+    fn from(value: &OperatorTable) -> Self {
+        Self {
+            next_idx: value.next_idx,
+            operators: value.operators.to_vec(),
+            active_operators: value.active_operators.clone(),
+            agg_key: value.agg_key,
+            historical_nn_scripts: value.historical_nn_scripts.clone(),
+        }
+    }
+}
+
+impl SszEncode for OperatorTable {
+    fn is_ssz_fixed_len() -> bool {
+        false
+    }
+
+    fn ssz_append(&self, buf: &mut Vec<u8>) {
+        OperatorTableSsz::from(self).ssz_append(buf);
+    }
+
+    fn ssz_bytes_len(&self) -> usize {
+        OperatorTableSsz::from(self).ssz_bytes_len()
+    }
+}
+
+impl SszDecode for OperatorTable {
+    fn is_ssz_fixed_len() -> bool {
+        false
+    }
+
+    fn from_ssz_bytes(bytes: &[u8]) -> Result<Self, DecodeError> {
+        let payload = OperatorTableSsz::from_ssz_bytes(bytes)?;
+        let operators = SortedVec::try_from(payload.operators).map_err(|_| {
+            DecodeError::BytesInvalid("operator table entries must stay sorted".into())
+        })?;
+        Ok(Self {
+            next_idx: payload.next_idx,
+            operators,
+            active_operators: payload.active_operators,
+            agg_key: payload.agg_key,
+            historical_nn_scripts: payload.historical_nn_scripts,
+        })
+    }
 }
 
 impl OperatorTable {
