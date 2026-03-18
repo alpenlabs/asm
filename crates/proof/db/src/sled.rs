@@ -2,7 +2,7 @@
 
 use std::path::Path;
 
-use strata_bridge_primitives::proof::{AsmProof, L1Range, MohoProof};
+use strata_asm_proof_types::{AsmProof, L1Range, MohoProof};
 use strata_identifiers::{Buf32, L1BlockCommitment, L1BlockId};
 
 use crate::ProofDb;

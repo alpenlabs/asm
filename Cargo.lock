@@ -4629,6 +4629,9 @@ dependencies = [
 [[package]]
 name = "strata-asm-proof-types"
 version = "0.1.0"
+dependencies = [
+ "strata-identifiers 0.1.0 (git+https://github.com/alpenlabs/alpen.git?rev=787b804c41800bbbf8d3632637a7eda332fc9f39)",
+]
 
 [[package]]
 name = "strata-asm-proto-administration"
@@ -4988,8 +4991,8 @@ version = "0.1.0"
 dependencies = [
  "proptest",
  "sled",
- "strata-bridge-primitives",
- "strata-identifiers 0.1.0 (git+https://github.com/alpenlabs/alpen.git?rev=201c3fa0af3b1a2173e8e5ae3cdb5d20c311ed17)",
+ "strata-asm-proof-types",
+ "strata-identifiers 0.1.0 (git+https://github.com/alpenlabs/alpen.git?rev=787b804c41800bbbf8d3632637a7eda332fc9f39)",
  "tempfile",
  "tokio",
 ]

@@ -2,7 +2,7 @@
 
 use std::fmt::Debug;
 
-use strata_bridge_primitives::proof::{AsmProof, L1Range, MohoProof};
+use strata_asm_proof_types::{AsmProof, L1Range, MohoProof};
 use strata_identifiers::L1BlockCommitment;
 
 mod sled;

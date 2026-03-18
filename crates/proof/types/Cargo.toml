@@ -7,3 +7,4 @@ version = "0.1.0"
 workspace = true
 
 [dependencies]
+strata-identifiers.workspace = true
