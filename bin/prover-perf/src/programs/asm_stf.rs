@@ -1,3 +1,5 @@
+use std::fs;
+
 use strata_asm_proof_impl::{
     program::AsmStfProofProgram, test_utils::create_runtime_input_and_spec,
 };
@@ -7,7 +9,7 @@ use zkaleido_sp1_host::SP1Host;
 const ASM_STF_ELF_PATH: &str = env!("SP1_ELF_guest-sp1-asm");
 
 fn load_elf() -> Vec<u8> {
-    std::fs::read(ASM_STF_ELF_PATH)
+    fs::read(ASM_STF_ELF_PATH)
         .unwrap_or_else(|err| panic!("failed to read guest elf at {ASM_STF_ELF_PATH}: {err}"))
 }
 
