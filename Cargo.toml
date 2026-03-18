@@ -9,7 +9,7 @@ members = [
   "crates/msgs/checkpoint",
   "crates/params",
   "crates/proof-db",
-  "crates/proof-impl",
+  "crates/proof/statements",
   "crates/rpc",
   "crates/spec",
   "crates/spec-debug",
