@@ -8,7 +8,7 @@ use zkaleido::RemoteProofStatus;
 
 mod sled;
 
-pub use self::sled::{RemoteProofMappingError, SledProofDb};
+pub use self::sled::{RemoteProofMappingError, RemoteProofStatusError, SledProofDb};
 
 /// Persistence interface for proof storage.
 pub trait ProofDb {
