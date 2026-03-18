@@ -8,7 +8,7 @@ members = [
   "crates/msgs/bridge",
   "crates/msgs/checkpoint",
   "crates/params",
-  "crates/proof-db",
+  "crates/proof/db",
   "crates/proof/statements",
   "crates/proof/types",
   "crates/rpc",
@@ -50,7 +50,7 @@ strata-asm-common = { path = "crates/common" }
 strata-asm-logs = { path = "crates/logs" }
 strata-asm-manifest-types = { path = "crates/manifest-types" }
 strata-asm-params = { path = "crates/params" }
-strata-asm-proof-impl = { path = "crates/proof-impl" }
+strata-asm-proof-impl = { path = "crates/proof/statements" }
 strata-asm-proof-types = { path = "crates/proof/types" }
 strata-asm-proto-administration = { path = "crates/subprotocols/admin" }
 strata-asm-proto-bridge-v1 = { path = "crates/subprotocols/bridge-v1" }
@@ -67,7 +67,7 @@ strata-asm-txs-checkpoint = { path = "crates/txs/checkpoint" }
 strata-asm-txs-checkpoint-v0 = { path = "crates/txs/checkpoint-v0" }
 strata-asm-txs-test-utils = { path = "crates/txs/test-utils" }
 strata-asm-worker = { path = "crates/worker" }
-strata-bridge-proof-db = { path = "crates/proof-db" }
+strata-bridge-proof-db = { path = "crates/proof/db" }
 
 # Dependencies from alpenlabs/alpen pinned to commit 787b804 (main @ 2026-03-17)
 # NOTE: keep `typed-sled` pinned in Cargo.lock to 9062bff for compatibility with this alpen rev.
