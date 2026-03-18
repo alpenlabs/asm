@@ -1,9 +1,16 @@
 use num_format::{Locale, ToFormattedString};
 use zkaleido::PerformanceReport;
 
+use crate::args::EvalArgs;
+
 /// Returns a formatted header for the performance report.
-pub(crate) fn format_header() -> String {
-    "*Local execution*".to_string()
+pub(crate) fn format_header(args: &EvalArgs) -> String {
+    if args.post_to_gh {
+        let short_commit: String = args.commit_hash.chars().take(8).collect();
+        format!("*Commit*: {short_commit}")
+    } else {
+        "*Local execution*".to_string()
+    }
 }
 
 /// Returns formatted results for the [`PerformanceReport`]s as a table.

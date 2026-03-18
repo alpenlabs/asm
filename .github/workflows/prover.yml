@@ -22,6 +22,7 @@ jobs:
     timeout-minutes: 120
     permissions:
       contents: read
+      pull-requests: write
     steps:
       - name: Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v4
@@ -48,7 +49,22 @@ jobs:
       - name: Check SP1 toolchain
         run: cargo prove --version
 
+      - name: Run prover-perf and post PR comment
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork == false
+        env:
+          ZKVM_MOCK: "1"
+          ZKVM_PROFILING: "1"
+        run: |
+          cargo run --release -p strata-asm-prover-perf -- \
+            --post-to-gh \
+            --github-token "${{ secrets.GITHUB_TOKEN }}" \
+            --pr-number "${{ github.event.pull_request.number }}" \
+            --commit-hash "${{ github.sha }}" \
+            --github-repo "${{ github.repository }}" \
+            --programs asm-stf
+
       - name: Run prover-perf
+        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == true
         env:
           ZKVM_MOCK: "1"
           ZKVM_PROFILING: "1"

@@ -8297,6 +8297,8 @@ dependencies = [
  "anyhow",
  "clap",
  "num-format",
+ "reqwest",
+ "serde_json",
  "sp1-build",
  "sp1-sdk",
  "strata-asm-proof-impl",

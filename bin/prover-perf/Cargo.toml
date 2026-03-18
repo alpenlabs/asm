@@ -20,6 +20,12 @@ zkaleido = { workspace = true, features = ["perf"] }
 anyhow.workspace = true
 clap.workspace = true
 num-format = "0.4.4"
+reqwest = { version = "0.12.28", default-features = false, features = [
+  "blocking",
+  "json",
+  "rustls-tls",
+] }
+serde_json.workspace = true
 sp1-sdk = "5.2.1"
 # FIXME: (@prajwolrg) use a proper tag
 zkaleido-sp1-host = { git = "https://github.com/alpenlabs/zkaleido", rev = "750c209f5850af29e34c39c250c24e1c69ffa2aa", features = [

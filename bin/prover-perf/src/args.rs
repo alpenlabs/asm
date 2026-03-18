@@ -1,10 +1,36 @@
+use std::env;
+
 use clap::Parser;
 
 use crate::programs::GuestProgram;
 
+fn default_github_repo() -> String {
+    env::var("GITHUB_REPOSITORY").unwrap_or_else(|_| "alpenlabs/asm".to_string())
+}
+
 /// Evaluate SP1 prover performance for ASM programs.
 #[derive(Debug, Clone, Parser)]
 pub(crate) struct EvalArgs {
+    /// Whether to post the results as a GitHub PR comment.
+    #[arg(long, default_value_t = false)]
+    pub post_to_gh: bool,
+
+    /// GitHub token used to authenticate API requests.
+    #[arg(long, default_value_t = String::new())]
+    pub github_token: String,
+
+    /// Pull request number to post comment to.
+    #[arg(long, default_value_t = String::new())]
+    pub pr_number: String,
+
+    /// Commit hash shown in the generated report header.
+    #[arg(long, default_value = "local_commit")]
+    pub commit_hash: String,
+
+    /// GitHub repository in `owner/repo` format.
+    #[arg(long, default_value_t = default_github_repo())]
+    pub github_repo: String,
+
     /// Programs to run. Supports comma-delimited and repeated values, e.g.
     /// `--programs asm-stf` or `--programs asm-stf,asm-stf`.
     #[arg(long)]
