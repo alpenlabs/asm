@@ -124,7 +124,7 @@ tree_hash = { git = "https://github.com/alpenlabs/ssz-gen", tag = "v0.14.0" }
 tree_hash_derive = { git = "https://github.com/alpenlabs/ssz-gen", tag = "v0.14.0" }
 
 # dependencies from alpenlabs/zkaleido
-zkaleido = { git = "https://github.com/alpenlabs/zkaleido", tag = "v0.1.0-alpha-rc21" }
+zkaleido = { git = "https://github.com/alpenlabs/zkaleido", tag = "v0.1.0-alpha-rc21", features = ["borsh"] }
 zkaleido-native-adapter = { git = "https://github.com/alpenlabs/zkaleido", tag = "v0.1.0-alpha-rc21" }
 
 # external dependencies

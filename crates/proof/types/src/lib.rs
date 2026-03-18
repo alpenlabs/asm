@@ -1,14 +1,15 @@
 //! Proof-related types used across the bridge.
 
 use strata_identifiers::L1BlockCommitment;
+use zkaleido::ProofReceiptWithMetadata;
 
-/// An opaque ASM step proof for a range of L1 blocks.
+/// ASM step proof for a range of L1 blocks.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct AsmProof(pub Vec<u8>);
+pub struct AsmProof(pub ProofReceiptWithMetadata);
 
-/// An opaque Moho recursive proof, valid up to some L1 block commitment.
+/// Moho recursive proof, valid up to some L1 block commitment.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct MohoProof(pub Vec<u8>);
+pub struct MohoProof(pub ProofReceiptWithMetadata);
 
 /// A range of L1 blocks defined by start and end commitments.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

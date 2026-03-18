@@ -4631,6 +4631,7 @@ name = "strata-asm-proof-types"
 version = "0.1.0"
 dependencies = [
  "strata-identifiers 0.1.0 (git+https://github.com/alpenlabs/alpen.git?rev=787b804c41800bbbf8d3632637a7eda332fc9f39)",
+ "zkaleido 0.1.0 (git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc21)",
 ]
 
 [[package]]
@@ -4989,12 +4990,14 @@ dependencies = [
 name = "strata-bridge-proof-db"
 version = "0.1.0"
 dependencies = [
+ "borsh",
  "proptest",
  "sled",
  "strata-asm-proof-types",
  "strata-identifiers 0.1.0 (git+https://github.com/alpenlabs/alpen.git?rev=787b804c41800bbbf8d3632637a7eda332fc9f39)",
  "tempfile",
  "tokio",
+ "zkaleido 0.1.0 (git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc21)",
 ]
 
 [[package]]

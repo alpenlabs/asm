@@ -7,12 +7,14 @@ edition = "2024"
 strata-asm-proof-types.workspace = true
 strata-identifiers.workspace = true
 
+borsh.workspace = true
 sled.workspace = true
 
 [dev-dependencies]
 proptest.workspace = true
 tempfile.workspace = true
 tokio.workspace = true
+zkaleido.workspace = true
 
 [lints]
 workspace = true

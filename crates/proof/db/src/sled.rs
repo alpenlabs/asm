@@ -2,6 +2,7 @@
 
 use std::path::Path;
 
+use borsh::BorshDeserialize;
 use strata_asm_proof_types::{AsmProof, L1Range, MohoProof};
 use strata_identifiers::{Buf32, L1BlockCommitment, L1BlockId};
 
@@ -64,7 +65,8 @@ impl ProofDb for SledProofDb {
     type Error = sled::Error;
 
     async fn store_asm_proof(&self, range: L1Range, proof: AsmProof) -> Result<(), Self::Error> {
-        self.asm_proofs.insert(encode_asm_key(&range), proof.0)?;
+        let bytes = borsh::to_vec(&proof.0).expect("borsh serialization should not fail");
+        self.asm_proofs.insert(encode_asm_key(&range), bytes)?;
         Ok(())
     }
 
@@ -72,7 +74,12 @@ impl ProofDb for SledProofDb {
         Ok(self
             .asm_proofs
             .get(encode_asm_key(&range))?
-            .map(|v| AsmProof(v.to_vec())))
+            .map(|v| {
+                AsmProof(
+                    BorshDeserialize::try_from_slice(&v)
+                        .expect("stored proof should be valid borsh"),
+                )
+            }))
     }
 
     async fn store_moho_proof(
@@ -80,7 +87,8 @@ impl ProofDb for SledProofDb {
         l1ref: L1BlockCommitment,
         proof: MohoProof,
     ) -> Result<(), Self::Error> {
-        self.moho_proofs.insert(encode_moho_key(&l1ref), proof.0)?;
+        let bytes = borsh::to_vec(&proof.0).expect("borsh serialization should not fail");
+        self.moho_proofs.insert(encode_moho_key(&l1ref), bytes)?;
         Ok(())
     }
 
@@ -91,7 +99,12 @@ impl ProofDb for SledProofDb {
         Ok(self
             .moho_proofs
             .get(encode_moho_key(&l1ref))?
-            .map(|v| MohoProof(v.to_vec())))
+            .map(|v| {
+                MohoProof(
+                    BorshDeserialize::try_from_slice(&v)
+                        .expect("stored proof should be valid borsh"),
+                )
+            }))
     }
 
     async fn get_latest_moho_proof(
@@ -99,7 +112,10 @@ impl ProofDb for SledProofDb {
     ) -> Result<Option<(L1BlockCommitment, MohoProof)>, Self::Error> {
         Ok(self.moho_proofs.last()?.map(|(k, v)| {
             let commitment = decode_moho_key(&k);
-            let proof = MohoProof(v.to_vec());
+            let proof = MohoProof(
+                BorshDeserialize::try_from_slice(&v)
+                    .expect("stored proof should be valid borsh"),
+            );
             (commitment, proof)
         }))
     }
@@ -128,6 +144,7 @@ mod tests {
     use proptest::{collection::vec, prelude::*};
     use strata_identifiers::{Buf32, L1BlockId};
     use tokio::runtime::Runtime;
+    use zkaleido::{Proof, ProofMetadata, ProofReceipt, ProofReceiptWithMetadata, PublicValues, ZkVm};
 
     use super::*;
 
@@ -146,12 +163,23 @@ mod tests {
             })
     }
 
+    fn arb_proof_receipt_with_metadata() -> impl Strategy<Value = ProofReceiptWithMetadata> {
+        (vec(any::<u8>(), 0..512), vec(any::<u8>(), 0..512)).prop_map(
+            |(proof_bytes, pv_bytes)| {
+                let receipt =
+                    ProofReceipt::new(Proof::new(proof_bytes), PublicValues::new(pv_bytes));
+                let metadata = ProofMetadata::new(ZkVm::Native, "test");
+                ProofReceiptWithMetadata::new(receipt, metadata)
+            },
+        )
+    }
+
     fn arb_asm_proof() -> impl Strategy<Value = AsmProof> {
-        vec(any::<u8>(), 0..1024).prop_map(AsmProof)
+        arb_proof_receipt_with_metadata().prop_map(AsmProof)
     }
 
     fn arb_moho_proof() -> impl Strategy<Value = MohoProof> {
-        vec(any::<u8>(), 0..1024).prop_map(MohoProof)
+        arb_proof_receipt_with_metadata().prop_map(MohoProof)
     }
 
     /// Creates an isolated [`SledProofDb`] backed by a temporary directory.

@@ -8,3 +8,4 @@ workspace = true
 
 [dependencies]
 strata-identifiers.workspace = true
+zkaleido.workspace = true
