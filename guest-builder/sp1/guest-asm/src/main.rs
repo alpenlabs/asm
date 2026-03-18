@@ -10,6 +10,8 @@ fn main() {
     let spec = hardcoded_spec();
     process_asm_stf(&Sp1ZkVmEnv, &spec)
 }
+
+// FIXME: Remove hardcoded spec https://alpenlabs.atlassian.net/browse/STR-2717
 const SUBPROTOCOLS_JSON: &str = r#"
 [
   {"Admin":{"strata_administrator":{"keys":["02bedfa2fa42d906565519bee43875608a09e06640203a6c7a43569150c7cbe7c5"],"threshold":1},"strata_sequencer_manager":{"keys":["03cf59a1a5ef092ced386f2651b610d3dd2cc6806bb74a8eab95c1f3b2f3d81772","02343edde4a056e00af99aa49de60df03859d1b79ebbc4f3f6da8fbd0053565de3"],"threshold":1},"confirmation_depth":144,"max_seqno_gap":10}},
