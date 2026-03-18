@@ -1,0 +1,24 @@
+[package]
+edition = "2021"
+name = "guest-sp1-asm"
+version = "0.1.0"
+
+[workspace]
+
+[dependencies]
+serde_json = "1.0"
+strata-asm-params = { path = "../../../crates/params" }
+strata-asm-proof-impl = { path = "../../../crates/proof/statements" }
+strata-asm-spec = { path = "../../../crates/spec" }
+# FIXME: (@prajwolrg) use a proper tag
+zkaleido-sp1-guest-env = { git = "https://github.com/alpenlabs/zkaleido", rev = "750c209f5850af29e34c39c250c24e1c69ffa2aa" }
+
+[patch.crates-io]
+secp256k1 = { git = "https://github.com/sp1-patches/rust-secp256k1", tag = "patch-0.29.1-sp1-5.0.0" }
+secp256k1-sys = { git = "https://github.com/sp1-patches/rust-secp256k1", tag = "patch-0.29.1-sp1-5.0.0" }
+k256 = { git = "https://github.com/sp1-patches/elliptic-curves", tag = "patch-k256-13.4-sp1-5.0.0" }
+bn = { git = "https://github.com/sp1-patches/bn", package = "substrate-bn", tag = "patch-0.6.0-sp1-5.0.0" }
+
+[features]
+mock-verify = ["zkaleido-sp1-guest-env/mock-verify"]
+zkvm-verify = ["zkaleido-sp1-guest-env/zkvm-verify"]

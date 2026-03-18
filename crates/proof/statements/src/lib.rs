@@ -4,5 +4,6 @@
 //! the [`MohoProgram`](moho_runtime_interface::MohoProgram) trait, which allows the generic Moho
 //! runtime to drive ASM state transitions as verified steps.
 pub mod moho_program;
+#[cfg(not(target_os = "zkvm"))]
 pub mod program;
 pub mod statements;
