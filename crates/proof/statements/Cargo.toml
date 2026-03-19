@@ -13,18 +13,34 @@ moho-types.workspace = true
 ssz.workspace = true
 strata-asm-common.workspace = true
 strata-asm-logs.workspace = true
+strata-asm-params = { workspace = true, optional = true }
 strata-asm-spec.workspace = true
 strata-asm-stf.workspace = true
+strata-btc-types = { workspace = true, optional = true }
+strata-btc-verification = { workspace = true, optional = true }
 strata-identifiers.workspace = true
+strata-l1-txfmt = { workspace = true, optional = true }
 strata-predicate.workspace = true
+strata-test-utils-btc = { workspace = true, optional = true }
 zkaleido.workspace = true
 
 bitcoin.workspace = true
 borsh.workspace = true
+serde_json = { workspace = true, optional = true }
 sha2.workspace = true
 
 [target.'cfg(not(target_os = "zkvm"))'.dependencies]
 zkaleido-native-adapter.workspace = true
+
+[features]
+test-utils = [
+  "dep:serde_json",
+  "dep:strata-asm-params",
+  "dep:strata-btc-types",
+  "dep:strata-btc-verification",
+  "dep:strata-l1-txfmt",
+  "dep:strata-test-utils-btc",
+]
 
 [dev-dependencies]
 serde_json.workspace = true
