@@ -1,0 +1,12 @@
+[package]
+edition = "2021"
+name = "strata-asm-proof-types"
+version = "0.1.0"
+
+[lints]
+workspace = true
+
+[dependencies]
+borsh.workspace = true
+strata-identifiers.workspace = true
+zkaleido = { workspace = true, features = ["remote-prover"] }

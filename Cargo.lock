@@ -4600,6 +4600,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "strata-asm-proof-db"
+version = "0.1.0"
+dependencies = [
+ "borsh",
+ "proptest",
+ "sled",
+ "strata-asm-proof-types",
+ "strata-identifiers 0.1.0 (git+https://github.com/alpenlabs/alpen.git?rev=787b804c41800bbbf8d3632637a7eda332fc9f39)",
+ "tempfile",
+ "tokio",
+ "zkaleido 0.1.0 (git+https://github.com/alpenlabs/zkaleido?rev=750c209f5850af29e34c39c250c24e1c69ffa2aa)",
+]
+
+[[package]]
 name = "strata-asm-proof-impl"
 version = "0.1.0"
 dependencies = [
@@ -4622,8 +4636,17 @@ dependencies = [
  "strata-l1-txfmt",
  "strata-predicate",
  "strata-test-utils-btc",
- "zkaleido 0.1.0 (git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc21)",
+ "zkaleido 0.1.0 (git+https://github.com/alpenlabs/zkaleido?rev=750c209f5850af29e34c39c250c24e1c69ffa2aa)",
  "zkaleido-native-adapter",
+]
+
+[[package]]
+name = "strata-asm-proof-types"
+version = "0.1.0"
+dependencies = [
+ "borsh",
+ "strata-identifiers 0.1.0 (git+https://github.com/alpenlabs/alpen.git?rev=787b804c41800bbbf8d3632637a7eda332fc9f39)",
+ "zkaleido 0.1.0 (git+https://github.com/alpenlabs/zkaleido?rev=750c209f5850af29e34c39c250c24e1c69ffa2aa)",
 ]
 
 [[package]]
@@ -4975,18 +4998,6 @@ dependencies = [
  "strata-identifiers 0.1.0 (git+https://github.com/alpenlabs/alpen.git?rev=201c3fa0af3b1a2173e8e5ae3cdb5d20c311ed17)",
  "strata-primitives 0.3.0-alpha.1 (git+https://github.com/alpenlabs/alpen.git?rev=201c3fa0af3b1a2173e8e5ae3cdb5d20c311ed17)",
  "thiserror 2.0.18",
- "tokio",
-]
-
-[[package]]
-name = "strata-bridge-proof-db"
-version = "0.1.0"
-dependencies = [
- "proptest",
- "sled",
- "strata-bridge-primitives",
- "strata-identifiers 0.1.0 (git+https://github.com/alpenlabs/alpen.git?rev=201c3fa0af3b1a2173e8e5ae3cdb5d20c311ed17)",
- "tempfile",
  "tokio",
 ]
 
@@ -7610,7 +7621,7 @@ dependencies = [
 [[package]]
 name = "zkaleido"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc21#fdd5003444e7ab60bd84cead503a3da7d6676c18"
+source = "git+https://github.com/alpenlabs/zkaleido?rev=750c209f5850af29e34c39c250c24e1c69ffa2aa#750c209f5850af29e34c39c250c24e1c69ffa2aa"
 dependencies = [
  "async-trait",
  "bincode",
@@ -7622,15 +7633,13 @@ dependencies = [
 [[package]]
 name = "zkaleido-native-adapter"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc21#fdd5003444e7ab60bd84cead503a3da7d6676c18"
+source = "git+https://github.com/alpenlabs/zkaleido?rev=750c209f5850af29e34c39c250c24e1c69ffa2aa#750c209f5850af29e34c39c250c24e1c69ffa2aa"
 dependencies = [
- "async-trait",
  "bincode",
- "hex",
  "k256",
  "rand_core 0.6.4",
  "serde",
- "zkaleido 0.1.0 (git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc21)",
+ "zkaleido 0.1.0 (git+https://github.com/alpenlabs/zkaleido?rev=750c209f5850af29e34c39c250c24e1c69ffa2aa)",
 ]
 
 [[package]]

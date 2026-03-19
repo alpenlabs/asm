@@ -1,13 +1,12 @@
-//! Sled-based proof storage.
+//! Storage trait for finalised ASM step proofs and Moho recursive proofs.
+//!
+//! Proofs are keyed by L1 block range (ASM) or L1 block commitment (Moho) and
+//! support height-based pruning to reclaim space for old entries.
 
 use std::fmt::Debug;
 
-use strata_bridge_primitives::proof::{AsmProof, L1Range, MohoProof};
+use strata_asm_proof_types::{AsmProof, L1Range, MohoProof};
 use strata_identifiers::L1BlockCommitment;
-
-mod sled;
-
-pub use self::sled::SledProofDb;
 
 /// Persistence interface for proof storage.
 pub trait ProofDb {

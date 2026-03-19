@@ -1,13 +1,15 @@
 [package]
-name = "strata-bridge-proof-db"
+name = "strata-asm-proof-db"
 version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-strata-bridge-primitives.workspace = true
-strata-identifiers = { git = "https://github.com/alpenlabs/alpen.git", rev = "201c3fa0af3b1a2173e8e5ae3cdb5d20c311ed17" }
+strata-asm-proof-types.workspace = true
+strata-identifiers.workspace = true
 
+borsh.workspace = true
 sled.workspace = true
+zkaleido.workspace = true
 
 [dev-dependencies]
 proptest.workspace = true

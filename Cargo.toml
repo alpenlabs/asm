@@ -8,8 +8,9 @@ members = [
   "crates/msgs/bridge",
   "crates/msgs/checkpoint",
   "crates/params",
-  "crates/proof-db",
-  "crates/proof-impl",
+  "crates/proof/db",
+  "crates/proof/statements",
+  "crates/proof/types",
   "crates/rpc",
   "crates/spec",
   "crates/spec-debug",
@@ -49,7 +50,9 @@ strata-asm-common = { path = "crates/common" }
 strata-asm-logs = { path = "crates/logs" }
 strata-asm-manifest-types = { path = "crates/manifest-types" }
 strata-asm-params = { path = "crates/params" }
-strata-asm-proof-impl = { path = "crates/proof-impl" }
+strata-asm-proof-db = { path = "crates/proof/db" }
+strata-asm-proof-impl = { path = "crates/proof/statements" }
+strata-asm-proof-types = { path = "crates/proof/types" }
 strata-asm-proto-administration = { path = "crates/subprotocols/admin" }
 strata-asm-proto-bridge-v1 = { path = "crates/subprotocols/bridge-v1" }
 strata-asm-proto-checkpoint = { path = "crates/subprotocols/checkpoint" }
@@ -65,7 +68,6 @@ strata-asm-txs-checkpoint = { path = "crates/txs/checkpoint" }
 strata-asm-txs-checkpoint-v0 = { path = "crates/txs/checkpoint-v0" }
 strata-asm-txs-test-utils = { path = "crates/txs/test-utils" }
 strata-asm-worker = { path = "crates/worker" }
-strata-bridge-proof-db = { path = "crates/proof-db" }
 
 # Dependencies from alpenlabs/alpen pinned to commit 787b804 (main @ 2026-03-17)
 # NOTE: keep `typed-sled` pinned in Cargo.lock to 9062bff for compatibility with this alpen rev.
@@ -94,7 +96,6 @@ strata-test-utils-ssz = { git = "https://github.com/alpenlabs/alpen.git", rev = 
 # Dependencies from alpenlabs/strata-bridge pinned to commit fc966d5 (STR-2598-asm-stf-proof-statements @ 2026-03-17)
 btc-tracker = { git = "https://github.com/alpenlabs/strata-bridge.git", rev = "fc966d5f81c773de10a4ef3a66666687ec11d715" }
 strata-bridge-common = { git = "https://github.com/alpenlabs/strata-bridge.git", rev = "fc966d5f81c773de10a4ef3a66666687ec11d715" }
-strata-bridge-primitives = { git = "https://github.com/alpenlabs/strata-bridge.git", rev = "fc966d5f81c773de10a4ef3a66666687ec11d715" }
 
 # Dependencies from alpenlabs/moho pinned to commit 97e9d28 (main @ 2026-03-12)
 moho-runtime-impl = { git = "https://github.com/alpenlabs/moho", rev = "97e9d281f310e9c2e60cf80448c95e855be589b9" }
@@ -123,8 +124,11 @@ tree_hash = { git = "https://github.com/alpenlabs/ssz-gen", tag = "v0.14.0" }
 tree_hash_derive = { git = "https://github.com/alpenlabs/ssz-gen", tag = "v0.14.0" }
 
 # dependencies from alpenlabs/zkaleido
-zkaleido = { git = "https://github.com/alpenlabs/zkaleido", tag = "v0.1.0-alpha-rc21" }
-zkaleido-native-adapter = { git = "https://github.com/alpenlabs/zkaleido", tag = "v0.1.0-alpha-rc21" }
+# FIXME: (@prajwolrg) use a proper tag
+zkaleido = { git = "https://github.com/alpenlabs/zkaleido", rev = "750c209f5850af29e34c39c250c24e1c69ffa2aa", features = [
+  "borsh",
+] }
+zkaleido-native-adapter = { git = "https://github.com/alpenlabs/zkaleido", rev = "750c209f5850af29e34c39c250c24e1c69ffa2aa" }
 
 # external dependencies
 anyhow = "1.0.86"
