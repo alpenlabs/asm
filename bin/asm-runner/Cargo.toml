@@ -13,6 +13,8 @@ strata-bridge-common.workspace = true
 
 strata-asm-common.workspace = true
 strata-asm-params.workspace = true
+strata-asm-proof-db.workspace = true
+strata-asm-proof-types.workspace = true
 strata-asm-proto-bridge-v1.workspace = true
 strata-asm-txs-bridge-v1.workspace = true
 strata-asm-worker.workspace = true

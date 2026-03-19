@@ -8293,6 +8293,8 @@ dependencies = [
  "ssz",
  "strata-asm-common",
  "strata-asm-params",
+ "strata-asm-proof-db",
+ "strata-asm-proof-types",
  "strata-asm-proto-bridge-v1",
  "strata-asm-rpc",
  "strata-asm-txs-bridge-v1",

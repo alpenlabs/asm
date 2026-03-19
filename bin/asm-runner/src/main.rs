@@ -5,6 +5,7 @@
 mod block_driver;
 mod bootstrap;
 mod config;
+mod orchestrator;
 mod rpc_server;
 mod storage;
 mod worker_context;

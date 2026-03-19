@@ -1,5 +1,7 @@
 //! Proof-related types used across the bridge.
 
+use std::cmp::Ordering;
+
 use borsh::{BorshDeserialize, BorshSerialize};
 use strata_identifiers::L1BlockCommitment;
 use zkaleido::ProofReceiptWithMetadata;
@@ -13,12 +15,62 @@ pub struct AsmProof(pub ProofReceiptWithMetadata);
 pub struct MohoProof(pub ProofReceiptWithMetadata);
 
 /// Identifies a proof by its kind and block reference.
+///
+/// Ordered by ascending height (smallest height first). For ASM proofs the
+/// start height of the range is used. When an ASM proof and a Moho proof share
+/// the same height, the ASM proof comes first because the ASM proof is a
+/// prerequisite for Moho construction at that height.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, BorshSerialize, BorshDeserialize)]
 pub enum ProofId {
     /// An ASM step proof covering an L1 range.
     Asm(L1Range),
     /// A Moho recursive proof anchored at an L1 block commitment.
     Moho(L1BlockCommitment),
+}
+
+impl ProofId {
+    /// Returns the height used for ordering.
+    ///
+    /// For ASM proofs this is the start height; for Moho proofs the anchor height.
+    fn ordering_height(&self) -> u32 {
+        match self {
+            ProofId::Asm(range) => range.start().height(),
+            ProofId::Moho(commitment) => commitment.height(),
+        }
+    }
+
+    /// Returns a discriminant used to break ties at the same height.
+    ///
+    /// ASM = 0 (comes first), Moho = 1.
+    const fn variant_rank(&self) -> u8 {
+        match self {
+            ProofId::Asm(_) => 0,
+            ProofId::Moho(_) => 1,
+        }
+    }
+}
+
+impl Ord for ProofId {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.ordering_height()
+            .cmp(&other.ordering_height())
+            .then_with(|| self.variant_rank().cmp(&other.variant_rank()))
+            .then_with(|| {
+                // Within the same variant and height, break ties by full key.
+                match (self, other) {
+                    (ProofId::Asm(a), ProofId::Asm(b)) => a.cmp(b),
+                    (ProofId::Moho(a), ProofId::Moho(b)) => a.cmp(b),
+                    // Different variants at same height already handled by variant_rank.
+                    _ => Ordering::Equal,
+                }
+            })
+    }
+}
+
+impl PartialOrd for ProofId {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
 }
 
 /// Opaque identifier assigned by the remote prover service.
@@ -30,7 +82,9 @@ pub enum ProofId {
 pub struct RemoteProofId(pub Vec<u8>);
 
 /// A range of L1 blocks defined by start and end commitments.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, BorshSerialize, BorshDeserialize)]
+///
+/// Ordered by start commitment first, then end commitment.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, BorshSerialize, BorshDeserialize)]
 pub struct L1Range {
     /// The start of the range (inclusive).
     start: L1BlockCommitment,
