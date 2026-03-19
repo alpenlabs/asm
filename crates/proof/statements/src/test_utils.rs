@@ -7,15 +7,17 @@ use bitcoin::Block;
 use moho_runtime_impl::RuntimeInput;
 use moho_runtime_interface::MohoProgram;
 use moho_types::{ExportState, MohoState};
-use strata_asm_common::{AnchorState, AsmHistoryAccumulatorState, AuxData, ChainViewState};
+use ssz::Encode;
+use strata_asm_common::{
+    AnchorState, AsmHistoryAccumulatorState, AuxData, ChainViewState, HeaderVerificationState,
+};
 use strata_asm_params::{AsmParams, SubprotocolInstance};
 use strata_asm_spec::StrataAsmSpec;
 use strata_btc_types::{BlockHashExt, GenesisL1View};
-use strata_btc_verification::HeaderVerificationState;
 use strata_identifiers::L1BlockCommitment;
 use strata_l1_txfmt::MagicBytes;
 use strata_predicate::PredicateKey;
-use strata_test_utils_btc::BtcMainnetSegment;
+use strata_test_utils_btc::segment::BtcChainSegment;
 
 use crate::moho_program::{
     input::{AsmStepInput, L1Block},
@@ -30,11 +32,8 @@ const SUBPROTOCOLS_JSON: &str = r#"[
 
 /// Creates a single-step input from a fixed test Bitcoin block.
 pub fn create_asm_step_input() -> AsmStepInput {
-    let block = BtcMainnetSegment::load_full_block();
-    AsmStepInput {
-        block: L1Block(block),
-        aux_data: AuxData::default(),
-    }
+    let block = BtcChainSegment::load_full_block();
+    AsmStepInput::new(L1Block(block), AuxData::default())
 }
 
 /// Builds a genesis L1 view whose tip is the parent of `block`.
@@ -65,7 +64,7 @@ pub fn create_genesis_anchor_state(block: &Block) -> AnchorState {
 
     AnchorState {
         chain_view,
-        sections: Vec::new(),
+        sections: Vec::new().into(),
     }
 }
 
@@ -97,19 +96,21 @@ pub fn create_moho_prestate(block: &Block) -> MohoState {
 
 /// Creates a runtime input for a single ASM STF step.
 pub fn create_runtime_input(step_input: &AsmStepInput) -> RuntimeInput {
-    let inner_pre_state = create_genesis_anchor_state(&step_input.block.0);
-    let moho_pre_state = create_moho_prestate(&step_input.block.0);
+    let block = step_input.block();
+    let inner_pre_state = create_genesis_anchor_state(&block.0);
+    let moho_pre_state = create_moho_prestate(&block.0);
     RuntimeInput::new(
         moho_pre_state,
-        borsh::to_vec(&inner_pre_state).expect("borsh encode inner state"),
-        borsh::to_vec(step_input).expect("borsh encode step input"),
+        inner_pre_state.as_ssz_bytes(),
+        step_input.as_ssz_bytes(),
     )
 }
 
 /// Creates a matching `(RuntimeInput, StrataAsmSpec)` test pair.
 pub fn create_runtime_input_and_spec() -> (RuntimeInput, StrataAsmSpec) {
     let step_input = create_asm_step_input();
-    let l1view = create_genesis_l1_view_to_process_block(&step_input.block.0);
+    let block = step_input.block();
+    let l1view = create_genesis_l1_view_to_process_block(&block.0);
     let spec = create_asm_spec(l1view);
     let runtime_input = create_runtime_input(&step_input);
     (runtime_input, spec)
