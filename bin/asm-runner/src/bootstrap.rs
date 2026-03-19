@@ -9,12 +9,12 @@ use strata_asm_spec::StrataAsmSpec;
 use strata_asm_worker::AsmWorkerBuilder;
 use strata_tasks::TaskExecutor;
 use tokio::runtime::Handle;
-use zkaleido::ZkVmProgram;
+
 
 use crate::{
     block_driver::{drive_asm_from_btc_tracker, setup_btc_tracker},
     config::{AsmRpcConfig, BitcoinConfig},
-    orchestrator::ProofOrchestrator,
+    orchestrator::{InputBuilder, ProofOrchestrator},
     rpc_server::run_rpc_server,
     storage::create_storage_managers,
     worker_context::AsmWorkerContext,
@@ -68,15 +68,13 @@ pub(crate) async fn bootstrap(
         let proof_db = SledProofDb::open(&orch_config.proof_db_path)?;
         let spec = StrataAsmSpec::from_asm_params(&params);
         let native_host = AsmStfProofProgram::native_host(spec);
-        let proof_type = AsmStfProofProgram::proof_type();
 
+        let input_builder = InputBuilder::new(asm_manager.clone(), bitcoin_client.clone());
         let mut orchestrator = ProofOrchestrator::new(
             proof_db,
             native_host,
-            proof_type,
             orch_config,
-            asm_manager.clone(),
-            bitcoin_client.clone(),
+            input_builder,
         );
 
         // ZkVmRemoteProver is !Send (#[async_trait(?Send)]), so the orchestrator
