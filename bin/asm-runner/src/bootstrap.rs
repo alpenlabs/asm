@@ -3,13 +3,18 @@ use std::sync::Arc;
 use anyhow::Result;
 use bitcoind_async_client::{Auth, Client};
 use strata_asm_params::AsmParams;
+use strata_asm_proof_db::SledProofDb;
+use strata_asm_proof_impl::program::AsmStfProofProgram;
+use strata_asm_spec::StrataAsmSpec;
 use strata_asm_worker::AsmWorkerBuilder;
 use strata_tasks::TaskExecutor;
 use tokio::runtime::Handle;
+use zkaleido::ZkVmProgram;
 
 use crate::{
     block_driver::{drive_asm_from_btc_tracker, setup_btc_tracker},
     config::{AsmRpcConfig, BitcoinConfig},
+    orchestrator::ProofOrchestrator,
     rpc_server::run_rpc_server,
     storage::create_storage_managers,
     worker_context::AsmWorkerContext,
@@ -65,6 +70,31 @@ pub(crate) async fn bootstrap(
         "rpc_server",
         run_rpc_server(asm_manager, asm_worker, bitcoin_client, rpc_host, rpc_port),
     );
+
+    // 8. Optionally spawn the proof orchestrator
+    if let Some(orch_config) = config.orchestrator {
+        let proof_db = SledProofDb::open(&orch_config.proof_db_path)?;
+        let spec = StrataAsmSpec::from_asm_params(&params);
+        let native_host = AsmStfProofProgram::native_host(spec);
+        let proof_type = AsmStfProofProgram::proof_type();
+
+        let mut orchestrator =
+            ProofOrchestrator::new(proof_db, native_host, proof_type, orch_config);
+
+        // ZkVmRemoteProver is !Send (#[async_trait(?Send)]), so the orchestrator
+        // future cannot be spawned on a multi-threaded runtime directly. We run it
+        // on a dedicated thread with a single-threaded runtime + LocalSet.
+        executor.spawn_critical_async("proof_orchestrator", async move {
+            tokio::task::spawn_blocking(move || {
+                let rt = tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()?;
+                let local = tokio::task::LocalSet::new();
+                rt.block_on(local.run_until(async move { orchestrator.run().await }))
+            })
+            .await?
+        });
+    }
 
     Ok(())
 }

@@ -13,6 +13,8 @@ pub(crate) struct AsmRpcConfig {
     pub database: DatabaseConfig,
     /// Bitcoin node configuration
     pub bitcoin: BitcoinConfig,
+    /// Proof orchestrator configuration (optional — omit to disable proof generation).
+    pub orchestrator: Option<crate::orchestrator::config::OrchestratorConfig>,
 }
 
 /// RPC server configuration

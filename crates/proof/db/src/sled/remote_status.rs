@@ -34,6 +34,15 @@ impl fmt::Display for RemoteProofStatusError {
     }
 }
 
+impl std::error::Error for RemoteProofStatusError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Db(e) => Some(e),
+            _ => None,
+        }
+    }
+}
+
 impl From<sled::Error> for RemoteProofStatusError {
     fn from(e: sled::Error) -> Self {
         Self::Db(e)

@@ -42,6 +42,15 @@ impl fmt::Display for RemoteProofMappingError {
     }
 }
 
+impl std::error::Error for RemoteProofMappingError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Db(e) => Some(e),
+            _ => None,
+        }
+    }
+}
+
 impl From<sled::Error> for RemoteProofMappingError {
     fn from(e: sled::Error) -> Self {
         Self::Db(e)
