@@ -1,12 +1,12 @@
 use std::sync::Arc;
 
-use bitcoin::{Block, hashes::Hash};
+use bitcoin::Block;
 use strata_asm_common::{AnchorState, AsmHistoryAccumulatorState, AuxData, ChainViewState};
 use strata_asm_params::AsmParams;
 use strata_asm_spec::StrataAsmSpec;
-use strata_asm_stf::{AsmStfInput, AsmStfOutput};
+use strata_asm_stf::AsmStfOutput;
 use strata_btc_verification::HeaderVerificationState;
-use strata_primitives::{Buf32, l1::L1BlockCommitment};
+use strata_primitives::l1::L1BlockCommitment;
 use strata_service::ServiceState;
 use strata_state::asm_state::AsmState;
 use tracing::field::Empty;
@@ -118,26 +118,11 @@ impl<W: WorkerContext + Send + Sync + 'static> AsmWorkerServiceState<W> {
             resolver.resolve(&pre_process.aux_requests)?
         };
 
-        // For blocks without witness data (pre-SegWit or legacy-only transactions),
-        // the witness merkle root equals the transaction merkle root per Bitcoin protocol.
-        let wtxids_root: Buf32 = block
-            .witness_root()
-            .map(|root| root.as_raw_hash().to_byte_array())
-            .unwrap_or_else(|| block.header.merkle_root.as_raw_hash().to_byte_array())
-            .into();
-
-        let stf_input = AsmStfInput {
-            protocol_txs: pre_process.txs,
-            header: &block.header,
-            wtxids_root,
-            aux_data: aux_data.clone(),
-        };
-
         // Asm transition.
         let stf_span = tracing::debug_span!("asm.stf.process");
         let _stf_guard = stf_span.enter();
 
-        strata_asm_stf::compute_asm_transition(&self.asm_spec, cur_state.state(), stf_input)
+        strata_asm_stf::compute_asm_transition(&self.asm_spec, cur_state.state(), block, &aux_data)
             .map(|output| (output, aux_data))
             .map_err(WorkerError::AsmError)
     }

@@ -1,18 +1,16 @@
 //! [`MohoProgram`] implementation for the ASM STF.
 //!
 //! This module contains the [`AsmStfProgram`] type that implements [`MohoProgram`], wiring the
-//! ASM state transition function into the Moho runtime. It handles block validation, state
-//! commitment via SHA-256, transition execution, and extraction of post-transition artifacts
-//! such as predicate updates and export state entries.
-use bitcoin::hashes::Hash;
+//! ASM state transition function into the Moho runtime. It handles state commitment via SHA-256,
+//! transition execution, and extraction of post-transition artifacts such as predicate updates
+//! and export state entries.
 use moho_runtime_interface::MohoProgram;
 use moho_types::{ExportState, InnerStateCommitment, StateReference};
 use sha2::{Digest, Sha256};
-use strata_asm_common::{AnchorState, AsmSpec};
+use strata_asm_common::AnchorState;
 use strata_asm_logs::{AsmStfUpdate, NewExportEntry};
 use strata_asm_spec::StrataAsmSpec;
-use strata_asm_stf::{compute_asm_transition, group_txs_by_subprotocol, AsmStfInput, AsmStfOutput};
-use strata_identifiers::Buf32;
+use strata_asm_stf::{compute_asm_transition, AsmStfOutput};
 use strata_predicate::PredicateKey;
 
 use crate::moho_program::input::AsmStepInput;
@@ -53,41 +51,8 @@ impl MohoProgram for AsmStfProgram {
         spec: &StrataAsmSpec,
         input: &AsmStepInput,
     ) -> AsmStfOutput {
-        // TODO: (@prajworlg) Consolidate block validation logic in a single place
-        // https://alpenlabs.atlassian.net/browse/STR-2619
-
-        // 1. Validate the input
-        assert!(input.validate_block());
-
-        // For blocks without witness data (pre-SegWit or legacy-only transactions),
-        // the witness merkle root equals the transaction merkle root per Bitcoin protocol.
-        let wtxids_root: Buf32 = input
-            .block
-            .0
-            .witness_root()
-            .map(|root| root.as_raw_hash().to_byte_array())
-            .unwrap_or_else(|| {
-                input
-                    .block
-                    .0
-                    .header
-                    .merkle_root
-                    .as_raw_hash()
-                    .to_byte_array()
-            })
-            .into();
-
-        // 2. Restructure the raw input to be formatted according to what we want.
-        let protocol_txs = group_txs_by_subprotocol(spec.magic_bytes(), &input.block.0.txdata);
-        let stf_input = AsmStfInput {
-            protocol_txs,
-            header: &input.block.0.header,
-            aux_data: input.aux_data.clone(),
-            wtxids_root,
-        };
-
-        // 3. Actually invoke the ASM state transition function.
-        compute_asm_transition(spec, pre_state, stf_input).expect("asm: compute transition")
+        compute_asm_transition(spec, pre_state, &input.block.0, &input.aux_data)
+            .expect("asm: compute transition")
     }
 
     fn extract_post_state(output: &Self::StepOutput) -> &Self::State {
