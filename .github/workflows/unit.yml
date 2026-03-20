@@ -3,6 +3,7 @@
 name: Unit Tests
 
 on:
+  workflow_call:
   pull_request:
   merge_group:
   push:
@@ -12,7 +13,7 @@ env:
   CARGO_TERM_COLOR: always
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+  group: unit-tests-${{ github.workflow }}-${{ github.head_ref || github.run_id }}
   cancel-in-progress: true
 
 permissions: {}
@@ -32,13 +33,18 @@ jobs:
 
       - name: Install Rust toolchain
         run: |
-          rustup toolchain install nightly --profile minimal
+          rustup toolchain install nightly --profile minimal --component llvm-tools-preview
           rustup default nightly
 
       - name: Install latest cargo-nextest release
         uses: taiki-e/install-action@81ecf985428d5c2ea81dbf079bceca32bc9604ab # v2.62.43
         with:
           tool: nextest
+
+      - name: Install cargo-llvm-cov
+        uses: taiki-e/install-action@81ecf985428d5c2ea81dbf079bceca32bc9604ab # v2.62.43
+        with:
+          tool: cargo-llvm-cov
 
       - name: Install bitcoind
         env:
@@ -58,9 +64,17 @@ jobs:
         with:
           cache-on-failure: true
 
-      - name: Run tests
+      - name: Run tests with coverage
         run: |
-          cargo --locked nextest run --all-features
+          cargo llvm-cov --locked --workspace nextest --all-features --lcov --output-path lcov.unit.info
+        env:
+          RUST_BACKTRACE: 1
+
+      - name: Upload coverage lcov artifact
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: unit-lcov
+          path: lcov.unit.info
 
   doc:
     name: Run doc tests
