@@ -8,8 +8,6 @@ use bitcoin::{
     consensus::{deserialize, encode::Error as ConsensusEncodeError},
     hashes::Hash,
 };
-use borsh::{BorshDeserialize, BorshSerialize, io};
-use ssz::{Decode as _, Encode as _};
 use ssz_derive::{Decode, Encode};
 use strata_asm_manifest_types::Hash32;
 
@@ -92,19 +90,8 @@ impl AuxData {
     }
 }
 
-impl BorshSerialize for AuxData {
-    fn serialize<W: io::Write>(&self, writer: &mut W) -> io::Result<()> {
-        BorshSerialize::serialize(&self.as_ssz_bytes(), writer)
-    }
-}
-
-impl BorshDeserialize for AuxData {
-    fn deserialize_reader<R: io::Read>(reader: &mut R) -> io::Result<Self> {
-        let bytes = Vec::<u8>::deserialize_reader(reader)?;
-        Self::from_ssz_bytes(&bytes)
-            .map_err(|err| io::Error::new(io::ErrorKind::InvalidData, err.to_string()))
-    }
-}
+// Keep Borsh only as a thin compatibility shim; SSZ remains the canonical aux-data encoding.
+strata_identifiers::impl_borsh_via_ssz!(AuxData);
 
 /// Manifest hash height range (inclusive).
 ///

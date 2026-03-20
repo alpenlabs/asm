@@ -1,5 +1,4 @@
 use bitcoin::{Network, block::Header, params::Params};
-use borsh::{BorshDeserialize, BorshSerialize, io};
 use serde::{Deserialize, Deserializer, Serialize, Serializer, de::Error as SerdeDeError};
 use ssz::{Decode, Encode};
 use ssz_types::FixedBytes;
@@ -20,19 +19,8 @@ impl AnchorState {
     }
 }
 
-impl BorshSerialize for AnchorState {
-    fn serialize<W: io::Write>(&self, writer: &mut W) -> io::Result<()> {
-        BorshSerialize::serialize(&self.as_ssz_bytes(), writer)
-    }
-}
-
-impl BorshDeserialize for AnchorState {
-    fn deserialize_reader<R: io::Read>(reader: &mut R) -> io::Result<Self> {
-        let bytes = Vec::<u8>::deserialize_reader(reader)?;
-        Self::from_ssz_bytes(&bytes)
-            .map_err(|err| io::Error::new(io::ErrorKind::InvalidData, err.to_string()))
-    }
-}
+// Keep Borsh only as a thin compatibility shim; SSZ remains the canonical state encoding.
+strata_identifiers::impl_borsh_via_ssz!(AnchorState);
 
 impl Serialize for AnchorState {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
