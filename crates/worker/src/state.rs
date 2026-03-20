@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use bitcoin::{Block, hashes::Hash};
+use bitcoin::Block;
 use strata_asm_common::{
     AnchorState, AsmHistoryAccumulatorState, AuxData, ChainViewState, HeaderVerificationState,
 };

@@ -18,7 +18,7 @@ strata-asm-params = { workspace = true, optional = true }
 strata-asm-spec.workspace = true
 strata-asm-stf.workspace = true
 strata-btc-types = { workspace = true, optional = true }
-strata-identifiers.workspace = true
+strata-identifiers = { workspace = true, optional = true }
 strata-l1-txfmt = { workspace = true, optional = true }
 strata-predicate.workspace = true
 strata-test-utils-btc = { workspace = true, optional = true }
