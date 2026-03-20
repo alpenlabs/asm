@@ -39,9 +39,19 @@ class BitcoinConfig:
 
 
 @dataclass
+class OrchestratorConfig:
+    """Proof orchestrator configuration."""
+
+    tick_interval: Duration
+    max_concurrent_asm_proofs: int
+    proof_db_path: str
+
+
+@dataclass
 class AsmRpcConfig:
     """Main ASM RPC configuration structure."""
 
     rpc: RpcConfig
     database: DatabaseConfig
     bitcoin: BitcoinConfig
+    orchestrator: OrchestratorConfig | None = None
