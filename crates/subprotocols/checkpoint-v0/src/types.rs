@@ -112,7 +112,7 @@ impl CheckpointV0VerifierState {
     }
 }
 
-#[allow(unreachable_pub, reason = "used by ssz_derive field adapters")]
+#[expect(unreachable_pub, reason = "used by ssz_derive field adapters")]
 mod cred_rule_ssz {
     use super::{Buf32, CredRule};
 
@@ -180,7 +180,7 @@ mod cred_rule_ssz {
     }
 }
 
-#[allow(unreachable_pub, reason = "used by ssz_derive field adapters")]
+#[expect(unreachable_pub, reason = "used by ssz_derive field adapters")]
 mod legacy_checkpoint_ssz {
     use ssz_derive::{Decode, Encode};
 
@@ -205,27 +205,19 @@ mod legacy_checkpoint_ssz {
             <LegacyCheckpointSsz as SszEncode>::ssz_fixed_len()
         }
 
-        #[allow(
-            deprecated,
-            reason = "checkpoint-v0 persists the last verified legacy checkpoint payload"
-        )]
         pub fn ssz_bytes_len(value: &Option<Checkpoint>) -> usize {
             to_ssz(value).ssz_bytes_len()
         }
 
-        #[allow(
-            deprecated,
-            reason = "checkpoint-v0 persists the last verified legacy checkpoint payload"
-        )]
         pub fn ssz_append(value: &Option<Checkpoint>, buf: &mut Vec<u8>) {
             to_ssz(value).ssz_append(buf);
         }
 
-        #[allow(
-            deprecated,
-            reason = "checkpoint-v0 persists the last verified legacy checkpoint payload"
-        )]
         fn to_ssz(value: &Option<Checkpoint>) -> LegacyCheckpointSsz {
+            #[expect(
+                deprecated,
+                reason = "checkpoint-v0 persists the last verified legacy checkpoint payload"
+            )]
             let checkpoint_bytes = value
                 .as_ref()
                 .map(Checkpoint::to_raw_bytes)
@@ -253,13 +245,13 @@ mod legacy_checkpoint_ssz {
             <LegacyCheckpointSsz as SszDecode>::ssz_fixed_len()
         }
 
-        #[allow(
-            deprecated,
-            reason = "checkpoint-v0 state may still contain a legacy checkpoint payload"
-        )]
         pub fn from_ssz_bytes(bytes: &[u8]) -> Result<Option<Checkpoint>, DecodeError> {
             let value = LegacyCheckpointSsz::from_ssz_bytes(bytes)?;
             if value.has_checkpoint {
+                #[expect(
+                    deprecated,
+                    reason = "checkpoint-v0 state may still contain a legacy checkpoint payload"
+                )]
                 Checkpoint::from_raw_bytes(&value.checkpoint_bytes)
                     .map(Some)
                     .map_err(|err| DecodeError::BytesInvalid(err.to_string()))

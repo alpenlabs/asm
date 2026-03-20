@@ -146,7 +146,7 @@ impl InterprotoMsg for BridgeIncomingMsg {
     }
 }
 
-#[allow(unreachable_pub, reason = "used by ssz_derive field adapters")]
+#[expect(unreachable_pub, reason = "used by ssz_derive field adapters")]
 mod descriptor_ssz {
     use super::Descriptor;
 

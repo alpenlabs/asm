@@ -88,7 +88,7 @@ impl AdministrationInitConfig {
     }
 }
 
-#[allow(unreachable_pub, reason = "used by ssz_derive field adapters")]
+#[expect(unreachable_pub, reason = "used by ssz_derive field adapters")]
 mod non_zero_u8 {
     pub mod encode {
         use std::num::NonZero;

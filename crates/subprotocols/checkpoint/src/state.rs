@@ -169,7 +169,7 @@ impl CheckpointState {
     }
 }
 
-#[allow(unreachable_pub, reason = "used by ssz_derive field adapters")]
+#[expect(unreachable_pub, reason = "used by ssz_derive field adapters")]
 mod available_funds_ssz {
     use ssz_derive::{Decode, Encode};
     use strata_btc_types::BitcoinAmount;
