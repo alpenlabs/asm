@@ -1,0 +1,71 @@
+# Runs unit tests, functional tests and publishes coverage.
+
+name: Tests with coverage
+
+on:
+    workflow_dispatch:
+        inputs:
+            RUST_LOG:
+                description: "Log level"
+                required: false
+                default: "info"
+                type: string
+    pull_request:
+    merge_group:
+    push:
+        branches: [main]
+
+env:
+    CARGO_TERM_COLOR: always
+
+concurrency:
+    group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}-test-coverage
+    cancel-in-progress: true
+
+permissions: {}
+
+jobs:
+    unit-tests:
+        uses: ./.github/workflows/unit.yml
+
+    functional-tests:
+        uses: ./.github/workflows/functional.yml
+
+    publish-coverage:
+        name: Check that unit tests pass
+        runs-on: ubuntu-latest
+        if: always()
+        needs: [functional-tests, unit-tests]
+        timeout-minutes: 10
+        steps:
+            # NOTE: codecov action needs source files in the same path as in the lcov.info
+            # ensure the source location is same in unit test, functional test and this job
+            - name: Checkout repository
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v4
+              with:
+                  persist-credentials: false
+
+            - name: Download functional test coverage
+              uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+              with:
+                  name: functional-lcov
+
+            - name: Download unit test coverage
+              uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+              with:
+                  name: unit-lcov
+
+            - name: Install lcov
+              run: sudo apt-get update && sudo apt-get install -y lcov
+
+            - name: Merge test coverage
+              run: |
+                  lcov --add-tracefile ./lcov.unit.info \
+                    --add-tracefile ./lcov.functional.info \
+                    --output-file ./lcov.info
+
+            - name: Publish Test Coverage
+              uses: codecov/codecov-action@671740ac38dd9b0130fbe1cec585b89eea48d3de # v5.5.2
+              env:
+                  CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }} # zizmor: ignore[secrets-outside-env]
+                  files: lcov.info
