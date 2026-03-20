@@ -22,7 +22,8 @@ concurrency:
     group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}-test-coverage
     cancel-in-progress: true
 
-permissions: {}
+permissions:
+    contents: read
 
 jobs:
     unit-tests:
@@ -32,7 +33,7 @@ jobs:
         uses: ./.github/workflows/functional.yml
 
     publish-coverage:
-        name: Check that unit tests pass
+        name: Publish test coverage
         runs-on: ubuntu-latest
         if: always()
         needs: [functional-tests, unit-tests]
@@ -68,4 +69,5 @@ jobs:
               uses: codecov/codecov-action@671740ac38dd9b0130fbe1cec585b89eea48d3de # v5.5.2
               env:
                   CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }} # zizmor: ignore[secrets-outside-env]
+              with:
                   files: lcov.info

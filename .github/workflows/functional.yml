@@ -1,6 +1,7 @@
 name: Functional tests
 
 on:
+  workflow_call:
   pull_request:
   merge_group:
   push:
@@ -10,7 +11,7 @@ env:
   CARGO_TERM_COLOR: always
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+  group: functional-tests-${{ github.workflow }}-${{ github.head_ref || github.run_id }}
   cancel-in-progress: true
 
 permissions: {}
@@ -76,8 +77,13 @@ jobs:
 
       - name: Install Rust toolchain
         run: |
-          rustup toolchain install nightly --profile minimal
+          rustup toolchain install nightly --profile minimal --component llvm-tools-preview
           rustup default nightly
+
+      - name: Install cargo-llvm-cov
+        uses: taiki-e/install-action@81ecf985428d5c2ea81dbf079bceca32bc9604ab # v2.62.43
+        with:
+          tool: cargo-llvm-cov
 
       - name: Rust cache
         uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2
@@ -93,13 +99,47 @@ jobs:
           cache-suffix: "functional-tests"
           python-version: "3.12"
 
+      - name: Build with coverage instrumentation
+        run: |
+          COV_TARGET_DIR="$GITHUB_WORKSPACE/target/llvm-cov-target"
+          RUSTFLAGS="-Cinstrument-coverage" cargo build --locked --bin strata-asm-runner --target-dir "$COV_TARGET_DIR"
+
       - name: Run functional tests
+        id: funcTestsRun
+        continue-on-error: true
         env:
           NO_COLOR: "1"
           LOG_LEVEL: "info"
         run: |
+          export LLVM_PROFILE_FILE="$GITHUB_WORKSPACE/target/llvm-cov-target/asm-%p-%m.profraw"
+          NEWPATH="$GITHUB_WORKSPACE/target/llvm-cov-target/debug"
+          export PATH="$NEWPATH:$PATH"
+          export STRATA_ASM_RUNNER_BIN="$NEWPATH/strata-asm-runner"
           cd functional-tests
-          ./run_test.sh
+          source ./env.bash
+          uv run python entry.py
+
+      - name: Generate coverage lcov
+        id: genFunctionalLcov
+        continue-on-error: true
+        run: |
+          export CARGO_TARGET_DIR="$GITHUB_WORKSPACE/target"
+          export LLVM_PROFILE_FILE="$GITHUB_WORKSPACE/target/llvm-cov-target/asm-%p-%m.profraw"
+          cargo llvm-cov report --lcov > lcov.functional.info
+
+      - name: Upload coverage lcov artifact
+        if: steps.genFunctionalLcov.outcome == 'success'
+        continue-on-error: true
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: functional-lcov
+          path: lcov.functional.info
+
+      - name: Fail job if functional tests fail
+        if: steps.funcTestsRun.outcome == 'failure'
+        run: |
+          echo "Functional tests failed"
+          exit 1
 
   functional-success:
     name: Check that functional tests pass
