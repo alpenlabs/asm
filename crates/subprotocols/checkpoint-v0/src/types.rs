@@ -6,7 +6,6 @@
 //! NOTE: This is checkpoint v0 which focuses on feature parity with the current
 //! checkpoint system. Future versions will be fully SPS-62 compatible.
 
-use ssz::{Decode as SszDecode, DecodeError, Encode as SszEncode};
 use ssz_derive::{Decode, Encode};
 use strata_checkpoint_types::Checkpoint;
 use strata_identifiers::Epoch;
@@ -17,9 +16,10 @@ use strata_primitives::{L1Height, block_credential::CredRule, buf::Buf32, l1::L1
 ///
 /// NOTE: This maintains state similar to the current core subprotocol but
 /// simplified for checkpoint v0 compatibility
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Encode, Decode)]
 pub struct CheckpointV0VerifierState {
     /// The last verified checkpoint
+    #[ssz(with = "legacy_checkpoint_ssz")]
     pub last_checkpoint: Option<Checkpoint>,
 
     /// Last L1 block where we got a valid checkpoint
@@ -29,119 +29,11 @@ pub struct CheckpointV0VerifierState {
     pub current_verified_epoch: Epoch,
 
     /// Credential rule governing signature verification
+    #[ssz(with = "cred_rule_ssz")]
     pub cred_rule: CredRule,
 
     /// Predicate used to verify the validity of the checkpoint
     pub predicate: PredicateKey,
-}
-
-#[derive(Debug, Encode, Decode)]
-struct CredRuleSsz {
-    kind: u8,
-    key: Buf32,
-}
-
-impl From<&CredRule> for CredRuleSsz {
-    fn from(value: &CredRule) -> Self {
-        match value {
-            CredRule::Unchecked => Self {
-                kind: 0,
-                key: Buf32::zero(),
-            },
-            CredRule::SchnorrKey(key) => Self { kind: 1, key: *key },
-        }
-    }
-}
-
-impl TryFrom<CredRuleSsz> for CredRule {
-    type Error = DecodeError;
-
-    fn try_from(value: CredRuleSsz) -> Result<Self, Self::Error> {
-        match value.kind {
-            0 => Ok(Self::Unchecked),
-            1 => Ok(Self::SchnorrKey(value.key)),
-            kind => Err(DecodeError::BytesInvalid(format!(
-                "invalid cred rule kind {kind}"
-            ))),
-        }
-    }
-}
-
-#[derive(Debug, Encode, Decode)]
-struct CheckpointV0VerifierStateSsz {
-    has_last_checkpoint: bool,
-    last_checkpoint_bytes: Vec<u8>,
-    last_checkpoint_l1_height: L1Height,
-    current_verified_epoch: Epoch,
-    cred_rule: CredRuleSsz,
-    predicate: PredicateKey,
-}
-
-impl From<&CheckpointV0VerifierState> for CheckpointV0VerifierStateSsz {
-    #[expect(
-        deprecated,
-        reason = "checkpoint-v0 persists the last verified legacy checkpoint payload"
-    )]
-    fn from(value: &CheckpointV0VerifierState) -> Self {
-        let last_checkpoint_bytes = value
-            .last_checkpoint
-            .as_ref()
-            .map(Checkpoint::to_raw_bytes)
-            .transpose()
-            .expect("checkpoint-v0 state serialization should not fail")
-            .unwrap_or_default();
-        Self {
-            has_last_checkpoint: value.last_checkpoint.is_some(),
-            last_checkpoint_bytes,
-            last_checkpoint_l1_height: value.last_checkpoint_l1_height,
-            current_verified_epoch: value.current_verified_epoch,
-            cred_rule: CredRuleSsz::from(&value.cred_rule),
-            predicate: value.predicate.clone(),
-        }
-    }
-}
-
-impl SszEncode for CheckpointV0VerifierState {
-    fn is_ssz_fixed_len() -> bool {
-        false
-    }
-
-    fn ssz_append(&self, buf: &mut Vec<u8>) {
-        CheckpointV0VerifierStateSsz::from(self).ssz_append(buf);
-    }
-
-    fn ssz_bytes_len(&self) -> usize {
-        CheckpointV0VerifierStateSsz::from(self).ssz_bytes_len()
-    }
-}
-
-impl SszDecode for CheckpointV0VerifierState {
-    fn is_ssz_fixed_len() -> bool {
-        false
-    }
-
-    #[expect(
-        deprecated,
-        reason = "checkpoint-v0 state may still contain a legacy checkpoint payload"
-    )]
-    fn from_ssz_bytes(bytes: &[u8]) -> Result<Self, DecodeError> {
-        let payload = CheckpointV0VerifierStateSsz::from_ssz_bytes(bytes)?;
-        let last_checkpoint = if payload.has_last_checkpoint {
-            Some(
-                Checkpoint::from_raw_bytes(&payload.last_checkpoint_bytes)
-                    .map_err(|err| DecodeError::BytesInvalid(err.to_string()))?,
-            )
-        } else {
-            None
-        };
-        Ok(Self {
-            last_checkpoint,
-            last_checkpoint_l1_height: payload.last_checkpoint_l1_height,
-            current_verified_epoch: payload.current_verified_epoch,
-            cred_rule: payload.cred_rule.try_into()?,
-            predicate: payload.predicate,
-        })
-    }
 }
 
 /// Verification parameters for checkpoint v0
@@ -217,5 +109,163 @@ impl CheckpointV0VerifierState {
     /// Update the rollup verifying key used for proof verification.
     pub fn update_predicate(&mut self, new_predicate: PredicateKey) {
         self.predicate = new_predicate;
+    }
+}
+
+#[allow(unreachable_pub, reason = "used by ssz_derive field adapters")]
+mod cred_rule_ssz {
+    use super::{Buf32, CredRule};
+
+    #[derive(Debug, ssz_derive::Encode, ssz_derive::Decode)]
+    struct CredRuleSsz {
+        kind: u8,
+        key: Buf32,
+    }
+
+    pub mod encode {
+        use ssz::Encode as SszEncode;
+
+        use super::{Buf32, CredRule, CredRuleSsz};
+
+        pub fn is_ssz_fixed_len() -> bool {
+            <CredRuleSsz as SszEncode>::is_ssz_fixed_len()
+        }
+
+        pub fn ssz_fixed_len() -> usize {
+            <CredRuleSsz as SszEncode>::ssz_fixed_len()
+        }
+
+        pub fn ssz_bytes_len(value: &CredRule) -> usize {
+            to_ssz(value).ssz_bytes_len()
+        }
+
+        pub fn ssz_append(value: &CredRule, buf: &mut Vec<u8>) {
+            to_ssz(value).ssz_append(buf);
+        }
+
+        fn to_ssz(value: &CredRule) -> CredRuleSsz {
+            match value {
+                CredRule::Unchecked => CredRuleSsz {
+                    kind: 0,
+                    key: Buf32::zero(),
+                },
+                CredRule::SchnorrKey(key) => CredRuleSsz { kind: 1, key: *key },
+            }
+        }
+    }
+
+    pub mod decode {
+        use ssz::{Decode as SszDecode, DecodeError};
+
+        use super::{CredRule, CredRuleSsz};
+
+        pub fn is_ssz_fixed_len() -> bool {
+            <CredRuleSsz as SszDecode>::is_ssz_fixed_len()
+        }
+
+        pub fn ssz_fixed_len() -> usize {
+            <CredRuleSsz as SszDecode>::ssz_fixed_len()
+        }
+
+        pub fn from_ssz_bytes(bytes: &[u8]) -> Result<CredRule, DecodeError> {
+            let value = CredRuleSsz::from_ssz_bytes(bytes)?;
+            match value.kind {
+                0 => Ok(CredRule::Unchecked),
+                1 => Ok(CredRule::SchnorrKey(value.key)),
+                kind => Err(DecodeError::BytesInvalid(format!(
+                    "invalid cred rule kind {kind}"
+                ))),
+            }
+        }
+    }
+}
+
+#[allow(unreachable_pub, reason = "used by ssz_derive field adapters")]
+mod legacy_checkpoint_ssz {
+    use ssz_derive::{Decode, Encode};
+
+    use super::Checkpoint;
+
+    #[derive(Debug, Encode, Decode)]
+    struct LegacyCheckpointSsz {
+        has_checkpoint: bool,
+        checkpoint_bytes: Vec<u8>,
+    }
+
+    pub mod encode {
+        use ssz::Encode as SszEncode;
+
+        use super::{Checkpoint, LegacyCheckpointSsz};
+
+        pub fn is_ssz_fixed_len() -> bool {
+            <LegacyCheckpointSsz as SszEncode>::is_ssz_fixed_len()
+        }
+
+        pub fn ssz_fixed_len() -> usize {
+            <LegacyCheckpointSsz as SszEncode>::ssz_fixed_len()
+        }
+
+        #[allow(
+            deprecated,
+            reason = "checkpoint-v0 persists the last verified legacy checkpoint payload"
+        )]
+        pub fn ssz_bytes_len(value: &Option<Checkpoint>) -> usize {
+            to_ssz(value).ssz_bytes_len()
+        }
+
+        #[allow(
+            deprecated,
+            reason = "checkpoint-v0 persists the last verified legacy checkpoint payload"
+        )]
+        pub fn ssz_append(value: &Option<Checkpoint>, buf: &mut Vec<u8>) {
+            to_ssz(value).ssz_append(buf);
+        }
+
+        #[allow(
+            deprecated,
+            reason = "checkpoint-v0 persists the last verified legacy checkpoint payload"
+        )]
+        fn to_ssz(value: &Option<Checkpoint>) -> LegacyCheckpointSsz {
+            let checkpoint_bytes = value
+                .as_ref()
+                .map(Checkpoint::to_raw_bytes)
+                .transpose()
+                .expect("checkpoint-v0 state serialization should not fail")
+                .unwrap_or_default();
+
+            LegacyCheckpointSsz {
+                has_checkpoint: value.is_some(),
+                checkpoint_bytes,
+            }
+        }
+    }
+
+    pub mod decode {
+        use ssz::{Decode as SszDecode, DecodeError};
+
+        use super::{Checkpoint, LegacyCheckpointSsz};
+
+        pub fn is_ssz_fixed_len() -> bool {
+            <LegacyCheckpointSsz as SszDecode>::is_ssz_fixed_len()
+        }
+
+        pub fn ssz_fixed_len() -> usize {
+            <LegacyCheckpointSsz as SszDecode>::ssz_fixed_len()
+        }
+
+        #[allow(
+            deprecated,
+            reason = "checkpoint-v0 state may still contain a legacy checkpoint payload"
+        )]
+        pub fn from_ssz_bytes(bytes: &[u8]) -> Result<Option<Checkpoint>, DecodeError> {
+            let value = LegacyCheckpointSsz::from_ssz_bytes(bytes)?;
+            if value.has_checkpoint {
+                Checkpoint::from_raw_bytes(&value.checkpoint_bytes)
+                    .map(Some)
+                    .map_err(|err| DecodeError::BytesInvalid(err.to_string()))
+            } else {
+                Ok(None)
+            }
+        }
     }
 }

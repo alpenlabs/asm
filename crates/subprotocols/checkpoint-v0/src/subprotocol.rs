@@ -17,7 +17,7 @@ use strata_asm_txs_checkpoint_v0::{
     extract_signed_checkpoint_from_envelope, extract_withdrawal_messages,
 };
 use strata_identifiers::L1BlockCommitment;
-use strata_predicate::PredicateKey;
+use strata_predicate::{PredicateKey, PredicateTypeId};
 use strata_primitives::{L1Height, block_credential::CredRule, buf::Buf32, l1::BitcoinTxid};
 
 use crate::{
@@ -122,7 +122,7 @@ impl Subprotocol for CheckpointV0Subproto {
         for msg in msgs {
             match msg {
                 CheckpointIncomingMsg::UpdateSequencerKey(new_key) => {
-                    apply_sequencer_update(state, *new_key);
+                    apply_sequencer_update(state, new_key);
                 }
                 CheckpointIncomingMsg::UpdateCheckpointPredicate(new_predicate) => {
                     apply_rollup_vk_update(state, new_predicate);
@@ -192,7 +192,16 @@ fn process_checkpoint_transaction_v0(
     Ok(true)
 }
 
-fn apply_sequencer_update(state: &mut CheckpointV0VerifierState, new_key: Buf32) {
+fn apply_sequencer_update(state: &mut CheckpointV0VerifierState, new_predicate: &PredicateKey) {
+    let Some(new_key) = extract_sequencer_key(new_predicate) else {
+        logging::warn!(
+            predicate_type = new_predicate.id(),
+            condition_len = new_predicate.condition().len(),
+            "Ignoring sequencer update with non-BIP340 predicate payload",
+        );
+        return;
+    };
+
     let previous_rule = state.cred_rule.clone();
 
     if matches!(&previous_rule, CredRule::SchnorrKey(existing) if existing == &new_key) {
@@ -211,6 +220,15 @@ fn apply_sequencer_update(state: &mut CheckpointV0VerifierState, new_key: Buf32)
             logging::info!(new_key = %new_key, "Updated sequencer public key to unchecked CredRule");
         }
     }
+}
+
+fn extract_sequencer_key(new_predicate: &PredicateKey) -> Option<Buf32> {
+    if new_predicate.id() != PredicateTypeId::Bip340Schnorr.as_u8() {
+        return None;
+    }
+
+    let bytes: [u8; 32] = new_predicate.condition().try_into().ok()?;
+    Some(Buf32::from(bytes))
 }
 
 fn apply_rollup_vk_update(state: &mut CheckpointV0VerifierState, new_predicate: &PredicateKey) {
@@ -255,7 +273,9 @@ mod tests {
         let mut state = CheckpointV0Subproto::init(&params);
 
         let new_key = Buf32::from([42u8; 32]);
-        let msgs = [CheckpointIncomingMsg::UpdateSequencerKey(new_key)];
+        let msgs = [CheckpointIncomingMsg::UpdateSequencerKey(
+            PredicateKey::new(PredicateTypeId::Bip340Schnorr, new_key.0.to_vec()),
+        )];
 
         let l1ref = L1BlockCommitment::default();
         CheckpointV0Subproto::process_msgs(&mut state, &msgs, &l1ref);

@@ -7,7 +7,7 @@ use strata_asm_txs_admin::{
     actions::{MultisigAction, UpdateAction, updates::predicate::ProofType},
     parser::SignedPayload,
 };
-use strata_predicate::PredicateKey;
+use strata_predicate::{PredicateKey, PredicateTypeId};
 use strata_primitives::{L1Height, buf::Buf32};
 
 use crate::{
@@ -163,7 +163,10 @@ pub(crate) fn handle_action(
 }
 
 fn relay_checkpoint_sequencer_update(relayer: &mut impl MsgRelayer, new_key: Buf32) {
-    let msg = CheckpointIncomingMsg::UpdateSequencerKey(new_key);
+    let msg = CheckpointIncomingMsg::UpdateSequencerKey(PredicateKey::new(
+        PredicateTypeId::Bip340Schnorr,
+        new_key.0.to_vec(),
+    ));
     relayer.relay_msg(&msg);
 }
 

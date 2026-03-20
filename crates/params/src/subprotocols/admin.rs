@@ -15,7 +15,7 @@ use strata_crypto::threshold_signature::ThresholdConfig;
 /// provided when constructing this struct. However, it does NOT prevent logical errors
 /// like using the same config for multiple roles or mismatched role-field assignments.
 /// The benefit is avoiding missing fields at compile-time rather than runtime validation.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, Encode, Decode)]
 pub struct AdministrationInitConfig {
     /// ThresholdConfig for [StrataAdministrator](Role::StrataAdministrator).
     pub strata_administrator: ThresholdConfig,
@@ -32,65 +32,8 @@ pub struct AdministrationInitConfig {
     ///
     /// A payload with `seqno > last_seqno + max_seqno_gap` is rejected. This prevents
     /// excessively large jumps in sequence numbers while still allowing non-sequential usage.
+    #[ssz(with = "non_zero_u8")]
     pub max_seqno_gap: NonZero<u8>,
-}
-
-#[derive(Debug, Encode, Decode)]
-struct AdministrationInitConfigSsz {
-    strata_administrator: ThresholdConfig,
-    strata_sequencer_manager: ThresholdConfig,
-    confirmation_depth: u16,
-    max_seqno_gap: u8,
-}
-
-impl From<&AdministrationInitConfig> for AdministrationInitConfigSsz {
-    fn from(value: &AdministrationInitConfig) -> Self {
-        Self {
-            strata_administrator: value.strata_administrator.clone(),
-            strata_sequencer_manager: value.strata_sequencer_manager.clone(),
-            confirmation_depth: value.confirmation_depth,
-            max_seqno_gap: value.max_seqno_gap.get(),
-        }
-    }
-}
-
-impl TryFrom<AdministrationInitConfigSsz> for AdministrationInitConfig {
-    type Error = DecodeError;
-
-    fn try_from(value: AdministrationInitConfigSsz) -> Result<Self, Self::Error> {
-        let max_seqno_gap = NonZero::new(value.max_seqno_gap)
-            .ok_or_else(|| DecodeError::BytesInvalid("max_seqno_gap must be non-zero".into()))?;
-        Ok(Self {
-            strata_administrator: value.strata_administrator,
-            strata_sequencer_manager: value.strata_sequencer_manager,
-            confirmation_depth: value.confirmation_depth,
-            max_seqno_gap,
-        })
-    }
-}
-
-impl SszEncode for AdministrationInitConfig {
-    fn is_ssz_fixed_len() -> bool {
-        false
-    }
-
-    fn ssz_append(&self, buf: &mut Vec<u8>) {
-        AdministrationInitConfigSsz::from(self).ssz_append(buf);
-    }
-
-    fn ssz_bytes_len(&self) -> usize {
-        AdministrationInitConfigSsz::from(self).ssz_bytes_len()
-    }
-}
-
-impl SszDecode for AdministrationInitConfig {
-    fn is_ssz_fixed_len() -> bool {
-        false
-    }
-
-    fn from_ssz_bytes(bytes: &[u8]) -> Result<Self, DecodeError> {
-        AdministrationInitConfigSsz::from_ssz_bytes(bytes)?.try_into()
-    }
 }
 
 /// Roles with authority in the administration subprotocol.
@@ -178,6 +121,51 @@ impl AdministrationInitConfig {
             (Role::StrataAdministrator, self.strata_administrator),
             (Role::StrataSequencerManager, self.strata_sequencer_manager),
         ]
+    }
+}
+
+#[allow(unreachable_pub, reason = "used by ssz_derive field adapters")]
+mod non_zero_u8 {
+    pub mod encode {
+        use std::num::NonZero;
+
+        use ssz::Encode as SszEncode;
+
+        pub fn is_ssz_fixed_len() -> bool {
+            <u8 as SszEncode>::is_ssz_fixed_len()
+        }
+
+        pub fn ssz_fixed_len() -> usize {
+            <u8 as SszEncode>::ssz_fixed_len()
+        }
+
+        pub fn ssz_bytes_len(value: &NonZero<u8>) -> usize {
+            value.get().ssz_bytes_len()
+        }
+
+        pub fn ssz_append(value: &NonZero<u8>, buf: &mut Vec<u8>) {
+            value.get().ssz_append(buf);
+        }
+    }
+
+    pub mod decode {
+        use std::num::NonZero;
+
+        use ssz::{Decode as SszDecode, DecodeError};
+
+        pub fn is_ssz_fixed_len() -> bool {
+            <u8 as SszDecode>::is_ssz_fixed_len()
+        }
+
+        pub fn ssz_fixed_len() -> usize {
+            <u8 as SszDecode>::ssz_fixed_len()
+        }
+
+        pub fn from_ssz_bytes(bytes: &[u8]) -> Result<NonZero<u8>, DecodeError> {
+            let value = u8::from_ssz_bytes(bytes)?;
+            NonZero::new(value)
+                .ok_or_else(|| DecodeError::BytesInvalid("max_seqno_gap must be non-zero".into()))
+        }
     }
 }
 
