@@ -16,7 +16,7 @@ else
   TARGET_DIR="debug"
 fi
 
-cargo build --bin strata-asm-runner "${CARGO_ARGS[@]}"
+cargo build --bin strata-asm-runner ${CARGO_ARGS[@]+"${CARGO_ARGS[@]}"}
 TARGET_ROOT="${CARGO_TARGET_DIR:-target}"
 if [[ "$TARGET_ROOT" != /* ]]; then
   TARGET_ROOT="$PWD/$TARGET_ROOT"

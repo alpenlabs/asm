@@ -34,15 +34,42 @@ impl PendingProofQueue {
         self.pending.insert(id);
     }
 
-    /// Removes and returns up to `count` entries in priority order.
-    pub(crate) fn dequeue_batch(&mut self, count: usize) -> Vec<ProofId> {
+    /// Removes and returns up to `count` entries in priority order,
+    /// including only those for which `is_ready` returns `true`.
+    ///
+    /// Entries that fail the readiness check remain in the queue.
+    ///
+    /// # Temporary workaround
+    ///
+    /// The `is_ready` predicate exists because `AsmWorkerHandle::submit_block(_async)`
+    /// only guarantees enqueueing — not processing completion. Once STR-2596
+    /// (<https://alpenlabs.atlassian.net/browse/STR-2596>) lands and `submit_block`
+    /// provides completion semantics, the predicate can be removed and this method
+    /// can go back to unconditionally dequeuing entries.
+    pub(crate) fn dequeue_batch(
+        &mut self,
+        count: usize,
+        is_ready: impl Fn(&ProofId) -> bool,
+    ) -> Vec<ProofId> {
         let mut batch = Vec::with_capacity(count);
-        for _ in 0..count {
+        let mut skipped = Vec::new();
+
+        while batch.len() < count {
             let Some(id) = self.pending.pop_first() else {
                 break;
             };
-            batch.push(id);
+            if is_ready(&id) {
+                batch.push(id);
+            } else {
+                skipped.push(id);
+            }
         }
+
+        // Re-insert skipped items so they are retried on the next tick.
+        for id in skipped {
+            self.pending.insert(id);
+        }
+
         batch
     }
 
@@ -82,7 +109,7 @@ mod tests {
         q.enqueue(moho(3));
         q.enqueue(asm(3));
 
-        let batch = q.dequeue_batch(10);
+        let batch = q.dequeue_batch(10, |_| true);
         assert!(matches!(batch[0], ProofId::Asm(_)));
         assert!(matches!(batch[1], ProofId::Moho(_)));
     }
@@ -93,7 +120,7 @@ mod tests {
         q.enqueue(moho(2));
         q.enqueue(asm(5));
 
-        let batch = q.dequeue_batch(10);
+        let batch = q.dequeue_batch(10, |_| true);
         assert!(matches!(batch[0], ProofId::Moho(_)));
         assert!(matches!(batch[1], ProofId::Asm(_)));
     }
@@ -105,7 +132,7 @@ mod tests {
         q.enqueue(asm(2));
         q.enqueue(asm(8));
 
-        let batch = q.dequeue_batch(10);
+        let batch = q.dequeue_batch(10, |_| true);
         assert_eq!(batch, vec![asm(2), asm(5), asm(8)]);
     }
 
@@ -116,7 +143,7 @@ mod tests {
             q.enqueue(asm(h));
         }
 
-        let batch = q.dequeue_batch(3);
+        let batch = q.dequeue_batch(3, |_| true);
         assert_eq!(batch.len(), 3);
         assert_eq!(batch, vec![asm(0), asm(1), asm(2)]);
         assert_eq!(q.len(), 7);
@@ -125,7 +152,25 @@ mod tests {
     #[test]
     fn dequeue_batch_on_empty() {
         let mut q = PendingProofQueue::new();
-        assert!(q.dequeue_batch(5).is_empty());
+        assert!(q.dequeue_batch(5, |_| true).is_empty());
+    }
+
+    #[test]
+    fn dequeue_batch_skips_unready() {
+        let mut q = PendingProofQueue::new();
+        q.enqueue(asm(1));
+        q.enqueue(asm(2));
+        q.enqueue(asm(3));
+
+        // Only height 2 is "ready".
+        let batch = q.dequeue_batch(10, |id| {
+            matches!(id, ProofId::Asm(r) if r.start().height() == 2)
+        });
+
+        assert_eq!(batch.len(), 1);
+        assert_eq!(batch[0], asm(2));
+        // Heights 1 and 3 remain in the queue.
+        assert_eq!(q.len(), 2);
     }
 
     #[test]
