@@ -32,11 +32,16 @@ impl AsmStepInput {
         }
     }
 
+    fn decode_block(&self) -> Block {
+        deserialize(&self.block_bytes).expect("moho-program block bytes must remain valid")
+    }
+
     /// Returns the full Bitcoin L1 block.
+    ///
+    /// This decodes `block_bytes` on every call. Callers that need multiple derived values from
+    /// the same block should bind the returned `L1Block` once and reuse it.
     pub fn block(&self) -> L1Block {
-        let block =
-            deserialize(&self.block_bytes).expect("moho-program block bytes must remain valid");
-        L1Block(block)
+        L1Block(self.decode_block())
     }
 
     /// Returns the auxiliary data required for the ASM STF.
@@ -49,7 +54,11 @@ impl AsmStepInput {
     ///
     /// In concrete terms, this just computes the blkid/blockhash.
     pub fn compute_ref(&self) -> StateReference {
-        let raw_ref = self.block().0.block_hash().to_raw_hash().to_byte_array();
+        let raw_ref = self
+            .decode_block()
+            .block_hash()
+            .to_raw_hash()
+            .to_byte_array();
         StateReference::new(raw_ref)
     }
 
@@ -58,15 +67,15 @@ impl AsmStepInput {
     /// In concrete terms, this just extracts the parent blkid from the block's
     /// header.
     pub fn compute_prev_ref(&self) -> StateReference {
-        let block = self.block();
-        let parent_ref = block.0.header.prev_blockhash.to_raw_hash().to_byte_array();
+        let block = self.decode_block();
+        let parent_ref = block.header.prev_blockhash.to_raw_hash().to_byte_array();
         StateReference::new(parent_ref)
     }
 
     /// Checks that the block's merkle roots are consistent.
     pub fn validate_block(&self) -> bool {
-        let block = self.block();
-        block.0.check_merkle_root() && block.0.check_witness_commitment()
+        let block = self.decode_block();
+        block.check_merkle_root() && block.check_witness_commitment()
     }
 }
 

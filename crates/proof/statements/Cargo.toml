@@ -22,11 +22,11 @@ strata-identifiers = { workspace = true, optional = true }
 strata-l1-txfmt = { workspace = true, optional = true }
 strata-predicate.workspace = true
 strata-test-utils-btc = { workspace = true, optional = true }
+tree_hash.workspace = true
 zkaleido.workspace = true
 
 bitcoin.workspace = true
 serde_json = { workspace = true, optional = true }
-sha2.workspace = true
 
 [target.'cfg(not(target_os = "zkvm"))'.dependencies]
 zkaleido-native-adapter.workspace = true
@@ -45,5 +45,6 @@ test-utils = [
 serde_json.workspace = true
 strata-asm-params.workspace = true
 strata-btc-types.workspace = true
+strata-identifiers.workspace = true
 strata-l1-txfmt.workspace = true
 strata-test-utils-btc.workspace = true

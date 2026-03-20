@@ -9,6 +9,8 @@ import strata_acct_types
 class AsmHistoryAccumulatorState(Container):
     #~# external_kind: container
     manifest_mmr: strata_acct_types.Mmr64
+    ### Height offset that maps the first manifest leaf to its L1 block height.
+    ### This starts at `genesis_height + 1` because manifests begin after the genesis block.
     offset: uint64
 
 ### Serialized state for a subprotocol section.

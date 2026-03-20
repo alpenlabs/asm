@@ -8211,7 +8211,6 @@ dependencies = [
  "moho-runtime-interface",
  "moho-types",
  "serde_json",
- "sha2",
  "ssz",
  "ssz_derive",
  "strata-asm-common",
@@ -8224,6 +8223,7 @@ dependencies = [
  "strata-l1-txfmt",
  "strata-predicate",
  "strata-test-utils-btc",
+ "tree_hash",
  "zkaleido 0.1.0 (git+https://github.com/alpenlabs/zkaleido?rev=750c209f5850af29e34c39c250c24e1c69ffa2aa)",
  "zkaleido-native-adapter",
 ]

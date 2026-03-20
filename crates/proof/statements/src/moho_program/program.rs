@@ -1,18 +1,18 @@
 //! [`MohoProgram`] implementation for the ASM STF.
 //!
 //! This module contains the [`AsmStfProgram`] type that implements [`MohoProgram`], wiring the
-//! ASM state transition function into the Moho runtime. It handles state commitment via SHA-256,
+//! ASM state transition function into the Moho runtime. It handles state commitment via SSZ tree
+//! hashing,
 //! transition execution, and extraction of post-transition artifacts such as predicate updates
 //! and export state entries.
 use moho_runtime_interface::MohoProgram;
 use moho_types::{ExportState, InnerStateCommitment, StateReference};
-use sha2::Digest;
-use ssz::Encode;
 use strata_asm_common::AnchorState;
 use strata_asm_logs::{AsmStfUpdate, NewExportEntry};
 use strata_asm_spec::StrataAsmSpec;
 use strata_asm_stf::{compute_asm_transition, AsmStfOutput};
 use strata_predicate::PredicateKey;
+use tree_hash::{Sha256Hasher, TreeHash};
 
 use crate::moho_program::input::AsmStepInput;
 
@@ -42,9 +42,8 @@ impl MohoProgram for AsmStfProgram {
     }
 
     fn compute_state_commitment(state: &AnchorState) -> InnerStateCommitment {
-        let state_raw = state.as_ssz_bytes();
-        let state_commitment_raw: [u8; 32] = sha2::Sha256::digest(&state_raw).into();
-        InnerStateCommitment::new(state_commitment_raw)
+        let state_commitment_root = TreeHash::<Sha256Hasher>::tree_hash_root(state);
+        InnerStateCommitment::new(state_commitment_root.0)
     }
 
     fn process_transition(

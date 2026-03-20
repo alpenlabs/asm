@@ -18,6 +18,9 @@ class TimestampStore(Container):
     head: uint8
 
 ### ASM-local representation of Bitcoin header verification state.
+### These fields are the minimal chain view needed to verify the next header(s):
+### the committed tip, current target/epoch context, timestamp window, and
+### cumulative work. Full block bodies and older headers are intentionally omitted.
 class HeaderVerificationState(Container):
     params: BtcParams
     #~# external_kind: container
