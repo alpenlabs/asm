@@ -17,7 +17,7 @@ pub use aux_resolver::AuxDataResolver;
 pub use builder::AsmWorkerBuilder;
 pub use errors::{WorkerError, WorkerResult};
 pub use handle::AsmWorkerHandle;
-pub use message::SubprotocolMessage;
+pub use message::{AsmWorkerMessage, SubprotocolMessage};
 pub use service::{AsmWorkerService, AsmWorkerStatus};
 pub use state::AsmWorkerServiceState;
 pub use traits::WorkerContext;

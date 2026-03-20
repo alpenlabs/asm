@@ -1,22 +1,21 @@
 use async_trait::async_trait;
 use strata_primitives::prelude::*;
-use strata_service::{CommandHandle, ServiceMonitor};
+use strata_service::{CommandHandle, ServiceError, ServiceMonitor};
 use strata_state::BlockSubmitter;
-use tracing::warn;
 
-use crate::AsmWorkerStatus;
+use crate::{AsmWorkerStatus, WorkerError, message::AsmWorkerMessage};
 
 /// Handle for interacting with the ASM worker service.
 #[derive(Debug)]
 pub struct AsmWorkerHandle {
-    command_handle: CommandHandle<L1BlockCommitment>,
+    command_handle: CommandHandle<AsmWorkerMessage>,
     monitor: ServiceMonitor<AsmWorkerStatus>,
 }
 
 impl AsmWorkerHandle {
     /// Create a new ASM worker handle from a service command handle.
     pub fn new(
-        command_handle: CommandHandle<L1BlockCommitment>,
+        command_handle: CommandHandle<AsmWorkerMessage>,
         monitor: ServiceMonitor<AsmWorkerStatus>,
     ) -> Self {
         Self {
@@ -31,25 +30,45 @@ impl AsmWorkerHandle {
     pub fn monitor(&self) -> &ServiceMonitor<AsmWorkerStatus> {
         &self.monitor
     }
+
+    /// Returns the number of pending inputs that have not been processed yet.
+    pub fn pending(&self) -> usize {
+        self.command_handle.pending()
+    }
 }
 
 #[async_trait]
 impl BlockSubmitter for AsmWorkerHandle {
-    /// Sends a new l1 block to the ASM service.
+    /// Sends an L1 block to the ASM service and waits for processing to complete.
     fn submit_block(&self, block: L1BlockCommitment) -> anyhow::Result<()> {
-        if self.command_handle.send_blocking(block).is_err() {
-            warn!(%block, "ASM handle closed when submitting");
-        }
-
-        Ok(())
+        self.command_handle
+            .send_and_wait_blocking(|completion| AsmWorkerMessage::SubmitBlock(block, completion))
+            .map_err(convert_service_error)?
+            .map_err(Into::into)
     }
 
-    /// Sends a new l1 block to the ASM service.
+    /// Sends an L1 block to the ASM service and waits for processing to complete.
     async fn submit_block_async(&self, block: L1BlockCommitment) -> anyhow::Result<()> {
-        if self.command_handle.send(block).await.is_err() {
-            warn!(%block, "ASM handle closed when submitting");
-        }
+        self.command_handle
+            .send_and_wait(|completion| AsmWorkerMessage::SubmitBlock(block, completion))
+            .await
+            .map_err(convert_service_error)?
+            .map_err(Into::into)
+    }
+}
 
-        Ok(())
+/// Convert service framework errors to worker errors.
+fn convert_service_error(err: ServiceError) -> WorkerError {
+    match err {
+        ServiceError::WorkerExited | ServiceError::WorkerExitedWithoutResponse => {
+            WorkerError::WorkerExited
+        }
+        ServiceError::WaitCancelled => {
+            WorkerError::Unexpected("operation was cancelled".to_string())
+        }
+        ServiceError::BlockingThreadPanic(msg) => {
+            WorkerError::Unexpected(format!("blocking thread panicked: {msg}"))
+        }
+        ServiceError::UnknownInputErr => WorkerError::Unexpected("unknown input error".to_string()),
     }
 }
