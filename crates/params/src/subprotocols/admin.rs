@@ -3,7 +3,6 @@ use std::num::NonZero;
 #[cfg(feature = "arbitrary")]
 use arbitrary::Arbitrary;
 use serde::{Deserialize, Serialize};
-use ssz::{Decode as SszDecode, DecodeError, Encode as SszEncode};
 use ssz_derive::{Decode, Encode};
 use strata_crypto::threshold_signature::ThresholdConfig;
 
@@ -37,9 +36,12 @@ pub struct AdministrationInitConfig {
 }
 
 /// Roles with authority in the administration subprotocol.
-#[derive(Copy, Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize)]
+#[derive(
+    Copy, Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize, Encode, Decode,
+)]
 #[cfg_attr(feature = "arbitrary", derive(Arbitrary))]
 #[repr(u8)]
+#[ssz(enum_behaviour = "tag")]
 pub enum Role {
     /// The multisig authority that has exclusive ability to:
     /// 1. update (add/remove) bridge signers
@@ -54,44 +56,6 @@ pub enum Role {
     /// The multisig authority that has exclusive ability to change the canonical
     /// public key of the default orchestration layer sequencer.
     StrataSequencerManager,
-}
-
-impl SszEncode for Role {
-    fn is_ssz_fixed_len() -> bool {
-        true
-    }
-
-    fn ssz_fixed_len() -> usize {
-        1
-    }
-
-    fn ssz_append(&self, buf: &mut Vec<u8>) {
-        (*self as u8).ssz_append(buf);
-    }
-
-    fn ssz_bytes_len(&self) -> usize {
-        1
-    }
-}
-
-impl SszDecode for Role {
-    fn is_ssz_fixed_len() -> bool {
-        true
-    }
-
-    fn ssz_fixed_len() -> usize {
-        1
-    }
-
-    fn from_ssz_bytes(bytes: &[u8]) -> Result<Self, DecodeError> {
-        match u8::from_ssz_bytes(bytes)? {
-            0 => Ok(Self::StrataAdministrator),
-            1 => Ok(Self::StrataSequencerManager),
-            value => Err(DecodeError::BytesInvalid(format!(
-                "invalid role value {value}"
-            ))),
-        }
-    }
 }
 
 impl AdministrationInitConfig {
