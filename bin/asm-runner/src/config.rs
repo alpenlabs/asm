@@ -14,7 +14,7 @@ pub(crate) struct AsmRpcConfig {
     /// Bitcoin node configuration
     pub bitcoin: BitcoinConfig,
     /// Proof orchestrator configuration (optional — omit to disable proof generation).
-    pub orchestrator: Option<crate::orchestrator::config::OrchestratorConfig>,
+    pub orchestrator: Option<crate::prover::config::OrchestratorConfig>,
 }
 
 /// RPC server configuration

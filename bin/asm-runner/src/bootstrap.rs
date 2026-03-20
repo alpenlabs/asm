@@ -10,11 +10,10 @@ use strata_asm_worker::AsmWorkerBuilder;
 use strata_tasks::TaskExecutor;
 use tokio::runtime::Handle;
 
-
 use crate::{
     block_driver::{drive_asm_from_btc_tracker, setup_btc_tracker},
     config::{AsmRpcConfig, BitcoinConfig},
-    orchestrator::{InputBuilder, ProofOrchestrator},
+    prover::{InputBuilder, ProofOrchestrator},
     rpc_server::run_rpc_server,
     storage::create_storage_managers,
     worker_context::AsmWorkerContext,
@@ -70,12 +69,8 @@ pub(crate) async fn bootstrap(
         let native_host = AsmStfProofProgram::native_host(spec);
 
         let input_builder = InputBuilder::new(asm_manager.clone(), bitcoin_client.clone());
-        let mut orchestrator = ProofOrchestrator::new(
-            proof_db,
-            native_host,
-            orch_config,
-            input_builder,
-        );
+        let mut orchestrator =
+            ProofOrchestrator::new(proof_db, native_host, orch_config, input_builder);
 
         // ZkVmRemoteProver is !Send (#[async_trait(?Send)]), so the orchestrator
         // future cannot be spawned on a multi-threaded runtime directly. We run it
