@@ -78,6 +78,10 @@ struct CheckpointV0VerifierStateSsz {
 }
 
 impl From<&CheckpointV0VerifierState> for CheckpointV0VerifierStateSsz {
+    #[expect(
+        deprecated,
+        reason = "checkpoint-v0 persists the last verified legacy checkpoint payload"
+    )]
     fn from(value: &CheckpointV0VerifierState) -> Self {
         let last_checkpoint_bytes = value
             .last_checkpoint
@@ -116,6 +120,10 @@ impl SszDecode for CheckpointV0VerifierState {
         false
     }
 
+    #[expect(
+        deprecated,
+        reason = "checkpoint-v0 state may still contain a legacy checkpoint payload"
+    )]
     fn from_ssz_bytes(bytes: &[u8]) -> Result<Self, DecodeError> {
         let payload = CheckpointV0VerifierStateSsz::from_ssz_bytes(bytes)?;
         let last_checkpoint = if payload.has_last_checkpoint {

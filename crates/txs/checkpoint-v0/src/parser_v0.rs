@@ -13,6 +13,10 @@ use crate::errors::{CheckpointTxError, CheckpointTxResult};
 /// - Unwraps the taproot envelope script from the first input witness.
 /// - Streams the embedded payload directly from the script instructions.
 /// - Deserializes the payload into a [`SignedCheckpoint`].
+#[expect(
+    deprecated,
+    reason = "checkpoint-v0 still consumes the legacy payload and sidecar formats"
+)]
 pub fn extract_signed_checkpoint_from_envelope(
     tx: &TxInputRef<'_>,
 ) -> CheckpointTxResult<SignedCheckpoint> {
@@ -37,6 +41,10 @@ pub fn extract_signed_checkpoint_from_envelope(
 }
 
 /// Extract withdrawal intents committed inside a checkpoint sidecar.
+#[expect(
+    deprecated,
+    reason = "checkpoint-v0 sidecars still carry legacy chainstate bytes"
+)]
 pub fn extract_withdrawal_messages(
     checkpoint: &Checkpoint,
 ) -> CheckpointTxResult<Vec<WithdrawalIntent>> {
