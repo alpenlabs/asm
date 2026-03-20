@@ -72,6 +72,7 @@ class AsmRpcFactory(flexitest.Factory):
 
         rpc_url = f"http://127.0.0.1:{rpc_port}"
         svc = flexitest.service.ProcService(props, cmd, stdout=logfile)
+        svc.stop_timeout = 10
         svc.start()
         inject_service_create_rpc(svc, rpc_url, service_name)
         return svc

@@ -15,6 +15,7 @@ use strata_asm_worker::AsmWorkerHandle;
 use strata_btc_types::BlockHashExt;
 use strata_identifiers::L1BlockCommitment;
 use strata_state::BlockSubmitter;
+use strata_tasks::ShutdownGuard;
 use tokio::sync::mpsc;
 use tracing::{debug, error, info, warn};
 
@@ -34,6 +35,7 @@ pub(crate) async fn drive_asm_from_btc_tracker(
     btc_client: Arc<BtcNotifyClient<Connected>>,
     asm_worker: Arc<AsmWorkerHandle>,
     proof_tx: Option<mpsc::UnboundedSender<ProofId>>,
+    shutdown: ShutdownGuard,
 ) -> Result<()> {
     // Subscribe to block events
     let mut block_subscription = btc_client.subscribe_blocks().await;
@@ -42,7 +44,15 @@ pub(crate) async fn drive_asm_from_btc_tracker(
 
     // Process blocks as they arrive
     loop {
-        let Some(block_event) = block_subscription.next().await else {
+        let block_event = tokio::select! {
+            _ = shutdown.wait_for_shutdown() => {
+                info!("ASM block driver shutting down");
+                break;
+            }
+            block_event = block_subscription.next() => block_event,
+        };
+
+        let Some(block_event) = block_event else {
             tracing::warn!("Block subscription ended");
             break;
         };

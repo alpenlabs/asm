@@ -8,6 +8,7 @@ use anyhow::{Context, Result};
 use strata_asm_proof_db::{RemoteProofMappingDb, RemoteProofStatusDb, SledProofDb};
 use strata_asm_proof_impl::program::AsmStfProofProgram;
 use strata_asm_proof_types::{ProofId, RemoteProofId};
+use strata_tasks::ShutdownGuard;
 use tokio::{sync::mpsc, time};
 use tracing::{debug, error, info, warn};
 use zkaleido::{RemoteProofStatus, ZkVmRemoteHost, ZkVmRemoteProgram};
@@ -45,14 +46,33 @@ impl<R: ZkVmRemoteHost> ProofOrchestrator<R> {
         }
     }
 
-    /// Runs the orchestrator loop until the future is cancelled.
-    pub(crate) async fn run(&mut self) -> Result<()> {
+    /// Runs the orchestrator loop until shutdown is requested or the channel is closed.
+    pub(crate) async fn run(&mut self, shutdown: ShutdownGuard) -> Result<()> {
         info!("proof orchestrator started");
         loop {
             if let Err(e) = self.tick().await {
                 error!(?e, "orchestrator tick failed");
             }
-            time::sleep(self.config.tick_interval).await;
+
+            if shutdown.should_shutdown() {
+                info!("proof orchestrator shutting down");
+                return Ok(());
+            }
+
+            // Exit once the sender side has been dropped (shutdown) and there is
+            // nothing left to process.
+            if self.rx.is_closed() && self.queue.is_empty() {
+                info!("proof orchestrator shutting down");
+                return Ok(());
+            }
+
+            tokio::select! {
+                _ = shutdown.wait_for_shutdown() => {
+                    info!("proof orchestrator shutting down");
+                    return Ok(());
+                }
+                _ = time::sleep(self.config.tick_interval) => {}
+            }
         }
     }
 

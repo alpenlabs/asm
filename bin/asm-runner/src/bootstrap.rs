@@ -75,14 +75,17 @@ pub(crate) async fn bootstrap(
         // ZkVmRemoteProver is !Send (#[async_trait(?Send)]), so the orchestrator
         // future cannot be spawned on a multi-threaded runtime directly. We run it
         // on a dedicated thread with a single-threaded runtime + LocalSet.
-        executor.spawn_critical_async("proof_orchestrator", async move {
-            task::spawn_blocking(move || {
-                let rt = RuntimeBuilder::new_current_thread().enable_all().build()?;
-                let local = LocalSet::new();
-                rt.block_on(local.run_until(async move { orchestrator.run().await }))
-            })
-            .await?
-        });
+        executor.spawn_critical_async_with_shutdown(
+            "proof_orchestrator",
+            move |shutdown| async move {
+                task::spawn_blocking(move || {
+                    let rt = RuntimeBuilder::new_current_thread().enable_all().build()?;
+                    let local = LocalSet::new();
+                    rt.block_on(local.run_until(async move { orchestrator.run(shutdown).await }))
+                })
+                .await?
+            },
+        );
 
         (Some(tx), Some(proof_db_clone))
     } else {
@@ -92,16 +95,19 @@ pub(crate) async fn bootstrap(
     // 7. Spawn block driver as a critical task
     let btc_tracker_for_driver = btc_tracker.clone();
     let asm_worker_for_driver = asm_worker.clone();
-    executor.spawn_critical_async(
-        "block_driver",
-        drive_asm_from_btc_tracker(btc_tracker_for_driver, asm_worker_for_driver, proof_tx),
-    );
+    executor.spawn_critical_async_with_shutdown("block_driver", move |shutdown| {
+        drive_asm_from_btc_tracker(
+            btc_tracker_for_driver,
+            asm_worker_for_driver,
+            proof_tx,
+            shutdown,
+        )
+    });
 
     // 8. Spawn RPC server as a critical task
     let rpc_host = config.rpc.host.clone();
     let rpc_port = config.rpc.port;
-    executor.spawn_critical_async(
-        "rpc_server",
+    executor.spawn_critical_async_with_shutdown("rpc_server", move |shutdown| {
         run_rpc_server(
             asm_manager,
             asm_worker,
@@ -109,8 +115,9 @@ pub(crate) async fn bootstrap(
             proof_db_for_rpc,
             rpc_host,
             rpc_port,
-        ),
-    );
+            shutdown,
+        )
+    });
 
     Ok(())
 }

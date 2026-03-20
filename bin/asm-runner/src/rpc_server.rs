@@ -21,6 +21,7 @@ use strata_asm_worker::{AsmWorkerHandle, AsmWorkerStatus};
 use strata_btc_types::BlockHashExt;
 use strata_identifiers::L1BlockCommitment;
 use strata_storage::AsmStateManager;
+use strata_tasks::ShutdownGuard;
 use tracing::info;
 
 /// Convert any error to an RPC error
@@ -145,6 +146,7 @@ pub(crate) async fn run_rpc_server(
     proof_db: Option<SledProofDb>,
     rpc_host: String,
     rpc_port: u16,
+    shutdown: ShutdownGuard,
 ) -> Result<()> {
     let rpc_server = AsmRpcServer::new(asm_manager, asm_worker, bitcoin_client, proof_db);
 
@@ -153,11 +155,19 @@ pub(crate) async fn run_rpc_server(
         .await?;
 
     let rpc_handle = server.start(rpc_server.into_rpc());
+    let rpc_handle_for_shutdown = rpc_handle.clone();
+    let rpc_handle_for_stop = rpc_handle.clone();
 
     info!("ASM RPC server listening on {}:{}", rpc_host, rpc_port);
 
-    // Run until cancelled
-    rpc_handle.stopped().await;
+    tokio::select! {
+        _ = shutdown.wait_for_shutdown() => {
+            info!("ASM RPC server shutting down");
+            let _ = rpc_handle.stop();
+            rpc_handle_for_shutdown.stopped().await;
+        }
+        _ = rpc_handle_for_stop.stopped() => {}
+    }
 
     Ok(())
 }
