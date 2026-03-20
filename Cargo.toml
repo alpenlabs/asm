@@ -27,6 +27,9 @@ members = [
   "crates/txs/test-utils",
   "crates/worker",
 
+  # tests
+  "tests",
+
   # binaries listed separately
   "bin/asm-runner",
   "bin/prover-perf",
