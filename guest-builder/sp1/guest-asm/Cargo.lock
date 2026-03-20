@@ -1589,7 +1589,6 @@ dependencies = [
  "strata-asm-logs 0.1.0",
  "strata-asm-spec",
  "strata-asm-stf 0.1.0",
- "strata-identifiers",
  "strata-predicate",
  "zkaleido 0.1.0 (git+https://github.com/alpenlabs/zkaleido?rev=750c209f5850af29e34c39c250c24e1c69ffa2aa)",
  "zkaleido-native-adapter",
