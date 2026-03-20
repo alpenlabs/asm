@@ -8,7 +8,7 @@ use anyhow::{Context, Result};
 use strata_asm_proof_db::{RemoteProofMappingDb, RemoteProofStatusDb, SledProofDb};
 use strata_asm_proof_impl::program::AsmStfProofProgram;
 use strata_asm_proof_types::{ProofId, RemoteProofId};
-use tokio::sync::mpsc;
+use tokio::{sync::mpsc, time};
 use tracing::{debug, error, info, warn};
 use zkaleido::{RemoteProofStatus, ZkVmRemoteHost, ZkVmRemoteProgram};
 
@@ -52,7 +52,7 @@ impl<R: ZkVmRemoteHost> ProofOrchestrator<R> {
             if let Err(e) = self.tick().await {
                 error!(?e, "orchestrator tick failed");
             }
-            tokio::time::sleep(self.config.tick_interval).await;
+            time::sleep(self.config.tick_interval).await;
         }
     }
 
@@ -67,6 +67,11 @@ impl<R: ZkVmRemoteHost> ProofOrchestrator<R> {
     /// Executes one orchestration cycle.
     async fn tick(&mut self) -> Result<()> {
         self.drain_incoming();
+
+        if !self.queue.is_empty() {
+            debug!(pending = self.queue.len(), "orchestrator tick");
+        }
+
         self.reconcile_active_proofs().await?;
         self.schedule_proofs().await?;
         Ok(())
@@ -190,10 +195,12 @@ impl<R: ZkVmRemoteHost> ProofOrchestrator<R> {
         // not processing completion. Not required after STR-2596
         // (https://alpenlabs.atlassian.net/browse/STR-2596).
         let input_builder = &self.input_builder;
-        let batch = self.queue.dequeue_batch(capacity, |proof_id| match proof_id {
-            ProofId::Asm(range) => input_builder.is_asm_proof_ready(range),
-            ProofId::Moho(_) => true,
-        });
+        let batch = self
+            .queue
+            .dequeue_batch(capacity, |proof_id| match proof_id {
+                ProofId::Asm(range) => input_builder.is_asm_proof_ready(range),
+                ProofId::Moho(_) => true,
+            });
 
         for proof_id in batch {
             if let Err(e) = self.try_submit(proof_id).await {
@@ -226,16 +233,16 @@ impl<R: ZkVmRemoteHost> ProofOrchestrator<R> {
         // Build input and submit to remote prover, dispatching by proof type.
         let typed_id = match &proof_id {
             ProofId::Asm(range) => {
-                let runtime_input =
-                    self.input_builder.build_asm_runtime_input(range).await?;
+                let runtime_input = self.input_builder.build_asm_runtime_input(range).await?;
                 AsmStfProofProgram::start_proving(&runtime_input, &self.remote)
                     .await
-                    .map_err(|e| {
-                        anyhow::anyhow!("failed to submit proof to remote prover: {e}")
-                    })?
+                    .map_err(|e| anyhow::anyhow!("failed to submit proof to remote prover: {e}"))?
             }
             ProofId::Moho(_) => {
-                debug!(?proof_id, "Moho proof generation not yet supported, skipping");
+                debug!(
+                    ?proof_id,
+                    "Moho proof generation not yet supported, skipping"
+                );
                 return Ok(());
             }
         };

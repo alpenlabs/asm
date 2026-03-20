@@ -8,7 +8,11 @@ use strata_asm_proof_impl::program::AsmStfProofProgram;
 use strata_asm_spec::StrataAsmSpec;
 use strata_asm_worker::AsmWorkerBuilder;
 use strata_tasks::TaskExecutor;
-use tokio::runtime::Handle;
+use tokio::{
+    runtime::{Builder as RuntimeBuilder, Handle},
+    sync::mpsc,
+    task::{self, LocalSet},
+};
 
 use crate::{
     block_driver::{drive_asm_from_btc_tracker, setup_btc_tracker},
@@ -56,7 +60,7 @@ pub(crate) async fn bootstrap(
 
     // 6. Optionally create the proof channel and spawn the orchestrator
     let (proof_tx, proof_db_for_rpc) = if let Some(orch_config) = config.orchestrator {
-        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+        let (tx, rx) = mpsc::unbounded_channel();
 
         let proof_db = SledProofDb::open(&orch_config.proof_db_path)?;
         let proof_db_clone = proof_db.clone();
@@ -72,11 +76,9 @@ pub(crate) async fn bootstrap(
         // future cannot be spawned on a multi-threaded runtime directly. We run it
         // on a dedicated thread with a single-threaded runtime + LocalSet.
         executor.spawn_critical_async("proof_orchestrator", async move {
-            tokio::task::spawn_blocking(move || {
-                let rt = tokio::runtime::Builder::new_current_thread()
-                    .enable_all()
-                    .build()?;
-                let local = tokio::task::LocalSet::new();
+            task::spawn_blocking(move || {
+                let rt = RuntimeBuilder::new_current_thread().enable_all().build()?;
+                let local = LocalSet::new();
                 rt.block_on(local.run_until(async move { orchestrator.run().await }))
             })
             .await?

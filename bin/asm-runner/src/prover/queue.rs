@@ -73,12 +73,10 @@ impl PendingProofQueue {
         batch
     }
 
-    /// Returns the number of pending entries.
     pub(crate) fn len(&self) -> usize {
         self.pending.len()
     }
 
-    /// Returns `true` if the queue has no pending entries.
     pub(crate) fn is_empty(&self) -> bool {
         self.pending.is_empty()
     }
@@ -163,9 +161,10 @@ mod tests {
         q.enqueue(asm(3));
 
         // Only height 2 is "ready".
-        let batch = q.dequeue_batch(10, |id| {
-            matches!(id, ProofId::Asm(r) if r.start().height() == 2)
-        });
+        let batch = q.dequeue_batch(
+            10,
+            |id| matches!(id, ProofId::Asm(r) if r.start().height() == 2),
+        );
 
         assert_eq!(batch.len(), 1);
         assert_eq!(batch[0], asm(2));

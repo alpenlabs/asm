@@ -1,6 +1,6 @@
 //! [`RemoteProofStatusDb`] implementation for [`SledProofDb`].
 
-use std::fmt;
+use std::{error::Error, fmt};
 
 use borsh::BorshDeserialize;
 use strata_asm_proof_types::RemoteProofId;
@@ -34,8 +34,8 @@ impl fmt::Display for RemoteProofStatusError {
     }
 }
 
-impl std::error::Error for RemoteProofStatusError {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+impl Error for RemoteProofStatusError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::Db(e) => Some(e),
             _ => None,

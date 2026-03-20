@@ -85,7 +85,9 @@ pub struct RemoteProofId(pub Vec<u8>);
 /// A range of L1 blocks defined by start and end commitments.
 ///
 /// Ordered by start commitment first, then end commitment.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, BorshSerialize, BorshDeserialize)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, BorshSerialize, BorshDeserialize,
+)]
 pub struct L1Range {
     /// The start of the range (inclusive).
     start: L1BlockCommitment,

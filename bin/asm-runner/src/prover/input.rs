@@ -5,10 +5,13 @@
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
-use bitcoind_async_client::{traits::Reader, Client};
+use bitcoind_async_client::{Client, traits::Reader};
 use moho_runtime_impl::RuntimeInput;
 use moho_runtime_interface::MohoProgram;
-use strata_asm_proof_impl::moho_program::{input::L1Block, program::AsmStfProgram};
+use strata_asm_proof_impl::moho_program::{
+    input::{AsmStepInput, L1Block},
+    program::AsmStfProgram,
+};
 use strata_asm_proof_types::L1Range;
 use strata_btc_types::{BlockHashExt, L1BlockIdBitcoinExt};
 use strata_identifiers::L1BlockCommitment;
@@ -21,10 +24,7 @@ pub(crate) struct InputBuilder {
 }
 
 impl InputBuilder {
-    pub(crate) fn new(
-        asm_manager: Arc<AsmStateManager>,
-        bitcoin_client: Arc<Client>,
-    ) -> Self {
+    pub(crate) fn new(asm_manager: Arc<AsmStateManager>, bitcoin_client: Arc<Client>) -> Self {
         Self {
             asm_manager,
             bitcoin_client,
@@ -74,7 +74,7 @@ impl InputBuilder {
             .context("aux data not found for block")?;
 
         // 3. Build the step input.
-        let step_input = strata_asm_proof_impl::moho_program::input::AsmStepInput {
+        let step_input = AsmStepInput {
             block: L1Block(block.clone()),
             aux_data,
         };
@@ -85,8 +85,7 @@ impl InputBuilder {
             .height()
             .checked_sub(1)
             .context("cannot generate ASM proof for height 0 — no parent block")?;
-        let parent_commitment =
-            L1BlockCommitment::new(parent_height, parent_hash.to_l1_block_id());
+        let parent_commitment = L1BlockCommitment::new(parent_height, parent_hash.to_l1_block_id());
 
         let asm_state = self
             .asm_manager
