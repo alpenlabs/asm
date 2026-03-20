@@ -54,23 +54,17 @@ pub(crate) async fn bootstrap(
     );
     let asm_worker = Arc::new(asm_worker);
 
-    // 6. Spawn block driver as a critical task
-    let btc_tracker_for_driver = btc_tracker.clone();
-    let asm_worker_for_driver = asm_worker.clone();
-    executor.spawn_critical_async(
-        "block_driver",
-        drive_asm_from_btc_tracker(btc_tracker_for_driver, asm_worker_for_driver),
-    );
+    // 6. Optionally create the proof channel and spawn the orchestrator
+    let proof_tx = if let Some(orch_config) = config.orchestrator {
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
 
-    // 7. Optionally spawn the proof orchestrator
-    if let Some(orch_config) = config.orchestrator {
         let proof_db = SledProofDb::open(&orch_config.proof_db_path)?;
         let spec = StrataAsmSpec::from_asm_params(&params);
         let native_host = AsmStfProofProgram::native_host(spec);
 
         let input_builder = InputBuilder::new(asm_manager.clone(), bitcoin_client.clone());
         let mut orchestrator =
-            ProofOrchestrator::new(proof_db, native_host, orch_config, input_builder);
+            ProofOrchestrator::new(proof_db, native_host, orch_config, input_builder, rx);
 
         // ZkVmRemoteProver is !Send (#[async_trait(?Send)]), so the orchestrator
         // future cannot be spawned on a multi-threaded runtime directly. We run it
@@ -85,7 +79,19 @@ pub(crate) async fn bootstrap(
             })
             .await?
         });
-    }
+
+        Some(tx)
+    } else {
+        None
+    };
+
+    // 7. Spawn block driver as a critical task
+    let btc_tracker_for_driver = btc_tracker.clone();
+    let asm_worker_for_driver = asm_worker.clone();
+    executor.spawn_critical_async(
+        "block_driver",
+        drive_asm_from_btc_tracker(btc_tracker_for_driver, asm_worker_for_driver, proof_tx),
+    );
 
     // 8. Spawn RPC server as a critical task
     let rpc_host = config.rpc.host.clone();

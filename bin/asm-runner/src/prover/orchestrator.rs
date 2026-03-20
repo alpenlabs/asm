@@ -8,6 +8,7 @@ use anyhow::{Context, Result};
 use strata_asm_proof_db::{RemoteProofMappingDb, RemoteProofStatusDb, SledProofDb};
 use strata_asm_proof_impl::program::AsmStfProofProgram;
 use strata_asm_proof_types::{ProofId, RemoteProofId};
+use tokio::sync::mpsc;
 use tracing::{debug, error, info, warn};
 use zkaleido::{RemoteProofStatus, ZkVmRemoteHost, ZkVmRemoteProgram};
 
@@ -19,6 +20,7 @@ use super::{
 pub(crate) struct ProofOrchestrator<R: ZkVmRemoteHost> {
     db: SledProofDb,
     queue: PendingProofQueue,
+    rx: mpsc::UnboundedReceiver<ProofId>,
     remote: R,
     config: OrchestratorConfig,
     input_builder: InputBuilder,
@@ -31,19 +33,16 @@ impl<R: ZkVmRemoteHost> ProofOrchestrator<R> {
         remote: R,
         config: OrchestratorConfig,
         input_builder: InputBuilder,
+        rx: mpsc::UnboundedReceiver<ProofId>,
     ) -> Self {
         Self {
             db,
             queue: PendingProofQueue::new(),
+            rx,
             remote,
             config,
             input_builder,
         }
-    }
-
-    /// Enqueues a proof for generation.
-    pub(crate) fn enqueue(&mut self, id: ProofId) {
-        self.queue.enqueue(id);
     }
 
     /// Runs the orchestrator loop until the future is cancelled.
@@ -57,8 +56,17 @@ impl<R: ZkVmRemoteHost> ProofOrchestrator<R> {
         }
     }
 
+    /// Drains incoming proof requests from the channel into the pending queue.
+    fn drain_incoming(&mut self) {
+        while let Ok(id) = self.rx.try_recv() {
+            debug!(?id, "received proof request");
+            self.queue.enqueue(id);
+        }
+    }
+
     /// Executes one orchestration cycle.
     async fn tick(&mut self) -> Result<()> {
+        self.drain_incoming();
         self.reconcile_active_proofs().await?;
         self.schedule_proofs().await?;
         Ok(())
