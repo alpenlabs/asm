@@ -144,12 +144,10 @@ impl AsmTestHarness {
         let block_id = block_hash.to_l1_block_id();
         let block_commitment = L1BlockCommitment::new(height as u32, block_id);
 
-        // Submit to ASM worker.
+        // Submit to ASM worker and wait for processing to complete.
+        // `submit_block` uses `send_and_wait_blocking`, so the block is fully
+        // processed when this returns.
         block_in_place(|| self.asm_handle.submit_block(block_commitment))?;
-
-        // Wait for ASM worker to actually finish processing the block
-        // TODO(STR-2596): remove once it is merged - waiting won't be required.
-        self.wait_for_height(height, Duration::from_secs(5)).await?;
 
         Ok(block_hash)
     }
