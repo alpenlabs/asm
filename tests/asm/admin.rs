@@ -22,7 +22,7 @@
     reason = "test dependencies shared across test suite"
 )]
 
-use std::{num::NonZero, time::Duration};
+use std::num::NonZero;
 
 use bitcoin::secp256k1::{PublicKey, Secp256k1, SecretKey};
 use bitcoind_async_client::traits::Reader;
@@ -357,12 +357,7 @@ async fn test_wrong_key_rejected() {
         .await
         .unwrap();
 
-    let target_height = harness.get_processed_height().unwrap() + 1;
     harness.submit_and_mine_tx(&tx).await.unwrap();
-    harness
-        .wait_for_height(target_height, Duration::from_secs(5))
-        .await
-        .unwrap();
 
     let state = harness.admin_state().unwrap();
     assert_eq!(
@@ -413,12 +408,7 @@ async fn test_corrupted_signature_rejected() {
         .await
         .unwrap();
 
-    let target_height = harness.get_processed_height().unwrap() + 1;
     harness.submit_and_mine_tx(&tx).await.unwrap();
-    harness
-        .wait_for_height(target_height, Duration::from_secs(5))
-        .await
-        .unwrap();
 
     let state = harness.admin_state().unwrap();
     assert_eq!(
@@ -505,14 +495,8 @@ async fn test_multiple_updates_same_block() {
     harness.submit_transaction(&tx2).await.unwrap();
     harness.submit_transaction(&tx3).await.unwrap();
 
-    let target_height = harness.get_processed_height().unwrap() + 1;
-
     // Mine single block containing all
     let block_hash = harness.mine_block(None).await.unwrap();
-    harness
-        .wait_for_height(target_height, Duration::from_secs(5))
-        .await
-        .unwrap();
 
     // Verify all 3 transactions were included in the block
     let block = harness.client.get_block(&block_hash).await.unwrap();

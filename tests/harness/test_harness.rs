@@ -29,10 +29,7 @@
 //! harness.submit_admin_action(&mut ctx, sequencer_update([1u8; 32])).await?;
 //! ```
 
-use std::{
-    sync::Arc,
-    time::{Duration, Instant},
-};
+use std::sync::Arc;
 
 use bitcoin::{
     absolute::LockTime,
@@ -64,7 +61,7 @@ use strata_primitives::{buf::Buf32, l1::L1BlockCommitment};
 use strata_state::{asm_state::AsmState, BlockSubmitter};
 use strata_tasks::{TaskExecutor, TaskManager};
 use strata_test_utils::ArbitraryGenerator;
-use tokio::{runtime::Handle, task::block_in_place, time::sleep};
+use tokio::{runtime::Handle, task::block_in_place};
 
 use super::worker_context::{get_genesis_l1_view, TestAsmWorkerContext};
 
@@ -205,66 +202,6 @@ impl AsmTestHarness {
         }
 
         anyhow::bail!("Transaction {txid} not included after 10 blocks")
-    }
-
-    // ========================================================================
-    // Waiting & Synchronization
-    // ========================================================================
-
-    /// Wait for ASM state to advance beyond a given height.
-    ///
-    /// Polls the ASM state until it processes a block at or above the target height,
-    /// or times out after the specified duration.
-    pub async fn wait_for_height(
-        &self,
-        target_height: u64,
-        timeout: Duration,
-    ) -> anyhow::Result<()> {
-        let start = Instant::now();
-        loop {
-            if start.elapsed() > timeout {
-                anyhow::bail!("Timeout waiting for height {target_height}");
-            }
-
-            if let Some((commitment, _state)) = self.context.get_latest_asm_state()? {
-                let current_height = commitment.height() as u64;
-                if current_height >= target_height {
-                    return Ok(());
-                }
-            }
-
-            sleep(Duration::from_millis(50)).await;
-        }
-    }
-
-    /// Wait for a specific block to be processed by ASM worker.
-    ///
-    /// Polls until the ASM state for the given block exists, or times out.
-    pub async fn wait_for_block(
-        &self,
-        blockid: &L1BlockCommitment,
-        timeout: Duration,
-    ) -> anyhow::Result<AsmState> {
-        let start = Instant::now();
-        loop {
-            if start.elapsed() > timeout {
-                anyhow::bail!("Timeout waiting for block {:?}", blockid);
-            }
-
-            match self.context.get_anchor_state(blockid) {
-                Ok(state) => return Ok(state),
-                Err(_) => {
-                    sleep(Duration::from_millis(50)).await;
-                }
-            }
-        }
-    }
-
-    /// Wait for the next block to be processed.
-    pub async fn wait_for_next_block(&self) -> anyhow::Result<()> {
-        let current = self.get_processed_height()?;
-        self.wait_for_height(current + 1, Duration::from_secs(5))
-            .await
     }
 
     // ========================================================================
