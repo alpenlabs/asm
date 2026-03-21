@@ -1460,7 +1460,7 @@ dependencies = [
  "serde",
  "strata-asm-manifest-types 0.1.0",
  "strata-btc-types",
- "strata-btc-verification",
+ "strata-btc-verification 0.1.0",
  "strata-identifiers",
  "strata-l1-txfmt",
  "strata-merkle",
@@ -1479,7 +1479,7 @@ dependencies = [
  "serde",
  "strata-asm-manifest-types 0.1.0 (git+https://github.com/alpenlabs/alpen.git?rev=787b804c41800bbbf8d3632637a7eda332fc9f39)",
  "strata-btc-types",
- "strata-btc-verification",
+ "strata-btc-verification 0.1.0 (git+https://github.com/alpenlabs/alpen.git?rev=787b804c41800bbbf8d3632637a7eda332fc9f39)",
  "strata-identifiers",
  "strata-l1-txfmt",
  "strata-merkle",
@@ -1817,6 +1817,20 @@ dependencies = [
  "strata-l1-txfmt",
  "thiserror 2.0.18",
  "tree_hash",
+]
+
+[[package]]
+name = "strata-btc-verification"
+version = "0.1.0"
+dependencies = [
+ "arbitrary",
+ "bitcoin",
+ "borsh",
+ "serde",
+ "strata-btc-types",
+ "strata-crypto",
+ "strata-identifiers",
+ "thiserror 2.0.18",
 ]
 
 [[package]]
