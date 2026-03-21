@@ -3,6 +3,7 @@ resolver = "2"
 
 members = [
   "crates/common",
+  "crates/btc-verification",
   "crates/logs",
   "crates/manifest-types",
   "crates/msgs/bridge",
@@ -72,13 +73,13 @@ strata-asm-txs-checkpoint = { path = "crates/txs/checkpoint" }
 strata-asm-txs-checkpoint-v0 = { path = "crates/txs/checkpoint-v0" }
 strata-asm-txs-test-utils = { path = "crates/txs/test-utils" }
 strata-asm-worker = { path = "crates/worker" }
+strata-btc-verification = { path = "crates/btc-verification" }
 
 # Dependencies from alpenlabs/alpen pinned to commit 787b804 (main @ 2026-03-17)
 # NOTE: keep `typed-sled` pinned in Cargo.lock to 9062bff for compatibility with this alpen rev.
 # Newer typed-sled commits can break transitive crates (e.g. `strata-db-store-sled`) in test builds.
 strata-bridge-types = { git = "https://github.com/alpenlabs/alpen.git", rev = "787b804c41800bbbf8d3632637a7eda332fc9f39" }
 strata-btc-types = { git = "https://github.com/alpenlabs/alpen.git", rev = "787b804c41800bbbf8d3632637a7eda332fc9f39" }
-strata-btc-verification = { git = "https://github.com/alpenlabs/alpen.git", rev = "787b804c41800bbbf8d3632637a7eda332fc9f39" }
 strata-checkpoint-types = { git = "https://github.com/alpenlabs/alpen.git", rev = "787b804c41800bbbf8d3632637a7eda332fc9f39" }
 strata-checkpoint-types-ssz = { git = "https://github.com/alpenlabs/alpen.git", rev = "787b804c41800bbbf8d3632637a7eda332fc9f39" }
 strata-codec-utils = { git = "https://github.com/alpenlabs/alpen.git", rev = "787b804c41800bbbf8d3632637a7eda332fc9f39" }
