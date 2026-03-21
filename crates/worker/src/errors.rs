@@ -55,4 +55,10 @@ pub enum WorkerError {
 
     #[error("Manifest hash out of bound (max {max}, requested {index})")]
     ManifestIndexOutOfBound { index: u64, max: u64 },
+
+    #[error("ASM worker exited unexpectedly")]
+    WorkerExited,
+
+    #[error("unexpected error: {0}")]
+    Unexpected(String),
 }
