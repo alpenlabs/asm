@@ -3,13 +3,12 @@
 //! view into a single deterministic state transition.
 // TODO rename this module to `transition`
 
-use bitcoin::{Block, hashes::Hash};
+use bitcoin::Block;
 use strata_asm_common::{
     AnchorState, AsmError, AsmManifest, AsmResult, AsmSpec, AuxData, ChainViewState,
     VerifiedAuxData,
 };
 use strata_btc_verification::{check_block_integrity, inclusion_proof::TxidInclusionProof};
-use strata_identifiers::Buf32;
 
 use crate::{
     group_txs_by_subprotocol,
@@ -33,7 +32,8 @@ pub fn compute_asm_transition<S: AsmSpec>(
     coinbase_inclusion_proof: &Option<TxidInclusionProof>,
 ) -> AsmResult<AsmStfOutput> {
     // 1. Validate that the block body merkle is consistent with the header.
-    check_block_integrity(block, coinbase_inclusion_proof)?;
+    // Returns the witness txids root (segwit) or txids root (legacy) for use below.
+    let wtxids_root = check_block_integrity(block, coinbase_inclusion_proof)?;
 
     // 2. Validate and update PoW header continuity for the new block.
     // This ensures the block header follows proper Bitcoin consensus rules and chain continuity.
@@ -72,14 +72,6 @@ pub fn compute_asm_transition<S: AsmSpec>(
     // bounded number of times
     let mut finish_stage = FinishStage::new(&mut manager, &pow_state.last_verified_block);
     spec.call_subprotocols(&mut finish_stage);
-
-    // For blocks without witness data (pre-SegWit or legacy-only transactions),
-    // the witness merkle root equals the transaction merkle root per Bitcoin protocol.
-    let wtxids_root: Buf32 = block
-        .witness_root()
-        .map(|root| root.as_raw_hash().to_byte_array())
-        .unwrap_or_else(|| block.header.merkle_root.as_raw_hash().to_byte_array())
-        .into();
 
     // 7. Construct the manifest with the logs.
     let (sections, logs) = manager.export_sections_and_logs();

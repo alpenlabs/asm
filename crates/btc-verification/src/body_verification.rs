@@ -30,13 +30,20 @@ use crate::{
 ///    - Validates the Merkle root by comparing the block header’s Merkle root with the Merkle root
 ///      computed from all transactions.
 ///
+/// # Returns
+///
+/// On success, returns the witness transaction IDs Merkle root (`Buf32`) for SegWit blocks,
+/// or the transaction Merkle root for non-SegWit blocks. For blocks without witness data
+/// (pre-SegWit or legacy-only transactions), the witness Merkle root equals the transaction
+/// Merkle root per Bitcoin protocol. This avoids recomputing the root downstream.
+///
 /// # Errors
 ///
-/// Returns a [`BlockBodyError`] if any of the integrity checks fail.
+/// Returns a [`L1BodyError`] if any of the integrity checks fail.
 pub fn check_block_integrity(
     block: &Block,
     coinbase_inclusion_proof: &Option<TxidInclusionProof>,
-) -> Result<(), L1BodyError> {
+) -> Result<Buf32, L1BodyError> {
     let Block { header, txdata } = block;
     if txdata.is_empty() {
         return Err(L1BodyError::EmptyBlock);
@@ -60,10 +67,18 @@ pub fn check_block_integrity(
             return Err(L1BodyError::InvalidCoinbaseWitness);
         }
 
-        // Check that the computed witness commitment matches.
-        let is_valid_commitment = compute_witness_commitment(txdata, witness_vec[0])
-            .is_some_and(|value| commitment == value);
-        if !is_valid_commitment {
+        // Compute the witness root once and reuse it for both the commitment check and return.
+        let witness_root =
+            compute_witness_root(txdata).ok_or(L1BodyError::WitnessCommitmentMismatch)?;
+
+        // Verify the witness commitment using the computed witness root.
+        let mut vec = vec![];
+        witness_root
+            .consensus_encode(&mut vec)
+            .expect("engines don’t error");
+        vec.extend(witness_vec[0]);
+        let computed_commitment = WitnessCommitment::from_byte_array(*sha256d(&vec).as_ref());
+        if commitment != computed_commitment {
             return Err(L1BodyError::WitnessCommitmentMismatch);
         }
 
@@ -72,13 +87,13 @@ pub fn check_block_integrity(
             return Err(L1BodyError::InvalidInclusionProof);
         }
 
-        Ok(())
+        Ok(Buf32::from(witness_root.to_byte_array()))
     } else {
         // If there’s no witness commitment at all, fall back to a merkle root check.
         if !check_merkle_root(block) {
             return Err(L1BodyError::MerkleRootMismatch);
         }
-        Ok(())
+        Ok(Buf32::from(header.merkle_root.to_byte_array()))
     }
 }
 
@@ -147,23 +162,6 @@ pub(crate) fn witness_commitment_from_coinbase(
     } else {
         None
     }
-}
-
-/// Computes the witness commitment for the block's transaction list.
-///
-/// Equivalent to [`compute_witness_commitment`](Block::compute_witness_commitment).
-pub(crate) fn compute_witness_commitment(
-    transactions: &[Transaction],
-    witness_reserved_value: &[u8],
-) -> Option<WitnessCommitment> {
-    compute_witness_root(transactions).map(|witness_root| {
-        let mut vec = vec![];
-        witness_root
-            .consensus_encode(&mut vec)
-            .expect("engines don't error");
-        vec.extend(witness_reserved_value);
-        WitnessCommitment::from_byte_array(*sha256d(&vec).as_ref())
-    })
 }
 
 #[cfg(test)]

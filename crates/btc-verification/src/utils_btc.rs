@@ -22,7 +22,7 @@ pub fn compute_block_hash(header: &Header) -> BlockHash {
     BlockHash::from_byte_array(sha256d(&buf).0)
 }
 
-/// Computes the [`Txid`](Txid) using [RustCrypto's SHA-2 crate](https://github.com/RustCrypto/hashes/tree/master/sha2)
+/// Computes the [`Txid`] using [RustCrypto's SHA-2 crate](https://github.com/RustCrypto/hashes/tree/master/sha2)
 /// for the underlying `sha256d` hash function.
 ///
 /// Equivalent to [`compute_txid`](bitcoin::Transaction::compute_txid)
