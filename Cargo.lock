@@ -8288,6 +8288,9 @@ dependencies = [
  "clap",
  "futures",
  "jsonrpsee",
+ "moho-runtime-impl",
+ "moho-runtime-interface",
+ "moho-types",
  "serde",
  "serde_json",
  "ssz",
@@ -8306,6 +8309,7 @@ dependencies = [
  "strata-db-store-sled",
  "strata-identifiers 0.1.0 (git+https://github.com/alpenlabs/alpen.git?rev=1cadb7b23a640726d66408dc94c5b60358056b51)",
  "strata-merkle",
+ "strata-predicate",
  "strata-state",
  "strata-storage",
  "strata-tasks",
@@ -8313,7 +8317,7 @@ dependencies = [
  "tokio",
  "toml 1.1.0+spec-1.1.0",
  "tracing",
- "zkaleido 0.1.0 (git+https://github.com/alpenlabs/zkaleido?rev=750c209f5850af29e34c39c250c24e1c69ffa2aa)",
+ "zkaleido 0.1.0 (git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc22)",
 ]
 
 [[package]]
@@ -11496,9 +11500,7 @@ name = "zkaleido-native-adapter"
 version = "0.1.0"
 source = "git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc22#c084082b8f9e7f62406878313d25b9225f278188"
 dependencies = [
- "async-trait",
  "bincode",
- "hex",
  "k256",
  "rand_core 0.6.4",
  "serde",

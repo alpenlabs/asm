@@ -4,11 +4,20 @@
 //! 1. Reconciles active remote proofs (polls status, stores completed proofs).
 //! 2. Schedules new proofs from the pending queue, enforcing prerequisites.
 
+use std::sync::Arc;
+
 use anyhow::{Context, Result};
+use bitcoind_async_client::{traits::Reader, Client};
+use moho_runtime_impl::RuntimeInput;
+use moho_runtime_interface::MohoProgram;
 use strata_asm_proof_db::{ProofDb, RemoteProofMappingDb, RemoteProofStatusDb, SledProofDb};
-use strata_asm_proof_types::{AsmProof, MohoProof, ProofId, RemoteProofId};
+use strata_asm_proof_impl::moho_program::{input::L1Block, program::AsmStfProgram};
+use strata_asm_proof_types::{AsmProof, L1Range, MohoProof, ProofId, RemoteProofId};
+use strata_btc_types::{BlockHashExt, L1BlockIdBitcoinExt};
+use strata_identifiers::L1BlockCommitment;
+use strata_storage::AsmStateManager;
 use tracing::{debug, error, info, warn};
-use zkaleido::{ProofType, RemoteProofStatus, ZkVmRemoteProver};
+use zkaleido::{ProofType, RemoteProofStatus, ZkVmProgram, ZkVmRemoteProver};
 
 use super::{config::OrchestratorConfig, queue::PendingProofQueue};
 
@@ -19,6 +28,8 @@ pub(crate) struct ProofOrchestrator<R: ZkVmRemoteProver> {
     remote: R,
     proof_type: ProofType,
     config: OrchestratorConfig,
+    asm_manager: Arc<AsmStateManager>,
+    bitcoin_client: Arc<Client>,
 }
 
 impl<R: ZkVmRemoteProver> ProofOrchestrator<R> {
@@ -28,6 +39,8 @@ impl<R: ZkVmRemoteProver> ProofOrchestrator<R> {
         remote: R,
         proof_type: ProofType,
         config: OrchestratorConfig,
+        asm_manager: Arc<AsmStateManager>,
+        bitcoin_client: Arc<Client>,
     ) -> Self {
         Self {
             db,
@@ -35,6 +48,8 @@ impl<R: ZkVmRemoteProver> ProofOrchestrator<R> {
             remote,
             proof_type,
             config,
+            asm_manager,
+            bitcoin_client,
         }
     }
 
@@ -230,8 +245,13 @@ impl<R: ZkVmRemoteProver> ProofOrchestrator<R> {
             }
         }
 
-        // Prepare host input and submit to remote prover.
-        let input = self.prepare_input(&proof_id)?;
+        // Build the RuntimeInput and prepare host-specific input.
+        let runtime_input = self.build_runtime_input(&proof_id).await?;
+        let input = strata_asm_proof_impl::program::AsmStfProofProgram::prepare_input::<
+            R::Input<'_>,
+        >(&runtime_input)
+        .map_err(|e| anyhow::anyhow!("failed to prepare ZkVM input: {e}"))?;
+
         let typed_id = self
             .remote
             .start_proving(input, self.proof_type)
@@ -255,17 +275,81 @@ impl<R: ZkVmRemoteProver> ProofOrchestrator<R> {
         Ok(())
     }
 
-    /// Prepares host-specific input for the given proof.
-    ///
-    /// TODO: This requires block data from the chain to build `RuntimeInput`.
-    /// For now this is a stub that will be filled in once the block data pipeline
-    /// is integrated.
-    fn prepare_input(
-        &self,
-        _proof_id: &ProofId,
-    ) -> Result<<R::Input<'_> as zkaleido::ZkVmInputBuilder<'_>>::Input> {
-        anyhow::bail!("input preparation not yet implemented — requires block data pipeline")
+    // ---- Input preparation ------------------------------------------------
+
+    /// Builds the [`RuntimeInput`] for the given proof.
+    async fn build_runtime_input(&self, proof_id: &ProofId) -> Result<RuntimeInput> {
+        match proof_id {
+            ProofId::Asm(range) => self.build_asm_runtime_input(range).await,
+            ProofId::Moho(_) => {
+                anyhow::bail!("Moho input preparation not yet implemented")
+            }
+        }
     }
+
+    /// Builds the [`RuntimeInput`] for a single-block ASM proof.
+    ///
+    /// This fetches the Bitcoin block and auxiliary data, reconstructs the
+    /// pre-state, and assembles the input the ZkVM program expects.
+    async fn build_asm_runtime_input(&self, range: &L1Range) -> Result<RuntimeInput> {
+        let commitment = range.start();
+
+        // 1. Fetch the Bitcoin block.
+        let block_hash = commitment.blkid().to_block_hash();
+        let block = self
+            .bitcoin_client
+            .get_block(&block_hash)
+            .await
+            .context("failed to fetch Bitcoin block")?;
+
+        // 2. Fetch the auxiliary data stored during STF execution.
+        let aux_data = self
+            .asm_manager
+            .get_aux_data(commitment)
+            .context("failed to fetch aux data")?
+            .context("aux data not found for block")?;
+
+        // 3. Build the step input.
+        let step_input = strata_asm_proof_impl::moho_program::input::AsmStepInput {
+            block: L1Block(block.clone()),
+            aux_data,
+        };
+
+        // 4. Fetch the pre-state (anchor state for the parent block).
+        let parent_hash = block.header.prev_blockhash;
+        let parent_height = commitment
+            .height()
+            .checked_sub(1)
+            .context("cannot generate ASM proof for height 0 — no parent block")?;
+        let parent_commitment =
+            L1BlockCommitment::new(parent_height, parent_hash.to_l1_block_id());
+
+        let asm_state = self
+            .asm_manager
+            .get_state(parent_commitment)
+            .context("failed to fetch parent anchor state")?
+            .context("parent anchor state not found")?;
+        let anchor_state = asm_state.state();
+
+        // 5. Compute the Moho pre-state from the anchor state.
+        let inner_state_commitment = AsmStfProgram::compute_state_commitment(anchor_state);
+        let moho_pre_state = moho_types::MohoState::new(
+            inner_state_commitment,
+            strata_predicate::PredicateKey::always_accept(),
+            moho_types::ExportState::new(vec![]),
+        );
+
+        // 6. Build RuntimeInput.
+        let runtime_input = RuntimeInput::new(
+            moho_pre_state,
+            borsh::to_vec(anchor_state).context("failed to borsh-encode anchor state")?,
+            borsh::to_vec(&step_input).context("failed to borsh-encode step input")?,
+        );
+
+        Ok(runtime_input)
+    }
+
+    // ---- Helpers ----------------------------------------------------------
 
     /// Returns `true` if the proof already exists in the local proof DB.
     async fn proof_exists(&self, proof_id: &ProofId) -> Result<bool> {
@@ -294,10 +378,7 @@ impl<R: ZkVmRemoteProver> ProofOrchestrator<R> {
     /// Checks whether the prerequisites for generating `Moho(h)` are met:
     /// 1. `Moho(h-1)` must exist (or this is the first Moho proof).
     /// 2. An ASM proof covering height `h` must exist.
-    async fn moho_prerequisites_met(
-        &self,
-        commitment: &strata_identifiers::L1BlockCommitment,
-    ) -> Result<bool> {
+    async fn moho_prerequisites_met(&self, commitment: &L1BlockCommitment) -> Result<bool> {
         let height = commitment.height();
 
         // Check that the previous Moho proof exists (unless this is height 0).
@@ -320,7 +401,7 @@ impl<R: ZkVmRemoteProver> ProofOrchestrator<R> {
 
         // Check that an ASM proof covering this height exists.
         // TODO: support range-based ASM proof lookup.
-        let asm_range = strata_asm_proof_types::L1Range::single(*commitment);
+        let asm_range = L1Range::single(*commitment);
         let asm_exists = self
             .db
             .get_asm_proof(asm_range)

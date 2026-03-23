@@ -63,23 +63,21 @@ pub(crate) async fn bootstrap(
         drive_asm_from_btc_tracker(btc_tracker_for_driver, asm_worker_for_driver),
     );
 
-    // 7. Spawn RPC server as a critical task
-    let rpc_host = config.rpc.host.clone();
-    let rpc_port = config.rpc.port;
-    executor.spawn_critical_async(
-        "rpc_server",
-        run_rpc_server(asm_manager, asm_worker, bitcoin_client, rpc_host, rpc_port),
-    );
-
-    // 8. Optionally spawn the proof orchestrator
+    // 7. Optionally spawn the proof orchestrator
     if let Some(orch_config) = config.orchestrator {
         let proof_db = SledProofDb::open(&orch_config.proof_db_path)?;
         let spec = StrataAsmSpec::from_asm_params(&params);
         let native_host = AsmStfProofProgram::native_host(spec);
         let proof_type = AsmStfProofProgram::proof_type();
 
-        let mut orchestrator =
-            ProofOrchestrator::new(proof_db, native_host, proof_type, orch_config);
+        let mut orchestrator = ProofOrchestrator::new(
+            proof_db,
+            native_host,
+            proof_type,
+            orch_config,
+            asm_manager.clone(),
+            bitcoin_client.clone(),
+        );
 
         // ZkVmRemoteProver is !Send (#[async_trait(?Send)]), so the orchestrator
         // future cannot be spawned on a multi-threaded runtime directly. We run it
@@ -95,6 +93,14 @@ pub(crate) async fn bootstrap(
             .await?
         });
     }
+
+    // 8. Spawn RPC server as a critical task
+    let rpc_host = config.rpc.host.clone();
+    let rpc_port = config.rpc.port;
+    executor.spawn_critical_async(
+        "rpc_server",
+        run_rpc_server(asm_manager, asm_worker, bitcoin_client, rpc_host, rpc_port),
+    );
 
     Ok(())
 }

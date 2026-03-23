@@ -8,6 +8,9 @@ workspace = true
 
 [dependencies]
 btc-tracker.workspace = true
+moho-runtime-impl.workspace = true
+moho-runtime-interface.workspace = true
+moho-types.workspace = true
 strata-asm-rpc.workspace = true
 strata-bridge-common.workspace = true
 
@@ -16,14 +19,15 @@ strata-asm-params.workspace = true
 strata-asm-proof-db.workspace = true
 strata-asm-proof-impl.workspace = true
 strata-asm-proof-types.workspace = true
-strata-asm-spec.workspace = true
 strata-asm-proto-bridge-v1.workspace = true
+strata-asm-spec.workspace = true
 strata-asm-txs-bridge-v1.workspace = true
 strata-asm-worker.workspace = true
 strata-btc-types.workspace = true
 strata-db-store-sled.workspace = true
 strata-identifiers.workspace = true
 strata-merkle.workspace = true
+strata-predicate.workspace = true
 strata-state.workspace = true
 strata-storage.workspace = true
 strata-tasks.workspace = true
