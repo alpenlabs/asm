@@ -160,7 +160,7 @@ sled = "0.34.7"
 tempfile = "3.10.1"
 thiserror = "2.0.11"
 tokio = { version = "1.37", features = ["full"] }
-toml = "0.8.20"
+toml = "1.0.6"
 tracing = "0.1"
 
 # Temporary override (required for now):
