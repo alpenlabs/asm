@@ -31,26 +31,6 @@ impl InputBuilder {
         }
     }
 
-    /// Returns `true` if the ASM state required for proving `range` is available.
-    ///
-    /// Checks whether `aux_data` exists for the start commitment. This is a
-    /// lightweight, synchronous check against the local database.
-    ///
-    /// # Temporary workaround
-    ///
-    /// This check is necessary because `AsmWorkerHandle::submit_block(_async)` only
-    /// guarantees enqueueing — it does not provide processing-completion semantics.
-    /// The orchestrator therefore cannot assume that state is available immediately
-    /// after a block is submitted to the worker.
-    ///
-    /// This workaround is not required after STR-2596
-    /// (<https://alpenlabs.atlassian.net/browse/STR-2596>), which will make
-    /// `submit_block` / `submit_block_async` return `Ok(())` only after block
-    /// processing completes successfully (or `Err(...)` on failure).
-    pub(crate) fn is_asm_proof_ready(&self, range: &L1Range) -> bool {
-        matches!(self.asm_manager.get_aux_data(range.start()), Ok(Some(_)))
-    }
-
     /// Builds the [`RuntimeInput`] for a single-block ASM proof.
     ///
     /// This fetches the Bitcoin block and auxiliary data, reconstructs the

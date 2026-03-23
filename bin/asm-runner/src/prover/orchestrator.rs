@@ -210,17 +210,7 @@ impl<R: ZkVmRemoteHost> ProofOrchestrator<R> {
             return Ok(());
         }
 
-        // Temporary workaround: filter by ASM state availability because
-        // `AsmWorkerHandle::submit_block(_async)` only guarantees enqueueing,
-        // not processing completion. Not required after STR-2596
-        // (https://alpenlabs.atlassian.net/browse/STR-2596).
-        let input_builder = &self.input_builder;
-        let batch = self
-            .queue
-            .dequeue_batch(capacity, |proof_id| match proof_id {
-                ProofId::Asm(range) => input_builder.is_asm_proof_ready(range),
-                ProofId::Moho(_) => true,
-            });
+        let batch = self.queue.dequeue_batch(capacity);
 
         for proof_id in batch {
             if let Err(e) = self.try_submit(proof_id).await {
