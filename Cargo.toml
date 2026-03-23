@@ -149,7 +149,7 @@ clap = { version = "4.5.20", features = ["cargo", "derive", "env"] }
 corepc-node = { version = "0.10.0", features = ["29_0"] }
 futures = "0.3.31"
 hex-literal = "1.1"
-jsonrpsee = "0.24.7"
+jsonrpsee = "0.26.0"
 proptest = "1.9.0"
 rand = "0.8.5"
 rand_chacha = { version = "0.3.1", default-features = false }
