@@ -8,6 +8,7 @@ use strata_asm_common::{
     AnchorState, AsmError, AsmManifest, AsmResult, AsmSpec, AuxData, ChainViewState,
     VerifiedAuxData,
 };
+use strata_btc_verification::{check_block_integrity, inclusion_proof::TxidInclusionProof};
 use strata_identifiers::Buf32;
 
 use crate::{
@@ -29,9 +30,10 @@ pub fn compute_asm_transition<S: AsmSpec>(
     pre_state: &AnchorState,
     block: &Block,
     aux_data: &AuxData,
+    coinbase_inclusion_proof: &Option<TxidInclusionProof>,
 ) -> AsmResult<AsmStfOutput> {
     // 1. Validate that the block body merkle is consistent with the header.
-    assert!(block.check_merkle_root() && block.check_witness_commitment());
+    assert!(check_block_integrity(block, coinbase_inclusion_proof));
 
     // 2. Validate and update PoW header continuity for the new block.
     // This ensures the block header follows proper Bitcoin consensus rules and chain continuity.

@@ -10,6 +10,7 @@ use bitcoin::{
 use moho_types::StateReference;
 use ssz_derive::{Decode, Encode};
 use strata_asm_common::AuxData;
+use strata_btc_verification::inclusion_proof::TxidInclusionProof;
 
 /// Private input for a single ASM STF step.
 ///
@@ -21,14 +22,21 @@ pub struct AsmStepInput {
     block_bytes: Vec<u8>,
     /// SSZ-encoded auxiliary data required to run the ASM STF.
     aux_data_bytes: Vec<u8>,
+    /// Optional txid inclusion proof for the coinbase transaction.
+    coinbase_inclusion_proof: Option<TxidInclusionProof>,
 }
 
 impl AsmStepInput {
     /// Creates a new Moho step input.
-    pub fn new(block: L1Block, aux_data: AuxData) -> Self {
+    pub fn new(
+        block: L1Block,
+        aux_data: AuxData,
+        coinbase_inclusion_proof: Option<TxidInclusionProof>,
+    ) -> Self {
         Self {
             block_bytes: serialize(&block.0),
             aux_data_bytes: ssz::Encode::as_ssz_bytes(&aux_data),
+            coinbase_inclusion_proof,
         }
     }
 
@@ -72,6 +80,11 @@ impl AsmStepInput {
         StateReference::new(parent_ref)
     }
 
+    /// Returns the optional coinbase inclusion proof.
+    pub fn coinbase_inclusion_proof(&self) -> &Option<TxidInclusionProof> {
+        &self.coinbase_inclusion_proof
+    }
+
     /// Checks that the block's merkle roots are consistent.
     pub fn validate_block(&self) -> bool {
         let block = self.decode_block();
@@ -93,7 +106,7 @@ mod tests {
     #[test]
     fn test_ssz_roundtrip() {
         let block = BtcMainnetSegment::load_full_block();
-        let input = AsmStepInput::new(L1Block(block), AuxData::new(vec![], vec![]));
+        let input = AsmStepInput::new(L1Block(block), AuxData::new(vec![], vec![]), None);
 
         let serialized = input.as_ssz_bytes();
         let decoded = AsmStepInput::from_ssz_bytes(&serialized).unwrap();

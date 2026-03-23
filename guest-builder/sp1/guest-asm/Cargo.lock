@@ -1708,6 +1708,7 @@ version = "0.1.0"
 dependencies = [
  "bitcoin",
  "strata-asm-common 0.1.0",
+ "strata-btc-verification 0.1.0",
  "strata-identifiers",
  "strata-l1-txfmt",
 ]

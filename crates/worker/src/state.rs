@@ -7,6 +7,7 @@ use strata_asm_common::{
 use strata_asm_params::AsmParams;
 use strata_asm_spec::StrataAsmSpec;
 use strata_asm_stf::AsmStfOutput;
+use strata_btc_verification::inclusion_proof::TxidInclusionProof;
 use strata_primitives::l1::L1BlockCommitment;
 use strata_service::ServiceState;
 use strata_state::asm_state::AsmState;
@@ -123,9 +124,17 @@ impl<W: WorkerContext + Send + Sync + 'static> AsmWorkerServiceState<W> {
         let stf_span = tracing::debug_span!("asm.stf.process");
         let _stf_guard = stf_span.enter();
 
-        strata_asm_stf::compute_asm_transition(&self.asm_spec, cur_state.state(), block, &aux_data)
-            .map(|output| (output, aux_data))
-            .map_err(WorkerError::AsmError)
+        let coinbase_inclusion_proof = TxidInclusionProof::generate(&block.txdata, 0);
+
+        strata_asm_stf::compute_asm_transition(
+            &self.asm_spec,
+            cur_state.state(),
+            block,
+            &aux_data,
+            &Some(coinbase_inclusion_proof),
+        )
+        .map(|output| (output, aux_data))
+        .map_err(WorkerError::AsmError)
     }
 
     /// Updates anchor related bookkeping.
