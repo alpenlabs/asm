@@ -1,6 +1,8 @@
 //! Bitcoin header verification and utilities.
 
+mod body_verification;
 pub mod header_verification;
+mod inclusion_proof;
 pub mod timestamp_store;
 pub mod utils_btc;
 pub mod work;
