@@ -1,4 +1,4 @@
-use std::iter;
+use std::{cmp, iter};
 
 use bitcoin::{
     BlockHash, Transaction, Txid, Wtxid, block::Header, consensus::Encodable, hashes::Hash,
@@ -22,7 +22,7 @@ pub fn compute_block_hash(header: &Header) -> BlockHash {
     BlockHash::from_byte_array(sha256d(&buf).0)
 }
 
-/// Computes the [`Txid`](bitcoin::Txid) using [RustCrypto's SHA-2 crate](https://github.com/RustCrypto/hashes/tree/master/sha2)
+/// Computes the [`Txid`](Txid) using [RustCrypto's SHA-2 crate](https://github.com/RustCrypto/hashes/tree/master/sha2)
 /// for the underlying `sha256d` hash function.
 ///
 /// Equivalent to [`compute_txid`](bitcoin::Transaction::compute_txid)
@@ -41,7 +41,7 @@ pub fn compute_txid(tx: &Transaction) -> Txid {
     Txid::from_byte_array(sha256d(&vec).0)
 }
 
-/// Computes the segwit version of the transaction id using [RustCrypto's SHA-2 crate](https://github.com/RustCrypto/hashes/tree/master/sha2)
+/// Computes the [`Wtxid`] using [RustCrypto's SHA-2 crate](https://github.com/RustCrypto/hashes/tree/master/sha2)
 ///
 /// Equivalent to [`compute_wtxid`](bitcoin::Transaction::compute_wtxid)
 ///
@@ -103,7 +103,7 @@ fn merkle_root_r(hashes: &mut [Buf32]) -> Buf32 {
 
     for idx in 0..hashes.len().div_ceil(2) {
         let idx1 = 2 * idx;
-        let idx2 = std::cmp::min(idx1 + 1, hashes.len() - 1);
+        let idx2 = cmp::min(idx1 + 1, hashes.len() - 1);
         let mut vec = Vec::with_capacity(64);
         hashes[idx1].as_ref().consensus_encode(&mut vec).unwrap(); // in-memory writers don't error")
         hashes[idx2].as_ref().consensus_encode(&mut vec).unwrap(); // in-memory writers don't error")
@@ -116,7 +116,7 @@ fn merkle_root_r(hashes: &mut [Buf32]) -> Buf32 {
 
 #[cfg(test)]
 mod tests {
-    use bitcoin::TxMerkleNode;
+    use bitcoin::{TxMerkleNode, merkle_tree};
     use rand::Rng;
     use strata_test_utils_btc::BtcMainnetSegment;
 
@@ -162,7 +162,7 @@ mod tests {
         }
 
         let expected = Buf32::from(
-            bitcoin::merkle_tree::calculate_root(&mut btc_hashes.into_iter())
+            merkle_tree::calculate_root(&mut btc_hashes.into_iter())
                 .unwrap()
                 .to_byte_array(),
         );
