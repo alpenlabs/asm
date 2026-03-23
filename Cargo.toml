@@ -196,3 +196,4 @@ strata-asm-txs-checkpoint = { path = "crates/txs/checkpoint" }
 strata-asm-txs-checkpoint-v0 = { path = "crates/txs/checkpoint-v0" }
 strata-asm-txs-test-utils = { path = "crates/txs/test-utils" }
 strata-asm-worker = { path = "crates/worker" }
+strata-btc-verification = { path = "crates/btc-verification" }

@@ -4,7 +4,7 @@ use arbitrary::Arbitrary;
 use bitcoin::{BlockHash, CompactTarget, Network, block::Header, hashes::Hash, params::Params};
 use borsh::{BorshDeserialize, BorshSerialize};
 use serde::{Deserialize, Serialize};
-use strata_btc_types::{BtcParams, GenesisL1View};
+use strata_btc_types::{BlockHashExt, BtcParams, GenesisL1View};
 use strata_crypto::hash::compute_borsh_hash;
 use strata_identifiers::{Buf32, L1BlockCommitment, L1BlockId, L1Height};
 use thiserror::Error;
@@ -224,8 +224,7 @@ impl HeaderVerificationState {
             });
         }
 
-        let block_hash_raw = compute_block_hash(header);
-        let block_hash = BlockHash::from_byte_array(*block_hash_raw.as_ref());
+        let block_hash = compute_block_hash(header);
 
         // Check Proof-of-Work target encoding
         if header.bits.to_consensus() != self.next_block_target {
@@ -254,7 +253,7 @@ impl HeaderVerificationState {
 
         // Increase the last verified block number by 1 and set the new block hash
         let next_height = self.last_verified_block.height() + 1;
-        self.last_verified_block = L1BlockCommitment::new(next_height, block_hash_raw.into());
+        self.last_verified_block = L1BlockCommitment::new(next_height, block_hash.to_l1_block_id());
 
         // Update the timestamps
         self.update_timestamps(header.time);
