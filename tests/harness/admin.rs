@@ -17,7 +17,7 @@
 //! let state = harness.admin_state()?;
 //! ```
 
-use std::{collections::HashMap, future::Future, num::NonZero, time::Duration};
+use std::{collections::HashMap, future::Future, num::NonZero};
 
 use bitcoin::{
     secp256k1::{PublicKey, Secp256k1, SecretKey},
@@ -243,12 +243,8 @@ impl AdminExt for AsmTestHarness {
         action: MultisigAction,
     ) -> anyhow::Result<BlockHash> {
         let payload = ctx.sign(&action);
-        let target_height = self.get_processed_height()? + 1;
         let tx = self.build_envelope_tx(action.tag(), payload).await?;
-        let hash = self.submit_and_mine_tx(&tx).await?;
-        self.wait_for_height(target_height, Duration::from_secs(5))
-            .await?;
-        Ok(hash)
+        self.submit_and_mine_tx(&tx).await
     }
 
     async fn submit_admin_action_with_seqno(
@@ -259,11 +255,7 @@ impl AdminExt for AsmTestHarness {
     ) -> anyhow::Result<BlockHash> {
         let tag = action.tag();
         let payload = ctx.sign_with_seqno(&action, seqno);
-        let target_height = self.get_processed_height()? + 1;
         let tx = self.build_envelope_tx(tag, payload).await?;
-        let hash = self.submit_and_mine_tx(&tx).await?;
-        self.wait_for_height(target_height, Duration::from_secs(5))
-            .await?;
-        Ok(hash)
+        self.submit_and_mine_tx(&tx).await
     }
 }
