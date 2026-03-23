@@ -55,10 +55,12 @@ pub(crate) async fn bootstrap(
     let asm_worker = Arc::new(asm_worker);
 
     // 6. Optionally create the proof channel and spawn the orchestrator
-    let proof_tx = if let Some(orch_config) = config.orchestrator {
+    let (proof_tx, proof_db_for_rpc) = if let Some(orch_config) = config.orchestrator {
         let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
 
         let proof_db = SledProofDb::open(&orch_config.proof_db_path)?;
+        let proof_db_clone = proof_db.clone();
+
         let spec = StrataAsmSpec::from_asm_params(&params);
         let native_host = AsmStfProofProgram::native_host(spec);
 
@@ -80,9 +82,9 @@ pub(crate) async fn bootstrap(
             .await?
         });
 
-        Some(tx)
+        (Some(tx), Some(proof_db_clone))
     } else {
-        None
+        (None, None)
     };
 
     // 7. Spawn block driver as a critical task
@@ -98,7 +100,14 @@ pub(crate) async fn bootstrap(
     let rpc_port = config.rpc.port;
     executor.spawn_critical_async(
         "rpc_server",
-        run_rpc_server(asm_manager, asm_worker, bitcoin_client, rpc_host, rpc_port),
+        run_rpc_server(
+            asm_manager,
+            asm_worker,
+            bitcoin_client,
+            proof_db_for_rpc,
+            rpc_host,
+            rpc_port,
+        ),
     );
 
     Ok(())

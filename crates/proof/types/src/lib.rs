@@ -3,15 +3,16 @@
 use std::cmp::Ordering;
 
 use borsh::{BorshDeserialize, BorshSerialize};
+use serde::{Deserialize, Serialize};
 use strata_identifiers::L1BlockCommitment;
 use zkaleido::ProofReceiptWithMetadata;
 
 /// ASM step proof for a range of L1 blocks.
-#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, Serialize, Deserialize)]
 pub struct AsmProof(pub ProofReceiptWithMetadata);
 
 /// Moho recursive proof, valid up to some L1 block commitment.
-#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, Serialize, Deserialize)]
 pub struct MohoProof(pub ProofReceiptWithMetadata);
 
 /// Identifies a proof by its kind and block reference.

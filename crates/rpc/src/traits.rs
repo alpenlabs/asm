@@ -2,6 +2,7 @@
 
 use bitcoin::BlockHash;
 use jsonrpsee::{core::RpcResult, proc_macros::rpc};
+use strata_asm_proof_types::{AsmProof, MohoProof};
 use strata_asm_proto_bridge_v1::{AssignmentEntry, DepositEntry};
 use strata_asm_worker::AsmWorkerStatus;
 
@@ -20,4 +21,12 @@ pub trait AssignmentsApi {
     /// Return the status
     #[method(name = "getStatus")]
     async fn get_status(&self) -> RpcResult<AsmWorkerStatus>;
+
+    /// Return the ASM step proof for the given block, if one exists.
+    #[method(name = "getAsmProof")]
+    async fn get_asm_proof(&self, block_hash: BlockHash) -> RpcResult<Option<AsmProof>>;
+
+    /// Return the Moho recursive proof for the given block, if one exists.
+    #[method(name = "getMohoProof")]
+    async fn get_moho_proof(&self, block_hash: BlockHash) -> RpcResult<Option<MohoProof>>;
 }
