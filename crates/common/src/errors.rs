@@ -1,7 +1,7 @@
 use ssz::DecodeError;
 // Re-export error types from manifest-types crate
 pub use strata_asm_manifest_types::{AsmManifestError, AsmManifestResult, Mismatched};
-use strata_btc_verification::L1VerificationError;
+use strata_btc_verification::{L1BodyError, L1VerificationError};
 use strata_l1_txfmt::SubprotocolId;
 use strata_merkle::error::MerkleError;
 use thiserror::Error;
@@ -29,6 +29,10 @@ pub enum AsmError {
     /// Failed to deserialize the state of the given subprotocol.
     #[error("failed to deserialize subprotocol {0} state: {1}")]
     Deserialization(SubprotocolId, #[source] DecodeError),
+
+    /// Block body integrity check failed.
+    #[error("block integrity check failed")]
+    InvalidL1Body(#[from] L1BodyError),
 
     /// L1Header do not follow consensus rules.
     #[error("L1Header do not follow consensus rules")]

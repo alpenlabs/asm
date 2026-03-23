@@ -33,7 +33,7 @@ pub fn compute_asm_transition<S: AsmSpec>(
     coinbase_inclusion_proof: &Option<TxidInclusionProof>,
 ) -> AsmResult<AsmStfOutput> {
     // 1. Validate that the block body merkle is consistent with the header.
-    assert!(check_block_integrity(block, coinbase_inclusion_proof));
+    check_block_integrity(block, coinbase_inclusion_proof)?;
 
     // 2. Validate and update PoW header continuity for the new block.
     // This ensures the block header follows proper Bitcoin consensus rules and chain continuity.
