@@ -14,6 +14,7 @@ strata-asm-proto-administration.workspace = true
 strata-asm-proto-bridge-v1.workspace = true
 strata-asm-proto-checkpoint.workspace = true
 strata-asm-proto-checkpoint-v0.workspace = true
+strata-asm-test-utils.workspace = true
 strata-asm-txs-admin = { workspace = true, features = ["test-utils"] }
 strata-asm-txs-bridge-v1 = { workspace = true, features = ["test-utils"] }
 strata-asm-worker.workspace = true
@@ -33,7 +34,6 @@ strata-predicate.workspace = true
 strata-primitives.workspace = true
 strata-state.workspace = true
 strata-tasks.workspace = true
-strata-test-utils.workspace = true
 strata-test-utils-btcio.workspace = true
 strata-test-utils-l2.workspace = true
 

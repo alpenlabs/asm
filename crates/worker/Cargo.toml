@@ -28,7 +28,7 @@ thiserror.workspace = true
 tracing.workspace = true
 
 [dev-dependencies]
-strata-test-utils.workspace = true
+strata-asm-test-utils.workspace = true
 strata-test-utils-btcio.workspace = true
 strata-asm-params = { workspace = true, features = ["arbitrary"] }
 

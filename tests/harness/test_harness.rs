@@ -53,6 +53,7 @@ use strata_asm_params::{
     AdministrationInitConfig, AsmParams, BridgeV1InitConfig, CheckpointInitConfig,
     SubprotocolInstance,
 };
+use strata_asm_test_utils::ArbitraryGenerator;
 use strata_asm_worker::{AsmWorkerBuilder, AsmWorkerHandle, WorkerContext};
 use strata_btc_types::BlockHashExt;
 use strata_l1_envelope_fmt::builder::{build_envelope_script, EnvelopeScriptBuilder};
@@ -60,7 +61,6 @@ use strata_l1_txfmt::{ParseConfig, TagData};
 use strata_primitives::{buf::Buf32, l1::L1BlockCommitment};
 use strata_state::{asm_state::AsmState, BlockSubmitter};
 use strata_tasks::{TaskExecutor, TaskManager};
-use strata_test_utils::ArbitraryGenerator;
 use tokio::{runtime::Handle, task::block_in_place};
 
 use super::worker_context::{get_genesis_l1_view, TestAsmWorkerContext};

@@ -229,7 +229,7 @@ impl BridgeV1State {
 #[cfg(test)]
 mod tests {
     use strata_primitives::l1::L1BlockCommitment;
-    use strata_test_utils::ArbitraryGenerator;
+    use strata_asm_test_utils::ArbitraryGenerator;
 
     use super::*;
     use crate::test_utils::{add_deposits, create_test_state};
