@@ -54,12 +54,12 @@ pub(crate) fn validate_deposit_info(
 #[cfg(test)]
 mod tests {
     use strata_asm_common::VerifiedAuxData;
-    use strata_asm_test_utils_arb::ArbitraryGenerator;
     use strata_asm_txs_bridge_v1::{
         deposit::DepositInfo,
         deposit_request::{DepositRequestInfo, create_deposit_request_locking_script, parse_drt},
     };
     use strata_btc_types::BitcoinAmount;
+    use strata_test_utils_arb::ArbitraryGenerator;
 
     use crate::{
         DepositValidationError,

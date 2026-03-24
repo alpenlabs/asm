@@ -284,9 +284,9 @@ mod tests {
     };
     use borsh::{BorshDeserialize, BorshSerialize};
     use rand::{Rng, rngs::OsRng};
-    use strata_asm_test_utils_btc::BtcMainnetSegment;
     use strata_btc_types::{BlockHashExt, GenesisL1View, TIMESTAMPS_FOR_MEDIAN};
     use strata_identifiers::{L1BlockCommitment, L1Height};
+    use strata_test_utils_btc::BtcMainnetSegment;
 
     use crate::*;
 

@@ -4192,8 +4192,6 @@ dependencies = [
  "strata-asm-proto-bridge-v1",
  "strata-asm-proto-checkpoint",
  "strata-asm-proto-checkpoint-v0",
- "strata-asm-test-utils-arb",
- "strata-asm-test-utils-btcio",
  "strata-asm-txs-admin",
  "strata-asm-txs-bridge-v1",
  "strata-asm-worker",
@@ -4213,6 +4211,8 @@ dependencies = [
  "strata-primitives 0.3.0-alpha.1 (git+https://github.com/alpenlabs/alpen.git?rev=787b804c41800bbbf8d3632637a7eda332fc9f39)",
  "strata-state",
  "strata-tasks",
+ "strata-test-utils-arb",
+ "strata-test-utils-btcio",
  "strata-test-utils-l2",
  "tokio",
 ]
@@ -7997,13 +7997,13 @@ dependencies = [
  "borsh",
  "serde",
  "strata-asm-manifest-types",
- "strata-asm-test-utils-arb",
  "strata-btc-types 0.1.0 (git+https://github.com/alpenlabs/alpen.git?rev=787b804c41800bbbf8d3632637a7eda332fc9f39)",
  "strata-btc-verification 0.1.0",
  "strata-identifiers 0.1.0 (git+https://github.com/alpenlabs/alpen.git?rev=787b804c41800bbbf8d3632637a7eda332fc9f39)",
  "strata-l1-txfmt",
  "strata-merkle",
  "strata-msg-fmt",
+ "strata-test-utils-arb",
  "thiserror 2.0.18",
  "tracing",
 ]
@@ -8094,12 +8094,12 @@ dependencies = [
  "strata-asm-params",
  "strata-asm-spec",
  "strata-asm-stf",
- "strata-asm-test-utils-btc",
  "strata-btc-types 0.1.0 (git+https://github.com/alpenlabs/alpen.git?rev=787b804c41800bbbf8d3632637a7eda332fc9f39)",
  "strata-btc-verification 0.1.0",
  "strata-identifiers 0.1.0 (git+https://github.com/alpenlabs/alpen.git?rev=787b804c41800bbbf8d3632637a7eda332fc9f39)",
  "strata-l1-txfmt",
  "strata-predicate",
+ "strata-test-utils-btc 0.1.0",
  "zkaleido 0.1.0 (git+https://github.com/alpenlabs/zkaleido?rev=750c209f5850af29e34c39c250c24e1c69ffa2aa)",
  "zkaleido-native-adapter",
 ]
@@ -8124,11 +8124,11 @@ dependencies = [
  "strata-asm-checkpoint-msgs",
  "strata-asm-common",
  "strata-asm-params",
- "strata-asm-test-utils-arb",
  "strata-asm-txs-admin",
  "strata-crypto 0.3.0-alpha.1 (git+https://github.com/alpenlabs/alpen.git?rev=787b804c41800bbbf8d3632637a7eda332fc9f39)",
  "strata-predicate",
  "strata-primitives 0.3.0-alpha.1 (git+https://github.com/alpenlabs/alpen.git?rev=787b804c41800bbbf8d3632637a7eda332fc9f39)",
+ "strata-test-utils-arb",
  "thiserror 2.0.18",
 ]
 
@@ -8149,13 +8149,13 @@ dependencies = [
  "strata-asm-common",
  "strata-asm-logs",
  "strata-asm-params",
- "strata-asm-test-utils-arb",
  "strata-asm-txs-bridge-v1",
  "strata-bridge-types 0.3.0-alpha.1 (git+https://github.com/alpenlabs/alpen.git?rev=787b804c41800bbbf8d3632637a7eda332fc9f39)",
  "strata-btc-types 0.1.0 (git+https://github.com/alpenlabs/alpen.git?rev=787b804c41800bbbf8d3632637a7eda332fc9f39)",
  "strata-codec",
  "strata-crypto 0.3.0-alpha.1 (git+https://github.com/alpenlabs/alpen.git?rev=787b804c41800bbbf8d3632637a7eda332fc9f39)",
  "strata-primitives 0.3.0-alpha.1 (git+https://github.com/alpenlabs/alpen.git?rev=787b804c41800bbbf8d3632637a7eda332fc9f39)",
+ "strata-test-utils-arb",
  "thiserror 2.0.18",
 ]
 
@@ -8315,36 +8315,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "strata-asm-test-utils-arb"
-version = "0.1.0"
-dependencies = [
- "arbitrary",
- "rand_core 0.6.4",
-]
-
-[[package]]
-name = "strata-asm-test-utils-btc"
-version = "0.1.0"
-dependencies = [
- "bitcoin",
- "strata-identifiers 0.1.0 (git+https://github.com/alpenlabs/alpen.git?rev=787b804c41800bbbf8d3632637a7eda332fc9f39)",
-]
-
-[[package]]
-name = "strata-asm-test-utils-btcio"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "bitcoin",
- "bitcoind-async-client",
- "corepc-node",
- "musig2 0.1.1 (registry+https://github.com/rust-lang/crates.io-index)",
- "rand 0.8.5",
- "strata-crypto 0.3.0-alpha.1 (git+https://github.com/alpenlabs/alpen.git?rev=787b804c41800bbbf8d3632637a7eda332fc9f39)",
- "tokio",
-]
-
-[[package]]
 name = "strata-asm-txs-admin"
 version = "0.1.0"
 dependencies = [
@@ -8356,13 +8326,13 @@ dependencies = [
  "rand 0.8.5",
  "strata-asm-common",
  "strata-asm-params",
- "strata-asm-test-utils-arb",
  "strata-asm-txs-test-utils",
  "strata-crypto 0.3.0-alpha.1 (git+https://github.com/alpenlabs/alpen.git?rev=787b804c41800bbbf8d3632637a7eda332fc9f39)",
  "strata-l1-envelope-fmt",
  "strata-l1-txfmt",
  "strata-predicate",
  "strata-primitives 0.3.0-alpha.1 (git+https://github.com/alpenlabs/alpen.git?rev=787b804c41800bbbf8d3632637a7eda332fc9f39)",
+ "strata-test-utils-arb",
  "thiserror 2.0.18",
 ]
 
@@ -8375,14 +8345,14 @@ dependencies = [
  "proptest",
  "rand 0.8.5",
  "strata-asm-common",
- "strata-asm-test-utils-arb",
- "strata-asm-test-utils-btcio",
  "strata-asm-txs-test-utils",
  "strata-bridge-types 0.3.0-alpha.1 (git+https://github.com/alpenlabs/alpen.git?rev=787b804c41800bbbf8d3632637a7eda332fc9f39)",
  "strata-codec",
  "strata-crypto 0.3.0-alpha.1 (git+https://github.com/alpenlabs/alpen.git?rev=787b804c41800bbbf8d3632637a7eda332fc9f39)",
  "strata-l1-txfmt",
  "strata-primitives 0.3.0-alpha.1 (git+https://github.com/alpenlabs/alpen.git?rev=787b804c41800bbbf8d3632637a7eda332fc9f39)",
+ "strata-test-utils-arb",
+ "strata-test-utils-btcio",
  "thiserror 2.0.18",
 ]
 
@@ -8441,8 +8411,6 @@ dependencies = [
  "strata-asm-params",
  "strata-asm-spec",
  "strata-asm-stf",
- "strata-asm-test-utils-arb",
- "strata-asm-test-utils-btcio",
  "strata-btc-types 0.1.0 (git+https://github.com/alpenlabs/alpen.git?rev=787b804c41800bbbf8d3632637a7eda332fc9f39)",
  "strata-btc-verification 0.1.0",
  "strata-merkle",
@@ -8450,6 +8418,8 @@ dependencies = [
  "strata-service",
  "strata-state",
  "strata-tasks",
+ "strata-test-utils-arb",
+ "strata-test-utils-btcio",
  "thiserror 2.0.18",
  "tokio",
  "tracing",
@@ -8584,10 +8554,10 @@ dependencies = [
  "borsh",
  "rand 0.8.5",
  "serde",
- "strata-asm-test-utils-btc",
  "strata-btc-types 0.1.0 (git+https://github.com/alpenlabs/alpen.git?rev=787b804c41800bbbf8d3632637a7eda332fc9f39)",
  "strata-crypto 0.3.0-alpha.1 (git+https://github.com/alpenlabs/alpen.git?rev=787b804c41800bbbf8d3632637a7eda332fc9f39)",
  "strata-identifiers 0.1.0 (git+https://github.com/alpenlabs/alpen.git?rev=787b804c41800bbbf8d3632637a7eda332fc9f39)",
+ "strata-test-utils-btc 0.1.0",
  "thiserror 2.0.18",
 ]
 
@@ -9531,6 +9501,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "strata-test-utils-arb"
+version = "0.1.0"
+dependencies = [
+ "arbitrary",
+ "rand_core 0.6.4",
+]
+
+[[package]]
+name = "strata-test-utils-btc"
+version = "0.1.0"
+dependencies = [
+ "bitcoin",
+ "strata-identifiers 0.1.0 (git+https://github.com/alpenlabs/alpen.git?rev=787b804c41800bbbf8d3632637a7eda332fc9f39)",
+]
+
+[[package]]
 name = "strata-test-utils-btc"
 version = "0.3.0-alpha.1"
 source = "git+https://github.com/alpenlabs/alpen.git?rev=787b804c41800bbbf8d3632637a7eda332fc9f39#787b804c41800bbbf8d3632637a7eda332fc9f39"
@@ -9545,6 +9531,20 @@ dependencies = [
  "strata-btcio",
  "strata-identifiers 0.1.0 (git+https://github.com/alpenlabs/alpen.git?rev=787b804c41800bbbf8d3632637a7eda332fc9f39)",
  "strata-primitives 0.3.0-alpha.1 (git+https://github.com/alpenlabs/alpen.git?rev=787b804c41800bbbf8d3632637a7eda332fc9f39)",
+ "tokio",
+]
+
+[[package]]
+name = "strata-test-utils-btcio"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "bitcoin",
+ "bitcoind-async-client",
+ "corepc-node",
+ "musig2 0.1.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "rand 0.8.5",
+ "strata-crypto 0.3.0-alpha.1 (git+https://github.com/alpenlabs/alpen.git?rev=787b804c41800bbbf8d3632637a7eda332fc9f39)",
  "tokio",
 ]
 
@@ -9572,7 +9572,7 @@ dependencies = [
  "strata-predicate",
  "strata-primitives 0.3.0-alpha.1 (git+https://github.com/alpenlabs/alpen.git?rev=787b804c41800bbbf8d3632637a7eda332fc9f39)",
  "strata-test-utils",
- "strata-test-utils-btc",
+ "strata-test-utils-btc 0.3.0-alpha.1",
 ]
 
 [[package]]

@@ -53,8 +53,8 @@ pub fn parse_drt(tx: &Transaction) -> Result<DepositRequestInfo, TxStructureErro
 mod tests {
 
     use bitcoin::Transaction;
-    use strata_asm_test_utils_arb::ArbitraryGenerator;
     use strata_primitives::l1::BitcoinAmount;
+    use strata_test_utils_arb::ArbitraryGenerator;
 
     use crate::{
         constants::BridgeTxType,

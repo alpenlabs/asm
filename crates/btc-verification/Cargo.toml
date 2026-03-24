@@ -15,7 +15,7 @@ serde.workspace = true
 thiserror.workspace = true
 
 [dev-dependencies]
-strata-asm-test-utils-btc.workspace = true
+strata-test-utils-btc.workspace = true
 
 rand.workspace = true
 

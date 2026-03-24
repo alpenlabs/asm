@@ -28,8 +28,8 @@ thiserror.workspace = true
 tracing.workspace = true
 
 [dev-dependencies]
-strata-asm-test-utils-arb.workspace = true
-strata-asm-test-utils-btcio.workspace = true
+strata-test-utils-arb.workspace = true
+strata-test-utils-btcio.workspace = true
 strata-asm-params = { workspace = true, features = ["arbitrary"] }
 
 async-trait.workspace = true

@@ -53,7 +53,6 @@ use strata_asm_params::{
     AdministrationInitConfig, AsmParams, BridgeV1InitConfig, CheckpointInitConfig,
     SubprotocolInstance,
 };
-use strata_asm_test_utils_arb::ArbitraryGenerator;
 use strata_asm_worker::{AsmWorkerBuilder, AsmWorkerHandle, WorkerContext};
 use strata_btc_types::BlockHashExt;
 use strata_l1_envelope_fmt::builder::{build_envelope_script, EnvelopeScriptBuilder};
@@ -61,6 +60,7 @@ use strata_l1_txfmt::{ParseConfig, TagData};
 use strata_primitives::{buf::Buf32, l1::L1BlockCommitment};
 use strata_state::{asm_state::AsmState, BlockSubmitter};
 use strata_tasks::{TaskExecutor, TaskManager};
+use strata_test_utils_arb::ArbitraryGenerator;
 use tokio::{runtime::Handle, task::block_in_place};
 
 use super::worker_context::{get_genesis_l1_view, TestAsmWorkerContext};
@@ -125,13 +125,9 @@ impl AsmTestHarness {
             None => self.client.get_new_address().await?,
         };
 
-        let block_hashes = strata_asm_test_utils_btcio::mine_blocks(
-            &self.bitcoind,
-            &self.client,
-            1,
-            Some(address),
-        )
-        .await?;
+        let block_hashes =
+            strata_test_utils_btcio::mine_blocks(&self.bitcoind, &self.client, 1, Some(address))
+                .await?;
 
         let block_hash = block_hashes[0];
 
@@ -556,14 +552,14 @@ impl AsmTestHarnessBuilder {
 
         // 1. Start Bitcoin regtest (with txindex if requested)
         let (bitcoind, client) = if self.txindex {
-            strata_asm_test_utils_btcio::get_bitcoind_and_client_with_txindex()
+            strata_test_utils_btcio::get_bitcoind_and_client_with_txindex()
         } else {
-            strata_asm_test_utils_btcio::get_bitcoind_and_client()
+            strata_test_utils_btcio::get_bitcoind_and_client()
         };
         let client = Arc::new(client);
 
         // 2. Mine blocks to genesis height
-        strata_asm_test_utils_btcio::mine_blocks(&bitcoind, &client, genesis_height as usize, None)
+        strata_test_utils_btcio::mine_blocks(&bitcoind, &client, genesis_height as usize, None)
             .await?;
 
         let genesis_hash = client.get_block_hash(genesis_height).await?;

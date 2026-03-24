@@ -71,9 +71,6 @@ strata-asm-rpc = { path = "crates/rpc" }
 strata-asm-spec = { path = "crates/spec" }
 strata-asm-spec-debug = { path = "crates/spec-debug" }
 strata-asm-stf = { path = "crates/stf" }
-strata-asm-test-utils-arb = { path = "crates/test-utils/arb" }
-strata-asm-test-utils-btc = { path = "crates/test-utils/btc" }
-strata-asm-test-utils-btcio = { path = "crates/test-utils/btcio" }
 strata-asm-txs-admin = { path = "crates/txs/admin" }
 strata-asm-txs-bridge-v1 = { path = "crates/txs/bridge-v1" }
 strata-asm-txs-checkpoint = { path = "crates/txs/checkpoint" }
@@ -81,6 +78,9 @@ strata-asm-txs-checkpoint-v0 = { path = "crates/txs/checkpoint-v0" }
 strata-asm-txs-test-utils = { path = "crates/txs/test-utils" }
 strata-asm-worker = { path = "crates/worker" }
 strata-btc-verification = { path = "crates/btc-verification" }
+strata-test-utils-arb = { path = "crates/test-utils/arb" }
+strata-test-utils-btc = { path = "crates/test-utils/btc" }
+strata-test-utils-btcio = { path = "crates/test-utils/btcio" }
 
 # Dependencies from alpenlabs/alpen pinned to commit 787b804 (main @ 2026-03-17)
 # NOTE: keep `typed-sled` pinned in Cargo.lock to 9062bff for compatibility with this alpen rev.

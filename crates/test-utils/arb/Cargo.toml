@@ -1,5 +1,5 @@
 [package]
-name = "strata-asm-test-utils-arb"
+name = "strata-test-utils-arb"
 version = "0.1.0"
 edition = "2024"
 

@@ -51,7 +51,7 @@ pub fn parse_slash_tx<'t>(tx: &TxInputRef<'t>) -> Result<SlashInfo, TxStructureE
 mod tests {
     use std::mem;
 
-    use strata_asm_test_utils_arb::ArbitraryGenerator;
+    use strata_test_utils_arb::ArbitraryGenerator;
 
     use super::*;
     use crate::{

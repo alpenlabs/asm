@@ -134,13 +134,13 @@ pub(crate) fn preprocess_parsed_tx(
 
 #[cfg(test)]
 mod tests {
-    use strata_asm_test_utils_arb::ArbitraryGenerator;
     use strata_asm_txs_bridge_v1::{
         deposit_request::DrtHeaderAux,
         parser::ParsedTx,
         test_utils::{create_test_withdrawal_fulfillment_tx, parse_sps50_tx},
         withdrawal_fulfillment::parse_withdrawal_fulfillment_tx,
     };
+    use strata_test_utils_arb::ArbitraryGenerator;
 
     use super::handle_parsed_tx;
     use crate::test_utils::{
