@@ -1,9 +1,29 @@
 [advisories]
 ignore = [
   # NOTE: cargo-audit reads config from .cargo/audit.toml.
+
   # RUSTSEC-2025-0055 (tracing-subscriber 0.2.25)
   # Pulled in via ark-relations.
   # Upgrade blocked until upstream bumps tracing-subscriber >= 0.3.20.
   # Low risk: affects ANSI escape sequences in logs only.
   "RUSTSEC-2025-0055",
+
+  # RUSTSEC-2026-0044 (aws-lc-sys 0.38.0) — X.509 Name Constraints Bypass via Wildcard/Unicode CN
+  # RUSTSEC-2026-0048 (aws-lc-sys 0.38.0) — CRL Distribution Point Scope Check Logic Error
+  # aws-lc-sys is pulled in transitively via rustls -> sp1-sdk, jsonrpsee, reqwest, AWS SDK.
+  # Fix requires aws-lc-sys >=0.39.0 but sp1-sdk v5.2.4 pins aws-lc-rs 1.16.1 (aws-lc-sys 0.38.0).
+  # TODO(STR-2626): update sp1 to v6
+  "RUSTSEC-2026-0044",
+  "RUSTSEC-2026-0048",
+
+  # RUSTSEC-2026-0049 (rustls-webpki 0.101.7) — CRL matching logic error
+  # rustls-webpki 0.103.9 was bumped to 0.103.10 via cargo update.
+  # The 0.101.7 instance is pulled in via bitreq -> bitcoind-async-client (strata-bridge git dep).
+  # Upgrade blocked until the strata-bridge dependency updates its rustls/webpki stack.
+  "RUSTSEC-2026-0049",
+
+  # RUSTSEC-2026-0002 (lru 0.12.5) — IterMut unsound (Stacked Borrows violation)
+  # Pulled in via sp1-prover -> sp1-sdk.
+  # TODO(STR-2626): update sp1 to v6
+  "RUSTSEC-2026-0002",
 ]
