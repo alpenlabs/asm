@@ -2,4 +2,4 @@ mod arb;
 mod btc;
 
 pub use arb::ArbitraryGenerator;
-pub use btc::BtcMainnetChainSegment;
+pub use btc::BtcMainnetSegment;

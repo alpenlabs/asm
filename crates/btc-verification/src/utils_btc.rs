@@ -21,13 +21,13 @@ pub fn compute_block_hash(header: &Header) -> Buf32 {
 #[cfg(test)]
 mod tests {
     use bitcoin::hashes::Hash;
-    use strata_test_utils_btc::get_btc_mainnet_block;
+    use strata_asm_test_utils::BtcMainnetSegment;
 
     use super::*;
 
     #[test]
     fn test_compute_block_hash() {
-        let btc_block = get_btc_mainnet_block();
+        let btc_block = BtcMainnetSegment::load_full_block();
         let expected = Buf32::from(btc_block.block_hash().to_raw_hash().to_byte_array());
         let actual = compute_block_hash(&btc_block.header);
         assert_eq!(expected, actual);

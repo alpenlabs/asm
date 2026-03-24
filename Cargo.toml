@@ -94,7 +94,6 @@ strata-ol-stf = { git = "https://github.com/alpenlabs/alpen.git", rev = "787b804
 strata-primitives = { git = "https://github.com/alpenlabs/alpen.git", rev = "787b804c41800bbbf8d3632637a7eda332fc9f39" }
 strata-state = { git = "https://github.com/alpenlabs/alpen.git", rev = "787b804c41800bbbf8d3632637a7eda332fc9f39" }
 strata-storage = { git = "https://github.com/alpenlabs/alpen.git", rev = "787b804c41800bbbf8d3632637a7eda332fc9f39" }
-strata-test-utils-btc = { git = "https://github.com/alpenlabs/alpen.git", rev = "787b804c41800bbbf8d3632637a7eda332fc9f39" }
 strata-test-utils-btcio = { git = "https://github.com/alpenlabs/alpen.git", rev = "787b804c41800bbbf8d3632637a7eda332fc9f39" }
 strata-test-utils-l2 = { git = "https://github.com/alpenlabs/alpen.git", rev = "787b804c41800bbbf8d3632637a7eda332fc9f39" }
 strata-test-utils-ssz = { git = "https://github.com/alpenlabs/alpen.git", rev = "787b804c41800bbbf8d3632637a7eda332fc9f39" }

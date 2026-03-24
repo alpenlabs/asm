@@ -16,12 +16,12 @@ strata-asm-logs.workspace = true
 strata-asm-params = { workspace = true, optional = true }
 strata-asm-spec.workspace = true
 strata-asm-stf.workspace = true
+strata-asm-test-utils = { workspace = true, optional = true }
 strata-btc-types = { workspace = true, optional = true }
 strata-btc-verification = { workspace = true, optional = true }
 strata-identifiers = { workspace = true, optional = true }
 strata-l1-txfmt = { workspace = true, optional = true }
 strata-predicate.workspace = true
-strata-test-utils-btc = { workspace = true, optional = true }
 zkaleido.workspace = true
 
 bitcoin.workspace = true
@@ -39,7 +39,7 @@ test-utils = [
   "dep:strata-btc-types",
   "dep:strata-btc-verification",
   "dep:strata-l1-txfmt",
-  "dep:strata-test-utils-btc",
+  "dep:strata-asm-test-utils",
   "dep:strata-identifiers",
 ]
 
@@ -49,4 +49,4 @@ strata-asm-params.workspace = true
 strata-btc-types.workspace = true
 strata-btc-verification.workspace = true
 strata-l1-txfmt.workspace = true
-strata-test-utils-btc.workspace = true
+strata-asm-test-utils.workspace = true

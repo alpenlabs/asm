@@ -10,12 +10,12 @@ use moho_types::{ExportState, MohoState};
 use strata_asm_common::{AnchorState, AsmHistoryAccumulatorState, AuxData, ChainViewState};
 use strata_asm_params::{AsmParams, SubprotocolInstance};
 use strata_asm_spec::StrataAsmSpec;
+use strata_asm_test_utils::BtcMainnetSegment;
 use strata_btc_types::{BlockHashExt, GenesisL1View};
 use strata_btc_verification::HeaderVerificationState;
 use strata_identifiers::L1BlockCommitment;
 use strata_l1_txfmt::MagicBytes;
 use strata_predicate::PredicateKey;
-use strata_test_utils_btc::segment::BtcChainSegment;
 
 use crate::moho_program::{
     input::{AsmStepInput, L1Block},
@@ -30,7 +30,7 @@ const SUBPROTOCOLS_JSON: &str = r#"[
 
 /// Creates a single-step input from a fixed test Bitcoin block.
 pub fn create_asm_step_input() -> AsmStepInput {
-    let block = BtcChainSegment::load_full_block();
+    let block = BtcMainnetSegment::load_full_block();
     AsmStepInput {
         block: L1Block(block),
         aux_data: AuxData::default(),

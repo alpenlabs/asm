@@ -7,17 +7,30 @@ use bitcoin::{
 };
 use strata_identifiers::L1Height;
 
+/// Inclusive start height of the bundled contiguous mainnet header fixture.
+const MAINNET_FIXTURE_START_HEIGHT: L1Height = 40_000;
+
+/// Exclusive end height of the bundled contiguous mainnet header fixture.
+const MAINNET_FIXTURE_END_HEIGHT: L1Height = 50_000;
+
 /// A Bitcoin test fixture segment indexed by L1 block height.
 ///
 /// This struct stores a sparse set of full blocks and headers in maps so tests can
 /// directly query a known fixture by height.
 #[derive(Debug, Default)]
-pub struct BtcMainnetChainSegment {
+pub struct BtcMainnetSegment {
     pub blocks: HashMap<L1Height, Block>,
     pub headers: HashMap<L1Height, Header>,
 }
 
-impl BtcMainnetChainSegment {
+impl BtcMainnetSegment {
+    /// Returns the fixture height bounds as `(start, end)`.
+    ///
+    /// The range follows Rust's standard half-open convention: `start..end`.
+    pub const fn height_bounds(&self) -> (L1Height, L1Height) {
+        (MAINNET_FIXTURE_START_HEIGHT, MAINNET_FIXTURE_END_HEIGHT)
+    }
+
     /// Loads a single full mainnet block fixture from disk.
     ///
     /// The fixture file contains block
@@ -53,9 +66,6 @@ impl BtcMainnetChainSegment {
     /// Includes the contiguous range `40_000..50_000` from the bundled raw file,
     /// plus one extra custom header at height `38_304`.
     pub fn load_headers() -> HashMap<L1Height, Header> {
-        const HEADER_START_HEIGHT: L1Height = 40_000;
-        const HEADER_END_HEIGHT: L1Height = 50_000;
-
         let raw_headers = include_bytes!("../data/btc_mainnet_headers_40000-50000.raw");
         assert_eq!(
             raw_headers.len() % Header::SIZE,
@@ -64,11 +74,12 @@ impl BtcMainnetChainSegment {
             Header::SIZE
         );
 
-        let mut headers =
-            HashMap::with_capacity((HEADER_END_HEIGHT - HEADER_START_HEIGHT) as usize + 1);
+        let mut headers = HashMap::with_capacity(
+            (MAINNET_FIXTURE_END_HEIGHT - MAINNET_FIXTURE_START_HEIGHT) as usize + 1,
+        );
 
         for (idx, chunk) in raw_headers.chunks_exact(Header::SIZE).enumerate() {
-            let height = HEADER_START_HEIGHT + idx as L1Height;
+            let height = MAINNET_FIXTURE_START_HEIGHT + idx as L1Height;
             let header =
                 deserialize(chunk).expect("valid serialized header in bundled fixture range");
             headers.insert(height, header);
@@ -84,15 +95,15 @@ impl BtcMainnetChainSegment {
     }
 
     /// Loads the full BTC fixture segment (`blocks` + `headers`).
-    pub fn load_full() -> BtcMainnetChainSegment {
-        BtcMainnetChainSegment {
+    pub fn load_full() -> BtcMainnetSegment {
+        BtcMainnetSegment {
             blocks: Self::load_blocks(),
             headers: Self::load_headers(),
         }
     }
 
     /// Backward-compatible alias for [`Self::load_full`].
-    pub fn load() -> BtcMainnetChainSegment {
+    pub fn load() -> BtcMainnetSegment {
         Self::load_full()
     }
 

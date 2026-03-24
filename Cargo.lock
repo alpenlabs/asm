@@ -8094,12 +8094,12 @@ dependencies = [
  "strata-asm-params",
  "strata-asm-spec",
  "strata-asm-stf",
+ "strata-asm-test-utils",
  "strata-btc-types 0.1.0 (git+https://github.com/alpenlabs/alpen.git?rev=787b804c41800bbbf8d3632637a7eda332fc9f39)",
  "strata-btc-verification 0.1.0",
  "strata-identifiers 0.1.0 (git+https://github.com/alpenlabs/alpen.git?rev=787b804c41800bbbf8d3632637a7eda332fc9f39)",
  "strata-l1-txfmt",
  "strata-predicate",
- "strata-test-utils-btc",
  "zkaleido 0.1.0 (git+https://github.com/alpenlabs/zkaleido?rev=750c209f5850af29e34c39c250c24e1c69ffa2aa)",
  "zkaleido-native-adapter",
 ]
@@ -8564,10 +8564,10 @@ dependencies = [
  "borsh",
  "rand 0.8.5",
  "serde",
+ "strata-asm-test-utils",
  "strata-btc-types 0.1.0 (git+https://github.com/alpenlabs/alpen.git?rev=787b804c41800bbbf8d3632637a7eda332fc9f39)",
  "strata-crypto 0.3.0-alpha.1 (git+https://github.com/alpenlabs/alpen.git?rev=787b804c41800bbbf8d3632637a7eda332fc9f39)",
  "strata-identifiers 0.1.0 (git+https://github.com/alpenlabs/alpen.git?rev=787b804c41800bbbf8d3632637a7eda332fc9f39)",
- "strata-test-utils-btc",
  "thiserror 2.0.18",
 ]
 
