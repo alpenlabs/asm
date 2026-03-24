@@ -8315,6 +8315,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "strata-asm-test-utils"
+version = "0.1.0"
+dependencies = [
+ "arbitrary",
+ "rand_core 0.6.4",
+]
+
+[[package]]
 name = "strata-asm-txs-admin"
 version = "0.1.0"
 dependencies = [
