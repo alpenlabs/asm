@@ -1,3 +1,5 @@
+//! Bitcoin test utilities and fixtures for the Strata ASM test suite.
+
 use std::collections::HashMap;
 
 use bitcoin::{
