@@ -8319,7 +8319,9 @@ name = "strata-asm-test-utils"
 version = "0.1.0"
 dependencies = [
  "arbitrary",
+ "bitcoin",
  "rand_core 0.6.4",
+ "strata-identifiers 0.1.0 (git+https://github.com/alpenlabs/alpen.git?rev=787b804c41800bbbf8d3632637a7eda332fc9f39)",
 ]
 
 [[package]]
