@@ -86,7 +86,6 @@ strata-test-utils-btcio = { path = "crates/test-utils/btcio" }
 strata-acct-types = { git = "https://github.com/alpenlabs/alpen.git", rev = "1cadb7b23a640726d66408dc94c5b60358056b51" }
 strata-bridge-types = { git = "https://github.com/alpenlabs/alpen.git", rev = "1cadb7b23a640726d66408dc94c5b60358056b51" }
 strata-btc-types = { git = "https://github.com/alpenlabs/alpen.git", rev = "1cadb7b23a640726d66408dc94c5b60358056b51" }
-strata-btc-verification = { git = "https://github.com/alpenlabs/alpen.git", rev = "1cadb7b23a640726d66408dc94c5b60358056b51" }
 strata-checkpoint-types = { git = "https://github.com/alpenlabs/alpen.git", rev = "1cadb7b23a640726d66408dc94c5b60358056b51" }
 strata-checkpoint-types-ssz = { git = "https://github.com/alpenlabs/alpen.git", rev = "1cadb7b23a640726d66408dc94c5b60358056b51" }
 strata-codec-utils = { git = "https://github.com/alpenlabs/alpen.git", rev = "1cadb7b23a640726d66408dc94c5b60358056b51" }
@@ -100,8 +99,6 @@ strata-primitives = { git = "https://github.com/alpenlabs/alpen.git", rev = "1ca
 strata-state = { git = "https://github.com/alpenlabs/alpen.git", rev = "1cadb7b23a640726d66408dc94c5b60358056b51" }
 strata-storage = { git = "https://github.com/alpenlabs/alpen.git", rev = "1cadb7b23a640726d66408dc94c5b60358056b51" }
 strata-test-utils = { git = "https://github.com/alpenlabs/alpen.git", rev = "1cadb7b23a640726d66408dc94c5b60358056b51" }
-strata-test-utils-btc = { git = "https://github.com/alpenlabs/alpen.git", rev = "1cadb7b23a640726d66408dc94c5b60358056b51" }
-strata-test-utils-btcio = { git = "https://github.com/alpenlabs/alpen.git", rev = "1cadb7b23a640726d66408dc94c5b60358056b51" }
 strata-test-utils-l2 = { git = "https://github.com/alpenlabs/alpen.git", rev = "1cadb7b23a640726d66408dc94c5b60358056b51" }
 strata-test-utils-ssz = { git = "https://github.com/alpenlabs/alpen.git", rev = "1cadb7b23a640726d66408dc94c5b60358056b51" }
 
