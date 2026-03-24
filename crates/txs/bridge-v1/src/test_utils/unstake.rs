@@ -4,12 +4,12 @@ use bitcoin::{
     secp256k1::Secp256k1,
     taproot::{LeafVersion, TaprootBuilder, TaprootSpendInfo},
 };
-use strata_asm_txs_test_utils::{TEST_MAGIC_BYTES, create_dummy_tx};
-use strata_crypto::{EvenSecretKey, keys::constants::UNSPENDABLE_PUBLIC_KEY};
-use strata_l1_txfmt::ParseConfig;
 use strata_asm_test_utils_btcio::{
     BtcioTestHarness, address::derive_musig2_p2tr_address, signing::sign_musig2_scriptpath,
 };
+use strata_asm_txs_test_utils::{TEST_MAGIC_BYTES, create_dummy_tx};
+use strata_crypto::{EvenSecretKey, keys::constants::UNSPENDABLE_PUBLIC_KEY};
+use strata_l1_txfmt::ParseConfig;
 
 use crate::unstake::{UnstakeInfo, UnstakeTxHeaderAux, stake_connector_script};
 

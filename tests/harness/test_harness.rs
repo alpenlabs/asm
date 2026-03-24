@@ -125,9 +125,13 @@ impl AsmTestHarness {
             None => self.client.get_new_address().await?,
         };
 
-        let block_hashes =
-            strata_asm_test_utils_btcio::mine_blocks(&self.bitcoind, &self.client, 1, Some(address))
-                .await?;
+        let block_hashes = strata_asm_test_utils_btcio::mine_blocks(
+            &self.bitcoind,
+            &self.client,
+            1,
+            Some(address),
+        )
+        .await?;
 
         let block_hash = block_hashes[0];
 

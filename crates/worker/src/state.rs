@@ -154,9 +154,9 @@ mod tests {
     use corepc_node::Node;
     use strata_asm_common::AsmManifest;
     use strata_asm_test_utils_arb::ArbitraryGenerator;
+    use strata_asm_test_utils_btcio::{get_bitcoind_and_client, mine_blocks};
     use strata_btc_types::{BitcoinTxid, BlockHashExt, RawBitcoinTx};
     use strata_primitives::{L1BlockId, hash::Hash, l1::GenesisL1View};
-    use strata_asm_test_utils_btcio::{get_bitcoind_and_client, mine_blocks};
 
     use super::*;
 

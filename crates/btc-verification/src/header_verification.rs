@@ -1,7 +1,7 @@
 use std::io;
 
 use arbitrary::Arbitrary;
-use bitcoin::{block::Header, hashes::Hash, params::Params, BlockHash, CompactTarget, Network};
+use bitcoin::{BlockHash, CompactTarget, Network, block::Header, hashes::Hash, params::Params};
 use borsh::{BorshDeserialize, BorshSerialize};
 use serde::{Deserialize, Serialize};
 use strata_btc_types::{BtcParams, GenesisL1View};
@@ -9,7 +9,7 @@ use strata_crypto::hash::compute_borsh_hash;
 use strata_identifiers::{Buf32, L1BlockCommitment, L1BlockId, L1Height};
 use thiserror::Error;
 
-use crate::{timestamp_store::TimestampStore, utils_btc::compute_block_hash, BtcWork};
+use crate::{BtcWork, timestamp_store::TimestampStore, utils_btc::compute_block_hash};
 
 /// Errors that can occur during Bitcoin header verification.
 #[derive(Debug, Error)]
@@ -277,9 +277,13 @@ pub fn get_relative_difficulty_adjustment_height(
 #[cfg(test)]
 mod tests {
 
-    use bitcoin::{hashes::Hash, params::MAINNET, BlockHash, CompactTarget, Network};
+    use bitcoin::{
+        BlockHash, CompactTarget, Network,
+        hashes::Hash,
+        params::{MAINNET, Params},
+    };
     use borsh::{BorshDeserialize, BorshSerialize};
-    use rand::{rngs::OsRng, Rng};
+    use rand::{Rng, rngs::OsRng};
     use strata_asm_test_utils_btc::BtcMainnetSegment;
     use strata_btc_types::{BlockHashExt, GenesisL1View, TIMESTAMPS_FOR_MEDIAN};
     use strata_identifiers::{L1BlockCommitment, L1Height};
@@ -290,14 +294,13 @@ mod tests {
         chain: &BtcMainnetSegment,
         height: L1Height,
     ) -> Result<HeaderVerificationState, &'static str> {
-        let params = bitcoin::params::Params::from(Network::Bitcoin);
+        let params = Params::from(Network::Bitcoin);
 
         let current_epoch_start_height =
             get_relative_difficulty_adjustment_height(0, height, &params);
-        let current_epoch_start_header =
-            chain
-                .get_block_header_at(current_epoch_start_height)
-                .ok_or("missing current epoch start header in fixture")?;
+        let current_epoch_start_header = chain
+            .get_block_header_at(current_epoch_start_height)
+            .ok_or("missing current epoch start header in fixture")?;
         let block_header = chain
             .get_block_header_at(height)
             .ok_or("missing block header in fixture")?;

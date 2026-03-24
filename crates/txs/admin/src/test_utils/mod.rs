@@ -99,13 +99,13 @@ mod tests {
     use bitcoin::secp256k1::PublicKey;
     use rand::rngs::OsRng;
     use strata_asm_common::TxInputRef;
+    use strata_asm_test_utils_arb::ArbitraryGenerator;
     use strata_asm_txs_test_utils::TEST_MAGIC_BYTES;
     use strata_crypto::{
         keys::compressed::CompressedPublicKey,
         threshold_signature::{ThresholdConfig, verify_threshold_signatures},
     };
     use strata_l1_txfmt::ParseConfig;
-    use strata_asm_test_utils_arb::ArbitraryGenerator;
 
     use super::*;
     use crate::parser::parse_tx;

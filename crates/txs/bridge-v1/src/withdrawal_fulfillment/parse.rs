@@ -59,8 +59,8 @@ mod tests {
     use std::mem;
 
     use strata_asm_common::TxInputRef;
-    use strata_l1_txfmt::ParseConfig;
     use strata_asm_test_utils_arb::ArbitraryGenerator;
+    use strata_l1_txfmt::ParseConfig;
 
     use super::*;
     use crate::{

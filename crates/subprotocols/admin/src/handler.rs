@@ -181,6 +181,7 @@ mod tests {
     use strata_asm_checkpoint_msgs::CheckpointIncomingMsg;
     use strata_asm_common::{AsmLogEntry, InterprotoMsg, MsgRelayer};
     use strata_asm_params::{AdministrationInitConfig, Role};
+    use strata_asm_test_utils_arb::ArbitraryGenerator;
     use strata_asm_txs_admin::{
         actions::{
             CancelAction, MultisigAction, Sighash, UpdateAction,
@@ -197,7 +198,6 @@ mod tests {
         threshold_signature::{SignatureSet, ThresholdConfig},
     };
     use strata_predicate::PredicateKey;
-    use strata_asm_test_utils_arb::ArbitraryGenerator;
 
     use super::{handle_action, handle_pending_updates};
     use crate::{

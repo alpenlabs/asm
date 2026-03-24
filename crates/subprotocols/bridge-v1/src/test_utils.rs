@@ -5,6 +5,7 @@ use strata_asm_common::{
     AsmHistoryAccumulatorState, AsmLogEntry, AuxData, InterprotoMsg, MsgRelayer, VerifiedAuxData,
 };
 use strata_asm_params::BridgeV1InitConfig;
+use strata_asm_test_utils_arb::ArbitraryGenerator;
 use strata_asm_txs_bridge_v1::{
     deposit::{DepositInfo, parse_deposit_tx},
     deposit_request::DrtHeaderAux,
@@ -20,7 +21,6 @@ use strata_bridge_types::{OperatorIdx, OperatorSelection};
 use strata_btc_types::RawBitcoinTx;
 use strata_crypto::EvenSecretKey;
 use strata_primitives::l1::{BitcoinAmount, L1BlockCommitment};
-use strata_asm_test_utils_arb::ArbitraryGenerator;
 
 use super::*;
 use crate::state::assignment::AssignmentEntry;
