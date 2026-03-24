@@ -86,13 +86,13 @@ pub struct L1Block(pub Block);
 #[cfg(test)]
 mod tests {
     use ssz::{Decode, Encode};
-    use strata_test_utils_btc::segment::BtcChainSegment;
+    use strata_test_utils_btc::BtcMainnetSegment;
 
     use super::*;
 
     #[test]
     fn test_ssz_roundtrip() {
-        let block = BtcChainSegment::load_full_block();
+        let block = BtcMainnetSegment::load_full_block();
         let input = AsmStepInput::new(L1Block(block), AuxData::new(vec![], vec![]));
 
         let serialized = input.as_ssz_bytes();

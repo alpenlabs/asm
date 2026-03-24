@@ -226,7 +226,7 @@ impl<'a> Arbitrary<'a> for OperatorBitmap {
 #[cfg(test)]
 mod tests {
     use ssz::{Decode, Encode};
-    use strata_test_utils::ArbitraryGenerator;
+    use strata_test_utils_arb::ArbitraryGenerator;
 
     use super::*;
 

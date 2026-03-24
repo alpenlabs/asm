@@ -106,7 +106,7 @@ mod tests {
         threshold_signature::{ThresholdConfig, verify_threshold_signatures},
     };
     use strata_l1_txfmt::ParseConfig;
-    use strata_test_utils_arb::ArbitraryGenerator;
+    use strata_test_utils::ArbitraryGenerator;
 
     use super::*;
     use crate::parser::parse_tx;

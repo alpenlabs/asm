@@ -554,9 +554,9 @@ dependencies = [
 
 [[package]]
 name = "hex-literal"
-version = "0.4.1"
+version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6fe2267d4ed49bc07b63801559be28c718ea06c4738b7a03c94df7386d2cde46"
+checksum = "e712f64ec3850b98572bffac52e2c6f282b29fe6c5fa6d42334b30be438d95c1"
 
 [[package]]
 name = "hex_lit"
@@ -1467,7 +1467,7 @@ dependencies = [
  "strata-acct-types",
  "strata-asm-manifest-types 0.1.0",
  "strata-btc-types",
- "strata-btc-verification",
+ "strata-btc-verification 0.1.0",
  "strata-identifiers",
  "strata-l1-txfmt",
  "strata-merkle",
@@ -1488,7 +1488,7 @@ dependencies = [
  "serde",
  "strata-asm-manifest-types 0.1.0 (git+https://github.com/alpenlabs/alpen.git?rev=1cadb7b23a640726d66408dc94c5b60358056b51)",
  "strata-btc-types",
- "strata-btc-verification",
+ "strata-btc-verification 0.1.0 (git+https://github.com/alpenlabs/alpen.git?rev=1cadb7b23a640726d66408dc94c5b60358056b51)",
  "strata-identifiers",
  "strata-l1-txfmt",
  "strata-merkle",
@@ -1626,7 +1626,7 @@ dependencies = [
  "arbitrary",
  "bitcoin",
  "bitvec",
- "rand_chacha 0.3.1",
+ "rand_chacha 0.9.0",
  "serde",
  "ssz",
  "ssz_derive",
@@ -1830,6 +1830,20 @@ dependencies = [
  "strata-l1-txfmt",
  "thiserror 2.0.18",
  "tree_hash",
+]
+
+[[package]]
+name = "strata-btc-verification"
+version = "0.1.0"
+dependencies = [
+ "arbitrary",
+ "bitcoin",
+ "borsh",
+ "serde",
+ "strata-btc-types",
+ "strata-crypto",
+ "strata-identifiers",
+ "thiserror 2.0.18",
 ]
 
 [[package]]
