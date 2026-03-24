@@ -28,6 +28,7 @@ members = [
   "crates/txs/test-utils",
   "crates/test-utils/arb",
   "crates/test-utils/btc",
+  "crates/test-utils/btcio",
   "crates/worker",
 
   # tests
@@ -51,6 +52,7 @@ rustdoc.all = "warn"
 
 [workspace.dependencies]
 # workspace crates
+strata-ams-test-utils = { path = "crates/test-utils-btcio" }
 strata-asm-bridge-msgs = { path = "crates/msgs/bridge" }
 strata-asm-checkpoint-msgs = { path = "crates/msgs/checkpoint" }
 strata-asm-common = { path = "crates/common" }
@@ -152,6 +154,7 @@ corepc-node = { version = "0.10.0", features = ["29_0"] }
 futures = "0.3.31"
 hex-literal = "1.1"
 jsonrpsee = "0.26.0"
+musig2 = { version = "0.1.0", features = ["serde"] }
 proptest = "1.9.0"
 rand = "0.8.5"
 rand_chacha = { version = "0.9.0", default-features = false }

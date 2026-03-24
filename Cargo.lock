@@ -8331,6 +8331,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "strata-asm-test-utils-btcio"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "bitcoin",
+ "bitcoind-async-client",
+ "corepc-node",
+ "musig2 0.1.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "rand 0.8.5",
+ "strata-crypto 0.3.0-alpha.1 (git+https://github.com/alpenlabs/alpen.git?rev=787b804c41800bbbf8d3632637a7eda332fc9f39)",
+ "tokio",
+]
+
+[[package]]
 name = "strata-asm-txs-admin"
 version = "0.1.0"
 dependencies = [
