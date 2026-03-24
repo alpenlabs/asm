@@ -84,7 +84,7 @@ mod tests {
 
     use bitcoin::Transaction;
     use strata_crypto::test_utils::schnorr::create_agg_pubkey_from_privkeys;
-    use strata_asm_test_utils::ArbitraryGenerator;
+    use strata_asm_test_utils_arb::ArbitraryGenerator;
 
     use super::*;
     use crate::{

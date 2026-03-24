@@ -59,7 +59,7 @@ mod tests {
         deposit_request::{DepositRequestInfo, create_deposit_request_locking_script, parse_drt},
     };
     use strata_btc_types::BitcoinAmount;
-    use strata_asm_test_utils::ArbitraryGenerator;
+    use strata_asm_test_utils_arb::ArbitraryGenerator;
 
     use crate::{
         DepositValidationError,

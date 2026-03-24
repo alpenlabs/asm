@@ -140,7 +140,7 @@ mod tests {
         test_utils::{create_test_withdrawal_fulfillment_tx, parse_sps50_tx},
         withdrawal_fulfillment::parse_withdrawal_fulfillment_tx,
     };
-    use strata_asm_test_utils::ArbitraryGenerator;
+    use strata_asm_test_utils_arb::ArbitraryGenerator;
 
     use super::handle_parsed_tx;
     use crate::test_utils::{

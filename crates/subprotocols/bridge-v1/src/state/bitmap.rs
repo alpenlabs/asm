@@ -200,7 +200,7 @@ impl<'a> Arbitrary<'a> for OperatorBitmap {
 
 #[cfg(test)]
 mod tests {
-    use strata_asm_test_utils::ArbitraryGenerator;
+    use strata_asm_test_utils_arb::ArbitraryGenerator;
 
     use super::*;
 

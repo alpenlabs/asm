@@ -1,13 +1,10 @@
 [package]
-name = "strata-asm-test-utils"
+name = "strata-asm-test-utils-arb"
 version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-strata-identifiers.workspace = true
-
 arbitrary.workspace = true
-bitcoin.workspace = true
 rand_core = { workspace = true, features = ["getrandom"] }
 
 [lints]

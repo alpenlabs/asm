@@ -54,7 +54,7 @@ mod tests {
 
     use bitcoin::Transaction;
     use strata_primitives::l1::BitcoinAmount;
-    use strata_asm_test_utils::ArbitraryGenerator;
+    use strata_asm_test_utils_arb::ArbitraryGenerator;
 
     use crate::{
         constants::BridgeTxType,

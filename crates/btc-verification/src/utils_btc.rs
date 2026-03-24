@@ -21,7 +21,7 @@ pub fn compute_block_hash(header: &Header) -> Buf32 {
 #[cfg(test)]
 mod tests {
     use bitcoin::hashes::Hash;
-    use strata_asm_test_utils::BtcMainnetSegment;
+    use strata_asm_test_utils_btc::BtcMainnetSegment;
 
     use super::*;
 

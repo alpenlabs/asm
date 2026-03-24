@@ -185,7 +185,7 @@ impl VerifiedAuxData {
 #[cfg(test)]
 mod tests {
     use bitcoin::hashes::Hash;
-    use strata_asm_test_utils::ArbitraryGenerator;
+    use strata_asm_test_utils_arb::ArbitraryGenerator;
     use strata_btc_types::{Buf32BitcoinExt, RawBitcoinTx};
     use strata_identifiers::Buf32;
 

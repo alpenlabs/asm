@@ -60,7 +60,7 @@ mod tests {
 
     use strata_asm_common::TxInputRef;
     use strata_l1_txfmt::ParseConfig;
-    use strata_asm_test_utils::ArbitraryGenerator;
+    use strata_asm_test_utils_arb::ArbitraryGenerator;
 
     use super::*;
     use crate::{

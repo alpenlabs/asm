@@ -286,7 +286,7 @@ impl DepositsTable {
 mod tests {
     use proptest::{collection, prelude::*, prop_assert, prop_assert_eq, proptest};
     use strata_primitives::l1::BitcoinAmount;
-    use strata_asm_test_utils::ArbitraryGenerator;
+    use strata_asm_test_utils_arb::ArbitraryGenerator;
 
     use super::*;
 

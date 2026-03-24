@@ -21,6 +21,6 @@ thiserror.workspace = true
 
 [dev-dependencies]
 strata-asm-txs-admin = { workspace = true, features = ["test-utils"] }
-strata-asm-test-utils.workspace = true
+strata-asm-test-utils-arb.workspace = true
 rand.workspace = true
 bitcoin.workspace = true

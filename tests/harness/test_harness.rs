@@ -53,7 +53,7 @@ use strata_asm_params::{
     AdministrationInitConfig, AsmParams, BridgeV1InitConfig, CheckpointInitConfig,
     SubprotocolInstance,
 };
-use strata_asm_test_utils::ArbitraryGenerator;
+use strata_asm_test_utils_arb::ArbitraryGenerator;
 use strata_asm_worker::{AsmWorkerBuilder, AsmWorkerHandle, WorkerContext};
 use strata_btc_types::BlockHashExt;
 use strata_l1_envelope_fmt::builder::{build_envelope_script, EnvelopeScriptBuilder};

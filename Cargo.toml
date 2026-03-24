@@ -26,7 +26,8 @@ members = [
   "crates/txs/checkpoint",
   "crates/txs/checkpoint-v0",
   "crates/txs/test-utils",
-  "crates/test-utils",
+  "crates/test-utils/arb",
+  "crates/test-utils/btc",
   "crates/worker",
 
   # tests
@@ -68,7 +69,8 @@ strata-asm-rpc = { path = "crates/rpc" }
 strata-asm-spec = { path = "crates/spec" }
 strata-asm-spec-debug = { path = "crates/spec-debug" }
 strata-asm-stf = { path = "crates/stf" }
-strata-asm-test-utils = { path = "crates/test-utils" }
+strata-asm-test-utils-arb = { path = "crates/test-utils/arb" }
+strata-asm-test-utils-btc = { path = "crates/test-utils/btc" }
 strata-asm-txs-admin = { path = "crates/txs/admin" }
 strata-asm-txs-bridge-v1 = { path = "crates/txs/bridge-v1" }
 strata-asm-txs-checkpoint = { path = "crates/txs/checkpoint" }

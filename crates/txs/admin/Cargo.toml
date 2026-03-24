@@ -33,4 +33,4 @@ test-utils = [
 proptest.workspace = true
 rand.workspace = true
 
-strata-asm-test-utils.workspace = true
+strata-asm-test-utils-arb.workspace = true

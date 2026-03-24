@@ -63,7 +63,7 @@ mod tests {
     use bitcoin::{OutPoint, ScriptBuf, Transaction, TxOut, secp256k1::SECP256K1};
     use strata_crypto::test_utils::schnorr::create_agg_pubkey_from_privkeys;
     use strata_primitives::l1::BitcoinAmount;
-    use strata_asm_test_utils::ArbitraryGenerator;
+    use strata_asm_test_utils_arb::ArbitraryGenerator;
 
     use crate::{
         constants::BridgeTxType,

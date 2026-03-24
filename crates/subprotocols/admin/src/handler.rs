@@ -197,7 +197,7 @@ mod tests {
         threshold_signature::{SignatureSet, ThresholdConfig},
     };
     use strata_predicate::PredicateKey;
-    use strata_asm_test_utils::ArbitraryGenerator;
+    use strata_asm_test_utils_arb::ArbitraryGenerator;
 
     use super::{handle_action, handle_pending_updates};
     use crate::{

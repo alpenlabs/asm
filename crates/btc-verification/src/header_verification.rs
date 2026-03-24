@@ -280,7 +280,7 @@ mod tests {
     use bitcoin::{hashes::Hash, params::MAINNET, BlockHash, CompactTarget, Network};
     use borsh::{BorshDeserialize, BorshSerialize};
     use rand::{rngs::OsRng, Rng};
-    use strata_asm_test_utils::BtcMainnetSegment;
+    use strata_asm_test_utils_btc::BtcMainnetSegment;
     use strata_btc_types::{BlockHashExt, GenesisL1View, TIMESTAMPS_FOR_MEDIAN};
     use strata_identifiers::{L1BlockCommitment, L1Height};
 
@@ -374,7 +374,7 @@ mod tests {
     fn test_hash() {
         let chain = BtcMainnetSegment::load();
         let r1 = 45_000;
-        let verification_state = chain.get_verification_state(r1).unwrap();
+        let verification_state = verification_state_at(&chain, r1).unwrap();
         let hash = verification_state.compute_hash();
         assert!(hash.is_ok());
     }
@@ -402,7 +402,7 @@ mod tests {
 
         // Start verification just before the difficulty adjustment block
         let adjustment_height = 40_320;
-        let mut verification_state = chain.get_verification_state(adjustment_height - 1).unwrap();
+        let mut verification_state = verification_state_at(&chain, adjustment_height - 1).unwrap();
 
         let _target_before = verification_state.get_next_block_target();
         let _epoch_start_before = verification_state.get_epoch_start_timestamp();
@@ -439,9 +439,8 @@ mod tests {
 
         // Block 40,319 is right before the adjustment at 40,320
         let pre_adjustment_height = 40_319;
-        let mut verification_state = chain
-            .get_verification_state(pre_adjustment_height - 1)
-            .unwrap();
+        let mut verification_state =
+            verification_state_at(&chain, pre_adjustment_height - 1).unwrap();
 
         let expected_target = verification_state.get_next_block_target();
 
@@ -481,7 +480,7 @@ mod tests {
 
         // Pick a block in the middle of an epoch (not a multiple of 2016)
         let mid_epoch_height = 40_100;
-        let mut verification_state = chain.get_verification_state(mid_epoch_height - 1).unwrap();
+        let mut verification_state = verification_state_at(&chain, mid_epoch_height - 1).unwrap();
 
         let target_before = verification_state.get_next_block_target();
         let epoch_start_before = verification_state.get_epoch_start_timestamp();
@@ -517,7 +516,7 @@ mod tests {
         let adjustment_height = 40_320;
         let end_height = 40_324;
 
-        let mut verification_state = chain.get_verification_state(start_height).unwrap();
+        let mut verification_state = verification_state_at(&chain, start_height).unwrap();
 
         let _target_before_adjustment = verification_state.get_next_block_target();
 
@@ -551,7 +550,7 @@ mod tests {
         let first_adjustment = 40_320;
         let second_adjustment = 42_336; // 40320 + 2016
 
-        let mut verification_state = chain.get_verification_state(first_adjustment - 1).unwrap();
+        let mut verification_state = verification_state_at(&chain, first_adjustment - 1).unwrap();
 
         // Process first adjustment block
         let first_adj_header = chain.get_block_header_at(first_adjustment).unwrap();
@@ -599,7 +598,7 @@ mod tests {
         let chain = BtcMainnetSegment::load();
 
         let height = 40_100;
-        let mut verification_state = chain.get_verification_state(height - 1).unwrap();
+        let mut verification_state = verification_state_at(&chain, height - 1).unwrap();
 
         let mut header = chain.get_block_header_at(height).unwrap();
 
@@ -629,7 +628,7 @@ mod tests {
         let epoch_start_height = 40_320;
         let epoch_end_height = epoch_start_height + 2016 - 1; // Last block before next adjustment
 
-        let mut verification_state = chain.get_verification_state(epoch_start_height).unwrap();
+        let mut verification_state = verification_state_at(&chain, epoch_start_height).unwrap();
         let epoch_start_time = verification_state.get_epoch_start_timestamp();
 
         // Advance to the last block of the epoch
@@ -727,7 +726,7 @@ mod tests {
     fn test_timestamp_exactly_at_median_rejected() {
         let chain = BtcMainnetSegment::load();
         let height = 40_100;
-        let mut verification_state = chain.get_verification_state(height).unwrap();
+        let mut verification_state = verification_state_at(&chain, height).unwrap();
 
         let median = verification_state.get_block_timestamp_history().median();
 
@@ -750,7 +749,7 @@ mod tests {
     fn test_timestamp_one_second_after_median() {
         let chain = BtcMainnetSegment::load();
         let height = 40_100;
-        let mut verification_state = chain.get_verification_state(height).unwrap();
+        let mut verification_state = verification_state_at(&chain, height).unwrap();
 
         let median = verification_state.get_block_timestamp_history().median();
 
@@ -782,7 +781,7 @@ mod tests {
     fn test_timestamp_less_than_median_rejected() {
         let chain = BtcMainnetSegment::load();
         let height = 40_100;
-        let mut verification_state = chain.get_verification_state(height).unwrap();
+        let mut verification_state = verification_state_at(&chain, height).unwrap();
 
         let median = verification_state.get_block_timestamp_history().median();
 
@@ -807,7 +806,7 @@ mod tests {
 
         // Start at a known point
         let start_height = 40_100;
-        let mut verification_state = chain.get_verification_state(start_height).unwrap();
+        let mut verification_state = verification_state_at(&chain, start_height).unwrap();
 
         // Process several blocks and verify median updates correctly
         let initial_median = verification_state.get_block_timestamp_history().median();
@@ -835,7 +834,7 @@ mod tests {
     fn test_timestamp_ring_buffer_size_constant() {
         let chain = BtcMainnetSegment::load();
         let start_height = 40_100;
-        let mut verification_state = chain.get_verification_state(start_height).unwrap();
+        let mut verification_state = verification_state_at(&chain, start_height).unwrap();
 
         // The ring buffer should always maintain TIMESTAMPS_FOR_MEDIAN entries
         // Process many blocks to ensure buffer wraps around
@@ -872,7 +871,7 @@ mod tests {
 
         // Use a real block that passed validation
         let height = 40_100;
-        let mut verification_state = chain.get_verification_state(height).unwrap();
+        let mut verification_state = verification_state_at(&chain, height).unwrap();
         let header = chain.get_block_header_at(height + 1).unwrap();
 
         // This block's hash is below target (it's a real Bitcoin block)
@@ -885,7 +884,7 @@ mod tests {
     fn test_insufficient_pow_rejected() {
         let chain = BtcMainnetSegment::load();
         let height = 40_100;
-        let mut verification_state = chain.get_verification_state(height).unwrap();
+        let mut verification_state = verification_state_at(&chain, height).unwrap();
 
         let mut header = chain.get_block_header_at(height + 1).unwrap();
 
@@ -906,7 +905,7 @@ mod tests {
     fn test_accumulated_work_increases() {
         let chain = BtcMainnetSegment::load();
         let start_height = 40_100;
-        let mut verification_state = chain.get_verification_state(start_height).unwrap();
+        let mut verification_state = verification_state_at(&chain, start_height).unwrap();
 
         let initial_work = verification_state.get_total_accumulated_pow();
 
@@ -929,7 +928,7 @@ mod tests {
 
         // Process multiple blocks and verify PoW is consistently validated
         let start_height = 40_100;
-        let mut verification_state = chain.get_verification_state(start_height).unwrap();
+        let mut verification_state = verification_state_at(&chain, start_height).unwrap();
 
         for height in (start_height + 1)..=(start_height + 10) {
             let header = chain.get_block_header_at(height).unwrap();
@@ -963,7 +962,7 @@ mod tests {
     fn test_wrong_prev_blockhash_rejected() {
         let chain = BtcMainnetSegment::load();
         let height = 40_100;
-        let mut verification_state = chain.get_verification_state(height).unwrap();
+        let mut verification_state = verification_state_at(&chain, height).unwrap();
 
         let mut header = chain.get_block_header_at(height + 1).unwrap();
 
@@ -985,7 +984,7 @@ mod tests {
     fn test_continuity_error_details() {
         let chain = BtcMainnetSegment::load();
         let height = 40_100;
-        let mut verification_state = chain.get_verification_state(height).unwrap();
+        let mut verification_state = verification_state_at(&chain, height).unwrap();
 
         let _correct_prev_hash = verification_state.last_verified_block.blkid();
         let mut header = chain.get_block_header_at(height + 1).unwrap();
@@ -1010,7 +1009,7 @@ mod tests {
     fn test_valid_chain_continuity() {
         let chain = BtcMainnetSegment::load();
         let start_height = 40_100;
-        let mut verification_state = chain.get_verification_state(start_height).unwrap();
+        let mut verification_state = verification_state_at(&chain, start_height).unwrap();
 
         // Process 20 consecutive blocks
         for height in (start_height + 1)..=(start_height + 20) {
@@ -1058,8 +1057,8 @@ mod tests {
         let height = 40_100;
 
         // Create two identical states
-        let state1 = chain.get_verification_state(height).unwrap();
-        let state2 = chain.get_verification_state(height).unwrap();
+        let state1 = verification_state_at(&chain, height).unwrap();
+        let state2 = verification_state_at(&chain, height).unwrap();
 
         let hash1 = state1.compute_hash().unwrap();
         let hash2 = state2.compute_hash().unwrap();
@@ -1072,7 +1071,7 @@ mod tests {
     fn test_state_hash_changes_after_update() {
         let chain = BtcMainnetSegment::load();
         let height = 40_100;
-        let mut verification_state = chain.get_verification_state(height).unwrap();
+        let mut verification_state = verification_state_at(&chain, height).unwrap();
 
         let hash_before = verification_state.compute_hash().unwrap();
 
@@ -1093,7 +1092,7 @@ mod tests {
     fn test_state_serialization_roundtrip() {
         let chain = BtcMainnetSegment::load();
         let height = 40_100;
-        let original_state = chain.get_verification_state(height).unwrap();
+        let original_state = verification_state_at(&chain, height).unwrap();
 
         // Serialize
         let mut buffer = Vec::new();

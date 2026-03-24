@@ -138,7 +138,7 @@ mod tests {
     use bitcoin::secp256k1::{PublicKey, Secp256k1, SecretKey};
     use rand::rngs::OsRng;
     use strata_asm_params::{AdministrationInitConfig, Role};
-    use strata_asm_test_utils::ArbitraryGenerator;
+    use strata_asm_test_utils_arb::ArbitraryGenerator;
     use strata_asm_txs_admin::actions::UpdateAction;
     use strata_crypto::{
         keys::compressed::CompressedPublicKey,
