@@ -126,7 +126,7 @@ impl AsmTestHarness {
         };
 
         let block_hashes =
-            strata_test_utils_btcio::mine_blocks(&self.bitcoind, &self.client, 1, Some(address))
+            strata_asm_test_utils_btcio::mine_blocks(&self.bitcoind, &self.client, 1, Some(address))
                 .await?;
 
         let block_hash = block_hashes[0];
@@ -552,14 +552,14 @@ impl AsmTestHarnessBuilder {
 
         // 1. Start Bitcoin regtest (with txindex if requested)
         let (bitcoind, client) = if self.txindex {
-            strata_test_utils_btcio::get_bitcoind_and_client_with_txindex()
+            strata_asm_test_utils_btcio::get_bitcoind_and_client_with_txindex()
         } else {
-            strata_test_utils_btcio::get_bitcoind_and_client()
+            strata_asm_test_utils_btcio::get_bitcoind_and_client()
         };
         let client = Arc::new(client);
 
         // 2. Mine blocks to genesis height
-        strata_test_utils_btcio::mine_blocks(&bitcoind, &client, genesis_height as usize, None)
+        strata_asm_test_utils_btcio::mine_blocks(&bitcoind, &client, genesis_height as usize, None)
             .await?;
 
         let genesis_hash = client.get_block_hash(genesis_height).await?;

@@ -4193,6 +4193,7 @@ dependencies = [
  "strata-asm-proto-checkpoint",
  "strata-asm-proto-checkpoint-v0",
  "strata-asm-test-utils-arb",
+ "strata-asm-test-utils-btcio",
  "strata-asm-txs-admin",
  "strata-asm-txs-bridge-v1",
  "strata-asm-worker",
@@ -4212,7 +4213,6 @@ dependencies = [
  "strata-primitives 0.3.0-alpha.1 (git+https://github.com/alpenlabs/alpen.git?rev=787b804c41800bbbf8d3632637a7eda332fc9f39)",
  "strata-state",
  "strata-tasks",
- "strata-test-utils-btcio",
  "strata-test-utils-l2",
  "tokio",
 ]
@@ -8376,13 +8376,13 @@ dependencies = [
  "rand 0.8.5",
  "strata-asm-common",
  "strata-asm-test-utils-arb",
+ "strata-asm-test-utils-btcio",
  "strata-asm-txs-test-utils",
  "strata-bridge-types 0.3.0-alpha.1 (git+https://github.com/alpenlabs/alpen.git?rev=787b804c41800bbbf8d3632637a7eda332fc9f39)",
  "strata-codec",
  "strata-crypto 0.3.0-alpha.1 (git+https://github.com/alpenlabs/alpen.git?rev=787b804c41800bbbf8d3632637a7eda332fc9f39)",
  "strata-l1-txfmt",
  "strata-primitives 0.3.0-alpha.1 (git+https://github.com/alpenlabs/alpen.git?rev=787b804c41800bbbf8d3632637a7eda332fc9f39)",
- "strata-test-utils-btcio",
  "thiserror 2.0.18",
 ]
 
@@ -8442,6 +8442,7 @@ dependencies = [
  "strata-asm-spec",
  "strata-asm-stf",
  "strata-asm-test-utils-arb",
+ "strata-asm-test-utils-btcio",
  "strata-btc-types 0.1.0 (git+https://github.com/alpenlabs/alpen.git?rev=787b804c41800bbbf8d3632637a7eda332fc9f39)",
  "strata-btc-verification 0.1.0",
  "strata-merkle",
@@ -8449,7 +8450,6 @@ dependencies = [
  "strata-service",
  "strata-state",
  "strata-tasks",
- "strata-test-utils-btcio",
  "thiserror 2.0.18",
  "tokio",
  "tracing",
@@ -9545,20 +9545,6 @@ dependencies = [
  "strata-btcio",
  "strata-identifiers 0.1.0 (git+https://github.com/alpenlabs/alpen.git?rev=787b804c41800bbbf8d3632637a7eda332fc9f39)",
  "strata-primitives 0.3.0-alpha.1 (git+https://github.com/alpenlabs/alpen.git?rev=787b804c41800bbbf8d3632637a7eda332fc9f39)",
- "tokio",
-]
-
-[[package]]
-name = "strata-test-utils-btcio"
-version = "0.1.0"
-source = "git+https://github.com/alpenlabs/alpen.git?rev=787b804c41800bbbf8d3632637a7eda332fc9f39#787b804c41800bbbf8d3632637a7eda332fc9f39"
-dependencies = [
- "anyhow",
- "bitcoin",
- "bitcoind-async-client",
- "corepc-node",
- "musig2 0.1.1 (registry+https://github.com/rust-lang/crates.io-index)",
- "strata-crypto 0.3.0-alpha.1 (git+https://github.com/alpenlabs/alpen.git?rev=787b804c41800bbbf8d3632637a7eda332fc9f39)",
  "tokio",
 ]
 

@@ -12,7 +12,7 @@ use harness::{test_harness::AsmTestHarnessBuilder, worker_context::TestAsmWorker
 use integration_tests::harness;
 use strata_asm_worker::WorkerContext;
 use strata_btc_types::BlockHashExt;
-use strata_test_utils_btcio::{get_bitcoind_and_client, mine_blocks};
+use strata_asm_test_utils_btcio::{get_bitcoind_and_client, mine_blocks};
 
 // ============================================================================
 // Worker Context

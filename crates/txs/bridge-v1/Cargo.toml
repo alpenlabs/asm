@@ -19,9 +19,9 @@ strata-primitives.workspace = true
 
 # Optional dependencies for test utilities
 rand = { workspace = true, optional = true }
+strata-asm-test-utils-btcio = { workspace = true, optional = true }
 strata-asm-txs-test-utils = { workspace = true, optional = true }
 strata-crypto = { workspace = true, optional = true }
-strata-test-utils-btcio = { workspace = true, optional = true }
 
 [dev-dependencies]
 proptest.workspace = true
@@ -33,7 +33,7 @@ strata-asm-test-utils-arb.workspace = true
 test-utils = [
   "dep:strata-asm-txs-test-utils",
   "dep:strata-crypto",
-  "dep:strata-test-utils-btcio",
+  "dep:strata-asm-test-utils-btcio",
   "dep:rand",
   "strata-crypto/test-utils",
 ]
