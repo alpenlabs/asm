@@ -26,6 +26,9 @@ members = [
   "crates/txs/checkpoint",
   "crates/txs/checkpoint-v0",
   "crates/txs/test-utils",
+  "crates/test-utils/arb",
+  "crates/test-utils/btc",
+  "crates/test-utils/btcio",
   "crates/worker",
 
   # tests
@@ -49,6 +52,7 @@ rustdoc.all = "warn"
 
 [workspace.dependencies]
 # workspace crates
+strata-ams-test-utils = { path = "crates/test-utils-btcio" }
 strata-asm-bridge-msgs = { path = "crates/msgs/bridge" }
 strata-asm-checkpoint-msgs = { path = "crates/msgs/checkpoint" }
 strata-asm-common = { path = "crates/common" }
@@ -74,6 +78,9 @@ strata-asm-txs-checkpoint-v0 = { path = "crates/txs/checkpoint-v0" }
 strata-asm-txs-test-utils = { path = "crates/txs/test-utils" }
 strata-asm-worker = { path = "crates/worker" }
 strata-btc-verification = { path = "crates/btc-verification" }
+strata-test-utils-arb = { path = "crates/test-utils/arb" }
+strata-test-utils-btc = { path = "crates/test-utils/btc" }
+strata-test-utils-btcio = { path = "crates/test-utils/btcio" }
 
 # Dependencies from alpenlabs/alpen pinned to commit 787b804 (main @ 2026-03-17)
 # NOTE: keep `typed-sled` pinned in Cargo.lock to 9062bff for compatibility with this alpen rev.
@@ -92,9 +99,6 @@ strata-ol-stf = { git = "https://github.com/alpenlabs/alpen.git", rev = "787b804
 strata-primitives = { git = "https://github.com/alpenlabs/alpen.git", rev = "787b804c41800bbbf8d3632637a7eda332fc9f39" }
 strata-state = { git = "https://github.com/alpenlabs/alpen.git", rev = "787b804c41800bbbf8d3632637a7eda332fc9f39" }
 strata-storage = { git = "https://github.com/alpenlabs/alpen.git", rev = "787b804c41800bbbf8d3632637a7eda332fc9f39" }
-strata-test-utils = { git = "https://github.com/alpenlabs/alpen.git", rev = "787b804c41800bbbf8d3632637a7eda332fc9f39" }
-strata-test-utils-btc = { git = "https://github.com/alpenlabs/alpen.git", rev = "787b804c41800bbbf8d3632637a7eda332fc9f39" }
-strata-test-utils-btcio = { git = "https://github.com/alpenlabs/alpen.git", rev = "787b804c41800bbbf8d3632637a7eda332fc9f39" }
 strata-test-utils-l2 = { git = "https://github.com/alpenlabs/alpen.git", rev = "787b804c41800bbbf8d3632637a7eda332fc9f39" }
 strata-test-utils-ssz = { git = "https://github.com/alpenlabs/alpen.git", rev = "787b804c41800bbbf8d3632637a7eda332fc9f39" }
 
@@ -150,9 +154,11 @@ corepc-node = { version = "0.10.0", features = ["29_0"] }
 futures = "0.3.31"
 hex-literal = "1.1"
 jsonrpsee = "0.26.0"
+musig2 = { version = "0.1.0", features = ["serde"] }
 proptest = "1.9.0"
 rand = "0.8.5"
 rand_chacha = { version = "0.9.0", default-features = false }
+rand_core = { version = "0.6", default-features = false }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0.94"
 sha2 = "0.10"

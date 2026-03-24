@@ -60,7 +60,7 @@ use strata_l1_txfmt::{ParseConfig, TagData};
 use strata_primitives::{buf::Buf32, l1::L1BlockCommitment};
 use strata_state::{asm_state::AsmState, BlockSubmitter};
 use strata_tasks::{TaskExecutor, TaskManager};
-use strata_test_utils::ArbitraryGenerator;
+use strata_test_utils_arb::ArbitraryGenerator;
 use tokio::{runtime::Handle, task::block_in_place};
 
 use super::worker_context::{get_genesis_l1_view, TestAsmWorkerContext};

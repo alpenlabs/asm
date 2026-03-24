@@ -33,7 +33,7 @@ strata-predicate.workspace = true
 strata-primitives.workspace = true
 strata-state.workspace = true
 strata-tasks.workspace = true
-strata-test-utils.workspace = true
+strata-test-utils-arb.workspace = true
 strata-test-utils-btcio.workspace = true
 strata-test-utils-l2.workspace = true
 

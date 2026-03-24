@@ -187,7 +187,7 @@ mod tests {
     use bitcoin::hashes::Hash;
     use strata_btc_types::{Buf32BitcoinExt, RawBitcoinTx};
     use strata_identifiers::Buf32;
-    use strata_test_utils::ArbitraryGenerator;
+    use strata_test_utils_arb::ArbitraryGenerator;
 
     use super::*;
     use crate::{AsmHistoryAccumulatorState, AuxError};

@@ -27,7 +27,7 @@ strata-test-utils-btcio = { workspace = true, optional = true }
 proptest.workspace = true
 rand.workspace = true
 strata-crypto = { workspace = true, features = ["test-utils"] }
-strata-test-utils.workspace = true
+strata-test-utils-arb.workspace = true
 
 [features]
 test-utils = [

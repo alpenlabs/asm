@@ -4211,7 +4211,7 @@ dependencies = [
  "strata-primitives 0.3.0-alpha.1 (git+https://github.com/alpenlabs/alpen.git?rev=787b804c41800bbbf8d3632637a7eda332fc9f39)",
  "strata-state",
  "strata-tasks",
- "strata-test-utils",
+ "strata-test-utils-arb",
  "strata-test-utils-btcio",
  "strata-test-utils-l2",
  "tokio",
@@ -8003,7 +8003,7 @@ dependencies = [
  "strata-l1-txfmt",
  "strata-merkle",
  "strata-msg-fmt",
- "strata-test-utils",
+ "strata-test-utils-arb",
  "thiserror 2.0.18",
  "tracing",
 ]
@@ -8099,7 +8099,7 @@ dependencies = [
  "strata-identifiers 0.1.0 (git+https://github.com/alpenlabs/alpen.git?rev=787b804c41800bbbf8d3632637a7eda332fc9f39)",
  "strata-l1-txfmt",
  "strata-predicate",
- "strata-test-utils-btc",
+ "strata-test-utils-btc 0.1.0",
  "zkaleido 0.1.0 (git+https://github.com/alpenlabs/zkaleido?rev=750c209f5850af29e34c39c250c24e1c69ffa2aa)",
  "zkaleido-native-adapter",
 ]
@@ -8128,7 +8128,7 @@ dependencies = [
  "strata-crypto 0.3.0-alpha.1 (git+https://github.com/alpenlabs/alpen.git?rev=787b804c41800bbbf8d3632637a7eda332fc9f39)",
  "strata-predicate",
  "strata-primitives 0.3.0-alpha.1 (git+https://github.com/alpenlabs/alpen.git?rev=787b804c41800bbbf8d3632637a7eda332fc9f39)",
- "strata-test-utils",
+ "strata-test-utils-arb",
  "thiserror 2.0.18",
 ]
 
@@ -8155,7 +8155,7 @@ dependencies = [
  "strata-codec",
  "strata-crypto 0.3.0-alpha.1 (git+https://github.com/alpenlabs/alpen.git?rev=787b804c41800bbbf8d3632637a7eda332fc9f39)",
  "strata-primitives 0.3.0-alpha.1 (git+https://github.com/alpenlabs/alpen.git?rev=787b804c41800bbbf8d3632637a7eda332fc9f39)",
- "strata-test-utils",
+ "strata-test-utils-arb",
  "thiserror 2.0.18",
 ]
 
@@ -8332,7 +8332,7 @@ dependencies = [
  "strata-l1-txfmt",
  "strata-predicate",
  "strata-primitives 0.3.0-alpha.1 (git+https://github.com/alpenlabs/alpen.git?rev=787b804c41800bbbf8d3632637a7eda332fc9f39)",
- "strata-test-utils",
+ "strata-test-utils-arb",
  "thiserror 2.0.18",
 ]
 
@@ -8351,7 +8351,7 @@ dependencies = [
  "strata-crypto 0.3.0-alpha.1 (git+https://github.com/alpenlabs/alpen.git?rev=787b804c41800bbbf8d3632637a7eda332fc9f39)",
  "strata-l1-txfmt",
  "strata-primitives 0.3.0-alpha.1 (git+https://github.com/alpenlabs/alpen.git?rev=787b804c41800bbbf8d3632637a7eda332fc9f39)",
- "strata-test-utils",
+ "strata-test-utils-arb",
  "strata-test-utils-btcio",
  "thiserror 2.0.18",
 ]
@@ -8418,7 +8418,7 @@ dependencies = [
  "strata-service",
  "strata-state",
  "strata-tasks",
- "strata-test-utils",
+ "strata-test-utils-arb",
  "strata-test-utils-btcio",
  "thiserror 2.0.18",
  "tokio",
@@ -8557,7 +8557,7 @@ dependencies = [
  "strata-btc-types 0.1.0 (git+https://github.com/alpenlabs/alpen.git?rev=787b804c41800bbbf8d3632637a7eda332fc9f39)",
  "strata-crypto 0.3.0-alpha.1 (git+https://github.com/alpenlabs/alpen.git?rev=787b804c41800bbbf8d3632637a7eda332fc9f39)",
  "strata-identifiers 0.1.0 (git+https://github.com/alpenlabs/alpen.git?rev=787b804c41800bbbf8d3632637a7eda332fc9f39)",
- "strata-test-utils-btc",
+ "strata-test-utils-btc 0.1.0",
  "thiserror 2.0.18",
 ]
 
@@ -9501,6 +9501,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "strata-test-utils-arb"
+version = "0.1.0"
+dependencies = [
+ "arbitrary",
+ "rand_core 0.6.4",
+]
+
+[[package]]
+name = "strata-test-utils-btc"
+version = "0.1.0"
+dependencies = [
+ "bitcoin",
+ "strata-identifiers 0.1.0 (git+https://github.com/alpenlabs/alpen.git?rev=787b804c41800bbbf8d3632637a7eda332fc9f39)",
+]
+
+[[package]]
 name = "strata-test-utils-btc"
 version = "0.3.0-alpha.1"
 source = "git+https://github.com/alpenlabs/alpen.git?rev=787b804c41800bbbf8d3632637a7eda332fc9f39#787b804c41800bbbf8d3632637a7eda332fc9f39"
@@ -9521,13 +9537,13 @@ dependencies = [
 [[package]]
 name = "strata-test-utils-btcio"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/alpen.git?rev=787b804c41800bbbf8d3632637a7eda332fc9f39#787b804c41800bbbf8d3632637a7eda332fc9f39"
 dependencies = [
  "anyhow",
  "bitcoin",
  "bitcoind-async-client",
  "corepc-node",
  "musig2 0.1.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "rand 0.8.5",
  "strata-crypto 0.3.0-alpha.1 (git+https://github.com/alpenlabs/alpen.git?rev=787b804c41800bbbf8d3632637a7eda332fc9f39)",
  "tokio",
 ]
@@ -9556,7 +9572,7 @@ dependencies = [
  "strata-predicate",
  "strata-primitives 0.3.0-alpha.1 (git+https://github.com/alpenlabs/alpen.git?rev=787b804c41800bbbf8d3632637a7eda332fc9f39)",
  "strata-test-utils",
- "strata-test-utils-btc",
+ "strata-test-utils-btc 0.3.0-alpha.1",
 ]
 
 [[package]]

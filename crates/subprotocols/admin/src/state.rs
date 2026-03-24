@@ -144,7 +144,7 @@ mod tests {
         threshold_signature::{ThresholdConfig, ThresholdConfigUpdate},
     };
     use strata_primitives::L1Height;
-    use strata_test_utils::ArbitraryGenerator;
+    use strata_test_utils_arb::ArbitraryGenerator;
 
     use crate::{queued_update::QueuedUpdate, state::AdministrationSubprotoState};
 

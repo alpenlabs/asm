@@ -495,7 +495,7 @@ impl AssignmentTable {
 #[cfg(test)]
 mod tests {
     use strata_primitives::l1::{L1BlockId, L1Height};
-    use strata_test_utils::ArbitraryGenerator;
+    use strata_test_utils_arb::ArbitraryGenerator;
 
     use super::*;
 
