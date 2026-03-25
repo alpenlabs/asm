@@ -1,10 +1,10 @@
 use arbitrary::Arbitrary;
-use borsh::{BorshDeserialize, BorshSerialize};
+use ssz_derive::{Decode, Encode};
 
 use super::Sighash;
 use crate::{actions::UpdateId, constants::AdminTxType};
 
-#[derive(Clone, Debug, Eq, PartialEq, Arbitrary, BorshDeserialize, BorshSerialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Arbitrary, Encode, Decode)]
 pub struct CancelAction {
     /// ID of the update that needs to be cancelled.
     target_id: UpdateId,

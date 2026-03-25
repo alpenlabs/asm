@@ -13,6 +13,10 @@ use crate::errors::{CheckpointTxError, CheckpointTxResult};
 /// - Unwraps the taproot envelope script from the first input witness.
 /// - Streams the embedded payload directly from the script instructions.
 /// - Deserializes the payload into a [`SignedCheckpoint`].
+#[expect(
+    deprecated,
+    reason = "checkpoint-v0 still consumes the legacy payload and sidecar formats"
+)]
 pub fn extract_signed_checkpoint_from_envelope(
     tx: &TxInputRef<'_>,
 ) -> CheckpointTxResult<SignedCheckpoint> {
@@ -30,19 +34,23 @@ pub fn extract_signed_checkpoint_from_envelope(
 
     let payload = parse_envelope_payload(&payload_script)?;
 
-    let checkpoint: SignedCheckpoint =
-        borsh::from_slice(&payload).map_err(CheckpointTxError::Deserialization)?;
+    let checkpoint =
+        SignedCheckpoint::from_raw_bytes(&payload).map_err(CheckpointTxError::Deserialization)?;
 
     Ok(checkpoint)
 }
 
 /// Extract withdrawal intents committed inside a checkpoint sidecar.
+#[expect(
+    deprecated,
+    reason = "checkpoint-v0 sidecars still carry legacy chainstate bytes"
+)]
 pub fn extract_withdrawal_messages(
     checkpoint: &Checkpoint,
 ) -> CheckpointTxResult<Vec<WithdrawalIntent>> {
     let sidecar = checkpoint.sidecar();
-    let chain_state: Chainstate =
-        borsh::from_slice(sidecar.chainstate()).map_err(CheckpointTxError::Deserialization)?;
+    let chain_state = Chainstate::from_raw_bytes(sidecar.chainstate())
+        .map_err(CheckpointTxError::Deserialization)?;
 
     Ok(chain_state.pending_withdraws().entries().to_vec())
 }

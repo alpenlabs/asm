@@ -56,8 +56,13 @@ fn verify_checkpoint_proof(
 ) -> Result<(), CheckpointV0Error> {
     let proof_receipt = checkpoint.construct_receipt();
     let expected_output = checkpoint.batch_info();
-    let actual_output: BatchInfo = borsh::from_slice(proof_receipt.public_values().as_bytes())
-        .map_err(|_| CheckpointV0Error::SerializationError)?;
+    #[expect(
+        deprecated,
+        reason = "checkpoint-v0 proofs still expose the legacy BatchInfo public values format"
+    )]
+    let actual_output =
+        BatchInfo::from_proof_output_bytes(proof_receipt.public_values().as_bytes())
+            .map_err(|_| CheckpointV0Error::SerializationError)?;
 
     if expected_output != &actual_output {
         logging::warn!(

@@ -8,8 +8,9 @@
 use std::cmp;
 
 use arbitrary::Arbitrary;
-use borsh::{BorshDeserialize, BorshSerialize};
 use serde::{Deserialize, Serialize};
+use ssz::{Decode as SszDecode, DecodeError, Encode as SszEncode};
+use ssz_derive::{Decode, Encode};
 use strata_primitives::{l1::BitcoinAmount, sorted_vec::SortedVec};
 
 use crate::{errors::DepositValidationError, state::bitmap::OperatorBitmap};
@@ -39,7 +40,7 @@ use crate::{errors::DepositValidationError, state::bitmap::OperatorBitmap};
 /// formed the N/N multisig when this deposit was locked. Any one honest operator
 /// from this set can properly process user withdrawals. We store this historical
 /// set because the active operator set may change over time.
-#[derive(Clone, Debug, Eq, PartialEq, BorshDeserialize, BorshSerialize, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, Encode, Decode)]
 pub struct DepositEntry {
     /// Unique deposit identifier assigned by the bridge and provided in the deposit transaction.
     deposit_idx: u32,
@@ -158,12 +159,53 @@ impl<'a> Arbitrary<'a> for DepositEntry {
 ///
 /// - Deposit indices are provided by the caller (from DepositInfo)
 /// - Out-of-order insertions are supported and maintain sorted order
-#[derive(Clone, Debug, Eq, PartialEq, BorshDeserialize, BorshSerialize)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct DepositsTable {
     /// Vector of deposit entries, sorted by deposit index.
     ///
     /// **Invariant**: MUST be sorted by `DepositEntry::deposit_idx` field.
     deposits: SortedVec<DepositEntry>,
+}
+
+#[derive(Debug, Encode, Decode)]
+struct DepositsTableSsz {
+    deposits: Vec<DepositEntry>,
+}
+
+impl From<&DepositsTable> for DepositsTableSsz {
+    fn from(value: &DepositsTable) -> Self {
+        Self {
+            deposits: value.deposits.to_vec(),
+        }
+    }
+}
+
+impl SszEncode for DepositsTable {
+    fn is_ssz_fixed_len() -> bool {
+        false
+    }
+
+    fn ssz_append(&self, buf: &mut Vec<u8>) {
+        DepositsTableSsz::from(self).ssz_append(buf);
+    }
+
+    fn ssz_bytes_len(&self) -> usize {
+        DepositsTableSsz::from(self).ssz_bytes_len()
+    }
+}
+
+impl SszDecode for DepositsTable {
+    fn is_ssz_fixed_len() -> bool {
+        false
+    }
+
+    fn from_ssz_bytes(bytes: &[u8]) -> Result<Self, DecodeError> {
+        let payload = DepositsTableSsz::from_ssz_bytes(bytes)?;
+        let deposits = SortedVec::try_from(payload.deposits).map_err(|_| {
+            DecodeError::BytesInvalid("deposits table entries must stay sorted".into())
+        })?;
+        Ok(Self { deposits })
+    }
 }
 
 impl DepositsTable {

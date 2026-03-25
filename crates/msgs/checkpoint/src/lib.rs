@@ -6,23 +6,26 @@
 
 use std::any::Any;
 
-use borsh::{BorshDeserialize, BorshSerialize};
+use ssz_derive::{Decode, Encode};
 use strata_asm_common::{InterprotoMsg, SubprotocolId};
 use strata_asm_txs_checkpoint::CHECKPOINT_SUBPROTOCOL_ID;
 use strata_asm_txs_checkpoint_v0::CHECKPOINT_V0_SUBPROTOCOL_ID;
 use strata_predicate::PredicateKey;
-use strata_primitives::{buf::Buf32, l1::BitcoinAmount};
+use strata_primitives::l1::BitcoinAmount;
 
 /// Incoming messages for checkpoint subprotocols.
 ///
 /// Messages are routed to both the checkpoint-v0 and the new checkpoint.
 /// Admin configuration updates target both, while deposit notifications
 /// target the new checkpoint subprotocol.
-#[derive(Clone, Debug, BorshDeserialize, BorshSerialize)]
+#[derive(Clone, Debug, Encode, Decode)]
+#[ssz(enum_behaviour = "union")]
 pub enum CheckpointIncomingMsg {
     /// Update the Schnorr public key used to verify sequencer signatures embedded in checkpoints.
-    // TODO: (@PG) make this directly take PredicateKey
-    UpdateSequencerKey(Buf32),
+    ///
+    /// The canonical wire representation is the full predicate key so both checkpoint
+    /// subprotocols consume the same SSZ-native type.
+    UpdateSequencerKey(PredicateKey),
 
     /// Update the rollup proving system verifying key used for Groth16 proof verification.
     UpdateCheckpointPredicate(PredicateKey),

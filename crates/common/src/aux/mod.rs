@@ -26,6 +26,8 @@ mod provider;
 
 // Re-export main types
 pub use collector::AuxRequestCollector;
-pub use data::{AuxData, AuxRequests, ManifestHashRange, VerifiableManifestHash};
+pub use data::{
+    AuxData, AuxRequests, BitcoinTxid, ManifestHashRange, RawBitcoinTx, VerifiableManifestHash,
+};
 pub use errors::{AuxError, AuxResult};
 pub use provider::VerifiedAuxData;

@@ -1,4 +1,4 @@
-use borsh::{BorshDeserialize, BorshSerialize};
+use ssz_derive::{Decode, Encode};
 use strata_asm_bridge_msgs::WithdrawOutput;
 use strata_asm_params::BridgeV1InitConfig;
 use strata_asm_txs_bridge_v1::{deposit::DepositInfo, errors::Mismatch};
@@ -19,7 +19,7 @@ use crate::{
 ///
 /// This structure holds all the persistent state for the bridge, including
 /// operator registrations, deposit tracking, and assignment management.
-#[derive(Debug, Clone, BorshSerialize, BorshDeserialize)]
+#[derive(Debug, Clone, Encode, Decode)]
 pub struct BridgeV1State {
     /// Table of registered bridge operators.
     operators: OperatorTable,

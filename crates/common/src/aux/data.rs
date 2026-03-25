@@ -3,18 +3,38 @@
 //! Defines the types of auxiliary data that subprotocols can request during
 //! the pre-processing phase, along with the response structures returned
 //! to subprotocols after verification.
-
-use borsh::{BorshDeserialize, BorshSerialize};
+use bitcoin::{
+    Transaction, Txid,
+    consensus::{deserialize, encode::Error as ConsensusEncodeError},
+    hashes::Hash,
+};
+use ssz_derive::{Decode, Encode};
 use strata_asm_manifest_types::Hash32;
-use strata_btc_types::{BitcoinTxid, RawBitcoinTx};
 
 use crate::AsmMerkleProof;
+
+#[doc(hidden)]
+pub trait IntoAsmMerkleProof {
+    fn into_asm_merkle_proof(self) -> AsmMerkleProof;
+}
+
+impl IntoAsmMerkleProof for AsmMerkleProof {
+    fn into_asm_merkle_proof(self) -> AsmMerkleProof {
+        self
+    }
+}
+
+impl IntoAsmMerkleProof for strata_merkle::MerkleProof<[u8; 32]> {
+    fn into_asm_merkle_proof(self) -> AsmMerkleProof {
+        AsmMerkleProof::from_cohashes(self.cohashes().to_vec(), self.index())
+    }
+}
 
 /// Collection of auxiliary data requests from subprotocols.
 ///
 /// During pre-processing, subprotocols declare what auxiliary data they need.
 /// External workers fulfill that before the main processing phase.
-#[derive(Debug, Clone, Default, BorshSerialize, BorshDeserialize)]
+#[derive(Debug, Clone, Default, Encode, Decode)]
 pub struct AuxRequests {
     /// Requested manifest hash height ranges.
     pub(crate) manifest_hashes: Vec<ManifestHashRange>,
@@ -39,7 +59,7 @@ impl AuxRequests {
 ///
 /// Contains unverified Bitcoin transactions and manifest hashes returned by external workers.
 /// This data must be validated before use during the main processing phase.
-#[derive(Debug, Clone, Default, PartialEq, BorshSerialize, BorshDeserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Encode, Decode)]
 pub struct AuxData {
     /// Manifest hashes with their MMR proofs (unverified)
     manifest_hashes: Vec<VerifiableManifestHash>,
@@ -70,10 +90,13 @@ impl AuxData {
     }
 }
 
+// Keep Borsh only as a thin compatibility shim; SSZ remains the canonical aux-data encoding.
+strata_identifiers::impl_borsh_via_ssz!(AuxData);
+
 /// Manifest hash height range (inclusive).
 ///
 /// Represents a range of L1 block heights for which manifest hashes are requested.
-#[derive(Debug, Clone, Copy, BorshSerialize, BorshDeserialize)]
+#[derive(Debug, Clone, Copy, Encode, Decode)]
 pub struct ManifestHashRange {
     /// Start height (inclusive)
     pub(crate) start_height: u64,
@@ -108,7 +131,7 @@ impl ManifestHashRange {
 ///
 /// This is unverified data - the proof must be verified against a trusted compact MMR
 /// before the hash can be considered valid.
-#[derive(Debug, Clone, PartialEq, BorshSerialize, BorshDeserialize)]
+#[derive(Debug, Clone, PartialEq, Encode, Decode)]
 pub struct VerifiableManifestHash {
     /// The hash of an [`AsmManifest`](crate::AsmManifest)
     hash: Hash32,
@@ -118,8 +141,11 @@ pub struct VerifiableManifestHash {
 
 impl VerifiableManifestHash {
     /// Creates a new verifiable manifest hash.
-    pub fn new(hash: Hash32, proof: AsmMerkleProof) -> Self {
-        Self { hash, proof }
+    pub fn new(hash: Hash32, proof: impl IntoAsmMerkleProof) -> Self {
+        Self {
+            hash,
+            proof: proof.into_asm_merkle_proof(),
+        }
     }
 
     /// Returns the manifest hash.
@@ -130,5 +156,104 @@ impl VerifiableManifestHash {
     /// Returns a reference to the MMR proof.
     pub fn proof(&self) -> &AsmMerkleProof {
         &self.proof
+    }
+}
+
+/// Bitcoin transaction identifier used by ASM auxiliary lookups.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Encode, Decode)]
+pub struct BitcoinTxid {
+    bytes: [u8; 32],
+}
+
+impl BitcoinTxid {
+    /// Creates an ASM-local txid from the native Bitcoin txid wrapper.
+    pub fn from_native(txid: strata_btc_types::BitcoinTxid) -> Self {
+        Self {
+            bytes: txid.inner().to_byte_array(),
+        }
+    }
+
+    /// Converts the ASM-local txid back into the native Bitcoin txid wrapper.
+    pub fn into_native(self) -> strata_btc_types::BitcoinTxid {
+        Txid::from_byte_array(self.bytes).into()
+    }
+}
+
+impl From<Txid> for BitcoinTxid {
+    fn from(value: Txid) -> Self {
+        strata_btc_types::BitcoinTxid::new(&value).into()
+    }
+}
+
+impl From<strata_btc_types::BitcoinTxid> for BitcoinTxid {
+    fn from(value: strata_btc_types::BitcoinTxid) -> Self {
+        Self::from_native(value)
+    }
+}
+
+impl From<BitcoinTxid> for strata_btc_types::BitcoinTxid {
+    fn from(value: BitcoinTxid) -> Self {
+        value.into_native()
+    }
+}
+
+/// Raw serialized Bitcoin transaction bytes.
+#[derive(Debug, Clone, PartialEq, Eq, Encode, Decode)]
+pub struct RawBitcoinTx {
+    bytes: Vec<u8>,
+}
+
+impl RawBitcoinTx {
+    /// Creates an ASM-local raw Bitcoin transaction from raw bytes.
+    pub fn from_raw_bytes(bytes: Vec<u8>) -> Self {
+        Self { bytes }
+    }
+
+    /// Returns the raw transaction bytes.
+    pub fn as_raw_bytes(&self) -> &[u8] {
+        &self.bytes
+    }
+
+    /// Consumes the wrapper and returns the raw bytes.
+    pub fn into_raw_bytes(self) -> Vec<u8> {
+        self.bytes
+    }
+
+    /// Creates an ASM-local raw Bitcoin transaction from the native wrapper.
+    pub fn from_native(raw_tx: strata_btc_types::RawBitcoinTx) -> Self {
+        Self::from_raw_bytes(raw_tx.into_raw_bytes())
+    }
+
+    /// Converts the ASM-local raw Bitcoin transaction back into the native wrapper.
+    pub fn into_native(self) -> strata_btc_types::RawBitcoinTx {
+        strata_btc_types::RawBitcoinTx::from_raw_bytes(self.into_raw_bytes())
+    }
+}
+
+impl From<strata_btc_types::RawBitcoinTx> for RawBitcoinTx {
+    fn from(value: strata_btc_types::RawBitcoinTx) -> Self {
+        Self::from_native(value)
+    }
+}
+
+impl From<RawBitcoinTx> for strata_btc_types::RawBitcoinTx {
+    fn from(value: RawBitcoinTx) -> Self {
+        value.into_native()
+    }
+}
+
+impl TryFrom<&RawBitcoinTx> for Transaction {
+    type Error = ConsensusEncodeError;
+
+    fn try_from(value: &RawBitcoinTx) -> Result<Self, Self::Error> {
+        deserialize(value.as_raw_bytes())
+    }
+}
+
+impl TryFrom<RawBitcoinTx> for Transaction {
+    type Error = ConsensusEncodeError;
+
+    fn try_from(value: RawBitcoinTx) -> Result<Self, Self::Error> {
+        deserialize(value.as_raw_bytes())
     }
 }

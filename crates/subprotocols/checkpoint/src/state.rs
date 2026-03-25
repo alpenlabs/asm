@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use borsh::{BorshDeserialize, BorshSerialize};
+use ssz_derive::{Decode, Encode};
 use strata_asm_bridge_msgs::WithdrawOutput;
 use strata_asm_params::CheckpointInitConfig;
 use strata_btc_types::BitcoinAmount;
@@ -22,7 +22,7 @@ use crate::errors::InvalidCheckpointPayload;
 pub struct VerifiedWithdrawals(BTreeMap<BitcoinAmount, u32>);
 
 /// Checkpoint subprotocol state.
-#[derive(Clone, Debug, PartialEq, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, Debug, PartialEq, Encode, Decode)]
 pub struct CheckpointState {
     /// Predicate for sequencer signature verification.
     /// Updated via `UpdateSequencerKey` message from admin subprotocol.
@@ -41,6 +41,7 @@ pub struct CheckpointState {
     /// Maps each deposit denomination to the count of UTXOs at that denomination that have
     /// been processed by the bridge but not yet consumed by withdrawal dispatches. Used for
     /// rejecting checkpoints whose withdrawal intents cannot be matched to available UTXOs.
+    #[ssz(with = "available_funds_ssz")]
     available_funds: BTreeMap<BitcoinAmount, u32>,
 }
 
@@ -165,6 +166,84 @@ impl CheckpointState {
     /// [`verify_can_honor_withdrawals`](Self::verify_can_honor_withdrawals).
     pub(crate) fn deduct_withdrawals(&mut self, token: VerifiedWithdrawals) {
         self.available_funds = token.0;
+    }
+}
+
+#[expect(unreachable_pub, reason = "used by ssz_derive field adapters")]
+mod available_funds_ssz {
+    use ssz_derive::{Decode, Encode};
+    use strata_btc_types::BitcoinAmount;
+
+    #[derive(Debug, Encode, Decode)]
+    struct AvailableFundsEntries(Vec<AvailableFundsEntry>);
+
+    #[derive(Debug, Encode, Decode)]
+    struct AvailableFundsEntry {
+        denom: BitcoinAmount,
+        count: u32,
+    }
+
+    pub mod encode {
+        use std::collections::BTreeMap;
+
+        use ssz::Encode as SszEncode;
+        use strata_btc_types::BitcoinAmount;
+
+        use super::{AvailableFundsEntries, AvailableFundsEntry};
+
+        pub fn is_ssz_fixed_len() -> bool {
+            <AvailableFundsEntries as SszEncode>::is_ssz_fixed_len()
+        }
+
+        pub fn ssz_fixed_len() -> usize {
+            <AvailableFundsEntries as SszEncode>::ssz_fixed_len()
+        }
+
+        pub fn ssz_bytes_len(value: &BTreeMap<BitcoinAmount, u32>) -> usize {
+            let entries = AvailableFundsEntries(
+                value
+                    .iter()
+                    .map(|(&denom, &count)| AvailableFundsEntry { denom, count })
+                    .collect(),
+            );
+            entries.ssz_bytes_len()
+        }
+
+        pub fn ssz_append(value: &BTreeMap<BitcoinAmount, u32>, buf: &mut Vec<u8>) {
+            let entries = AvailableFundsEntries(
+                value
+                    .iter()
+                    .map(|(&denom, &count)| AvailableFundsEntry { denom, count })
+                    .collect(),
+            );
+            entries.ssz_append(buf);
+        }
+    }
+
+    pub mod decode {
+        use std::collections::BTreeMap;
+
+        use ssz::{Decode as SszDecode, DecodeError};
+        use strata_btc_types::BitcoinAmount;
+
+        use super::AvailableFundsEntries;
+
+        pub fn is_ssz_fixed_len() -> bool {
+            <AvailableFundsEntries as SszDecode>::is_ssz_fixed_len()
+        }
+
+        pub fn ssz_fixed_len() -> usize {
+            <AvailableFundsEntries as SszDecode>::ssz_fixed_len()
+        }
+
+        pub fn from_ssz_bytes(bytes: &[u8]) -> Result<BTreeMap<BitcoinAmount, u32>, DecodeError> {
+            let entries = AvailableFundsEntries::from_ssz_bytes(bytes)?;
+            Ok(entries
+                .0
+                .into_iter()
+                .map(|entry| (entry.denom, entry.count))
+                .collect())
+        }
     }
 }
 

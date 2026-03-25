@@ -55,8 +55,9 @@ mod tests {
 
     use super::*;
     use crate::{
+        BRIDGE_V1_SUBPROTOCOL_ID,
         errors::TxStructureErrorKind,
-        test_utils::{create_test_slash_tx, mutate_aux_data, parse_sps50_tx},
+        test_utils::{create_test_slash_tx, overwrite_aux_data, parse_sps50_tx},
     };
 
     const AUX_LEN: usize = mem::size_of::<SlashTxHeaderAux>();
@@ -98,7 +99,12 @@ mod tests {
         let mut tx = create_test_slash_tx(&info);
 
         let larger_aux = [0u8; AUX_LEN + 1].to_vec();
-        mutate_aux_data(&mut tx, larger_aux);
+        overwrite_aux_data(
+            &mut tx,
+            BRIDGE_V1_SUBPROTOCOL_ID,
+            BridgeTxType::Slash as u8,
+            larger_aux,
+        );
 
         let tx_input = parse_sps50_tx(&tx);
         let err = parse_slash_tx(&tx_input).unwrap_err();
@@ -109,7 +115,12 @@ mod tests {
         ));
 
         let smaller_aux = [0u8; AUX_LEN - 1].to_vec();
-        mutate_aux_data(&mut tx, smaller_aux);
+        overwrite_aux_data(
+            &mut tx,
+            BRIDGE_V1_SUBPROTOCOL_ID,
+            BridgeTxType::Slash as u8,
+            smaller_aux,
+        );
 
         let tx_input = parse_sps50_tx(&tx);
         let err = parse_slash_tx(&tx_input).unwrap_err();

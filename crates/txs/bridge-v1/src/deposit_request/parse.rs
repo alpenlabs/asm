@@ -57,11 +57,12 @@ mod tests {
     use strata_test_utils_arb::ArbitraryGenerator;
 
     use crate::{
+        BRIDGE_V1_SUBPROTOCOL_ID,
         constants::BridgeTxType,
         deposit::DepositTxHeaderAux,
         deposit_request::{DRT_OUTPUT_INDEX, DepositRequestInfo, DrtHeaderAux, parse_drt},
         errors::TxStructureErrorKind,
-        test_utils::{create_connected_drt_and_dt, create_test_operators, mutate_aux_data},
+        test_utils::{create_connected_drt_and_dt, create_test_operators, overwrite_aux_data},
     };
 
     const MIN_AUX_LEN: usize = 32;
@@ -110,7 +111,12 @@ mod tests {
         let (_, mut tx) = create_drt_tx_with_info();
 
         let smaller_aux = [0u8; MIN_AUX_LEN - 1].to_vec();
-        mutate_aux_data(&mut tx, smaller_aux);
+        overwrite_aux_data(
+            &mut tx,
+            BRIDGE_V1_SUBPROTOCOL_ID,
+            BridgeTxType::DepositRequest as u8,
+            smaller_aux,
+        );
 
         let err = parse_drt(&tx).unwrap_err();
         assert_eq!(err.tx_type(), BridgeTxType::DepositRequest);

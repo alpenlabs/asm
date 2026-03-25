@@ -11,6 +11,7 @@ use jsonrpsee::{
     server::ServerBuilder,
     types::{ErrorObject, ErrorObjectOwned},
 };
+use ssz::Decode;
 use strata_asm_proto_bridge_v1::{AssignmentEntry, BridgeV1State, DepositEntry};
 use strata_asm_rpc::traits::AssignmentsApiServer;
 use strata_asm_txs_bridge_v1::BRIDGE_V1_SUBPROTOCOL_ID;
@@ -73,8 +74,8 @@ impl AsmRpcServer {
                     .find_section(BRIDGE_V1_SUBPROTOCOL_ID)
                     .expect("bridge subprotocol should be enabled");
 
-                let bridge_state: BridgeV1State = borsh::from_slice(&bridge_state.data)
-                    .expect("borsh deserialization should be infallible");
+                let bridge_state = BridgeV1State::from_ssz_bytes(&bridge_state.data)
+                    .expect("bridge state deserialization should be infallible");
 
                 Ok(Some(bridge_state))
             }

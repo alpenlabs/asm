@@ -1,11 +1,11 @@
 use arbitrary::Arbitrary;
-use borsh::{BorshDeserialize, BorshSerialize};
+use ssz_derive::{Decode, Encode};
 use strata_primitives::buf::Buf32;
 
 use crate::{actions::Sighash, constants::AdminTxType};
 
 /// An update to the public key of the sequencer.
-#[derive(Clone, Debug, Eq, PartialEq, Arbitrary, BorshDeserialize, BorshSerialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Arbitrary, Encode, Decode)]
 pub struct SequencerUpdate {
     pub_key: Buf32,
 }

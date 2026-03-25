@@ -64,9 +64,10 @@ mod tests {
 
     use super::*;
     use crate::{
+        BRIDGE_V1_SUBPROTOCOL_ID,
         errors::TxStructureErrorKind,
         test_utils::{
-            TEST_MAGIC_BYTES, create_test_withdrawal_fulfillment_tx, mutate_aux_data,
+            TEST_MAGIC_BYTES, create_test_withdrawal_fulfillment_tx, overwrite_aux_data,
             parse_sps50_tx,
         },
     };
@@ -130,7 +131,12 @@ mod tests {
 
         // Mutate the OP_RETURN output to have shorter aux len - this should fail
         let short_aux_data = vec![0u8; WITHDRAWAL_FULFILLMENT_TX_AUX_DATA_LEN - 1];
-        mutate_aux_data(&mut tx, short_aux_data);
+        overwrite_aux_data(
+            &mut tx,
+            BRIDGE_V1_SUBPROTOCOL_ID,
+            BridgeTxType::WithdrawalFulfillment as u8,
+            short_aux_data,
+        );
 
         let tx_input = parse_sps50_tx(&tx);
         let err = parse_withdrawal_fulfillment_tx(&tx_input).unwrap_err();
@@ -143,7 +149,12 @@ mod tests {
 
         // Mutate the OP_RETURN output to have longer aux len - this should fail
         let long_aux_data = vec![0u8; WITHDRAWAL_FULFILLMENT_TX_AUX_DATA_LEN + 1];
-        mutate_aux_data(&mut tx, long_aux_data);
+        overwrite_aux_data(
+            &mut tx,
+            BRIDGE_V1_SUBPROTOCOL_ID,
+            BridgeTxType::WithdrawalFulfillment as u8,
+            long_aux_data,
+        );
 
         let tx_input = parse_sps50_tx(&tx);
         let err = parse_withdrawal_fulfillment_tx(&tx_input).unwrap_err();
