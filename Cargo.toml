@@ -107,9 +107,10 @@ btc-tracker = { git = "https://github.com/alpenlabs/strata-bridge.git", rev = "f
 strata-bridge-common = { git = "https://github.com/alpenlabs/strata-bridge.git", rev = "fc966d5f81c773de10a4ef3a66666687ec11d715" }
 
 # Dependencies from alpenlabs/moho pinned to commit 97b9f2a (main @ 2026-03-14)
-moho-runtime-impl = { git = "https://github.com/alpenlabs/moho", rev = "97b9f2af3bc292857e53b7ab9852ae385d5eff2d" }
-moho-runtime-interface = { git = "https://github.com/alpenlabs/moho", rev = "97b9f2af3bc292857e53b7ab9852ae385d5eff2d" }
-moho-types = { git = "https://github.com/alpenlabs/moho", rev = "97b9f2af3bc292857e53b7ab9852ae385d5eff2d" }
+moho-recursive-proof = { git = "https://github.com/alpenlabs/moho", rev = "0365d7be6139f396dea598278345a13a23d8fdeb" }
+moho-runtime-impl = { git = "https://github.com/alpenlabs/moho", rev = "0365d7be6139f396dea598278345a13a23d8fdeb" }
+moho-runtime-interface = { git = "https://github.com/alpenlabs/moho", rev = "0365d7be6139f396dea598278345a13a23d8fdeb" }
+moho-types = { git = "https://github.com/alpenlabs/moho", rev = "0365d7be6139f396dea598278345a13a23d8fdeb" }
 
 # dependencies from alpenlabs/strata-common
 strata-codec = { git = "https://github.com/alpenlabs/strata-common", features = [
@@ -133,11 +134,10 @@ tree_hash = { git = "https://github.com/alpenlabs/ssz-gen", tag = "v0.14.0" }
 tree_hash_derive = { git = "https://github.com/alpenlabs/ssz-gen", tag = "v0.14.0" }
 
 # dependencies from alpenlabs/zkaleido
-# FIXME: (@prajwolrg) use a proper tag
-zkaleido = { git = "https://github.com/alpenlabs/zkaleido", rev = "750c209f5850af29e34c39c250c24e1c69ffa2aa", features = [
+zkaleido = { git = "https://github.com/alpenlabs/zkaleido", tag = "v0.1.0-alpha-rc22", features = [
   "borsh",
 ] }
-zkaleido-native-adapter = { git = "https://github.com/alpenlabs/zkaleido", rev = "750c209f5850af29e34c39c250c24e1c69ffa2aa" }
+zkaleido-native-adapter = { git = "https://github.com/alpenlabs/zkaleido", tag = "v0.1.0-alpha-rc22" }
 
 # external dependencies
 anyhow = "1.0.86"
