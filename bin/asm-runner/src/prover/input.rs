@@ -8,6 +8,7 @@ use anyhow::{Context, Result};
 use bitcoind_async_client::{Client, traits::Reader};
 use moho_runtime_impl::RuntimeInput;
 use moho_runtime_interface::MohoProgram;
+use ssz::Encode;
 use strata_asm_proof_impl::moho_program::{
     input::{AsmStepInput, L1Block},
     program::AsmStfProgram,
@@ -54,10 +55,7 @@ impl InputBuilder {
             .context("aux data not found for block")?;
 
         // 3. Build the step input.
-        let step_input = AsmStepInput {
-            block: L1Block(block.clone()),
-            aux_data,
-        };
+        let step_input = AsmStepInput::new(L1Block(block.clone()), aux_data);
 
         // 4. Fetch the pre-state (anchor state for the parent block).
         let parent_hash = block.header.prev_blockhash;
@@ -85,8 +83,8 @@ impl InputBuilder {
         // 6. Build RuntimeInput.
         let runtime_input = RuntimeInput::new(
             moho_pre_state,
-            borsh::to_vec(anchor_state).context("failed to borsh-encode anchor state")?,
-            borsh::to_vec(&step_input).context("failed to borsh-encode step input")?,
+            anchor_state.as_ssz_bytes(),
+            step_input.as_ssz_bytes(),
         );
 
         Ok(runtime_input)
