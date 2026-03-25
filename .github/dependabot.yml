@@ -27,8 +27,7 @@ updates:
   - package-ecosystem: "cargo"
     directory: "/"
     schedule:
-      interval: "weekly"
-      day: "monday"
+      interval: "monthly"
       time: "00:00"
     # Cooldown
     cooldown:
@@ -41,8 +40,48 @@ updates:
         update-types:
           - "minor"
           - "patch"
+    # Ignore alpenlabs/* git dependencies (pinned to specific revs/tags, updated manually)
+    ignore:
+      - dependency-name: "strata-*"
+      - dependency-name: "btc-tracker"
+      - dependency-name: "moho-*"
+      - dependency-name: "ssz"
+      - dependency-name: "ssz_*"
+      - dependency-name: "tree_hash"
+      - dependency-name: "tree_hash_derive"
+      - dependency-name: "zkaleido*"
     # Security updates remain ungrouped for urgent handling
     open-pull-requests-limit: 20
+    commit-message:
+      prefix: "chore(deps)"
+      include: "scope"
+
+  # SP1 guest program (not a workspace member)
+  - package-ecosystem: "cargo"
+    directory: "/guest-builder/sp1/guest-asm"
+    schedule:
+      interval: "monthly"
+      time: "00:00"
+    # Cooldown
+    cooldown:
+      default-days: 14
+    ignore:
+      - dependency-name: "strata-*"
+      - dependency-name: "btc-tracker"
+      - dependency-name: "moho-*"
+      - dependency-name: "ssz"
+      - dependency-name: "ssz_*"
+      - dependency-name: "tree_hash"
+      - dependency-name: "tree_hash_derive"
+      - dependency-name: "zkaleido*"
+    groups:
+      sp1-guest-programs:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
+    open-pull-requests-limit: 10
     commit-message:
       prefix: "chore(deps)"
       include: "scope"
