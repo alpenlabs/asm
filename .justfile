@@ -1,6 +1,6 @@
 # Prover perf variables
 prover_perf_eval_dir := "bin/prover-perf"
-prover_programs := "asm-stf"
+prover_programs := "asm-stf,moho"
 
 # List all the available commands
 default:

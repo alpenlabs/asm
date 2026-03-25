@@ -61,7 +61,7 @@ jobs:
             --pr-number "${{ github.event.pull_request.number }}" \
             --commit-hash "${{ github.sha }}" \
             --github-repo "${{ github.repository }}" \
-            --programs asm-stf
+            --programs asm-stf,moho
 
       - name: Run prover-perf
         if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == true
