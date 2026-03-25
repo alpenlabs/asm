@@ -31,8 +31,8 @@ pub(crate) struct EvalArgs {
     #[arg(long, default_value_t = default_github_repo())]
     pub github_repo: String,
 
-    /// Programs to run. Supports comma-delimited and repeated values, e.g.
-    /// `--programs asm-stf` or `--programs asm-stf,asm-stf`.
+    /// Programs to run. Supports comma-delimited and repeated values
+    /// `--programs asm-stf` or `--programs asm-stf,moho`.
     #[arg(long)]
     pub programs: Vec<String>,
 }

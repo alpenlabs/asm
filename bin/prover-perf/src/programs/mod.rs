@@ -1,6 +1,7 @@
 use std::str::FromStr;
 
 mod asm_stf;
+mod moho;
 
 use zkaleido::PerformanceReport;
 
@@ -8,6 +9,7 @@ use zkaleido::PerformanceReport;
 #[non_exhaustive]
 pub(crate) enum GuestProgram {
     AsmStf,
+    Moho,
 }
 
 impl FromStr for GuestProgram {
@@ -16,6 +18,7 @@ impl FromStr for GuestProgram {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s.to_lowercase().as_str() {
             "asm-stf" => Ok(GuestProgram::AsmStf),
+            "moho" => Ok(GuestProgram::Moho),
             _ => Err(format!("unknown program: {s}")),
         }
     }
@@ -27,6 +30,7 @@ pub(crate) fn run_sp1_programs(programs: &[GuestProgram]) -> Vec<PerformanceRepo
         .iter()
         .map(|program| match program {
             GuestProgram::AsmStf => asm_stf::gen_perf_report(),
+            GuestProgram::Moho => moho::gen_perf_report(),
         })
         .collect()
 }
