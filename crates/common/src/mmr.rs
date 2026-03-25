@@ -1,7 +1,7 @@
 //! History accumulator for ASM.
 
 use strata_asm_manifest_types::{AsmManifest, Hash32};
-use strata_merkle::{CompactMmr64, Mmr, Sha256Hasher, error::MerkleError};
+use strata_merkle::{CompactMmr64, Mmr, Mmr64B32, Sha256Hasher, error::MerkleError};
 
 use crate::AsmHistoryAccumulatorState;
 
@@ -15,7 +15,7 @@ const ASM_MMR_CAP_LOG2: u8 = 64;
 /// Uses SHA-256 with full 32-byte hash output.
 pub type AsmHasher = Sha256Hasher;
 
-pub type AsmMerkleProof = strata_acct_types::MerkleProof;
+pub type AsmMerkleProof = strata_merkle::MerkleProofB32;
 
 impl AsmHistoryAccumulatorState {
     /// Creates a new compact MMR for the given genesis height.
@@ -23,8 +23,7 @@ impl AsmHistoryAccumulatorState {
     /// The internal `offset` is set to `genesis_height + 1` since manifests
     /// start from the first block after genesis.
     pub fn new(genesis_height: u64) -> Self {
-        let manifest_mmr =
-            strata_acct_types::Mmr64::from_generic(&CompactMmr64::<Hash32>::new(ASM_MMR_CAP_LOG2));
+        let manifest_mmr = Mmr64B32::from_generic(&CompactMmr64::<Hash32>::new(ASM_MMR_CAP_LOG2));
         Self {
             manifest_mmr,
             offset: genesis_height + 1,

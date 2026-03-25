@@ -7,13 +7,12 @@ edition = "2024"
 workspace = true
 
 [dependencies]
-strata-acct-types.workspace = true
 strata-asm-manifest-types.workspace = true
 strata-btc-types.workspace = true
 strata-btc-verification.workspace = true
 strata-identifiers.workspace = true
 strata-l1-txfmt.workspace = true
-strata-merkle.workspace = true
+strata-merkle = { workspace = true, features = ["ssz"] }
 strata-msg-fmt.workspace = true
 
 bitcoin.workspace = true

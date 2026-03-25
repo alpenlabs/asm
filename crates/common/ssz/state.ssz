@@ -3,12 +3,12 @@ MAX_SECTIONS = 256
 MAX_SECTION_STATE_BYTES = 1 << 20
 
 import pow
-import strata_acct_types
+import strata_merkle
 
 ### Verifiable accumulator for ASM history.
 class AsmHistoryAccumulatorState(Container):
     #~# external_kind: container
-    manifest_mmr: strata_acct_types.Mmr64
+    manifest_mmr: strata_merkle.Mmr64B32
     ### Height offset that maps the first manifest leaf to its L1 block height.
     ### This starts at `genesis_height + 1` because manifests begin after the genesis block.
     offset: uint64
