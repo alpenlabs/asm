@@ -1,15 +1,12 @@
 [package]
 edition = "2021"
-name = "guest-sp1-asm"
+name = "guest-sp1-moho"
 version = "0.1.0"
 
 [workspace]
 
 [dependencies]
-serde_json = "1.0"
-strata-asm-params = { path = "../../../crates/params" }
-strata-asm-proof-impl = { path = "../../../crates/proof/statements" }
-strata-asm-spec = { path = "../../../crates/spec" }
+moho-recursive-proof = { git = "https://github.com/alpenlabs/moho", rev = "0365d7be6139f396dea598278345a13a23d8fdeb" }
 zkaleido-sp1-guest-env = { git = "https://github.com/alpenlabs/zkaleido", tag = "v0.1.0-alpha-rc22" }
 
 [patch.crates-io]
