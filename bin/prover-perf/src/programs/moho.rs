@@ -15,9 +15,9 @@ fn load_elf() -> Vec<u8> {
 }
 
 pub(crate) fn gen_perf_report() -> PerformanceReport {
+    // TODO(STR-2797): Use Groth16Predicate instead of SchnorrPredicate
     let moho = SchnorrPredicate::new();
     let step = SchnorrPredicate::new();
-
     let input = create_input(1, 2, None, &moho, &step);
     let elf = load_elf();
     let host = SP1Host::init(&elf);
