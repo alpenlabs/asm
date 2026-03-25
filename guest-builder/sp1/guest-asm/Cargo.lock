@@ -1464,7 +1464,6 @@ dependencies = [
  "ssz_derive",
  "ssz_primitives",
  "ssz_types",
- "strata-acct-types",
  "strata-asm-manifest-types 0.1.0",
  "strata-btc-types",
  "strata-btc-verification 0.1.0",

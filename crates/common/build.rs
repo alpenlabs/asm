@@ -8,7 +8,7 @@ fn main() {
 
     let entry_points = ["pow.ssz", "state.ssz"];
     let base_dir = "ssz";
-    let crates = ["strata_acct_types", "strata_identifiers"];
+    let crates = ["strata_merkle", "strata_identifiers"];
 
     build_ssz_files(
         &entry_points,

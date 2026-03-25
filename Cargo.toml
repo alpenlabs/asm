@@ -83,7 +83,6 @@ strata-test-utils-btc = { path = "crates/test-utils/btc" }
 strata-test-utils-btcio = { path = "crates/test-utils/btcio" }
 
 # Dependencies from alpenlabs/alpen pinned to commit 1cadb7b (main @ 2026-03-20)
-strata-acct-types = { git = "https://github.com/alpenlabs/alpen.git", rev = "1cadb7b23a640726d66408dc94c5b60358056b51" }
 strata-bridge-types = { git = "https://github.com/alpenlabs/alpen.git", rev = "1cadb7b23a640726d66408dc94c5b60358056b51" }
 strata-btc-types = { git = "https://github.com/alpenlabs/alpen.git", rev = "1cadb7b23a640726d66408dc94c5b60358056b51" }
 strata-checkpoint-types = { git = "https://github.com/alpenlabs/alpen.git", rev = "1cadb7b23a640726d66408dc94c5b60358056b51" }
