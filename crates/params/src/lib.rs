@@ -4,9 +4,11 @@
 //! and per-subprotocol configuration (admin, bridge, checkpoint) needed to
 //! initialize and run an ASM instance.
 
+mod anchor;
 mod params;
 mod subprotocols;
 
+pub use anchor::L1Anchor;
 pub use params::AsmParams;
 pub use subprotocols::{
     AdministrationInitConfig, BridgeV1InitConfig, CheckpointInitConfig, Role, SubprotocolInstance,

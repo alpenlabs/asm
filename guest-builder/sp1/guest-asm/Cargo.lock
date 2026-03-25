@@ -1577,6 +1577,7 @@ name = "strata-asm-params"
 version = "0.1.0"
 dependencies = [
  "arbitrary",
+ "bitcoin",
  "serde",
  "ssz",
  "ssz_derive",
