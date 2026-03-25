@@ -51,7 +51,6 @@ impl MohoProgram for AsmStfProgram {
         spec: &StrataAsmSpec,
         input: &AsmStepInput,
     ) -> AsmStfOutput {
-        assert!(input.validate_block());
         let block = input.block();
         let aux_data = input.aux_data();
         compute_asm_transition(
