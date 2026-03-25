@@ -167,27 +167,27 @@ pub(crate) fn witness_commitment_from_coinbase(
 #[cfg(test)]
 mod tests {
     use bitcoin::Witness;
-    use strata_test_utils_btc::segment::BtcChainSegment;
+    use strata_test_utils_btc::BtcMainnetSegment;
 
     use super::*;
 
     #[test]
     fn test_block_with_valid_witness() {
-        let block = BtcChainSegment::load_full_block();
+        let block = BtcMainnetSegment::load_full_block();
         let coinbase_inclusion_proof = TxidInclusionProof::generate(&block.txdata, 0);
         check_block_integrity(&block, &Some(coinbase_inclusion_proof)).unwrap();
     }
 
     #[test]
     fn test_block_with_invalid_coinbase_inclusion_proof() {
-        let block = BtcChainSegment::load_full_block();
+        let block = BtcMainnetSegment::load_full_block();
         let err = check_block_integrity(&block, &None).unwrap_err();
         assert!(matches!(err, L1BodyError::MissingInclusionProof));
     }
 
     #[test]
     fn test_block_with_valid_inclusion_proof_of_other_tx() {
-        let block = BtcChainSegment::load_full_block();
+        let block = BtcMainnetSegment::load_full_block();
         let non_coinbase_inclusion_proof = TxidInclusionProof::generate(&block.txdata, 1);
         let err = check_block_integrity(&block, &Some(non_coinbase_inclusion_proof)).unwrap_err();
         assert!(matches!(err, L1BodyError::InvalidInclusionProof));
@@ -195,7 +195,7 @@ mod tests {
 
     #[test]
     fn test_block_with_witness_removed() {
-        let mut block = BtcChainSegment::load_full_block();
+        let mut block = BtcMainnetSegment::load_full_block();
         let empty_witness = Witness::new();
 
         // Remove witness data from all transactions.
@@ -210,7 +210,7 @@ mod tests {
 
     #[test]
     fn test_block_with_removed_witness_but_valid_inclusion_proof() {
-        let mut block = BtcChainSegment::load_full_block();
+        let mut block = BtcMainnetSegment::load_full_block();
         let empty_witness = Witness::new();
 
         // Remove witness data from all transactions.
@@ -226,7 +226,7 @@ mod tests {
 
     #[test]
     fn test_block_without_witness_data() {
-        let btc_chain = BtcChainSegment::load();
+        let btc_chain = BtcMainnetSegment::load();
         let block = btc_chain.get_block_at(40321).unwrap();
 
         // Verify with an empty inclusion proof.

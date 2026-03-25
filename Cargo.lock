@@ -8426,6 +8426,7 @@ dependencies = [
  "strata-asm-spec",
  "strata-asm-stf",
  "strata-btc-types 0.1.0 (git+https://github.com/alpenlabs/alpen.git?rev=1cadb7b23a640726d66408dc94c5b60358056b51)",
+ "strata-btc-verification",
  "strata-merkle",
  "strata-primitives 0.3.0-alpha.1 (git+https://github.com/alpenlabs/alpen.git?rev=1cadb7b23a640726d66408dc94c5b60358056b51)",
  "strata-service",
@@ -8569,6 +8570,8 @@ dependencies = [
  "borsh",
  "rand 0.8.5",
  "serde",
+ "ssz",
+ "ssz_derive",
  "strata-btc-types 0.1.0 (git+https://github.com/alpenlabs/alpen.git?rev=1cadb7b23a640726d66408dc94c5b60358056b51)",
  "strata-crypto 0.3.0-alpha.1 (git+https://github.com/alpenlabs/alpen.git?rev=1cadb7b23a640726d66408dc94c5b60358056b51)",
  "strata-identifiers 0.1.0 (git+https://github.com/alpenlabs/alpen.git?rev=1cadb7b23a640726d66408dc94c5b60358056b51)",
@@ -10388,9 +10391,10 @@ dependencies = [
 [[package]]
 name = "typed-sled"
 version = "0.1.1"
-source = "git+https://github.com/alpenlabs/typed-sled#9062bff3067ffb31fc6582ad7c659fc6e26ccd78"
+source = "git+https://github.com/alpenlabs/typed-sled#63bdf02a551ba384894748c41f908783864a8fc1"
 dependencies = [
  "dashmap",
+ "rkyv",
  "sled",
  "thiserror 1.0.69",
 ]

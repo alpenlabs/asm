@@ -4,8 +4,8 @@
 //! in a block by reconstructing the Merkle root from sibling hashes.
 
 use bitcoin::Transaction;
-use borsh::{BorshDeserialize, BorshSerialize};
 use serde::{Deserialize, Serialize};
+use ssz_derive::{Decode, Encode};
 use strata_btc_types::TxidExt;
 use strata_crypto::hash::sha256d;
 use strata_identifiers::Buf32;
@@ -14,7 +14,7 @@ use crate::compute_txid;
 
 /// A Merkle inclusion proof for a Bitcoin transaction, consisting of the transaction's position
 /// in the block and the sibling hashes at each tree level needed to reconstruct the Merkle root.
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Encode, Decode, Serialize, Deserialize)]
 pub struct TxidInclusionProof {
     /// The 0-based position (index) of the transaction within the block's transaction list
     /// for which this proof is generated.
@@ -135,13 +135,13 @@ impl TxidInclusionProof {
 #[cfg(test)]
 mod tests {
     use bitcoin::hashes::Hash;
-    use strata_test_utils_btc::segment::BtcChainSegment;
+    use strata_test_utils_btc::BtcMainnetSegment;
 
     use super::*;
 
     #[test]
     fn test_l1_tx_proof() {
-        let btc_chain = BtcChainSegment::load();
+        let btc_chain = BtcMainnetSegment::load();
         let block = btc_chain.get_block_at(40_321).unwrap();
         let merkle_root: Buf32 = block.header.merkle_root.to_byte_array().into();
         let txs = &block.txdata;

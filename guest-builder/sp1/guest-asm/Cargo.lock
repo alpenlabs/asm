@@ -1848,6 +1848,8 @@ dependencies = [
  "bitcoin",
  "borsh",
  "serde",
+ "ssz",
+ "ssz_derive",
  "strata-btc-types",
  "strata-crypto",
  "strata-identifiers",
