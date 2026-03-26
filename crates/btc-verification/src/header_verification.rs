@@ -989,7 +989,7 @@ mod tests {
         let height = 40_100;
         let mut verification_state = verification_state_at(&chain, height).unwrap();
 
-        let correct_prev_hash = verification_state.last_verified_block.blkid().clone();
+        let correct_prev_hash = *verification_state.last_verified_block.blkid();
         let mut header = chain.get_block_header_at(height + 1).unwrap();
 
         // Set a different (wrong) previous hash

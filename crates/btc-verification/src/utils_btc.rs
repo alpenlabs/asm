@@ -168,7 +168,7 @@ mod tests {
                 .unwrap()
                 .to_byte_array(),
         );
-        let actual = calculate_root(&mut hashes.into_iter()).unwrap();
+        let actual = calculate_root(hashes.into_iter()).unwrap();
         assert_eq!(expected, actual);
     }
 }
