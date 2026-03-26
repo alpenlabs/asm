@@ -73,7 +73,7 @@ fn hash_pair(h1: &Buf32, h2: &Buf32) -> Buf32 {
 /// - `Some(merkle_root)` if length of `hashes` is greater than one.
 pub fn calculate_root<I>(mut hashes: I) -> Option<Buf32>
 where
-    I: Iterator<Item = Buf32>,
+    I: ExactSizeIterator<Item = Buf32>,
 {
     let first = hashes.next()?;
     let second = match hashes.next() {
@@ -81,12 +81,12 @@ where
         None => return Some(first),
     };
 
+    let alloc_capacity = (hashes.len() + 2) / 2 + 1;
     let mut hashes = [first, second].into_iter().chain(hashes);
 
     // We need a local copy to pass to `merkle_root_r`. It's more efficient to do the first loop of
     // processing as we make the copy instead of copying the whole iterator.
-    let (min, max) = hashes.size_hint();
-    let mut alloc = Vec::with_capacity(max.unwrap_or(min) / 2 + 1);
+    let mut alloc = Vec::with_capacity(alloc_capacity);
 
     while let Some(hash1) = hashes.next() {
         // If the size is odd, use the last element twice.
