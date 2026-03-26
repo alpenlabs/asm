@@ -1,4 +1,4 @@
-use std::{cmp, iter};
+use std::cmp;
 
 use bitcoin::{
     BlockHash, Transaction, Txid, Wtxid, block::Header, consensus::Encodable, hashes::Hash,
@@ -54,6 +54,14 @@ pub fn compute_wtxid(tx: &Transaction) -> Wtxid {
     Wtxid::from_byte_array(sha256d(&vec).0)
 }
 
+/// Hashes two 32-byte nodes together (SHA-256d of their concatenation).
+fn hash_pair(h1: &Buf32, h2: &Buf32) -> Buf32 {
+    let mut buf = [0u8; 64];
+    buf[..32].copy_from_slice(h1.as_ref());
+    buf[32..].copy_from_slice(h2.as_ref());
+    sha256d(&buf)
+}
+
 /// Calculates the merkle root of an iterator of *hashes* using [RustCrypto's SHA-2 crate](https://github.com/RustCrypto/hashes/tree/master/sha2).
 ///
 /// Equivalent to [`calculate_root`](bitcoin::merkle_tree::calculate_root)
@@ -73,7 +81,7 @@ where
         None => return Some(first),
     };
 
-    let mut hashes = iter::once(first).chain(iter::once(second)).chain(hashes);
+    let mut hashes = [first, second].into_iter().chain(hashes);
 
     // We need a local copy to pass to `merkle_root_r`. It's more efficient to do the first loop of
     // processing as we make the copy instead of copying the whole iterator.
@@ -83,11 +91,7 @@ where
     while let Some(hash1) = hashes.next() {
         // If the size is odd, use the last element twice.
         let hash2 = hashes.next().unwrap_or(hash1);
-        let mut vec = Vec::with_capacity(64);
-        hash1.as_ref().consensus_encode(&mut vec).unwrap(); // in-memory writers fon't error
-        hash2.as_ref().consensus_encode(&mut vec).unwrap(); // in-memory writers don't error
-
-        alloc.push(sha256d(&vec));
+        alloc.push(hash_pair(&hash1, &hash2));
     }
 
     Some(merkle_root_r(&mut alloc))
@@ -104,10 +108,8 @@ fn merkle_root_r(hashes: &mut [Buf32]) -> Buf32 {
     for idx in 0..hashes.len().div_ceil(2) {
         let idx1 = 2 * idx;
         let idx2 = cmp::min(idx1 + 1, hashes.len() - 1);
-        let mut vec = Vec::with_capacity(64);
-        hashes[idx1].as_ref().consensus_encode(&mut vec).unwrap(); // in-memory writers don't error")
-        hashes[idx2].as_ref().consensus_encode(&mut vec).unwrap(); // in-memory writers don't error")
-        hashes[idx] = sha256d(&vec)
+        let (a, b) = (hashes[idx1], hashes[idx2]);
+        hashes[idx] = hash_pair(&a, &b);
     }
     let half_len = hashes.len() / 2 + hashes.len() % 2;
 
