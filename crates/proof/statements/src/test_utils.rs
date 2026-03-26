@@ -14,7 +14,7 @@ use strata_asm_common::{
 use strata_asm_params::{AsmParams, SubprotocolInstance};
 use strata_asm_spec::StrataAsmSpec;
 use strata_btc_types::{BlockHashExt, GenesisL1View};
-use strata_btc_verification::inclusion_proof::TxidInclusionProof;
+use strata_btc_verification::TxidInclusionProof;
 use strata_identifiers::L1BlockCommitment;
 use strata_l1_txfmt::MagicBytes;
 use strata_predicate::PredicateKey;

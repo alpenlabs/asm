@@ -10,7 +10,7 @@ use bitcoin::{
 use moho_types::StateReference;
 use ssz_derive::{Decode, Encode};
 use strata_asm_common::AuxData;
-use strata_btc_verification::inclusion_proof::TxidInclusionProof;
+use strata_btc_verification::TxidInclusionProof;
 
 /// Private input for a single ASM STF step.
 ///

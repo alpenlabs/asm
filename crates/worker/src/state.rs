@@ -7,7 +7,7 @@ use strata_asm_common::{
 use strata_asm_params::AsmParams;
 use strata_asm_spec::StrataAsmSpec;
 use strata_asm_stf::AsmStfOutput;
-use strata_btc_verification::inclusion_proof::TxidInclusionProof;
+use strata_btc_verification::TxidInclusionProof;
 use strata_primitives::l1::L1BlockCommitment;
 use strata_service::ServiceState;
 use strata_state::asm_state::AsmState;

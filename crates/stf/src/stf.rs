@@ -8,7 +8,7 @@ use strata_asm_common::{
     AnchorState, AsmError, AsmManifest, AsmResult, AsmSpec, AuxData, ChainViewState,
     VerifiedAuxData,
 };
-use strata_btc_verification::{check_block_integrity, inclusion_proof::TxidInclusionProof};
+use strata_btc_verification::{TxidInclusionProof, check_block_integrity};
 
 use crate::{
     group_txs_by_subprotocol,

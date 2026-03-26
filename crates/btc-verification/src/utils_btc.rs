@@ -71,7 +71,7 @@ fn hash_pair(h1: &Buf32, h2: &Buf32) -> Buf32 {
 /// - `None` if `hashes` is empty. The merkle root of an empty tree of hashes is undefined.
 /// - `Some(hash)` if `hashes` contains one element. A single hash is by definition the merkle root.
 /// - `Some(merkle_root)` if length of `hashes` is greater than one.
-pub fn calculate_root<I>(mut hashes: I) -> Option<Buf32>
+pub(crate) fn calculate_root<I>(mut hashes: I) -> Option<Buf32>
 where
     I: ExactSizeIterator<Item = Buf32>,
 {
