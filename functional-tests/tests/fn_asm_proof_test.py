@@ -1,11 +1,17 @@
+import logging
+
 import flexitest
 
-from envs.base_test import StrataTestBase
-from utils.utils import wait_until, wait_until_bitcoind_ready
+from utils.utils import (
+    wait_until_asm_proof_exists,
+    wait_until_asm_reaches_height,
+    wait_until_asm_ready,
+    wait_until_bitcoind_ready,
+)
 
 
 @flexitest.register
-class AsmProofGenerationTest(StrataTestBase):
+class AsmProofGenerationTest(flexitest.Test):
     """Verify that ASM proofs are generated and stored for processed blocks."""
 
     def __init__(self, ctx: flexitest.InitContext):
@@ -19,56 +25,43 @@ class AsmProofGenerationTest(StrataTestBase):
         asm_rpc = asm_service.create_rpc()
 
         wait_until_bitcoind_ready(bitcoin_rpc, timeout=30)
-        self.logger.info("Bitcoin node is ready")
+        logging.info("Bitcoin node is ready")
 
-        self.wait_until_asm_ready(asm_rpc)
-        self.logger.info("ASM RPC service is ready")
+        wait_until_asm_ready(asm_rpc)
+        logging.info("ASM RPC service is ready")
 
         initial_btc_height = bitcoin_rpc.proxy.getblockcount()
-        self.logger.info("Initial Bitcoin height: %s", initial_btc_height)
+        logging.info("Initial Bitcoin height: %s", initial_btc_height)
 
         # Generate a few blocks for proof generation
         wallet_addr = bitcoin_rpc.proxy.getnewaddress()
         num_blocks = 3
-        self.logger.info("Generating %s blocks", num_blocks)
+        logging.info("Generating %s blocks", num_blocks)
         bitcoin_rpc.proxy.generatetoaddress(num_blocks, wallet_addr)
 
         # Wait for ASM to process the blocks
         target_height = initial_btc_height + num_blocks
-        latest_asm_height = self.wait_until_asm_reaches_height(
+        latest_asm_height = wait_until_asm_reaches_height(
             asm_rpc,
             min_height=target_height,
         )
-        self.logger.info("ASM progressed to height %s", latest_asm_height)
+        logging.info("ASM progressed to height %s", latest_asm_height)
 
         # Wait for proof to be generated and stored.
         # The orchestrator runs on a tick interval (1s in tests), so the proof
         # should appear shortly after the block is processed.
         target_block_hash = bitcoin_rpc.proxy.getblockhash(target_height)
-        self.logger.info(
+        logging.info(
             "Waiting for ASM proof at height %s (hash=%s)",
             target_height,
             target_block_hash,
         )
 
-        def asm_proof_exists():
-            try:
-                result = asm_rpc.strata_asm_getAsmProof(target_block_hash)
-                return result is not None
-            except Exception as exc:
-                self.logger.debug("Error checking proof: %s", exc)
-                return False
-
-        wait_until(
-            asm_proof_exists,
-            timeout=60,
-            step=2,
-            error_msg=f"ASM proof was not generated for block {target_block_hash} within timeout",
-        )
+        wait_until_asm_proof_exists(asm_rpc, target_block_hash)
 
         proof = asm_rpc.strata_asm_getAsmProof(target_block_hash)
         assert proof is not None, "ASM proof should exist after wait"
-        self.logger.info("ASM proof found for block at height %s", target_height)
+        logging.info("ASM proof found for block at height %s", target_height)
 
         # Verify that an earlier processed block also has a proof
         earlier_height = initial_btc_height + 1
@@ -77,6 +70,6 @@ class AsmProofGenerationTest(StrataTestBase):
         assert earlier_proof is not None, (
             f"ASM proof should exist for earlier block at height {earlier_height}"
         )
-        self.logger.info("ASM proof also found for earlier block at height %s", earlier_height)
+        logging.info("ASM proof also found for earlier block at height %s", earlier_height)
 
         return True

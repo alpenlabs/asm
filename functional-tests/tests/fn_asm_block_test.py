@@ -1,11 +1,16 @@
+import logging
+
 import flexitest
 
-from envs.base_test import StrataTestBase
-from utils.utils import wait_until_bitcoind_ready
+from utils.utils import (
+    wait_until_asm_reaches_height,
+    wait_until_asm_ready,
+    wait_until_bitcoind_ready,
+)
 
 
 @flexitest.register
-class AsmBlockProcessingTest(StrataTestBase):
+class AsmBlockProcessingTest(flexitest.Test):
     """Smoke test for asm-runner block processing over regtest."""
 
     def __init__(self, ctx: flexitest.InitContext):
@@ -19,29 +24,29 @@ class AsmBlockProcessingTest(StrataTestBase):
         asm_rpc = asm_service.create_rpc()
 
         wait_until_bitcoind_ready(bitcoin_rpc, timeout=30)
-        self.logger.info("Bitcoin node is ready")
+        logging.info("Bitcoin node is ready")
 
-        self.wait_until_asm_ready(asm_rpc)
-        self.logger.info("ASM RPC service is ready")
+        wait_until_asm_ready(asm_rpc)
+        logging.info("ASM RPC service is ready")
 
         initial_btc_height = bitcoin_rpc.proxy.getblockcount()
-        self.logger.info("Initial Bitcoin height: %s", initial_btc_height)
+        logging.info("Initial Bitcoin height: %s", initial_btc_height)
 
         wallet_addr = bitcoin_rpc.proxy.getnewaddress()
         num_blocks_to_generate = 10
-        self.logger.info("Generating %s blocks", num_blocks_to_generate)
+        logging.info("Generating %s blocks", num_blocks_to_generate)
         bitcoin_rpc.proxy.generatetoaddress(num_blocks_to_generate, wallet_addr)
 
-        latest_asm_height = self.wait_until_asm_reaches_height(
+        latest_asm_height = wait_until_asm_reaches_height(
             asm_rpc,
             min_height=initial_btc_height + 1,
         )
-        self.logger.info("ASM progressed to height %s", latest_asm_height)
+        logging.info("ASM progressed to height %s", latest_asm_height)
 
         latest_btc_block_hash = bitcoin_rpc.proxy.getblockhash(latest_asm_height)
         assignments = asm_rpc.strata_asm_getAssignments(latest_btc_block_hash)
         if assignments is None:
             raise AssertionError("ASM getAssignments should return a list")
-        self.logger.info("Assignments at latest ASM block: %s entries", len(assignments))
+        logging.info("Assignments at latest ASM block: %s entries", len(assignments))
 
         return True

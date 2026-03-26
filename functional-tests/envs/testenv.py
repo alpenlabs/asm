@@ -1,5 +1,7 @@
 import flexitest
 
+from utils.logging import setup_test_logger
+
 
 class AsmTestRuntime(flexitest.TestRuntime):
     """Runtime wrapper that injects custom run context fields."""
@@ -15,3 +17,4 @@ class AsmRunContext(flexitest.RunContext):
         super().__init__(env)
         self.name = name
         self.datadir_root = datadir_root
+        setup_test_logger(datadir_root, name)
