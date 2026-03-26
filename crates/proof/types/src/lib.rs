@@ -1,6 +1,6 @@
 //! Proof-related types used across the bridge.
 
-use std::cmp::Ordering;
+use std::{cmp::Ordering, fmt};
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use serde::{Deserialize, Serialize};
@@ -27,6 +27,15 @@ pub enum ProofId {
     Asm(L1Range),
     /// A Moho recursive proof anchored at an L1 block commitment.
     Moho(L1BlockCommitment),
+}
+
+impl fmt::Display for ProofId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            ProofId::Asm(range) => write!(f, "Asm({})", range),
+            ProofId::Moho(commitment) => write!(f, "Moho({})", commitment),
+        }
+    }
 }
 
 impl ProofId {
@@ -122,5 +131,15 @@ impl L1Range {
     /// Returns the end of the range.
     pub const fn end(&self) -> L1BlockCommitment {
         self.end
+    }
+}
+
+impl fmt::Display for L1Range {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if self.start == self.end {
+            write!(f, "{}", self.start)
+        } else {
+            write!(f, "{}..={}", self.start, self.end)
+        }
     }
 }
