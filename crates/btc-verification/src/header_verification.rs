@@ -612,13 +612,15 @@ mod tests {
 
         assert!(result.is_err(), "Invalid target should be rejected");
 
-        // Verify it's the PowMismatch error by checking the error message
-        let err_str = format!("{}", result.unwrap_err());
-        assert!(
-            err_str.contains("Proof-of-Work") && err_str.contains("does not match"),
-            "Expected PowMismatch error, got: {}",
-            err_str
-        );
+        // Verify it's the PowMismatch error with the expected values
+        let err = result.unwrap_err();
+        match err {
+            L1VerificationError::PowMismatch { expected, found } => {
+                assert_eq!(expected, correct_bits.to_consensus());
+                assert_ne!(expected, found);
+            }
+            other => panic!("Expected PowMismatch error, got: {other}"),
+        }
     }
 
     /// Test that target calculation uses correct epoch start timestamp at adjustment boundary.
@@ -767,11 +769,9 @@ mod tests {
 
         // If we get TimestampError, test fails. If we get PowNotMet, timestamp passed!
         if let Err(e) = result {
-            let err_str = format!("{}", e);
             assert!(
-                !err_str.contains("Invalid timestamp"),
-                "Timestamp check should pass with median + 1, got: {}",
-                err_str
+                !matches!(e, L1VerificationError::TimestampError { .. }),
+                "Timestamp check should pass with median + 1, got: {e:?}",
             );
         }
     }
@@ -973,11 +973,12 @@ mod tests {
 
         let result = verification_state.check_and_update(&header);
 
-        assert!(result.is_err(), "Wrong prev_blockhash should be rejected");
-        let err_str = format!("{}", result.unwrap_err());
         assert!(
-            err_str.contains("continuity"),
-            "Expected ContinuityError, got: {err_str}",
+            matches!(
+                result.unwrap_err(),
+                L1VerificationError::ContinuityError { .. }
+            ),
+            "Wrong prev_blockhash should be rejected with ContinuityError"
         );
     }
 
@@ -988,21 +989,26 @@ mod tests {
         let height = 40_100;
         let mut verification_state = verification_state_at(&chain, height).unwrap();
 
-        let _correct_prev_hash = verification_state.last_verified_block.blkid();
+        let correct_prev_hash = verification_state.last_verified_block.blkid().clone();
         let mut header = chain.get_block_header_at(height + 1).unwrap();
 
         // Set a different (wrong) previous hash
-        header.prev_blockhash = BlockHash::from_slice(&[0xab; 32]).unwrap();
+        let wrong_hash = BlockHash::from_slice(&[0xab; 32]).unwrap();
+        header.prev_blockhash = wrong_hash;
 
         let result = verification_state.check_and_update(&header);
 
-        assert!(result.is_err());
-        let err_str = format!("{:?}", result.unwrap_err());
-
-        // Error should mention both expected and found hashes
+        let err = result.unwrap_err();
         assert!(
-            err_str.contains("expected") || err_str.contains("found"),
-            "Error should contain hash information: {err_str}"
+            matches!(
+                err,
+                L1VerificationError::ContinuityError {
+                    expected,
+                    found,
+                } if expected == correct_prev_hash
+                  && found == wrong_hash.to_l1_block_id()
+            ),
+            "Expected ContinuityError with correct hashes, got: {err:?}"
         );
     }
 
