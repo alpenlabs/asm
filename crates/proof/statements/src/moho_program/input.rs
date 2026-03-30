@@ -81,8 +81,8 @@ impl AsmStepInput {
     }
 
     /// Returns the optional coinbase inclusion proof.
-    pub fn coinbase_inclusion_proof(&self) -> &Option<TxidInclusionProof> {
-        &self.coinbase_inclusion_proof
+    pub fn coinbase_inclusion_proof(&self) -> Option<&TxidInclusionProof> {
+        self.coinbase_inclusion_proof.as_ref()
     }
 
     /// Checks that the block's merkle roots are consistent.

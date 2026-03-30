@@ -42,7 +42,7 @@ use crate::{
 /// Returns a [`L1BodyError`] if any of the integrity checks fail.
 pub fn check_block_integrity(
     block: &Block,
-    coinbase_inclusion_proof: &Option<TxidInclusionProof>,
+    coinbase_inclusion_proof: Option<&TxidInclusionProof>,
 ) -> Result<Buf32, L1BodyError> {
     let Block { header, txdata } = block;
     if txdata.is_empty() {
@@ -175,13 +175,13 @@ mod tests {
     fn test_block_with_valid_witness() {
         let block = BtcMainnetSegment::load_full_block();
         let coinbase_inclusion_proof = TxidInclusionProof::generate(&block.txdata, 0);
-        check_block_integrity(&block, &Some(coinbase_inclusion_proof)).unwrap();
+        check_block_integrity(&block, Some(&coinbase_inclusion_proof)).unwrap();
     }
 
     #[test]
     fn test_block_with_invalid_coinbase_inclusion_proof() {
         let block = BtcMainnetSegment::load_full_block();
-        let err = check_block_integrity(&block, &None).unwrap_err();
+        let err = check_block_integrity(&block, None).unwrap_err();
         assert!(matches!(err, L1BodyError::MissingInclusionProof));
     }
 
@@ -189,7 +189,7 @@ mod tests {
     fn test_block_with_valid_inclusion_proof_of_other_tx() {
         let block = BtcMainnetSegment::load_full_block();
         let non_coinbase_inclusion_proof = TxidInclusionProof::generate(&block.txdata, 1);
-        let err = check_block_integrity(&block, &Some(non_coinbase_inclusion_proof)).unwrap_err();
+        let err = check_block_integrity(&block, Some(&non_coinbase_inclusion_proof)).unwrap_err();
         assert!(matches!(err, L1BodyError::InvalidInclusionProof));
     }
 
@@ -205,7 +205,7 @@ mod tests {
             }
         }
 
-        assert!(check_block_integrity(&block, &None).is_err());
+        assert!(check_block_integrity(&block, None).is_err());
     }
 
     #[test]
@@ -221,7 +221,7 @@ mod tests {
         }
 
         let valid_inclusion_proof = TxidInclusionProof::generate(&block.txdata, 0);
-        assert!(check_block_integrity(&block, &Some(valid_inclusion_proof)).is_err());
+        assert!(check_block_integrity(&block, Some(&valid_inclusion_proof)).is_err());
     }
 
     #[test]
@@ -230,10 +230,10 @@ mod tests {
         let block = btc_chain.get_block_at(40321).unwrap();
 
         // Verify with an empty inclusion proof.
-        check_block_integrity(&block, &None).unwrap();
+        check_block_integrity(&block, None).unwrap();
 
         // Verify with a valid inclusion proof.
         let valid_inclusion_proof = TxidInclusionProof::generate(&block.txdata, 0);
-        check_block_integrity(&block, &Some(valid_inclusion_proof)).unwrap();
+        check_block_integrity(&block, Some(&valid_inclusion_proof)).unwrap();
     }
 }

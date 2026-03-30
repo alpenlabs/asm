@@ -29,7 +29,7 @@ pub fn compute_asm_transition<S: AsmSpec>(
     pre_state: &AnchorState,
     block: &Block,
     aux_data: &AuxData,
-    coinbase_inclusion_proof: &Option<TxidInclusionProof>,
+    coinbase_inclusion_proof: Option<&TxidInclusionProof>,
 ) -> AsmResult<AsmStfOutput> {
     // 1. Validate that the block body merkle is consistent with the header.
     // Returns the witness txids root (segwit) or txids root (legacy) for use below.

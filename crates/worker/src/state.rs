@@ -131,7 +131,7 @@ impl<W: WorkerContext + Send + Sync + 'static> AsmWorkerServiceState<W> {
             cur_state.state(),
             block,
             &aux_data,
-            &Some(coinbase_inclusion_proof),
+            Some(&coinbase_inclusion_proof),
         )
         .map(|output| (output, aux_data))
         .map_err(WorkerError::AsmError)
