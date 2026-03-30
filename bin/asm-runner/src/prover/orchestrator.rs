@@ -214,7 +214,8 @@ impl<R: ZkVmRemoteHost> ProofOrchestrator<R> {
 
         for proof_id in batch {
             if let Err(e) = self.try_submit(proof_id).await {
-                warn!(?proof_id, ?e, "failed to submit proof");
+                warn!(?proof_id, ?e, "failed to submit proof, re-enqueuing");
+                self.queue.enqueue(proof_id);
             }
         }
         Ok(())
