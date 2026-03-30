@@ -75,14 +75,11 @@ pub(crate) fn calculate_root<I>(mut hashes: I) -> Option<Buf32>
 where
     I: ExactSizeIterator<Item = Buf32>,
 {
-    let first = hashes.next()?;
-    let second = match hashes.next() {
-        Some(second) => second,
-        None => return Some(first),
+    let alloc_capacity = match hashes.len() {
+        0 => return None,
+        1 => return hashes.next(),
+        n => n.div_ceil(2),
     };
-
-    let alloc_capacity = (hashes.len() + 2) / 2 + 1;
-    let mut hashes = [first, second].into_iter().chain(hashes);
 
     // We need a local copy to pass to `merkle_root_r`. It's more efficient to do the first loop of
     // processing as we make the copy instead of copying the whole iterator.
