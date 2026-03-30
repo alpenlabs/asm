@@ -1,55 +1,15 @@
-use std::io;
-
 use arbitrary::Arbitrary;
-use bitcoin::{BlockHash, CompactTarget, Network, block::Header, hashes::Hash, params::Params};
+use bitcoin::{CompactTarget, Network, block::Header, hashes::Hash, params::Params};
 use borsh::{BorshDeserialize, BorshSerialize};
 use serde::{Deserialize, Serialize};
-use strata_btc_types::{BtcParams, GenesisL1View};
+use strata_btc_types::{BlockHashExt, BtcParams, GenesisL1View};
 use strata_crypto::hash::compute_borsh_hash;
 use strata_identifiers::{Buf32, L1BlockCommitment, L1BlockId, L1Height};
-use thiserror::Error;
 
-use crate::{BtcWork, timestamp_store::TimestampStore, utils_btc::compute_block_hash};
-
-/// Errors that can occur during Bitcoin header verification.
-#[derive(Debug, Error)]
-pub enum L1VerificationError {
-    /// Occurs when the previous block hash in the header does not match the expected hash.
-    #[error("Block continuity error: expected previous block hash {expected:?}, got {found:?}")]
-    ContinuityError {
-        expected: L1BlockId,
-        found: L1BlockId,
-    },
-
-    /// Occurs when the header's encoded target does not match the expected target.
-    #[error(
-        "Invalid Proof-of-Work: header target {found:?} does not match expected target {expected:?}"
-    )]
-    PowMismatch { expected: u32, found: u32 },
-
-    /// Occurs when the computed block hash does not meet the target difficulty.
-    #[error("Proof-of-Work not met: block hash {block_hash:?} does not meet target {target:?}")]
-    PowNotMet { block_hash: BlockHash, target: u32 },
-
-    /// Occurs when the header's timestamp is not greater than the median of the previous 11
-    /// timestamps.
-    #[error("Invalid timestamp: header time {time} is not greater than median {median}")]
-    TimestampError { time: u32, median: u32 },
-
-    /// Occurs when the new headers provided in a reorganization are fewer than the headers being
-    /// removed.
-    #[error(
-        "Reorg error: new headers length {new_headers} is less than old headers length {old_headers}"
-    )]
-    ReorgLengthError {
-        new_headers: usize,
-        old_headers: usize,
-    },
-
-    /// Wraps underlying I/O errors.
-    #[error("I/O error: {0}")]
-    Io(#[from] io::Error),
-}
+use crate::{
+    BtcWork, errors::L1VerificationError, timestamp_store::TimestampStore,
+    utils_btc::compute_block_hash,
+};
 
 /// A struct containing all necessary information for validating a Bitcoin block header.
 ///
@@ -224,8 +184,7 @@ impl HeaderVerificationState {
             });
         }
 
-        let block_hash_raw = compute_block_hash(header);
-        let block_hash = BlockHash::from_byte_array(*block_hash_raw.as_ref());
+        let block_hash = compute_block_hash(header);
 
         // Check Proof-of-Work target encoding
         if header.bits.to_consensus() != self.next_block_target {
@@ -254,7 +213,7 @@ impl HeaderVerificationState {
 
         // Increase the last verified block number by 1 and set the new block hash
         let next_height = self.last_verified_block.height() + 1;
-        self.last_verified_block = L1BlockCommitment::new(next_height, block_hash_raw.into());
+        self.last_verified_block = L1BlockCommitment::new(next_height, block_hash.to_l1_block_id());
 
         // Update the timestamps
         self.update_timestamps(header.time);
@@ -653,13 +612,15 @@ mod tests {
 
         assert!(result.is_err(), "Invalid target should be rejected");
 
-        // Verify it's the PowMismatch error by checking the error message
-        let err_str = format!("{}", result.unwrap_err());
-        assert!(
-            err_str.contains("Proof-of-Work") && err_str.contains("does not match"),
-            "Expected PowMismatch error, got: {}",
-            err_str
-        );
+        // Verify it's the PowMismatch error with the expected values
+        let err = result.unwrap_err();
+        match err {
+            L1VerificationError::PowMismatch { expected, found } => {
+                assert_eq!(expected, correct_bits.to_consensus());
+                assert_ne!(expected, found);
+            }
+            other => panic!("Expected PowMismatch error, got: {other}"),
+        }
     }
 
     /// Test that target calculation uses correct epoch start timestamp at adjustment boundary.
@@ -808,11 +769,9 @@ mod tests {
 
         // If we get TimestampError, test fails. If we get PowNotMet, timestamp passed!
         if let Err(e) = result {
-            let err_str = format!("{}", e);
             assert!(
-                !err_str.contains("Invalid timestamp"),
-                "Timestamp check should pass with median + 1, got: {}",
-                err_str
+                !matches!(e, L1VerificationError::TimestampError { .. }),
+                "Timestamp check should pass with median + 1, got: {e:?}",
             );
         }
     }
@@ -1014,11 +973,12 @@ mod tests {
 
         let result = verification_state.check_and_update(&header);
 
-        assert!(result.is_err(), "Wrong prev_blockhash should be rejected");
-        let err_str = format!("{}", result.unwrap_err());
         assert!(
-            err_str.contains("continuity"),
-            "Expected ContinuityError, got: {err_str}",
+            matches!(
+                result.unwrap_err(),
+                L1VerificationError::ContinuityError { .. }
+            ),
+            "Wrong prev_blockhash should be rejected with ContinuityError"
         );
     }
 
@@ -1029,21 +989,26 @@ mod tests {
         let height = 40_100;
         let mut verification_state = verification_state_at(&chain, height).unwrap();
 
-        let _correct_prev_hash = verification_state.last_verified_block.blkid();
+        let correct_prev_hash = *verification_state.last_verified_block.blkid();
         let mut header = chain.get_block_header_at(height + 1).unwrap();
 
         // Set a different (wrong) previous hash
-        header.prev_blockhash = BlockHash::from_slice(&[0xab; 32]).unwrap();
+        let wrong_hash = BlockHash::from_slice(&[0xab; 32]).unwrap();
+        header.prev_blockhash = wrong_hash;
 
         let result = verification_state.check_and_update(&header);
 
-        assert!(result.is_err());
-        let err_str = format!("{:?}", result.unwrap_err());
-
-        // Error should mention both expected and found hashes
+        let err = result.unwrap_err();
         assert!(
-            err_str.contains("expected") || err_str.contains("found"),
-            "Error should contain hash information: {err_str}"
+            matches!(
+                err,
+                L1VerificationError::ContinuityError {
+                    expected,
+                    found,
+                } if expected == correct_prev_hash
+                  && found == wrong_hash.to_l1_block_id()
+            ),
+            "Expected ContinuityError with correct hashes, got: {err:?}"
         );
     }
 

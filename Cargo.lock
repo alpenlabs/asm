@@ -8022,7 +8022,7 @@ dependencies = [
  "ssz_types",
  "strata-asm-manifest-types",
  "strata-btc-types 0.1.0 (git+https://github.com/alpenlabs/alpen.git?rev=1cadb7b23a640726d66408dc94c5b60358056b51)",
- "strata-btc-verification 0.1.0",
+ "strata-btc-verification",
  "strata-identifiers 0.1.0 (git+https://github.com/alpenlabs/alpen.git?rev=1cadb7b23a640726d66408dc94c5b60358056b51)",
  "strata-l1-txfmt",
  "strata-merkle",
@@ -8120,6 +8120,7 @@ dependencies = [
  "strata-asm-spec",
  "strata-asm-stf",
  "strata-btc-types 0.1.0 (git+https://github.com/alpenlabs/alpen.git?rev=1cadb7b23a640726d66408dc94c5b60358056b51)",
+ "strata-btc-verification",
  "strata-identifiers 0.1.0 (git+https://github.com/alpenlabs/alpen.git?rev=1cadb7b23a640726d66408dc94c5b60358056b51)",
  "strata-l1-txfmt",
  "strata-predicate",
@@ -8340,6 +8341,7 @@ version = "0.1.0"
 dependencies = [
  "bitcoin",
  "strata-asm-common",
+ "strata-btc-verification",
  "strata-identifiers 0.1.0 (git+https://github.com/alpenlabs/alpen.git?rev=1cadb7b23a640726d66408dc94c5b60358056b51)",
  "strata-l1-txfmt",
 ]
@@ -8442,6 +8444,7 @@ dependencies = [
  "strata-asm-spec",
  "strata-asm-stf",
  "strata-btc-types 0.1.0 (git+https://github.com/alpenlabs/alpen.git?rev=1cadb7b23a640726d66408dc94c5b60358056b51)",
+ "strata-btc-verification",
  "strata-merkle",
  "strata-primitives 0.3.0-alpha.1 (git+https://github.com/alpenlabs/alpen.git?rev=1cadb7b23a640726d66408dc94c5b60358056b51)",
  "strata-service",
@@ -8585,25 +8588,12 @@ dependencies = [
  "borsh",
  "rand 0.8.5",
  "serde",
+ "ssz",
+ "ssz_derive",
  "strata-btc-types 0.1.0 (git+https://github.com/alpenlabs/alpen.git?rev=1cadb7b23a640726d66408dc94c5b60358056b51)",
  "strata-crypto 0.3.0-alpha.1 (git+https://github.com/alpenlabs/alpen.git?rev=1cadb7b23a640726d66408dc94c5b60358056b51)",
  "strata-identifiers 0.1.0 (git+https://github.com/alpenlabs/alpen.git?rev=1cadb7b23a640726d66408dc94c5b60358056b51)",
  "strata-test-utils-btc 0.1.0",
- "thiserror 2.0.18",
-]
-
-[[package]]
-name = "strata-btc-verification"
-version = "0.1.0"
-source = "git+https://github.com/alpenlabs/alpen.git?rev=1cadb7b23a640726d66408dc94c5b60358056b51#1cadb7b23a640726d66408dc94c5b60358056b51"
-dependencies = [
- "arbitrary",
- "bitcoin",
- "borsh",
- "serde",
- "strata-btc-types 0.1.0 (git+https://github.com/alpenlabs/alpen.git?rev=1cadb7b23a640726d66408dc94c5b60358056b51)",
- "strata-crypto 0.3.0-alpha.1 (git+https://github.com/alpenlabs/alpen.git?rev=1cadb7b23a640726d66408dc94c5b60358056b51)",
- "strata-identifiers 0.1.0 (git+https://github.com/alpenlabs/alpen.git?rev=1cadb7b23a640726d66408dc94c5b60358056b51)",
  "thiserror 2.0.18",
 ]
 
@@ -8619,7 +8609,7 @@ dependencies = [
  "rand 0.8.5",
  "reqwest",
  "strata-btc-types 0.1.0 (git+https://github.com/alpenlabs/alpen.git?rev=1cadb7b23a640726d66408dc94c5b60358056b51)",
- "strata-btc-verification 0.1.0 (git+https://github.com/alpenlabs/alpen.git?rev=1cadb7b23a640726d66408dc94c5b60358056b51)",
+ "strata-btc-verification",
  "strata-config",
  "strata-csm-types",
  "strata-db-types",
@@ -8711,7 +8701,7 @@ dependencies = [
  "strata-asm-common",
  "strata-asm-logs",
  "strata-bridge-types 0.3.0-alpha.1 (git+https://github.com/alpenlabs/alpen.git?rev=1cadb7b23a640726d66408dc94c5b60358056b51)",
- "strata-btc-verification 0.1.0 (git+https://github.com/alpenlabs/alpen.git?rev=1cadb7b23a640726d66408dc94c5b60358056b51)",
+ "strata-btc-verification",
  "strata-checkpoint-types",
  "strata-identifiers 0.1.0 (git+https://github.com/alpenlabs/alpen.git?rev=1cadb7b23a640726d66408dc94c5b60358056b51)",
  "strata-ol-chain-types",
@@ -9564,7 +9554,7 @@ dependencies = [
  "hex",
  "strata-asm-common",
  "strata-btc-types 0.1.0 (git+https://github.com/alpenlabs/alpen.git?rev=1cadb7b23a640726d66408dc94c5b60358056b51)",
- "strata-btc-verification 0.1.0 (git+https://github.com/alpenlabs/alpen.git?rev=1cadb7b23a640726d66408dc94c5b60358056b51)",
+ "strata-btc-verification",
  "strata-btcio",
  "strata-identifiers 0.1.0 (git+https://github.com/alpenlabs/alpen.git?rev=1cadb7b23a640726d66408dc94c5b60358056b51)",
  "strata-primitives 0.3.0-alpha.1 (git+https://github.com/alpenlabs/alpen.git?rev=1cadb7b23a640726d66408dc94c5b60358056b51)",

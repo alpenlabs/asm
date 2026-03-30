@@ -6,7 +6,7 @@ use strata_btc_types::TIMESTAMPS_FOR_MEDIAN;
 /// The middle index for selecting the median timestamp.
 /// Since TIMESTAMPS_FOR_MEDIAN is odd, the median is the element at index 5 (the 6th element)
 /// after the timestamps are sorted.
-pub const MEDIAN_TIMESTAMP_INDEX: usize = TIMESTAMPS_FOR_MEDIAN / 2;
+const MEDIAN_TIMESTAMP_INDEX: usize = TIMESTAMPS_FOR_MEDIAN / 2;
 
 /// A ring buffer that stores exactly `TIMESTAMPS_FOR_MEDIAN` timestamps.
 /// When inserting a new timestamp, the oldest timestamp is overwritten and the head pointer

@@ -51,11 +51,14 @@ impl MohoProgram for AsmStfProgram {
         spec: &StrataAsmSpec,
         input: &AsmStepInput,
     ) -> AsmStfOutput {
-        assert!(input.validate_block());
-        let block = input.block();
-        let aux_data = input.aux_data();
-        compute_asm_transition(spec, pre_state, &block.0, &aux_data)
-            .expect("asm: compute transition")
+        compute_asm_transition(
+            spec,
+            pre_state,
+            input.block(),
+            input.aux_data(),
+            input.coinbase_inclusion_proof(),
+        )
+        .expect("asm: compute transition")
     }
 
     fn extract_post_state(output: &Self::StepOutput) -> &Self::State {
