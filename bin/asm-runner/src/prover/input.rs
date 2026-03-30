@@ -9,10 +9,7 @@ use bitcoind_async_client::{Client, traits::Reader};
 use moho_runtime_impl::RuntimeInput;
 use moho_runtime_interface::MohoProgram;
 use ssz::Encode;
-use strata_asm_proof_impl::moho_program::{
-    input::{AsmStepInput, L1Block},
-    program::AsmStfProgram,
-};
+use strata_asm_proof_impl::moho_program::{input::AsmStepInput, program::AsmStfProgram};
 use strata_asm_proof_types::L1Range;
 use strata_btc_types::{BlockHashExt, L1BlockIdBitcoinExt};
 use strata_identifiers::L1BlockCommitment;
@@ -55,7 +52,7 @@ impl InputBuilder {
             .context("aux data not found for block")?;
 
         // 3. Build the step input.
-        let step_input = AsmStepInput::new(L1Block(block.clone()), aux_data);
+        let step_input = AsmStepInput::new(block.clone(), aux_data, None);
 
         // 4. Fetch the pre-state (anchor state for the parent block).
         let parent_hash = block.header.prev_blockhash;
