@@ -20,10 +20,7 @@ use strata_l1_txfmt::MagicBytes;
 use strata_predicate::PredicateKey;
 use strata_test_utils_btc::BtcMainnetSegment;
 
-use crate::moho_program::{
-    input::{AsmStepInput, L1Block},
-    program::AsmStfProgram,
-};
+use crate::moho_program::{input::AsmStepInput, program::AsmStfProgram};
 
 const SUBPROTOCOLS_JSON: &str = r#"[
     {"Admin":{"strata_administrator":{"keys":["02bedfa2fa42d906565519bee43875608a09e06640203a6c7a43569150c7cbe7c5"],"threshold":1},"strata_sequencer_manager":{"keys":["03cf59a1a5ef092ced386f2651b610d3dd2cc6806bb74a8eab95c1f3b2f3d81772","02343edde4a056e00af99aa49de60df03859d1b79ebbc4f3f6da8fbd0053565de3"],"threshold":1},"confirmation_depth":144,"max_seqno_gap":10}},
@@ -35,7 +32,7 @@ const SUBPROTOCOLS_JSON: &str = r#"[
 pub fn create_asm_step_input() -> AsmStepInput {
     let block = BtcMainnetSegment::load_full_block();
     let coinbase_inclusion_proof = Some(TxidInclusionProof::generate(&block.txdata, 0));
-    AsmStepInput::new(L1Block(block), AuxData::default(), coinbase_inclusion_proof)
+    AsmStepInput::new(block, AuxData::default(), coinbase_inclusion_proof)
 }
 
 /// Builds a genesis L1 view whose tip is the parent of `block`.
@@ -98,9 +95,8 @@ pub fn create_moho_prestate(block: &Block) -> MohoState {
 
 /// Creates a runtime input for a single ASM STF step.
 pub fn create_runtime_input(step_input: &AsmStepInput) -> RuntimeInput {
-    let block = step_input.block();
-    let inner_pre_state = create_genesis_anchor_state(&block.0);
-    let moho_pre_state = create_moho_prestate(&block.0);
+    let inner_pre_state = create_genesis_anchor_state(step_input.block());
+    let moho_pre_state = create_moho_prestate(step_input.block());
     RuntimeInput::new(
         moho_pre_state,
         inner_pre_state.as_ssz_bytes(),
@@ -111,8 +107,7 @@ pub fn create_runtime_input(step_input: &AsmStepInput) -> RuntimeInput {
 /// Creates a matching `(RuntimeInput, StrataAsmSpec)` test pair.
 pub fn create_runtime_input_and_spec() -> (RuntimeInput, StrataAsmSpec) {
     let step_input = create_asm_step_input();
-    let block = step_input.block();
-    let l1view = create_genesis_l1_view_to_process_block(&block.0);
+    let l1view = create_genesis_l1_view_to_process_block(step_input.block());
     let spec = create_asm_spec(l1view);
     let runtime_input = create_runtime_input(&step_input);
     (runtime_input, spec)
