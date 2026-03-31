@@ -9,7 +9,6 @@ use std::any::Any;
 use ssz_derive::{Decode, Encode};
 use strata_asm_common::{InterprotoMsg, SubprotocolId};
 use strata_asm_txs_checkpoint::CHECKPOINT_SUBPROTOCOL_ID;
-use strata_asm_txs_checkpoint_v0::CHECKPOINT_V0_SUBPROTOCOL_ID;
 use strata_predicate::PredicateKey;
 use strata_primitives::l1::BitcoinAmount;
 
@@ -36,14 +35,7 @@ pub enum CheckpointIncomingMsg {
 
 impl InterprotoMsg for CheckpointIncomingMsg {
     fn id(&self) -> SubprotocolId {
-        match self {
-            // Admin config updates target checkpoint V0.
-            Self::UpdateSequencerKey(_) | Self::UpdateCheckpointPredicate(_) => {
-                CHECKPOINT_V0_SUBPROTOCOL_ID
-            }
-            // Deposit notifications target the new checkpoint subprotocol.
-            Self::DepositProcessed(_) => CHECKPOINT_SUBPROTOCOL_ID,
-        }
+        CHECKPOINT_SUBPROTOCOL_ID
     }
 
     fn as_dyn_any(&self) -> &dyn Any {
