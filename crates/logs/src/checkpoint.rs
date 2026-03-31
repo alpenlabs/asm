@@ -1,77 +1,12 @@
 use strata_asm_common::AsmLog;
-use strata_checkpoint_types::{BatchInfo, Checkpoint};
 use strata_checkpoint_types_ssz::CheckpointTip;
 use strata_codec::Codec;
 use strata_codec_utils::CodecSsz;
 use strata_msg_fmt::TypeId;
-use strata_primitives::{epoch::EpochCommitment, l1::BitcoinTxid};
 
-use crate::constants::{CHECKPOINT_TIP_UPDATE_LOG_TYPE, CHECKPOINT_UPDATE_LOG_TYPE};
+use crate::constants::CHECKPOINT_TIP_UPDATE_LOG_TYPE;
 
-/// V0 checkpoint log. Emitted by the v0 checkpoint subprotocol.
-///
-/// Contains full checkpoint metadata including batch info, chainstate transition,
-/// and the L1 transaction ID. Superseded by [`CheckpointTipUpdate`] in the main
-/// (v1) checkpoint subprotocol.
-#[derive(Debug, Clone, Codec)]
-pub struct CheckpointUpdate {
-    /// Commitment to the epoch terminal block.
-    epoch_commitment: CodecSsz<EpochCommitment>,
-
-    /// Metadata describing the checkpoint batch.
-    batch_info: CodecSsz<BatchInfo>,
-
-    /// Hash of the L1 transaction that carried the checkpoint proof.
-    checkpoint_txid: CodecSsz<BitcoinTxid>,
-}
-
-impl CheckpointUpdate {
-    /// Create a new CheckpointUpdate instance.
-    pub fn new(
-        epoch_commitment: EpochCommitment,
-        batch_info: BatchInfo,
-        checkpoint_txid: BitcoinTxid,
-    ) -> Self {
-        Self {
-            epoch_commitment: CodecSsz::new(epoch_commitment),
-            batch_info: CodecSsz::new(batch_info),
-            checkpoint_txid: CodecSsz::new(checkpoint_txid),
-        }
-    }
-
-    /// Construct a `CheckpointUpdate` from a verified checkpoint instance.
-    pub fn from_checkpoint(checkpoint: &Checkpoint, checkpoint_txid: BitcoinTxid) -> Self {
-        let batch_info = checkpoint.batch_info();
-
-        Self::new(
-            batch_info.get_epoch_commitment(),
-            batch_info.clone(),
-            checkpoint_txid,
-        )
-    }
-
-    pub fn epoch_commitment(&self) -> EpochCommitment {
-        *self.epoch_commitment.inner()
-    }
-
-    pub fn batch_info(&self) -> &BatchInfo {
-        self.batch_info.inner()
-    }
-
-    pub fn checkpoint_txid(&self) -> &BitcoinTxid {
-        self.checkpoint_txid.inner()
-    }
-}
-
-impl AsmLog for CheckpointUpdate {
-    const TY: TypeId = CHECKPOINT_UPDATE_LOG_TYPE;
-}
-
-/// Records a verified [`CheckpointTip`] update from the v1 checkpoint subprotocol.
-///
-/// Unlike the v0 [`CheckpointUpdate`], this log only carries the tip
-/// (epoch, L1 height, L2 commitment). The inner [`CheckpointTip`] is
-/// encoded via [`CodecSsz`] per its SSZ schema.
+/// Records a verified [`CheckpointTip`] update from the checkpoint subprotocol.
 #[derive(Debug, Clone, Codec)]
 pub struct CheckpointTipUpdate {
     /// The new verified checkpoint tip.

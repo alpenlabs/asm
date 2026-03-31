@@ -1506,13 +1506,11 @@ name = "strata-asm-logs"
 version = "0.1.0"
 dependencies = [
  "strata-asm-common 0.1.0",
- "strata-checkpoint-types",
  "strata-checkpoint-types-ssz 0.1.0",
  "strata-codec",
  "strata-codec-utils",
  "strata-msg-fmt",
  "strata-predicate",
- "strata-primitives",
 ]
 
 [[package]]
@@ -1522,7 +1520,7 @@ source = "git+https://github.com/alpenlabs/alpen.git?rev=02fe60d1b74470da3db6735
 dependencies = [
  "strata-asm-common 0.1.0 (git+https://github.com/alpenlabs/alpen.git?rev=02fe60d1b74470da3db67352b2f74625eb2e0ed1)",
  "strata-checkpoint-types",
- "strata-checkpoint-types-ssz 0.1.0 (git+https://github.com/alpenlabs/alpen.git?rev=1cadb7b23a640726d66408dc94c5b60358056b51)",
+ "strata-checkpoint-types-ssz 0.1.0 (git+https://github.com/alpenlabs/alpen.git?rev=02fe60d1b74470da3db67352b2f74625eb2e0ed1)",
  "strata-codec",
  "strata-codec-utils",
  "strata-msg-fmt",

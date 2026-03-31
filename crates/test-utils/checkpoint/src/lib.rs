@@ -16,16 +16,12 @@ use strata_checkpoint_types_ssz::{
     compute_asm_manifests_hash_from_leaves, CheckpointClaim, CheckpointPayload, CheckpointSidecar,
     CheckpointTip, L2BlockRange, OLLog, TerminalHeaderComplement,
 };
-use strata_consensus_logic as _;
 use strata_crypto::hash;
 use strata_identifiers::{OLBlockCommitment, OLBlockId};
 use strata_merkle::{CompactMmr64, Mmr, Sha256Hasher};
-use strata_ol_chain_types as _;
-use strata_ol_chainstate_types as _;
-use strata_params as _;
 use strata_predicate::{PredicateKey, PredicateTypeId};
 use strata_primitives as _;
-use strata_test_utils::ArbitraryGenerator;
+use strata_test_utils_arb::ArbitraryGenerator;
 use strata_test_utils_btc as _;
 
 /// Test harness for generating valid checkpoint payloads.
