@@ -8700,9 +8700,9 @@ dependencies = [
 [[package]]
 name = "strata-checkpoint-types-ssz"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/alpen.git?rev=02fe60d1b74470da3db67352b2f74625eb2e0ed1#02fe60d1b74470da3db67352b2f74625eb2e0ed1"
 dependencies = [
  "borsh",
+ "proptest",
  "serde",
  "ssz",
  "ssz_codegen",
@@ -8712,6 +8712,7 @@ dependencies = [
  "strata-asm-manifest-types",
  "strata-identifiers 0.1.0 (git+https://github.com/alpenlabs/alpen.git?rev=02fe60d1b74470da3db67352b2f74625eb2e0ed1)",
  "strata-ol-chain-types-new",
+ "strata-test-utils-ssz",
  "thiserror 2.0.18",
  "tree_hash",
  "tree_hash_derive",
