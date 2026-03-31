@@ -40,11 +40,11 @@ impl<W: WorkerContext + Send + Sync + 'static> SyncService for AsmWorkerService<
     // TODO(STR-1928): add tests.
     fn process_input(
         state: &mut AsmWorkerServiceState<W>,
-        input: &AsmWorkerMessage,
+        input: AsmWorkerMessage,
     ) -> anyhow::Result<Response> {
         match input {
             AsmWorkerMessage::SubmitBlock(incoming_block, completion) => {
-                let result = process_block(state, incoming_block);
+                let result = process_block(state, &incoming_block);
                 let should_exit = result.is_err();
                 completion.send_blocking(result);
                 if should_exit {

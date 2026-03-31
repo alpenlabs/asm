@@ -12,8 +12,8 @@ moho-runtime-impl.workspace = true
 moho-runtime-interface.workspace = true
 moho-types.workspace = true
 strata-asm-rpc.workspace = true
-strata-btc-verification.workspace = true
 strata-bridge-common.workspace = true
+strata-btc-verification.workspace = true
 
 strata-asm-common.workspace = true
 strata-asm-params.workspace = true
