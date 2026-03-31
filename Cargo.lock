@@ -8297,6 +8297,7 @@ dependencies = [
  "strata-asm-worker",
  "strata-bridge-common",
  "strata-btc-types 0.1.0 (git+https://github.com/alpenlabs/alpen.git?rev=1cadb7b23a640726d66408dc94c5b60358056b51)",
+ "strata-btc-verification",
  "strata-db-store-sled",
  "strata-identifiers 0.1.0 (git+https://github.com/alpenlabs/alpen.git?rev=1cadb7b23a640726d66408dc94c5b60358056b51)",
  "strata-merkle",

@@ -12,6 +12,7 @@ use ssz::Encode;
 use strata_asm_proof_impl::moho_program::{input::AsmStepInput, program::AsmStfProgram};
 use strata_asm_proof_types::L1Range;
 use strata_btc_types::{BlockHashExt, L1BlockIdBitcoinExt};
+use strata_btc_verification::{self, TxidInclusionProof};
 use strata_identifiers::L1BlockCommitment;
 use strata_storage::AsmStateManager;
 
@@ -51,8 +52,13 @@ impl InputBuilder {
             .context("failed to fetch aux data")?
             .context("aux data not found for block")?;
 
+        let coinbase_inclusion_proof = match block.witness_root() {
+            Some(_) => Some(TxidInclusionProof::generate(&block.txdata, 0)),
+            None => None,
+        };
+
         // 3. Build the step input.
-        let step_input = AsmStepInput::new(block.clone(), aux_data, None);
+        let step_input = AsmStepInput::new(block.clone(), aux_data, coinbase_inclusion_proof);
 
         // 4. Fetch the pre-state (anchor state for the parent block).
         let parent_hash = block.header.prev_blockhash;
