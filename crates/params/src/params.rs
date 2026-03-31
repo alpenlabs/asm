@@ -4,7 +4,9 @@ use serde::{Deserialize, Serialize};
 use strata_btc_types::GenesisL1View;
 use strata_l1_txfmt::MagicBytes;
 
-use crate::subprotocols::SubprotocolInstance;
+use crate::subprotocols::{
+    AdministrationInitConfig, BridgeV1InitConfig, CheckpointInitConfig, SubprotocolInstance,
+};
 
 /// Top-level parameters for an ASM instance.
 ///
@@ -21,6 +23,29 @@ pub struct AsmParams {
 
     /// Ordered list of subprotocol configurations active in this ASM.
     pub subprotocols: Vec<SubprotocolInstance>,
+}
+
+impl AsmParams {
+    pub fn admin_config(&self) -> Option<&AdministrationInitConfig> {
+        self.subprotocols.iter().find_map(|s| match s {
+            SubprotocolInstance::Admin(cfg) => Some(cfg),
+            _ => None,
+        })
+    }
+
+    pub fn bridge_config(&self) -> Option<&BridgeV1InitConfig> {
+        self.subprotocols.iter().find_map(|s| match s {
+            SubprotocolInstance::Bridge(cfg) => Some(cfg),
+            _ => None,
+        })
+    }
+
+    pub fn checkpoint_config(&self) -> Option<&CheckpointInitConfig> {
+        self.subprotocols.iter().find_map(|s| match s {
+            SubprotocolInstance::Checkpoint(cfg) => Some(cfg),
+            _ => None,
+        })
+    }
 }
 
 #[cfg(feature = "arbitrary")]
