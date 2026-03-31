@@ -4156,7 +4156,6 @@ dependencies = [
  "strata-asm-proto-administration",
  "strata-asm-proto-bridge-v1",
  "strata-asm-proto-checkpoint",
- "strata-asm-proto-checkpoint-v0",
  "strata-asm-txs-admin",
  "strata-asm-txs-bridge-v1",
  "strata-asm-worker",
@@ -7992,7 +7991,6 @@ dependencies = [
  "ssz_derive",
  "strata-asm-common",
  "strata-asm-txs-checkpoint",
- "strata-asm-txs-checkpoint-v0",
  "strata-predicate",
  "strata-primitives 0.3.0-alpha.1 (git+https://github.com/alpenlabs/alpen.git?rev=1cadb7b23a640726d66408dc94c5b60358056b51)",
 ]
@@ -8205,24 +8203,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "strata-asm-proto-checkpoint-v0"
-version = "0.1.0"
-dependencies = [
- "ssz",
- "ssz_derive",
- "strata-asm-bridge-msgs",
- "strata-asm-checkpoint-msgs",
- "strata-asm-common",
- "strata-asm-logs",
- "strata-asm-txs-checkpoint-v0",
- "strata-checkpoint-types",
- "strata-identifiers 0.1.0 (git+https://github.com/alpenlabs/alpen.git?rev=1cadb7b23a640726d66408dc94c5b60358056b51)",
- "strata-predicate",
- "strata-primitives 0.3.0-alpha.1 (git+https://github.com/alpenlabs/alpen.git?rev=1cadb7b23a640726d66408dc94c5b60358056b51)",
- "thiserror 2.0.18",
-]
-
-[[package]]
 name = "strata-asm-proto-debug-v1"
 version = "0.1.0"
 dependencies = [
@@ -8321,9 +8301,7 @@ dependencies = [
  "strata-asm-proto-administration",
  "strata-asm-proto-bridge-v1",
  "strata-asm-proto-checkpoint",
- "strata-asm-proto-checkpoint-v0",
  "strata-l1-txfmt",
- "strata-primitives 0.3.0-alpha.1 (git+https://github.com/alpenlabs/alpen.git?rev=1cadb7b23a640726d66408dc94c5b60358056b51)",
 ]
 
 [[package]]
@@ -8401,20 +8379,6 @@ dependencies = [
  "strata-codec-utils",
  "strata-l1-envelope-fmt",
  "strata-l1-txfmt",
- "thiserror 2.0.18",
-]
-
-[[package]]
-name = "strata-asm-txs-checkpoint-v0"
-version = "0.1.0"
-dependencies = [
- "bitcoin",
- "ssz",
- "strata-asm-common",
- "strata-bridge-types 0.3.0-alpha.1 (git+https://github.com/alpenlabs/alpen.git?rev=1cadb7b23a640726d66408dc94c5b60358056b51)",
- "strata-checkpoint-types",
- "strata-l1-envelope-fmt",
- "strata-ol-chainstate-types",
  "thiserror 2.0.18",
 ]
 

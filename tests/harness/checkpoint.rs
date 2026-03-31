@@ -13,7 +13,7 @@
 //! ```
 
 use strata_asm_common::{AnchorState, Subprotocol};
-use strata_asm_proto_checkpoint_v0::{CheckpointV0Subproto, CheckpointV0VerifierState};
+use strata_asm_proto_checkpoint::{state::CheckpointState, subprotocol::CheckpointSubprotocol};
 
 use super::test_harness::AsmTestHarness;
 
@@ -21,13 +21,11 @@ use super::test_harness::AsmTestHarness;
 pub const SUBPROTOCOL_ID: u8 = 1;
 
 /// Extract checkpoint subprotocol state from AnchorState.
-pub fn extract_checkpoint_state(
-    anchor_state: &AnchorState,
-) -> anyhow::Result<CheckpointV0VerifierState> {
+pub fn extract_checkpoint_state(anchor_state: &AnchorState) -> anyhow::Result<CheckpointState> {
     let section = anchor_state
-        .find_section(CheckpointV0Subproto::ID)
+        .find_section(CheckpointSubprotocol::ID)
         .ok_or_else(|| anyhow::anyhow!("Checkpoint section not found"))?;
-    let checkpoint_state = section.try_to_state::<CheckpointV0Subproto>()?;
+    let checkpoint_state = section.try_to_state::<CheckpointSubprotocol>()?;
     Ok(checkpoint_state)
 }
 
@@ -41,11 +39,11 @@ pub fn extract_checkpoint_state(
 /// the core harness infrastructure-focused.
 pub trait CheckpointExt {
     /// Get checkpoint subprotocol state.
-    fn checkpoint_state(&self) -> anyhow::Result<CheckpointV0VerifierState>;
+    fn checkpoint_state(&self) -> anyhow::Result<CheckpointState>;
 }
 
 impl CheckpointExt for AsmTestHarness {
-    fn checkpoint_state(&self) -> anyhow::Result<CheckpointV0VerifierState> {
+    fn checkpoint_state(&self) -> anyhow::Result<CheckpointState> {
         let (_, asm_state) = self
             .get_latest_asm_state()?
             .ok_or_else(|| anyhow::anyhow!("No ASM state available"))?;

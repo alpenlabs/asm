@@ -17,7 +17,6 @@ use ssz as _;
 use strata_asm_common as _;
 use strata_asm_manifest_types as _;
 use strata_asm_proto_administration as _;
-use strata_asm_proto_checkpoint_v0 as _;
 use strata_asm_txs_admin as _;
 use strata_asm_worker as _;
 use strata_bridge_types as _;

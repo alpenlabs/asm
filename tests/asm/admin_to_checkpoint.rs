@@ -3,8 +3,8 @@
 //! Tests the propagation of admin updates to the checkpoint subprotocol.
 //!
 //! Key interactions tested:
-//! - Sequencer key updates → checkpoint cred_rule
-//! - Predicate updates → checkpoint predicate (after activation)
+//! - Sequencer key updates → checkpoint sequencer_predicate
+//! - Predicate updates → checkpoint checkpoint_predicate (after activation)
 
 #![allow(
     unused_crate_dependencies,
@@ -18,11 +18,10 @@ use harness::{
 };
 use integration_tests::harness;
 use strata_asm_txs_admin::actions::updates::predicate::ProofType;
-use strata_predicate::PredicateKey;
-use strata_primitives::block_credential::CredRule;
+use strata_predicate::{PredicateKey, PredicateTypeId};
 
 // ============================================================================
-// Sequencer Key → Checkpoint Cred Rule
+// Sequencer Key → Checkpoint Sequencer Predicate
 // ============================================================================
 
 /// Verifies sequencer key updates propagate to checkpoint subprotocol.
@@ -39,7 +38,7 @@ async fn test_sequencer_update_propagates_to_checkpoint() {
     harness.mine_block(None).await.unwrap();
 
     let initial_checkpoint_state = harness.checkpoint_state().unwrap();
-    let initial_cred_rule = initial_checkpoint_state.cred_rule.clone();
+    let initial_sequencer_predicate = initial_checkpoint_state.sequencer_predicate.clone();
 
     // Submit a sequencer key update
     let new_key = [42u8; 32];
@@ -51,24 +50,16 @@ async fn test_sequencer_update_propagates_to_checkpoint() {
     let final_checkpoint_state = harness.checkpoint_state().unwrap();
 
     assert_ne!(
-        final_checkpoint_state.cred_rule, initial_cred_rule,
-        "Checkpoint cred_rule should be updated after sequencer key change"
+        final_checkpoint_state.sequencer_predicate, initial_sequencer_predicate,
+        "Checkpoint sequencer_predicate should be updated after sequencer key change"
     );
 
-    // Verify it's specifically a SchnorrKey with our new key
-    match &final_checkpoint_state.cred_rule {
-        CredRule::SchnorrKey(key) => {
-            assert_eq!(
-                key.as_ref(),
-                &new_key,
-                "Checkpoint should have the new sequencer key"
-            );
-        }
-        other => panic!(
-            "Expected SchnorrKey cred_rule after sequencer update, got {:?}",
-            other
-        ),
-    }
+    // Verify it's specifically a Bip340Schnorr predicate with our new key
+    let expected = PredicateKey::new(PredicateTypeId::Bip340Schnorr, new_key.to_vec());
+    assert_eq!(
+        final_checkpoint_state.sequencer_predicate, expected,
+        "Checkpoint should have the new sequencer predicate"
+    );
 }
 
 /// Verifies multiple sequential sequencer key updates result in checkpoint having the latest key.
@@ -104,16 +95,11 @@ async fn test_multiple_sequencer_updates_checkpoint_has_latest() {
 
     // Checkpoint should have the latest key (key3)
     let checkpoint_state = harness.checkpoint_state().unwrap();
-    match &checkpoint_state.cred_rule {
-        CredRule::SchnorrKey(key) => {
-            assert_eq!(
-                key.as_ref(),
-                &key3,
-                "Checkpoint should have the latest sequencer key"
-            );
-        }
-        other => panic!("Expected SchnorrKey cred_rule, got {:?}", other),
-    }
+    let expected = PredicateKey::new(PredicateTypeId::Bip340Schnorr, key3.to_vec());
+    assert_eq!(
+        checkpoint_state.sequencer_predicate, expected,
+        "Checkpoint should have the latest sequencer predicate"
+    );
 
     // All 3 updates should have been processed
     let state = harness.admin_state().unwrap();
@@ -147,7 +133,7 @@ async fn test_predicate_update_propagates_to_checkpoint() {
     harness.mine_block(None).await.unwrap();
 
     let initial_checkpoint_state = harness.checkpoint_state().unwrap();
-    let initial_predicate = initial_checkpoint_state.predicate.clone();
+    let initial_predicate = initial_checkpoint_state.checkpoint_predicate.clone();
 
     // Submit a predicate update (gets queued for StrataAdministrator role)
     let new_predicate = PredicateKey::always_accept();
@@ -166,7 +152,7 @@ async fn test_predicate_update_propagates_to_checkpoint() {
     // Checkpoint predicate should be unchanged while update is queued
     let checkpoint_state = harness.checkpoint_state().unwrap();
     assert_eq!(
-        checkpoint_state.predicate, initial_predicate,
+        checkpoint_state.checkpoint_predicate, initial_predicate,
         "Checkpoint predicate should not change while update is queued"
     );
 
@@ -177,7 +163,7 @@ async fn test_predicate_update_propagates_to_checkpoint() {
     // Now verify checkpoint's predicate has been updated
     let final_checkpoint_state = harness.checkpoint_state().unwrap();
     assert_eq!(
-        final_checkpoint_state.predicate, new_predicate,
+        final_checkpoint_state.checkpoint_predicate, new_predicate,
         "Checkpoint predicate should be updated after activation"
     );
 
@@ -219,17 +205,13 @@ async fn test_sequencer_and_predicate_updates_both_apply() {
         .unwrap();
 
     // Checkpoint should already have new sequencer key
+    let expected_seq_predicate =
+        PredicateKey::new(PredicateTypeId::Bip340Schnorr, new_sequencer_key.to_vec());
     let mid_checkpoint_state = harness.checkpoint_state().unwrap();
-    match &mid_checkpoint_state.cred_rule {
-        CredRule::SchnorrKey(key) => {
-            assert_eq!(
-                key.as_ref(),
-                &new_sequencer_key,
-                "Sequencer key should be updated immediately"
-            );
-        }
-        other => panic!("Expected SchnorrKey cred_rule, got {:?}", other),
-    }
+    assert_eq!(
+        mid_checkpoint_state.sequencer_predicate, expected_seq_predicate,
+        "Sequencer predicate should be updated immediately"
+    );
 
     // Submit predicate update (gets queued with activation_height = current + confirmation_depth)
     let new_predicate = PredicateKey::always_accept();
@@ -244,8 +226,8 @@ async fn test_sequencer_and_predicate_updates_both_apply() {
     // Predicate should still be initial (update is queued)
     let checkpoint_state = harness.checkpoint_state().unwrap();
     assert_eq!(
-        checkpoint_state.predicate, initial_checkpoint_state.predicate,
-        "Predicate should not change yet (update is queued)"
+        checkpoint_state.checkpoint_predicate, initial_checkpoint_state.checkpoint_predicate,
+        "Checkpoint predicate should not change yet (update is queued)"
     );
 
     // Admin should have the update queued
@@ -270,18 +252,12 @@ async fn test_sequencer_and_predicate_updates_both_apply() {
 
     // Now both should be updated in checkpoint
     let final_checkpoint_state = harness.checkpoint_state().unwrap();
-    match &final_checkpoint_state.cred_rule {
-        CredRule::SchnorrKey(key) => {
-            assert_eq!(
-                key.as_ref(),
-                &new_sequencer_key,
-                "Sequencer key should still be the new value"
-            );
-        }
-        other => panic!("Expected SchnorrKey cred_rule, got {:?}", other),
-    }
     assert_eq!(
-        final_checkpoint_state.predicate, new_predicate,
-        "Predicate should now be updated after activation"
+        final_checkpoint_state.sequencer_predicate, expected_seq_predicate,
+        "Sequencer predicate should still be the new value"
+    );
+    assert_eq!(
+        final_checkpoint_state.checkpoint_predicate, new_predicate,
+        "Checkpoint predicate should now be updated after activation"
     );
 }
