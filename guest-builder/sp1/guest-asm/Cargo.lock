@@ -2619,6 +2619,7 @@ name = "zkaleido"
 version = "0.1.0"
 source = "git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc22#c084082b8f9e7f62406878313d25b9225f278188"
 dependencies = [
+ "async-trait",
  "bincode",
  "borsh",
  "serde",
@@ -2630,7 +2631,9 @@ name = "zkaleido-native-adapter"
 version = "0.1.0"
 source = "git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc22#c084082b8f9e7f62406878313d25b9225f278188"
 dependencies = [
+ "async-trait",
  "bincode",
+ "hex",
  "k256",
  "rand_core 0.6.4",
  "serde",

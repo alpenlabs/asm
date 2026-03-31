@@ -3,13 +3,21 @@ use std::sync::Arc;
 use anyhow::Result;
 use bitcoind_async_client::{Auth, Client};
 use strata_asm_params::AsmParams;
+use strata_asm_proof_db::SledProofDb;
+use strata_asm_proof_impl::program::AsmStfProofProgram;
+use strata_asm_spec::StrataAsmSpec;
 use strata_asm_worker::AsmWorkerBuilder;
 use strata_tasks::TaskExecutor;
-use tokio::runtime::Handle;
+use tokio::{
+    runtime::{Builder as RuntimeBuilder, Handle},
+    sync::mpsc,
+    task::{self, LocalSet},
+};
 
 use crate::{
     block_driver::{drive_asm_from_btc_tracker, setup_btc_tracker},
     config::{AsmRpcConfig, BitcoinConfig},
+    prover::{InputBuilder, ProofOrchestrator},
     rpc_server::run_rpc_server,
     storage::create_storage_managers,
     worker_context::AsmWorkerContext,
@@ -43,28 +51,73 @@ pub(crate) async fn bootstrap(
     // 5. Set up BtcTracker to drive ASM
     let start_height = match asm_worker.monitor().get_current().cur_block {
         Some(blk) => blk.height(),
-        None => params.l1_view.height(),
+        None => params.l1_view.height() + 1,
     };
     let btc_tracker = Arc::new(
         setup_btc_tracker(&config.bitcoin, bitcoin_client.clone(), start_height as u64).await?,
     );
     let asm_worker = Arc::new(asm_worker);
 
-    // 6. Spawn block driver as a critical task
+    // 6. Optionally create the proof channel and spawn the orchestrator
+    let (proof_tx, proof_db_for_rpc) = if let Some(orch_config) = config.orchestrator {
+        let (tx, rx) = mpsc::unbounded_channel();
+
+        let proof_db = SledProofDb::open(&orch_config.proof_db_path)?;
+        let proof_db_clone = proof_db.clone();
+
+        let spec = StrataAsmSpec::from_asm_params(&params);
+        let native_host = AsmStfProofProgram::native_host(spec);
+
+        let input_builder = InputBuilder::new(asm_manager.clone(), bitcoin_client.clone());
+        let mut orchestrator =
+            ProofOrchestrator::new(proof_db, native_host, orch_config, input_builder, rx);
+
+        // ZkVmRemoteProver is !Send (#[async_trait(?Send)]), so the orchestrator
+        // future cannot be spawned on a multi-threaded runtime directly. We run it
+        // on a dedicated thread with a single-threaded runtime + LocalSet.
+        executor.spawn_critical_async_with_shutdown(
+            "proof_orchestrator",
+            move |shutdown| async move {
+                task::spawn_blocking(move || {
+                    let rt = RuntimeBuilder::new_current_thread().enable_all().build()?;
+                    let local = LocalSet::new();
+                    rt.block_on(local.run_until(async move { orchestrator.run(shutdown).await }))
+                })
+                .await?
+            },
+        );
+
+        (Some(tx), Some(proof_db_clone))
+    } else {
+        (None, None)
+    };
+
+    // 7. Spawn block driver as a critical task
     let btc_tracker_for_driver = btc_tracker.clone();
     let asm_worker_for_driver = asm_worker.clone();
-    executor.spawn_critical_async(
-        "block_driver",
-        drive_asm_from_btc_tracker(btc_tracker_for_driver, asm_worker_for_driver),
-    );
+    executor.spawn_critical_async_with_shutdown("block_driver", move |shutdown| {
+        drive_asm_from_btc_tracker(
+            btc_tracker_for_driver,
+            asm_worker_for_driver,
+            proof_tx,
+            shutdown,
+        )
+    });
 
-    // 7. Spawn RPC server as a critical task
+    // 8. Spawn RPC server as a critical task
     let rpc_host = config.rpc.host.clone();
     let rpc_port = config.rpc.port;
-    executor.spawn_critical_async(
-        "rpc_server",
-        run_rpc_server(asm_manager, asm_worker, bitcoin_client, rpc_host, rpc_port),
-    );
+    executor.spawn_critical_async_with_shutdown("rpc_server", move |shutdown| {
+        run_rpc_server(
+            asm_manager,
+            asm_worker,
+            bitcoin_client,
+            proof_db_for_rpc,
+            rpc_host,
+            rpc_port,
+            shutdown,
+        )
+    });
 
     Ok(())
 }

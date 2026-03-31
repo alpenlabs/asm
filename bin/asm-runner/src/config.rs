@@ -4,6 +4,8 @@ use std::{path::PathBuf, time::Duration};
 
 use serde::{Deserialize, Serialize};
 
+use crate::prover::config::OrchestratorConfig;
+
 /// Main configuration structure
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct AsmRpcConfig {
@@ -13,6 +15,8 @@ pub(crate) struct AsmRpcConfig {
     pub database: DatabaseConfig,
     /// Bitcoin node configuration
     pub bitcoin: BitcoinConfig,
+    /// Proof orchestrator configuration (optional — omit to disable proof generation).
+    pub orchestrator: Option<OrchestratorConfig>,
 }
 
 /// RPC server configuration

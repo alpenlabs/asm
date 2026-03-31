@@ -12,6 +12,8 @@ use jsonrpsee::{
     types::{ErrorObject, ErrorObjectOwned},
 };
 use ssz::Decode;
+use strata_asm_proof_db::{ProofDb, SledProofDb};
+use strata_asm_proof_types::{AsmProof, L1Range, MohoProof};
 use strata_asm_proto_bridge_v1::{AssignmentEntry, BridgeV1State, DepositEntry};
 use strata_asm_rpc::traits::AssignmentsApiServer;
 use strata_asm_txs_bridge_v1::BRIDGE_V1_SUBPROTOCOL_ID;
@@ -19,6 +21,7 @@ use strata_asm_worker::{AsmWorkerHandle, AsmWorkerStatus};
 use strata_btc_types::BlockHashExt;
 use strata_identifiers::L1BlockCommitment;
 use strata_storage::AsmStateManager;
+use strata_tasks::ShutdownGuard;
 use tracing::info;
 
 /// Convert any error to an RPC error
@@ -31,19 +34,22 @@ pub(crate) struct AsmRpcServer {
     asm_manager: Arc<AsmStateManager>,
     asm_worker: Arc<AsmWorkerHandle>,
     bitcoin_client: Arc<Client>,
+    proof_db: Option<SledProofDb>,
 }
 
 impl AsmRpcServer {
     /// Create a new ASM RPC server
-    pub(crate) const fn new(
+    pub(crate) fn new(
         asm_manager: Arc<AsmStateManager>,
         asm_worker: Arc<AsmWorkerHandle>,
         bitcoin_client: Arc<Client>,
+        proof_db: Option<SledProofDb>,
     ) -> Self {
         Self {
             asm_manager,
             asm_worker,
             bitcoin_client,
+            proof_db,
         }
     }
 }
@@ -103,6 +109,33 @@ impl AssignmentsApiServer for AsmRpcServer {
     async fn get_status(&self) -> RpcResult<AsmWorkerStatus> {
         Ok(self.asm_worker.monitor().get_current())
     }
+
+    async fn get_asm_proof(&self, block_hash: BlockHash) -> RpcResult<Option<AsmProof>> {
+        let Some(ref db) = self.proof_db else {
+            return Ok(None);
+        };
+
+        let commitment = self
+            .to_block_commitment(block_hash)
+            .await
+            .map_err(to_rpc_error)?;
+        let range = L1Range::single(commitment);
+
+        db.get_asm_proof(range).await.map_err(to_rpc_error)
+    }
+
+    async fn get_moho_proof(&self, block_hash: BlockHash) -> RpcResult<Option<MohoProof>> {
+        let Some(ref db) = self.proof_db else {
+            return Ok(None);
+        };
+
+        let commitment = self
+            .to_block_commitment(block_hash)
+            .await
+            .map_err(to_rpc_error)?;
+
+        db.get_moho_proof(commitment).await.map_err(to_rpc_error)
+    }
 }
 
 /// Run the RPC server
@@ -110,21 +143,31 @@ pub(crate) async fn run_rpc_server(
     asm_manager: Arc<AsmStateManager>,
     asm_worker: Arc<AsmWorkerHandle>,
     bitcoin_client: Arc<Client>,
+    proof_db: Option<SledProofDb>,
     rpc_host: String,
     rpc_port: u16,
+    shutdown: ShutdownGuard,
 ) -> Result<()> {
-    let rpc_server = AsmRpcServer::new(asm_manager, asm_worker, bitcoin_client);
+    let rpc_server = AsmRpcServer::new(asm_manager, asm_worker, bitcoin_client, proof_db);
 
     let server = ServerBuilder::default()
         .build(format!("{}:{}", rpc_host, rpc_port))
         .await?;
 
     let rpc_handle = server.start(rpc_server.into_rpc());
+    let rpc_handle_for_shutdown = rpc_handle.clone();
+    let rpc_handle_for_stop = rpc_handle.clone();
 
     info!("ASM RPC server listening on {}:{}", rpc_host, rpc_port);
 
-    // Run until cancelled
-    rpc_handle.stopped().await;
+    tokio::select! {
+        _ = shutdown.wait_for_shutdown() => {
+            info!("ASM RPC server shutting down");
+            let _ = rpc_handle.stop();
+            rpc_handle_for_shutdown.stopped().await;
+        }
+        _ = rpc_handle_for_stop.stopped() => {}
+    }
 
     Ok(())
 }

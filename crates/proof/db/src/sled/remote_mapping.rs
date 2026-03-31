@@ -1,6 +1,6 @@
 //! [`RemoteProofMappingDb`] implementation for [`SledProofDb`].
 
-use std::fmt;
+use std::{error::Error, fmt};
 
 use borsh::BorshDeserialize;
 use strata_asm_proof_types::{ProofId, RemoteProofId};
@@ -38,6 +38,15 @@ impl fmt::Display for RemoteProofMappingError {
                 "remote proof ID {remote_id:?} is already mapped to {existing:?}, \
                  cannot remap to {attempted:?}"
             ),
+        }
+    }
+}
+
+impl Error for RemoteProofMappingError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match self {
+            Self::Db(e) => Some(e),
+            _ => None,
         }
     }
 }

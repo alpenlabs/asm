@@ -22,8 +22,8 @@ def setup_root_logger():
     root_logger.addHandler(stream_handler)
 
 
-def setup_test_logger(datadir_root: str, test_name: str) -> logging.Logger:
-    """Attach a per-test file handler and return a logger for the test."""
+def setup_test_logger(datadir_root: str, test_name: str) -> None:
+    """Attach a per-test file handler to the root logger."""
     log_dir = os.path.join(datadir_root, "logs")
     os.makedirs(log_dir, exist_ok=True)
     log_path = os.path.join(log_dir, f"{test_name}.log")
@@ -38,11 +38,3 @@ def setup_test_logger(datadir_root: str, test_name: str) -> logging.Logger:
     file_handler.setFormatter(FORMATTER)
     setattr(file_handler, TEST_FILE_HANDLER_ATTR, True)
     root_logger.addHandler(file_handler)
-
-    logger = logging.getLogger(f"root.{test_name}")
-    logger.handlers.clear()
-    logger.propagate = True
-    logger.setLevel(
-        getattr(logging, os.getenv("LOG_LEVEL", DEFAULT_LOG_LEVEL).upper(), logging.NOTSET)
-    )
-    return logger

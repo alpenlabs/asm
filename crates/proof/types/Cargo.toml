@@ -8,5 +8,6 @@ workspace = true
 
 [dependencies]
 borsh.workspace = true
+serde.workspace = true
 strata-identifiers.workspace = true
-zkaleido = { workspace = true, features = ["remote-prover"] }
+zkaleido.workspace = true

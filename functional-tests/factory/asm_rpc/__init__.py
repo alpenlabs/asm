@@ -10,7 +10,14 @@ import toml
 
 from rpc import inject_service_create_rpc
 
-from .config_cfg import AsmRpcConfig, BitcoinConfig, DatabaseConfig, Duration, RpcConfig
+from .config_cfg import (
+    AsmRpcConfig,
+    BitcoinConfig,
+    DatabaseConfig,
+    Duration,
+    OrchestratorConfig,
+    RpcConfig,
+)
 
 EXPECTED_TARGET_PATHS = (
     "target/debug/strata-asm-runner",
@@ -37,12 +44,14 @@ class AsmRpcFactory(flexitest.Factory):
 
         rpc_port = self.next_port()
         db_path = str((envdd_path / service_name / "db").resolve())
+        proof_db_path = str((envdd_path / service_name / "proof_db").resolve())
 
         config_toml_path = str((envdd_path / service_name / "config.toml").resolve())
         generate_asm_rpc_config(
             bitcoind_props=bitcoind_props,
             rpc_port=rpc_port,
             db_path=db_path,
+            proof_db_path=proof_db_path,
             output_path=config_toml_path,
         )
 
@@ -63,6 +72,7 @@ class AsmRpcFactory(flexitest.Factory):
 
         rpc_url = f"http://127.0.0.1:{rpc_port}"
         svc = flexitest.service.ProcService(props, cmd, stdout=logfile)
+        svc.stop_timeout = 10
         svc.start()
         inject_service_create_rpc(svc, rpc_url, service_name)
         return svc
@@ -95,6 +105,7 @@ def generate_asm_rpc_config(
     bitcoind_props: dict,
     rpc_port: int,
     db_path: str,
+    proof_db_path: str,
     output_path: str,
 ):
     """Generate ASM RPC configuration TOML file."""
@@ -114,7 +125,29 @@ def generate_asm_rpc_config(
             retry_count=3,
             retry_interval=Duration(secs=1, nanos=0),
         ),
+        orchestrator=OrchestratorConfig(
+            tick_interval=Duration(secs=1, nanos=0),
+            max_concurrent_asm_proofs=4,
+            proof_db_path=proof_db_path,
+        ),
     )
 
+    config_dict = asdict(config)
+    # Remove None values — Rust expects the key to be absent for Option::None
+    config_dict = _strip_none(config_dict)
+
     with open(output_path, "w") as f:
-        toml.dump(asdict(config), f)
+        toml.dump(config_dict, f)
+
+
+def _strip_none(d: dict) -> dict:
+    """Recursively remove keys with None values from a dict."""
+    cleaned = {}
+    for k, v in d.items():
+        if v is None:
+            continue
+        if isinstance(v, dict):
+            cleaned[k] = _strip_none(v)
+        else:
+            cleaned[k] = v
+    return cleaned
