@@ -6,10 +6,8 @@ version = "0.1.0"
 [workspace]
 
 [dependencies]
-serde_json = "1.0"
-strata-asm-params = { path = "../../../crates/params" }
 strata-asm-proof-impl = { path = "../../../crates/proof/statements" }
-strata-asm-spec = { path = "../../../crates/spec" }
+strata-asm-spec = { path = "../../../crates/spec", features = ["serde_json"] }
 zkaleido-sp1-guest-env = { git = "https://github.com/alpenlabs/zkaleido", tag = "v0.1.0-alpha-rc22" }
 
 [patch.crates-io]
