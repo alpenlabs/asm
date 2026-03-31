@@ -25,12 +25,10 @@ impl AsmSpec for StrataAsmSpec {
 
     fn load_subprotocols(&self, loader: &mut impl Loader) {
         // unwrap is safe: validated at construction
-        loader.load_subprotocol::<AdministrationSubprotocol>(
-            self.0.admin_config().unwrap().clone(),
-        );
-        loader.load_subprotocol::<CheckpointSubprotocol>(
-            self.0.checkpoint_config().unwrap().clone(),
-        );
+        loader
+            .load_subprotocol::<AdministrationSubprotocol>(self.0.admin_config().unwrap().clone());
+        loader
+            .load_subprotocol::<CheckpointSubprotocol>(self.0.checkpoint_config().unwrap().clone());
         loader.load_subprotocol::<BridgeV1Subproto>(self.0.bridge_config().unwrap().clone());
     }
 
@@ -43,6 +41,7 @@ impl AsmSpec for StrataAsmSpec {
 
 impl StrataAsmSpec {
     /// Creates a new ASM spec, validating that all required subprotocols are present.
+    #[cfg(not(target_os = "zkvm"))]
     pub fn new(params: AsmParams) -> Self {
         assert!(
             params.admin_config().is_some(),
@@ -59,8 +58,19 @@ impl StrataAsmSpec {
         Self(params)
     }
 
+    #[cfg(not(target_os = "zkvm"))]
     pub fn from_asm_params(params: &AsmParams) -> Self {
         Self::new(params.clone())
+    }
+
+    /// Creates an ASM spec from the `ASM_PARAMS_JSON` environment variable that was
+    /// validated and embedded at compile time by the build script.
+    #[cfg(target_os = "zkvm")]
+    pub fn new() -> Self {
+        const ASM_PARAMS_JSON: &str = env!("ASM_PARAMS_JSON");
+        let params: AsmParams =
+            serde_json::from_str(ASM_PARAMS_JSON).expect("ASM_PARAMS_JSON validated at build time");
+        Self(params)
     }
 
     /// Returns a reference to the inner [`AsmParams`].
