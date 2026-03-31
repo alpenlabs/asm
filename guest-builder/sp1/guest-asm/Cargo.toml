@@ -7,7 +7,7 @@ version = "0.1.0"
 
 [dependencies]
 strata-asm-proof-impl = { path = "../../../crates/proof/statements" }
-strata-asm-spec = { path = "../../../crates/spec", features = ["serde_json"] }
+strata-asm-spec = { path = "../../../crates/spec" }
 zkaleido-sp1-guest-env = { git = "https://github.com/alpenlabs/zkaleido", tag = "v0.1.0-alpha-rc22" }
 
 [patch.crates-io]
