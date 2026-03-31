@@ -55,6 +55,7 @@ jobs:
           ZKVM_MOCK: "1"
           ZKVM_PROFILING: "1"
         run: |
+          export ASM_PARAMS_JSON="$(cat bin/prover-perf/asm-params.json)"
           cargo run --release -p strata-asm-prover-perf -- \
             --post-to-gh \
             --github-token "${{ secrets.GITHUB_TOKEN }}" \
@@ -68,4 +69,6 @@ jobs:
         env:
           ZKVM_MOCK: "1"
           ZKVM_PROFILING: "1"
-        run: cargo run --release -p strata-asm-prover-perf -- --programs asm-stf
+        run: |
+          export ASM_PARAMS_JSON="$(cat bin/prover-perf/asm-params.json)"
+          cargo run --release -p strata-asm-prover-perf -- --programs asm-stf

@@ -1,0 +1,11 @@
+[package]
+name = "strata-asm-sp1-guest-builder"
+version = "0.1.0"
+edition = "2021"
+
+[features]
+default = []
+docker-build = []
+
+[build-dependencies]
+sp1-build = "5.2.1"

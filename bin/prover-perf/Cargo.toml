@@ -16,6 +16,7 @@ doc = false
 [dependencies]
 moho-recursive-proof = { workspace = true, features = ["test-utils"] }
 strata-asm-proof-impl = { workspace = true, features = ["test-utils"] }
+strata-asm-sp1-guest-builder = { path = "../../guest-builder/sp1" }
 
 zkaleido = { workspace = true, features = ["perf"] }
 
@@ -29,10 +30,6 @@ reqwest = { version = "0.12.28", default-features = false, features = [
 ] }
 serde_json.workspace = true
 sp1-sdk = "5.2.1"
-# FIXME: (@prajwolrg) use a proper tag
 zkaleido-sp1-host = { git = "https://github.com/alpenlabs/zkaleido", tag = "v0.1.0-alpha-rc22", features = [
   "perf",
 ] }
-
-[build-dependencies]
-sp1-build = "5.2.1"
