@@ -11,6 +11,8 @@ use strata_asm_proto_bridge_v1::BridgeV1Subproto;
 use strata_asm_proto_checkpoint::subprotocol::CheckpointSubprotocol;
 use strata_l1_txfmt::MagicBytes;
 
+mod genesis;
+
 /// ASM specification for the Strata protocol.
 ///
 /// Implements the [`AsmSpec`] trait to define subprotocol processing order,

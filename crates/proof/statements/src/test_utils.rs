@@ -3,7 +3,7 @@
 //! This module is intended for integration binaries/tests that need a known-good
 //! `RuntimeInput`/`StrataAsmSpec` pair for exercising the proof program.
 
-use bitcoin::Block;
+use bitcoin::{params::Params, Block};
 use moho_runtime_impl::RuntimeInput;
 use moho_runtime_interface::MohoProgram;
 use moho_types::{ExportState, MohoState};
@@ -13,7 +13,7 @@ use strata_asm_common::{
 };
 use strata_asm_params::{AsmParams, SubprotocolInstance};
 use strata_asm_spec::StrataAsmSpec;
-use strata_btc_types::{BlockHashExt, GenesisL1View};
+use strata_btc_types::{BlockHashExt, BtcParams, GenesisL1View};
 use strata_btc_verification::TxidInclusionProof;
 use strata_identifiers::L1BlockCommitment;
 use strata_l1_txfmt::MagicBytes;
@@ -74,6 +74,7 @@ pub fn create_asm_spec(genesis_view: GenesisL1View) -> StrataAsmSpec {
         serde_json::from_str(SUBPROTOCOLS_JSON).expect("deserialize subprotocols");
     let params = AsmParams {
         magic: MagicBytes::new(*b"ALPN"),
+        btc_params: BtcParams::from(Params::MAINNET),
         l1_view: genesis_view,
         subprotocols,
     };

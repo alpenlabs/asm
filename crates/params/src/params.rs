@@ -1,7 +1,7 @@
 #[cfg(feature = "arbitrary")]
 use arbitrary::{Arbitrary, Unstructured};
 use serde::{Deserialize, Serialize};
-use strata_btc_types::GenesisL1View;
+use strata_btc_types::{BtcParams, GenesisL1View};
 use strata_l1_txfmt::MagicBytes;
 
 use crate::subprotocols::{
@@ -20,6 +20,8 @@ pub struct AsmParams {
 
     /// Genesis L1 view used to bootstrap PoW header verification.
     pub l1_view: GenesisL1View,
+
+    pub btc_params: BtcParams,
 
     /// Ordered list of subprotocol configurations active in this ASM.
     pub subprotocols: Vec<SubprotocolInstance>,
@@ -66,9 +68,12 @@ impl<'a> Arbitrary<'a> for AsmParams {
             last_11_timestamps: u.arbitrary::<[u32; TIMESTAMPS_FOR_MEDIAN]>()?,
         };
 
+        let btc_params = BtcParams::arbitrary(u)?;
+
         Ok(Self {
             magic: MagicBytes::new(*b"ALPN"),
             l1_view,
+            btc_params,
             subprotocols: vec![
                 SubprotocolInstance::Admin(AdministrationInitConfig::arbitrary(u)?),
                 SubprotocolInstance::Checkpoint(CheckpointInitConfig::arbitrary(u)?),
