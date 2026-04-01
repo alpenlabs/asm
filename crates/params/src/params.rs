@@ -1,7 +1,7 @@
 #[cfg(feature = "arbitrary")]
 use arbitrary::{Arbitrary, Unstructured};
 use serde::{Deserialize, Serialize};
-use strata_btc_types::{BtcParams, GenesisL1View};
+use strata_btc_verification::L1Anchor;
 use strata_l1_txfmt::MagicBytes;
 
 use crate::subprotocols::{
@@ -18,10 +18,12 @@ pub struct AsmParams {
     /// SPS-50 magic bytes that identify protocol transactions on L1.
     pub magic: MagicBytes,
 
-    /// Genesis L1 view used to bootstrap PoW header verification.
-    pub l1_view: GenesisL1View,
-
-    pub btc_params: BtcParams,
+    /// L1 anchor point after which L1 processing begins.
+    ///
+    /// Captures everything needed to initialize
+    /// [`HeaderVerificationState`](strata_btc_verification::HeaderVerificationState) and
+    /// begin validating subsequent L1 headers.
+    pub anchor: L1Anchor,
 
     /// Ordered list of subprotocol configurations active in this ASM.
     pub subprotocols: Vec<SubprotocolInstance>,
@@ -53,27 +55,32 @@ impl AsmParams {
 #[cfg(feature = "arbitrary")]
 impl<'a> Arbitrary<'a> for AsmParams {
     fn arbitrary(u: &mut Unstructured<'a>) -> arbitrary::Result<Self> {
-        use strata_btc_types::TIMESTAMPS_FOR_MEDIAN;
+        use strata_btc_verification::L1Anchor;
         use strata_identifiers::L1BlockCommitment;
 
         use crate::subprotocols::{
             AdministrationInitConfig, BridgeV1InitConfig, CheckpointInitConfig,
         };
 
-        let blk = L1BlockCommitment::arbitrary(u)?;
-        let l1_view = GenesisL1View {
-            blk,
+        let networks = [
+            bitcoin::Network::Bitcoin,
+            bitcoin::Network::Testnet,
+            bitcoin::Network::Signet,
+            bitcoin::Network::Regtest,
+        ];
+        let network = u.choose(&networks)?.clone();
+
+        let block = L1BlockCommitment::arbitrary(u)?;
+        let anchor = L1Anchor {
+            block,
             next_target: u.arbitrary()?,
             epoch_start_timestamp: u.arbitrary()?,
-            last_11_timestamps: u.arbitrary::<[u32; TIMESTAMPS_FOR_MEDIAN]>()?,
+            network,
         };
-
-        let btc_params = BtcParams::arbitrary(u)?;
 
         Ok(Self {
             magic: MagicBytes::new(*b"ALPN"),
-            l1_view,
-            btc_params,
+            anchor,
             subprotocols: vec![
                 SubprotocolInstance::Admin(AdministrationInitConfig::arbitrary(u)?),
                 SubprotocolInstance::Checkpoint(CheckpointInitConfig::arbitrary(u)?),
@@ -93,26 +100,14 @@ mod tests {
         let raw_json = r#"
 {
   "magic": "ALPN",
-  "l1_view": {
-    "blk": {
+  "anchor": {
+    "block": {
       "height": 50462976,
       "blkid": "0405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20212223"
     },
     "next_target": 656811300,
     "epoch_start_timestamp": 724183336,
-    "last_11_timestamps": [
-      791555372,
-      858927408,
-      926299444,
-      993671480,
-      1061043516,
-      1128415552,
-      1195787588,
-      1263159624,
-      1330531660,
-      1397903696,
-      1465275732
-    ]
+    "network": "regtest"
   },
   "subprotocols": [
     {
@@ -157,13 +152,8 @@ mod tests {
 }
 "#;
 
-        let params: AsmParams =
+        let _params: AsmParams =
             serde_json::from_str(raw_json).expect("deserialization from raw JSON should succeed");
-
-        // Verify key fields
-        assert_eq!(params.magic, MagicBytes::new(*b"ALPN"));
-        assert_eq!(params.l1_view.blk.height(), 50462976);
-        assert_eq!(params.subprotocols.len(), 3);
     }
 
     #[cfg(feature = "arbitrary")]

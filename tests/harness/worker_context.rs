@@ -12,7 +12,8 @@ use bitcoin::{block::Header, Block, BlockHash, Network, Txid};
 use bitcoind_async_client::{traits::Reader, Client};
 use strata_asm_manifest_types::AsmManifest;
 use strata_asm_worker::{WorkerContext, WorkerError, WorkerResult};
-use strata_btc_types::{BlockHashExt, GenesisL1View, L1BlockIdBitcoinExt, RawBitcoinTx};
+use strata_btc_types::{BlockHashExt, L1BlockIdBitcoinExt, RawBitcoinTx};
+use strata_btc_verification::L1Anchor;
 use strata_merkle::{CompactMmr64, MerkleProofB32, Mmr, Sha256Hasher};
 use strata_primitives::{
     buf::Buf32,
@@ -230,10 +231,7 @@ impl WorkerContext for TestAsmWorkerContext {
 }
 
 /// Helper to construct GenesisL1View from a block hash using the client.
-pub async fn get_genesis_l1_view(
-    client: &Client,
-    hash: &BlockHash,
-) -> anyhow::Result<GenesisL1View> {
+pub async fn get_l1_anchor(client: &Client, hash: &BlockHash) -> anyhow::Result<L1Anchor> {
     let header: Header = client.get_block_header(hash).await?;
     let height = client.get_block_height(hash).await?;
 
@@ -244,12 +242,11 @@ pub async fn get_genesis_l1_view(
     // Create dummy/default values for other fields
     let next_target = header.bits.to_consensus();
     let epoch_start_timestamp = header.time;
-    let last_11_timestamps = [header.time - 1; 11]; // simplified: ensure median < tip time
 
-    Ok(GenesisL1View {
-        blk: blk_commitment,
+    Ok(L1Anchor {
+        block: blk_commitment,
         next_target,
         epoch_start_timestamp,
-        last_11_timestamps,
+        network: Network::Regtest,
     })
 }

@@ -39,9 +39,8 @@ pub fn construct_genesis_state(params: &AsmParams) -> AnchorState {
     let bridge_subprotocol_section =
         SectionState::from_state::<BridgeV1Subproto>(&genesis_bridge_subprotocol_state);
 
-    let native_header_vs =
-        NativeHeaderVerificationState::new(params.btc_params.inner().network, &params.l1_view);
-    let history_accumulator = AsmHistoryAccumulatorState::new(params.l1_view.blk.height() as u64);
+    let native_header_vs = NativeHeaderVerificationState::init(params.anchor.clone());
+    let history_accumulator = AsmHistoryAccumulatorState::new(params.anchor.block.height() as u64);
     let chain_view = ChainViewState {
         history_accumulator,
         pow_state: HeaderVerificationState::from_native(native_header_vs),

@@ -66,7 +66,7 @@ impl<W: WorkerContext + Send + Sync + 'static> AsmWorkerServiceState<W> {
             None => {
                 // Create genesis anchor state.
                 let genesis_state = construct_genesis_state(&self.asm_params);
-                let genesis_blk = self.asm_params.l1_view.blk;
+                let genesis_blk = self.asm_params.anchor.block;
 
                 // Persist it and update state.
                 let state = AsmState::new(genesis_state, vec![]);
@@ -107,7 +107,7 @@ impl<W: WorkerContext + Send + Sync + 'static> AsmWorkerServiceState<W> {
                 .history_accumulator
                 .num_entries();
             let resolver =
-                AuxDataResolver::new(&self.context, self.asm_params.l1_view.blk, at_leaf_count);
+                AuxDataResolver::new(&self.context, self.asm_params.anchor.block, at_leaf_count);
             resolver.resolve(&pre_process.aux_requests)?
         };
 
@@ -155,6 +155,7 @@ mod tests {
     use corepc_node::Node;
     use strata_asm_common::AsmManifest;
     use strata_btc_types::{BitcoinTxid, BlockHashExt, RawBitcoinTx};
+    use strata_btc_verification::L1Anchor;
     use strata_primitives::{L1BlockId, hash::Hash, l1::GenesisL1View};
     use strata_test_utils_arb::ArbitraryGenerator;
     use strata_test_utils_btcio::{get_bitcoind_and_client, mine_blocks};
@@ -183,10 +184,10 @@ mod tests {
         // 2. Setup Params
         let mut asm_params: AsmParams = ArbitraryGenerator::new().generate();
         // Sync parameters with the actual bitcoind state
-        let genesis_view = get_genesis_l1_view(&client, &tip_hash)
+        let l1_anchor = get_l1_anchor(&client, &tip_hash)
             .await
             .expect("Failed to fetch genesis view");
-        asm_params.l1_view = genesis_view;
+        asm_params.anchor = l1_anchor;
         let asm_params = Arc::new(asm_params);
 
         // 3. Set worker context and initialize service state
@@ -211,10 +212,7 @@ mod tests {
     }
 
     /// Helper to construct `GenesisL1View` from a block hash using the client.
-    async fn get_genesis_l1_view(
-        client: &Client,
-        hash: &BlockHash,
-    ) -> anyhow::Result<GenesisL1View> {
+    async fn get_l1_anchor(client: &Client, hash: &BlockHash) -> anyhow::Result<L1Anchor> {
         let header: Header = client.get_block_header(hash).await?;
         let height = client.get_block_height(hash).await?;
 
@@ -225,13 +223,12 @@ mod tests {
         // Create dummy/default values for other fields
         let next_target = header.bits.to_consensus();
         let epoch_start_timestamp = header.time;
-        let last_11_timestamps = [header.time - 1; 11]; // simplified: ensure median < tip time by making history older
 
-        Ok(GenesisL1View {
-            blk: blk_commitment,
+        Ok(L1Anchor {
+            block: blk_commitment,
             next_target,
             epoch_start_timestamp,
-            last_11_timestamps, // simplified: ensure median < tip time by making history older
+            network: bitcoin::Network::Regtest,
         })
     }
 

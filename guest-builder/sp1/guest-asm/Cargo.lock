@@ -1572,10 +1572,12 @@ name = "strata-asm-params"
 version = "0.1.0"
 dependencies = [
  "arbitrary",
+ "bitcoin",
  "serde",
  "ssz",
  "ssz_derive",
  "strata-btc-types",
+ "strata-btc-verification 0.1.0",
  "strata-crypto",
  "strata-identifiers",
  "strata-l1-txfmt",

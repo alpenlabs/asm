@@ -64,7 +64,7 @@ fn process_block<W: WorkerContext + Send + Sync + 'static>(
     let ctx = &state.context;
 
     // Handle pre-genesis: if the block is before genesis we don't care about it.
-    let genesis_height = state.asm_params.l1_view.blk.height();
+    let genesis_height = state.asm_params.anchor.block.height();
     let height = incoming_block.height();
     if height < genesis_height {
         warn!(height, "ignoring unexpected L1 block before genesis");

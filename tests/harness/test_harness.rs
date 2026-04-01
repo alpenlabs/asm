@@ -63,7 +63,8 @@ use strata_tasks::{TaskExecutor, TaskManager};
 use strata_test_utils_arb::ArbitraryGenerator;
 use tokio::{runtime::Handle, task::block_in_place};
 
-use super::worker_context::{get_genesis_l1_view, TestAsmWorkerContext};
+use super::worker_context::TestAsmWorkerContext;
+use crate::harness::worker_context::get_l1_anchor;
 
 // ============================================================================
 // Test Harness
@@ -565,11 +566,11 @@ impl AsmTestHarnessBuilder {
         let genesis_hash = client.get_block_hash(genesis_height).await?;
 
         // 3. Setup parameters
-        let genesis_view = get_genesis_l1_view(&client, &genesis_hash).await?;
+        let genesis_view = get_l1_anchor(&client, &genesis_hash).await?;
 
         // 4. Build AsmParams via arbitrary, then apply overrides
         let mut asm_params: AsmParams = ArbitraryGenerator::new().generate();
-        asm_params.l1_view = genesis_view;
+        asm_params.anchor = genesis_view;
 
         for instance in &mut asm_params.subprotocols {
             match instance {
