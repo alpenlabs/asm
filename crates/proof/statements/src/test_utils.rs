@@ -12,8 +12,8 @@ use strata_asm_common::{
     AnchorState, AsmHistoryAccumulatorState, AuxData, ChainViewState, HeaderVerificationState,
 };
 use strata_asm_spec::StrataAsmSpec;
-use strata_btc_types::{BlockHashExt, GenesisL1View};
-use strata_btc_verification::TxidInclusionProof;
+use strata_btc_types::BlockHashExt;
+use strata_btc_verification::{L1Anchor, TxidInclusionProof};
 use strata_identifiers::L1BlockCommitment;
 use strata_l1_txfmt::MagicBytes;
 use strata_predicate::PredicateKey;
@@ -28,8 +28,8 @@ pub fn create_asm_step_input() -> AsmStepInput {
     AsmStepInput::new(block, AuxData::default(), coinbase_inclusion_proof)
 }
 
-/// Builds a genesis L1 view whose tip is the parent of `block`.
-pub fn create_genesis_l1_view_to_process_block(block: &Block) -> GenesisL1View {
+/// Builds an [`L1Anchor`] whose tip is the parent of `block`.
+pub fn create_l1_anchor_to_process_block(block: &Block) -> L1Anchor {
     let genesis_block_hash = block.header.prev_blockhash;
     let genesis_block_height = block.bip34_block_height().expect("bip34 height") - 1;
     let genesis_block = L1BlockCommitment::new(
@@ -37,21 +37,22 @@ pub fn create_genesis_l1_view_to_process_block(block: &Block) -> GenesisL1View {
         genesis_block_hash.to_l1_block_id(),
     );
 
-    GenesisL1View {
-        blk: genesis_block,
+    L1Anchor {
+        block: genesis_block,
         next_target: block.header.bits.to_consensus(),
         epoch_start_timestamp: 0,
-        last_11_timestamps: [0u32; 11],
+        network: bitcoin::Network::Signet,
     }
 }
 
 /// Creates the anchor pre-state corresponding to the parent of `block`.
 pub fn create_genesis_anchor_state(block: &Block) -> AnchorState {
-    let genesis_view = create_genesis_l1_view_to_process_block(block);
-    let pow_state = HeaderVerificationState::new(bitcoin::Network::Signet, &genesis_view);
+    let anchor = create_l1_anchor_to_process_block(block);
+    let anchor_height = anchor.block.height();
+    let pow_state = HeaderVerificationState::init(anchor);
     let chain_view = ChainViewState {
         pow_state,
-        history_accumulator: AsmHistoryAccumulatorState::new(genesis_view.blk.height() as u64),
+        history_accumulator: AsmHistoryAccumulatorState::new(anchor_height as u64),
     };
 
     AnchorState {

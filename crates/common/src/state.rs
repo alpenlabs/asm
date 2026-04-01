@@ -2,9 +2,8 @@ use bitcoin::{Network, block::Header, params::Params};
 use serde::{Deserialize, Deserializer, Serialize, Serializer, de::Error as SerdeDeError};
 use ssz::{Decode, Encode};
 use ssz_types::FixedBytes;
-use strata_btc_types::GenesisL1View;
 use strata_btc_verification::{
-    HeaderVerificationState as NativeHeaderVerificationState, L1VerificationError,
+    HeaderVerificationState as NativeHeaderVerificationState, L1Anchor, L1VerificationError,
 };
 use strata_l1_txfmt::MagicBytes;
 
@@ -201,9 +200,9 @@ impl HeaderVerificationState {
         )
     }
 
-    /// Constructs a new state from the L1 genesis view.
-    pub fn new(network: Network, genesis_view: &GenesisL1View) -> Self {
-        Self::from_native(NativeHeaderVerificationState::new(network, genesis_view))
+    /// Creates a fresh state from an [`L1Anchor`].
+    pub fn init(anchor: L1Anchor) -> Self {
+        Self::from_native(NativeHeaderVerificationState::init(anchor))
     }
 
     /// Validates a header and updates the verifier state.

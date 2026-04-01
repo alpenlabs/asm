@@ -2,7 +2,7 @@ use arbitrary::Arbitrary;
 use bitcoin::{CompactTarget, Network, block::Header, hashes::Hash, params::Params};
 use borsh::{BorshDeserialize, BorshSerialize};
 use serde::{Deserialize, Serialize};
-use strata_btc_types::{BlockHashExt, BtcParams, GenesisL1View};
+use strata_btc_types::{BlockHashExt, BtcParams};
 use strata_crypto::hash::compute_borsh_hash;
 use strata_identifiers::{Buf32, L1BlockCommitment, L1BlockId, L1Height};
 
@@ -78,31 +78,12 @@ pub struct HeaderVerificationState {
 }
 
 impl HeaderVerificationState {
-    /// Creates a fresh [`HeaderVerificationState`] from an [`L1Anchor`].
-    ///
-    /// Initializes with an empty timestamp history and zero accumulated proof of work,
-    /// suitable for starting header verification from the anchor block without any prior state.
-    pub fn init(anchor: L1Anchor) -> Self {
-        let block_timestamp_history = TimestampStore::default();
-        let params = BtcParams::from(Params::new(anchor.network));
-        let total_accumulated_pow = BtcWork::default();
-
-        Self {
-            params,
-            last_verified_block: anchor.block,
-            next_block_target: anchor.next_target,
-            epoch_start_timestamp: anchor.epoch_start_timestamp,
-            block_timestamp_history,
-            total_accumulated_pow,
-        }
-    }
-
     /// Constructs a [`HeaderVerificationState`] at a particular point in the chain.
     ///
-    /// Unlike [`init`](Self::init), this accepts pre-existing timestamp history and accumulated
-    /// proof of work, allowing reconstruction of the verification state at an arbitrary block
-    /// height (e.g., when resuming from a snapshot or checkpoint).
-    pub fn new_new(
+    /// Accepts pre-existing timestamp history and accumulated proof of work, allowing
+    /// reconstruction of the verification state at an arbitrary block height (e.g., when
+    /// resuming from a snapshot or checkpoint).
+    pub fn new(
         anchor: L1Anchor,
         block_timestamp_history: TimestampStore,
         total_accumulated_pow: BtcWork,
@@ -118,17 +99,16 @@ impl HeaderVerificationState {
         }
     }
 
-    pub fn new(network: Network, genesis_view: &GenesisL1View) -> Self {
-        let params = Params::new(network).into();
+    /// Creates a fresh [`HeaderVerificationState`] from an [`L1Anchor`].
+    ///
+    /// A convenience wrapper around [`new`](Self::new) that initializes with an empty timestamp
+    /// history and zero accumulated proof of work, suitable for starting header verification
+    /// from the anchor block without any prior state.
+    pub fn init(anchor: L1Anchor) -> Self {
+        let block_timestamp_history = TimestampStore::default();
+        let total_accumulated_pow = BtcWork::default();
 
-        Self {
-            params,
-            last_verified_block: genesis_view.blk,
-            next_block_target: genesis_view.next_target,
-            epoch_start_timestamp: genesis_view.epoch_start_timestamp,
-            block_timestamp_history: TimestampStore::new(genesis_view.last_11_timestamps),
-            total_accumulated_pow: BtcWork::default(),
-        }
+        Self::new(anchor, block_timestamp_history, total_accumulated_pow)
     }
 
     /// Splits the verification state into its raw components.
@@ -347,12 +327,17 @@ mod tests {
     };
     use borsh::{BorshDeserialize, BorshSerialize};
     use rand::{Rng, rngs::OsRng};
-    use strata_btc_types::{BlockHashExt, GenesisL1View, TIMESTAMPS_FOR_MEDIAN};
+    use strata_btc_types::{BlockHashExt, TIMESTAMPS_FOR_MEDIAN};
     use strata_identifiers::{L1BlockCommitment, L1Height};
     use strata_test_utils_btc::BtcMainnetSegment;
 
     use crate::*;
 
+    /// Reconstructs a [`HeaderVerificationState`] at `height` using
+    /// [`HeaderVerificationState::new`].
+    ///
+    /// Gathers the epoch start timestamp and last 11 block timestamps from the fixture,
+    /// then builds the state at the given height with pre-populated timestamp history.
     fn verification_state_at(
         chain: &BtcMainnetSegment,
         height: L1Height,
@@ -397,16 +382,17 @@ mod tests {
                 block_header.target().to_compact_lossy().to_consensus()
             };
 
-        let genesis_l1_view = GenesisL1View {
-            blk: L1BlockCommitment::new(height, block_header.block_hash().to_l1_block_id()),
+        let anchor = L1Anchor {
+            block: L1BlockCommitment::new(height, block_header.block_hash().to_l1_block_id()),
             next_target,
             epoch_start_timestamp: current_epoch_start_header.time,
-            last_11_timestamps: timestamps,
+            network: Network::Bitcoin,
         };
 
         Ok(HeaderVerificationState::new(
-            Network::Bitcoin,
-            &genesis_l1_view,
+            anchor,
+            TimestampStore::new(timestamps),
+            BtcWork::default(),
         ))
     }
 
@@ -423,6 +409,55 @@ mod tests {
                 .check_and_update(&chain.get_block_header_at(header_idx).unwrap())
                 .unwrap()
         }
+    }
+
+    /// Demonstrates that [`HeaderVerificationState::new`] can reconstruct the exact same state
+    /// that was reached by [`HeaderVerificationState::init`] followed by replaying blocks.
+    ///
+    /// This is the primary way to resume verification from a checkpoint/snapshot: save the
+    /// state's parts at some height, then later restore via `new`.
+    #[test]
+    fn test_new_reconstructs_state_from_checkpoint() {
+        let chain = BtcMainnetSegment::load();
+
+        // 1. Build state at a checkpoint height.
+        let checkpoint_height = 40_100;
+        let replayed_state = verification_state_at(&chain, checkpoint_height).unwrap();
+
+        // 2. Snapshot the state's components.
+        let replayed_hash = replayed_state.compute_hash().unwrap();
+        let (
+            _params,
+            last_verified_block,
+            next_block_target,
+            epoch_start_timestamp,
+            block_timestamp_history,
+            total_accumulated_pow,
+        ) = replayed_state.into_parts();
+
+        // 3. Reconstruct the same state via `new`.
+        let anchor = L1Anchor {
+            block: last_verified_block,
+            next_target: next_block_target,
+            epoch_start_timestamp,
+            network: Network::Bitcoin,
+        };
+        let restored_state =
+            HeaderVerificationState::new(anchor, block_timestamp_history, total_accumulated_pow);
+
+        // 4. The reconstructed state must be identical.
+        assert_eq!(
+            restored_state.compute_hash().unwrap(),
+            replayed_hash,
+            "State reconstructed via `new` must match the replayed state"
+        );
+
+        // 5. The restored state can continue verifying subsequent blocks.
+        let mut state = restored_state;
+        let next_header = chain.get_block_header_at(checkpoint_height + 1).unwrap();
+        state
+            .check_and_update(&next_header)
+            .expect("Restored state should be able to continue verifying blocks");
     }
 
     #[test]
