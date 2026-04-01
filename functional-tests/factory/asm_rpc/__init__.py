@@ -37,6 +37,7 @@ class AsmRpcFactory(flexitest.Factory):
         bitcoind_props: dict,
         params_file_path: str,
         ctx: flexitest.EnvContext,
+        orchestrator: OrchestratorConfig | None = None,
     ) -> flexitest.Service:
         service_name = "asm_rpc"
         datadir = ctx.make_service_dir(service_name)
@@ -44,15 +45,14 @@ class AsmRpcFactory(flexitest.Factory):
 
         rpc_port = self.next_port()
         db_path = str((envdd_path / service_name / "db").resolve())
-        proof_db_path = str((envdd_path / service_name / "proof_db").resolve())
 
         config_toml_path = str((envdd_path / service_name / "config.toml").resolve())
         generate_asm_rpc_config(
             bitcoind_props=bitcoind_props,
             rpc_port=rpc_port,
             db_path=db_path,
-            proof_db_path=proof_db_path,
             output_path=config_toml_path,
+            orchestrator=orchestrator,
         )
 
         logfile = os.path.join(datadir, "service.log")
@@ -105,8 +105,8 @@ def generate_asm_rpc_config(
     bitcoind_props: dict,
     rpc_port: int,
     db_path: str,
-    proof_db_path: str,
     output_path: str,
+    orchestrator: OrchestratorConfig | None = None,
 ):
     """Generate ASM RPC configuration TOML file."""
     config = AsmRpcConfig(
@@ -125,11 +125,7 @@ def generate_asm_rpc_config(
             retry_count=3,
             retry_interval=Duration(secs=1, nanos=0),
         ),
-        orchestrator=OrchestratorConfig(
-            tick_interval=Duration(secs=1, nanos=0),
-            max_concurrent_asm_proofs=4,
-            proof_db_path=proof_db_path,
-        ),
+        orchestrator=orchestrator,
     )
 
     config_dict = asdict(config)

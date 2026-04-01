@@ -16,7 +16,7 @@ class AsmProofGenerationTest(flexitest.Test):
     """Verify that ASM proofs are generated and stored for processed blocks."""
 
     def __init__(self, ctx: flexitest.InitContext):
-        ctx.set_env("basic")
+        ctx.set_env("prover")
 
     def main(self, ctx: flexitest.RunContext):
         bitcoind_service = ctx.get_service("bitcoin")
