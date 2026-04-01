@@ -6,6 +6,5 @@ use strata_asm_spec::StrataAsmSpec;
 use zkaleido_sp1_guest_env::Sp1ZkVmEnv;
 
 fn main() {
-    let spec = StrataAsmSpec::new();
-    process_asm_stf(&Sp1ZkVmEnv, &spec)
+    process_asm_stf(&Sp1ZkVmEnv, &StrataAsmSpec)
 }

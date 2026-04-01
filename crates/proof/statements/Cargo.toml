@@ -14,7 +14,7 @@ ssz.workspace = true
 ssz_derive.workspace = true
 strata-asm-common.workspace = true
 strata-asm-logs.workspace = true
-strata-asm-params.workspace = true
+strata-asm-params = { workspace = true, optional = true }
 strata-asm-spec.workspace = true
 strata-asm-stf.workspace = true
 strata-btc-types = { workspace = true, optional = true }
@@ -37,6 +37,7 @@ test-utils = [
   "dep:strata-test-utils-btc",
   "dep:strata-test-utils-arb",
   "dep:strata-identifiers",
+  "dep:strata-asm-params",
 ]
 
 [dev-dependencies]
@@ -44,3 +45,4 @@ strata-btc-types.workspace = true
 strata-identifiers.workspace = true
 strata-test-utils-btc.workspace = true
 strata-test-utils-arb.workspace = true
+strata-asm-params.workspace = true
