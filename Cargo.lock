@@ -7376,6 +7376,7 @@ dependencies = [
  "clap",
  "futures",
  "jsonrpsee",
+ "moho-recursive-proof",
  "moho-runtime-impl",
  "moho-runtime-interface",
  "moho-types",

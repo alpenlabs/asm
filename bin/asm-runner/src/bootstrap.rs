@@ -79,7 +79,8 @@ pub(crate) async fn bootstrap(
             AsmStfProofProgram::native_host()
         };
 
-        let input_builder = InputBuilder::new(state_db.clone(), bitcoin_client.clone());
+        let input_builder =
+            InputBuilder::new(state_db.clone(), bitcoin_client.clone(), proof_db.clone());
         let mut orchestrator =
             ProofOrchestrator::new(proof_db, host, orch_config, input_builder, rx);
 
