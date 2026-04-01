@@ -14,13 +14,14 @@ ssz.workspace = true
 ssz_derive.workspace = true
 strata-asm-common.workspace = true
 strata-asm-logs.workspace = true
+strata-asm-params.workspace = true
 strata-asm-spec.workspace = true
 strata-asm-stf.workspace = true
 strata-btc-types = { workspace = true, optional = true }
 strata-btc-verification.workspace = true
 strata-identifiers = { workspace = true, optional = true }
-strata-l1-txfmt = { workspace = true, optional = true }
 strata-predicate.workspace = true
+strata-test-utils-arb = { workspace = true, optional = true }
 strata-test-utils-btc = { workspace = true, optional = true }
 tree_hash.workspace = true
 zkaleido.workspace = true
@@ -33,13 +34,13 @@ zkaleido-native-adapter.workspace = true
 [features]
 test-utils = [
   "dep:strata-btc-types",
-  "dep:strata-l1-txfmt",
   "dep:strata-test-utils-btc",
+  "dep:strata-test-utils-arb",
   "dep:strata-identifiers",
 ]
 
 [dev-dependencies]
 strata-btc-types.workspace = true
 strata-identifiers.workspace = true
-strata-l1-txfmt.workspace = true
 strata-test-utils-btc.workspace = true
+strata-test-utils-arb.workspace = true

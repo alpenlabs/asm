@@ -8,15 +8,14 @@ use moho_runtime_impl::RuntimeInput;
 use moho_runtime_interface::MohoProgram;
 use moho_types::{ExportState, MohoState};
 use ssz::Encode;
-use strata_asm_common::{
-    AnchorState, AsmHistoryAccumulatorState, AuxData, ChainViewState, HeaderVerificationState,
-};
-use strata_asm_spec::StrataAsmSpec;
+use strata_asm_common::{AnchorState, AuxData};
+use strata_asm_params::AsmParams;
+use strata_asm_spec::{construct_genesis_state, StrataAsmSpec};
 use strata_btc_types::BlockHashExt;
 use strata_btc_verification::{L1Anchor, TxidInclusionProof};
 use strata_identifiers::L1BlockCommitment;
-use strata_l1_txfmt::MagicBytes;
 use strata_predicate::PredicateKey;
+use strata_test_utils_arb::ArbitraryGenerator;
 use strata_test_utils_btc::BtcMainnetSegment;
 
 use crate::moho_program::{input::AsmStepInput, program::AsmStfProgram};
@@ -41,25 +40,16 @@ pub fn create_l1_anchor_to_process_block(block: &Block) -> L1Anchor {
         block: genesis_block,
         next_target: block.header.bits.to_consensus(),
         epoch_start_timestamp: 0,
-        network: bitcoin::Network::Signet,
+        network: bitcoin::Network::Bitcoin,
     }
 }
 
 /// Creates the anchor pre-state corresponding to the parent of `block`.
 pub fn create_genesis_anchor_state(block: &Block) -> AnchorState {
+    let mut params: AsmParams = ArbitraryGenerator::new().generate();
     let anchor = create_l1_anchor_to_process_block(block);
-    let anchor_height = anchor.block.height();
-    let pow_state = HeaderVerificationState::init(anchor);
-    let chain_view = ChainViewState {
-        pow_state,
-        history_accumulator: AsmHistoryAccumulatorState::new(anchor_height as u64),
-    };
-
-    AnchorState {
-        magic: AnchorState::magic_ssz(MagicBytes::new(*b"ALPN")),
-        chain_view,
-        sections: Vec::new().into(),
-    }
+    params.anchor = anchor;
+    construct_genesis_state(&params)
 }
 
 /// Creates an ASM spec.
@@ -67,10 +57,9 @@ pub fn create_asm_spec() -> StrataAsmSpec {
     StrataAsmSpec
 }
 
-/// Creates the Moho pre-state matching `create_genesis_anchor_state`.
-pub fn create_moho_prestate(block: &Block) -> MohoState {
-    let anchor_state = create_genesis_anchor_state(block);
-    let inner_state = AsmStfProgram::compute_state_commitment(&anchor_state)
+/// Creates the Moho pre-state from an existing [`AnchorState`].
+pub fn create_moho_prestate(anchor_state: &AnchorState) -> MohoState {
+    let inner_state = AsmStfProgram::compute_state_commitment(anchor_state)
         .into_inner()
         .into();
 
@@ -84,7 +73,7 @@ pub fn create_moho_prestate(block: &Block) -> MohoState {
 /// Creates a runtime input for a single ASM STF step.
 pub fn create_runtime_input(step_input: &AsmStepInput) -> RuntimeInput {
     let inner_pre_state = create_genesis_anchor_state(step_input.block());
-    let moho_pre_state = create_moho_prestate(step_input.block());
+    let moho_pre_state = create_moho_prestate(&inner_pre_state);
     RuntimeInput::new(
         moho_pre_state,
         inner_pre_state.as_ssz_bytes(),

@@ -68,7 +68,7 @@ impl<'a> Arbitrary<'a> for AsmParams {
             bitcoin::Network::Signet,
             bitcoin::Network::Regtest,
         ];
-        let network = u.choose(&networks)?.clone();
+        let network = *u.choose(&networks)?;
 
         let block = L1BlockCommitment::arbitrary(u)?;
         let anchor = L1Anchor {

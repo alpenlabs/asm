@@ -230,7 +230,7 @@ impl WorkerContext for TestAsmWorkerContext {
     }
 }
 
-/// Helper to construct GenesisL1View from a block hash using the client.
+/// Helper to construct [`L1Anchor`] from a block hash using the client.
 pub async fn get_l1_anchor(client: &Client, hash: &BlockHash) -> anyhow::Result<L1Anchor> {
     let header: Header = client.get_block_header(hash).await?;
     let height = client.get_block_height(hash).await?;
@@ -243,10 +243,12 @@ pub async fn get_l1_anchor(client: &Client, hash: &BlockHash) -> anyhow::Result<
     let next_target = header.bits.to_consensus();
     let epoch_start_timestamp = header.time;
 
+    let network = client.network().await?;
+
     Ok(L1Anchor {
         block: blk_commitment,
         next_target,
         epoch_start_timestamp,
-        network: Network::Regtest,
+        network,
     })
 }

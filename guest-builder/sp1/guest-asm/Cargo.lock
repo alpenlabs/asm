@@ -1596,6 +1596,7 @@ dependencies = [
  "ssz_derive",
  "strata-asm-common 0.1.0",
  "strata-asm-logs 0.1.0",
+ "strata-asm-params",
  "strata-asm-spec",
  "strata-asm-stf",
  "strata-btc-verification 0.1.0",
