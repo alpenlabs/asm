@@ -65,7 +65,7 @@ pub(crate) async fn bootstrap(
         let proof_db = SledProofDb::open(&orch_config.proof_db_path)?;
         let proof_db_clone = proof_db.clone();
 
-        let spec = StrataAsmSpec::from_asm_params(&params);
+        let spec = StrataAsmSpec;
         let native_host = AsmStfProofProgram::native_host(spec);
 
         let input_builder = InputBuilder::new(asm_manager.clone(), bitcoin_client.clone());

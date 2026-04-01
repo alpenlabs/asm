@@ -5,10 +5,9 @@
 //!
 //! **Security Note**: This spec should only be used in testing environments.
 
-use strata_asm_common::{AsmSpec, Loader, Stage};
+use strata_asm_common::{AsmSpec, Stage};
 use strata_asm_proto_debug_v1::DebugSubproto;
 use strata_asm_spec::StrataAsmSpec;
-use strata_l1_txfmt::MagicBytes;
 
 /// Debug ASM specification that includes the debug subprotocol.
 ///
@@ -24,18 +23,6 @@ pub struct DebugAsmSpec {
 }
 
 impl AsmSpec for DebugAsmSpec {
-    fn magic_bytes(&self) -> MagicBytes {
-        self.inner.magic_bytes()
-    }
-
-    fn load_subprotocols(&self, loader: &mut impl Loader) {
-        // Load debug subprotocol first
-        loader.load_subprotocol::<DebugSubproto>(());
-
-        // Then load all production subprotocols
-        self.inner.load_subprotocols(loader);
-    }
-
     fn call_subprotocols(&self, stage: &mut impl Stage) {
         // Call debug subprotocol first
         stage.invoke_subprotocol::<DebugSubproto>();

@@ -1681,7 +1681,7 @@ dependencies = [
  "strata-asm-proto-administration",
  "strata-asm-proto-bridge-v1",
  "strata-asm-proto-checkpoint",
- "strata-l1-txfmt",
+ "strata-btc-verification 0.1.0",
 ]
 
 [[package]]

@@ -12,8 +12,8 @@ use strata_btc_verification::{TxidInclusionProof, check_block_integrity};
 
 use crate::{
     group_txs_by_subprotocol,
-    manager::{AnchorStateLoader, SubprotoManager},
-    stage::{FinishStage, ProcessStage},
+    manager::SubprotoManager,
+    stage::{FinishStage, LoaderStage, ProcessStage},
     types::AsmStfOutput,
 };
 
@@ -55,9 +55,9 @@ pub fn compute_asm_transition<S: AsmSpec>(
 
     let mut manager = SubprotoManager::new();
 
-    // 4. LOAD: Initialize each subprotocol in the subproto manager with aux input data.
-    let mut loader = AnchorStateLoader::new(pre_state, &mut manager);
-    spec.load_subprotocols(&mut loader);
+    // 4. LOAD: Initialize each subprotocol in the subproto manager.
+    let mut loader = LoaderStage::new(&mut manager, pre_state);
+    spec.call_subprotocols(&mut loader);
 
     // 5. PROCESS: Feed each subprotocol its filtered transactions for execution.
     // This stage performs the actual state transitions for each subprotocol.

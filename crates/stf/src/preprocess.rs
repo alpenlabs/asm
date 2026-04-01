@@ -6,8 +6,8 @@ use bitcoin::block::Block;
 use strata_asm_common::{AnchorState, AsmError, AsmResult, AsmSpec};
 
 use crate::{
-    manager::{AnchorStateLoader, SubprotoManager},
-    stage::PreProcessStage,
+    manager::SubprotoManager,
+    stage::{LoaderStage, PreProcessStage},
     tx_filter::group_txs_by_subprotocol,
     types::AsmPreProcessOutput,
 };
@@ -61,13 +61,13 @@ pub fn pre_process_asm<'b, S: AsmSpec>(
 
     // 2. Filter and group transactions by subprotocol based on magic bytes.
     // Only transactions relevant to registered subprotocols are processed further.
-    let grouped_relevant_txs = group_txs_by_subprotocol(spec.magic_bytes(), &block.txdata);
+    let grouped_relevant_txs = group_txs_by_subprotocol(pre_state.magic(), &block.txdata);
 
     let mut manager = SubprotoManager::new();
 
     // 3. LOAD: Initialize each subprotocol in the subproto manager.
-    let mut loader = AnchorStateLoader::new(pre_state, &mut manager);
-    spec.load_subprotocols(&mut loader);
+    let mut loader_stage = LoaderStage::new(&mut manager, pre_state);
+    spec.call_subprotocols(&mut loader_stage);
 
     // 4. PROCESS: Feed each subprotocol its filtered transactions for pre-processing.
     // This stage extracts auxiliary requests that will be needed for the main STF execution.

@@ -40,7 +40,7 @@ pub struct AsmWorkerServiceState<W> {
 impl<W: WorkerContext + Send + Sync + 'static> AsmWorkerServiceState<W> {
     /// A new (uninitialized) instance of the service state.
     pub fn new(context: W, asm_params: Arc<AsmParams>) -> Self {
-        let asm_spec = StrataAsmSpec::from_asm_params(&asm_params);
+        let asm_spec = StrataAsmSpec;
         Self::new_with_spec(context, asm_params, asm_spec)
     }
 

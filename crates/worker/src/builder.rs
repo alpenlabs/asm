@@ -68,9 +68,7 @@ impl<W> AsmWorkerBuilder<W> {
         let asm_params = self
             .asm_params
             .ok_or(WorkerError::MissingDependency("asm_params"))?;
-        let asm_spec = self
-            .asm_spec
-            .unwrap_or_else(|| StrataAsmSpec::from_asm_params(&asm_params));
+        let asm_spec = self.asm_spec.unwrap_or(StrataAsmSpec);
 
         // Create the service state.
         let service_state = AsmWorkerServiceState::new_with_spec(context, asm_params, asm_spec);
