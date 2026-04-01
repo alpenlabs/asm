@@ -34,7 +34,7 @@ strata-state.workspace = true
 strata-tasks.workspace = true
 strata-test-utils-arb.workspace = true
 strata-test-utils-btcio.workspace = true
-strata-test-utils-l2.workspace = true
+strata-test-utils-checkpoint.workspace = true
 
 anyhow.workspace = true
 bitcoin.workspace = true

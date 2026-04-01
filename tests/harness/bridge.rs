@@ -54,7 +54,7 @@ use strata_ol_chain_types_new::{OLLog, SimpleWithdrawalIntentLogData};
 use strata_ol_stf::BRIDGE_GATEWAY_ACCT_SERIAL;
 use strata_test_utils_arb::ArbitraryGenerator;
 use strata_test_utils_btcio::{address::derive_musig2_p2tr_address, signing::sign_musig2_keypath};
-use strata_test_utils_l2::CheckpointTestHarness;
+use strata_test_utils_checkpoint::CheckpointTestHarness;
 
 use super::test_harness::AsmTestHarness;
 

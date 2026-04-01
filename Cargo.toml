@@ -4,6 +4,7 @@ resolver = "2"
 members = [
   "crates/common",
   "crates/btc-verification",
+  "crates/checkpoint-types",
   "crates/logs",
   "crates/manifest-types",
   "crates/msgs/bridge",
@@ -27,6 +28,7 @@ members = [
   "crates/test-utils/arb",
   "crates/test-utils/btc",
   "crates/test-utils/btcio",
+  "crates/test-utils/checkpoint",
   "crates/worker",
 
   # tests
@@ -75,27 +77,25 @@ strata-asm-txs-checkpoint = { path = "crates/txs/checkpoint" }
 strata-asm-txs-test-utils = { path = "crates/txs/test-utils" }
 strata-asm-worker = { path = "crates/worker" }
 strata-btc-verification = { path = "crates/btc-verification" }
+strata-checkpoint-types-ssz = { path = "crates/checkpoint-types" }
 strata-test-utils-arb = { path = "crates/test-utils/arb" }
 strata-test-utils-btc = { path = "crates/test-utils/btc" }
 strata-test-utils-btcio = { path = "crates/test-utils/btcio" }
+strata-test-utils-checkpoint = { path = "crates/test-utils/checkpoint" }
 
 # Dependencies from alpenlabs/alpen pinned to commit 02fe60d1 (main @ 2026-03-31)
 strata-bridge-types = { git = "https://github.com/alpenlabs/alpen.git", rev = "02fe60d1b74470da3db67352b2f74625eb2e0ed1" }
 strata-btc-types = { git = "https://github.com/alpenlabs/alpen.git", rev = "02fe60d1b74470da3db67352b2f74625eb2e0ed1" }
 strata-checkpoint-types = { git = "https://github.com/alpenlabs/alpen.git", rev = "02fe60d1b74470da3db67352b2f74625eb2e0ed1" }
-strata-checkpoint-types-ssz = { git = "https://github.com/alpenlabs/alpen.git", rev = "02fe60d1b74470da3db67352b2f74625eb2e0ed1" }
 strata-codec-utils = { git = "https://github.com/alpenlabs/alpen.git", rev = "02fe60d1b74470da3db67352b2f74625eb2e0ed1" }
 strata-crypto = { git = "https://github.com/alpenlabs/alpen.git", rev = "02fe60d1b74470da3db67352b2f74625eb2e0ed1" }
 strata-db-store-sled = { git = "https://github.com/alpenlabs/alpen.git", rev = "02fe60d1b74470da3db67352b2f74625eb2e0ed1" }
 strata-identifiers = { git = "https://github.com/alpenlabs/alpen.git", rev = "02fe60d1b74470da3db67352b2f74625eb2e0ed1" }
 strata-ol-chain-types-new = { git = "https://github.com/alpenlabs/alpen.git", rev = "02fe60d1b74470da3db67352b2f74625eb2e0ed1" }
-strata-ol-chainstate-types = { git = "https://github.com/alpenlabs/alpen.git", rev = "02fe60d1b74470da3db67352b2f74625eb2e0ed1" }
 strata-ol-stf = { git = "https://github.com/alpenlabs/alpen.git", rev = "02fe60d1b74470da3db67352b2f74625eb2e0ed1" }
 strata-primitives = { git = "https://github.com/alpenlabs/alpen.git", rev = "02fe60d1b74470da3db67352b2f74625eb2e0ed1" }
 strata-state = { git = "https://github.com/alpenlabs/alpen.git", rev = "02fe60d1b74470da3db67352b2f74625eb2e0ed1" }
 strata-storage = { git = "https://github.com/alpenlabs/alpen.git", rev = "02fe60d1b74470da3db67352b2f74625eb2e0ed1" }
-strata-test-utils = { git = "https://github.com/alpenlabs/alpen.git", rev = "02fe60d1b74470da3db67352b2f74625eb2e0ed1" }
-strata-test-utils-l2 = { git = "https://github.com/alpenlabs/alpen.git", rev = "02fe60d1b74470da3db67352b2f74625eb2e0ed1" }
 strata-test-utils-ssz = { git = "https://github.com/alpenlabs/alpen.git", rev = "02fe60d1b74470da3db67352b2f74625eb2e0ed1" }
 
 # Dependencies from alpenlabs/strata-bridge pinned to commit fc966d5 (STR-2598-asm-stf-proof-statements @ 2026-03-17)
@@ -154,6 +154,7 @@ corepc-node = { version = "0.10.0", features = ["29_0"] }
 futures = "0.3.31"
 hex-literal = "1.1"
 jsonrpsee = "0.26.0"
+k256 = "0.13.4"
 musig2 = { version = "0.1.0", features = ["serde"] }
 proptest = "1.9.0"
 rand = "0.8.5"
@@ -195,3 +196,4 @@ strata-asm-txs-checkpoint = { path = "crates/txs/checkpoint" }
 strata-asm-txs-test-utils = { path = "crates/txs/test-utils" }
 strata-asm-worker = { path = "crates/worker" }
 strata-btc-verification = { path = "crates/btc-verification" }
+strata-checkpoint-types-ssz = { path = "crates/checkpoint-types" }

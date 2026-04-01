@@ -30,4 +30,4 @@ strata-predicate = { workspace = true, features = ["all"] }
 thiserror.workspace = true
 
 [dev-dependencies]
-strata-test-utils-l2.workspace = true
+strata-test-utils-checkpoint.workspace = true

@@ -33,4 +33,4 @@ use strata_predicate as _;
 use strata_state as _;
 use strata_tasks as _;
 use strata_test_utils_btcio as _;
-use strata_test_utils_l2 as _;
+use strata_test_utils_checkpoint as _;

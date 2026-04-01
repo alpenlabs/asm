@@ -270,7 +270,7 @@ mod tests {
     use strata_identifiers::AccountSerial;
     use strata_ol_chain_types_new::OLLog;
     use strata_predicate::PredicateKey;
-    use strata_test_utils_l2::CheckpointTestHarness;
+    use strata_test_utils_checkpoint::CheckpointTestHarness;
 
     use crate::{
         errors::{CheckpointValidationError, InvalidCheckpointPayload, InvalidSequencerPredicate},

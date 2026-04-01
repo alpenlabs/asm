@@ -1504,13 +1504,11 @@ name = "strata-asm-logs"
 version = "0.1.0"
 dependencies = [
  "strata-asm-common 0.1.0",
- "strata-checkpoint-types",
- "strata-checkpoint-types-ssz",
+ "strata-checkpoint-types-ssz 0.1.0",
  "strata-codec",
  "strata-codec-utils",
  "strata-msg-fmt",
  "strata-predicate",
- "strata-primitives",
 ]
 
 [[package]]
@@ -1520,7 +1518,7 @@ source = "git+https://github.com/alpenlabs/alpen.git?rev=02fe60d1b74470da3db6735
 dependencies = [
  "strata-asm-common 0.1.0 (git+https://github.com/alpenlabs/alpen.git?rev=02fe60d1b74470da3db67352b2f74625eb2e0ed1)",
  "strata-checkpoint-types",
- "strata-checkpoint-types-ssz",
+ "strata-checkpoint-types-ssz 0.1.0 (git+https://github.com/alpenlabs/alpen.git?rev=02fe60d1b74470da3db67352b2f74625eb2e0ed1)",
  "strata-codec",
  "strata-codec-utils",
  "strata-msg-fmt",
@@ -1663,7 +1661,7 @@ dependencies = [
  "strata-asm-txs-checkpoint 0.1.0",
  "strata-bridge-types",
  "strata-btc-types",
- "strata-checkpoint-types-ssz",
+ "strata-checkpoint-types-ssz 0.1.0",
  "strata-codec",
  "strata-crypto",
  "strata-identifiers",
@@ -1735,7 +1733,7 @@ version = "0.1.0"
 dependencies = [
  "bitcoin",
  "strata-asm-common 0.1.0",
- "strata-checkpoint-types-ssz",
+ "strata-checkpoint-types-ssz 0.1.0",
  "strata-codec",
  "strata-codec-utils",
  "strata-l1-envelope-fmt",
@@ -1750,7 +1748,7 @@ source = "git+https://github.com/alpenlabs/alpen.git?rev=02fe60d1b74470da3db6735
 dependencies = [
  "bitcoin",
  "strata-asm-common 0.1.0 (git+https://github.com/alpenlabs/alpen.git?rev=02fe60d1b74470da3db67352b2f74625eb2e0ed1)",
- "strata-checkpoint-types-ssz",
+ "strata-checkpoint-types-ssz 0.1.0 (git+https://github.com/alpenlabs/alpen.git?rev=02fe60d1b74470da3db67352b2f74625eb2e0ed1)",
  "strata-codec",
  "strata-codec-utils",
  "strata-l1-envelope-fmt",
@@ -1839,6 +1837,25 @@ dependencies = [
  "strata-identifiers",
  "strata-params",
  "zkaleido 0.1.0 (git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc20)",
+]
+
+[[package]]
+name = "strata-checkpoint-types-ssz"
+version = "0.1.0"
+dependencies = [
+ "borsh",
+ "serde",
+ "ssz",
+ "ssz_codegen",
+ "ssz_derive",
+ "ssz_primitives",
+ "ssz_types",
+ "strata-asm-manifest-types 0.1.0",
+ "strata-identifiers",
+ "strata-ol-chain-types-new",
+ "thiserror 2.0.18",
+ "tree_hash",
+ "tree_hash_derive",
 ]
 
 [[package]]
