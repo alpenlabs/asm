@@ -1,0 +1,32 @@
+//! Strata ASM specification defining the subprotocol pipeline.
+
+use strata_asm_common::{AsmSpec, Stage};
+use strata_asm_params::AsmParams;
+use strata_asm_proto_administration::AdministrationSubprotocol;
+use strata_asm_proto_bridge_v1::BridgeV1Subproto;
+use strata_asm_proto_checkpoint::subprotocol::CheckpointSubprotocol;
+
+/// Strata ASM specification.
+///
+/// Declares which subprotocols participate in the ASM and the order in which
+/// they are invoked. The same ordering is used for every execution stage
+/// (load, preprocess, process, finish).
+#[derive(Debug)]
+pub struct StrataAsmSpec;
+
+impl StrataAsmSpec {
+    /// Compatibility shim — `StrataAsmSpec` is now a unit struct and does not
+    /// use params. This constructor exists only for downstream callers that
+    /// have not yet been updated.
+    pub fn from_asm_params(_params: &AsmParams) -> Self {
+        Self
+    }
+}
+
+impl AsmSpec for StrataAsmSpec {
+    fn call_subprotocols(&self, stage: &mut impl Stage) {
+        stage.invoke_subprotocol::<AdministrationSubprotocol>();
+        stage.invoke_subprotocol::<CheckpointSubprotocol>();
+        stage.invoke_subprotocol::<BridgeV1Subproto>();
+    }
+}

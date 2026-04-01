@@ -1,3 +1,5 @@
+//! Genesis anchor state construction from [`AsmParams`].
+
 use strata_asm_common::{
     AnchorState, AsmHistoryAccumulatorState, ChainViewState, HeaderVerificationState, SectionState,
 };
@@ -7,18 +9,33 @@ use strata_asm_proto_bridge_v1::{BridgeV1State, BridgeV1Subproto};
 use strata_asm_proto_checkpoint::{state::CheckpointState, subprotocol::CheckpointSubprotocol};
 use strata_btc_verification::HeaderVerificationState as NativeHeaderVerificationState;
 
-pub fn asm_genesis(params: &AsmParams) -> AnchorState {
-    let genesis_admin_subprotocol_state =
-        AdministrationSubprotoState::new(params.admin_config().expect("msg"));
+/// Builds the genesis [`AnchorState`] from the given [`AsmParams`].
+///
+/// Initialises every subprotocol's state from its config in `params` and
+/// assembles the chain view (PoW header verification + history accumulator).
+pub fn construct_genesis_state(params: &AsmParams) -> AnchorState {
+    let genesis_admin_subprotocol_state = AdministrationSubprotoState::new(
+        params
+            .admin_config()
+            .expect("asm: missing Admin subprotocol config in params"),
+    );
     let admin_subprotocol_section =
         SectionState::from_state::<AdministrationSubprotocol>(&genesis_admin_subprotocol_state);
 
-    let genesis_checkpoint_subprotocol_state =
-        CheckpointState::init(params.checkpoint_config().expect("msg").clone());
+    let genesis_checkpoint_subprotocol_state = CheckpointState::init(
+        params
+            .checkpoint_config()
+            .expect("asm: missing Checkpoint subprotocol config in params")
+            .clone(),
+    );
     let checkpoint_subprotocol_section =
         SectionState::from_state::<CheckpointSubprotocol>(&genesis_checkpoint_subprotocol_state);
 
-    let genesis_bridge_subprotocol_state = BridgeV1State::new(params.bridge_config().expect("msg"));
+    let genesis_bridge_subprotocol_state = BridgeV1State::new(
+        params
+            .bridge_config()
+            .expect("asm: missing Bridge subprotocol config in params"),
+    );
     let bridge_subprotocol_section =
         SectionState::from_state::<BridgeV1Subproto>(&genesis_bridge_subprotocol_state);
 

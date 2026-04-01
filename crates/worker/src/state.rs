@@ -3,7 +3,7 @@ use std::sync::Arc;
 use bitcoin::Block;
 use strata_asm_common::AuxData;
 use strata_asm_params::AsmParams;
-use strata_asm_spec::{StrataAsmSpec, genesis::asm_genesis};
+use strata_asm_spec::{StrataAsmSpec, construct_genesis_state};
 use strata_asm_stf::AsmStfOutput;
 use strata_btc_verification::TxidInclusionProof;
 use strata_primitives::l1::L1BlockCommitment;
@@ -65,7 +65,7 @@ impl<W: WorkerContext + Send + Sync + 'static> AsmWorkerServiceState<W> {
             }
             None => {
                 // Create genesis anchor state.
-                let genesis_state = asm_genesis(&self.asm_params);
+                let genesis_state = construct_genesis_state(&self.asm_params);
                 let genesis_blk = self.asm_params.l1_view.blk;
 
                 // Persist it and update state.
