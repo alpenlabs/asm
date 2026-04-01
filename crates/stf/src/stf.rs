@@ -51,7 +51,7 @@ pub fn compute_asm_transition<S: AsmSpec>(
     let current_l1ref = &pow_state.last_verified_block;
 
     // 3. Restructure the raw input to be formatted according to what we want.
-    let protocol_txs = group_txs_by_subprotocol(spec.magic_bytes(), &block.txdata);
+    let protocol_txs = group_txs_by_subprotocol(pre_state.magic(), &block.txdata);
 
     let mut manager = SubprotoManager::new();
 
