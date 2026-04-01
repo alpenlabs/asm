@@ -6,6 +6,7 @@ use strata_btc_types::GenesisL1View;
 use strata_btc_verification::{
     HeaderVerificationState as NativeHeaderVerificationState, L1VerificationError,
 };
+use strata_l1_txfmt::MagicBytes;
 
 use crate::{
     AnchorState, AsmError, AsmHistoryAccumulatorState, BtcParams, BtcWork, ChainViewState,
@@ -16,6 +17,15 @@ impl AnchorState {
     /// Gets a section by protocol ID by doing a linear scan.
     pub fn find_section(&self, id: SubprotocolId) -> Option<&SectionState> {
         self.sections.iter().find(|s| s.id == id)
+    }
+
+    pub fn magic(&self) -> MagicBytes {
+        MagicBytes::from(self.magic.0)
+    }
+
+    /// Creates the SSZ magic field from `MagicBytes`.
+    pub fn magic_ssz(magic: MagicBytes) -> FixedBytes<4> {
+        FixedBytes::from(magic.into_inner())
     }
 }
 

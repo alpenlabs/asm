@@ -62,6 +62,7 @@ pub fn create_genesis_anchor_state(block: &Block) -> AnchorState {
     };
 
     AnchorState {
+        magic: AnchorState::magic_ssz(MagicBytes::new(*b"ALPN")),
         chain_view,
         sections: Vec::new().into(),
     }

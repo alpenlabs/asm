@@ -91,6 +91,7 @@ pub fn compute_asm_transition<S: AsmSpec>(
         history_accumulator,
     };
     let state = AnchorState {
+        magic: pre_state.magic,
         chain_view,
         sections: sections.into(),
     };

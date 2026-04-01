@@ -71,6 +71,7 @@ impl<W: WorkerContext + Send + Sync + 'static> AsmWorkerServiceState<W> {
                 let empty_accumulator =
                     AsmHistoryAccumulatorState::new(genesis_l1_view.height() as u64);
                 let state = AnchorState {
+                    magic: AnchorState::magic_ssz(self.asm_params.magic),
                     chain_view: ChainViewState {
                         pow_state: HeaderVerificationState::new(
                             self.context.get_network()?,
