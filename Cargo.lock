@@ -8229,9 +8229,9 @@ dependencies = [
  "num-format",
  "reqwest",
  "serde_json",
- "sp1-build",
  "sp1-sdk",
  "strata-asm-proof-impl",
+ "strata-asm-sp1-guest-builder",
  "zkaleido 0.1.0 (git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc22)",
  "zkaleido-sp1-host",
 ]
@@ -8293,9 +8293,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "strata-asm-sp1-guest-builder"
+version = "0.1.0"
+dependencies = [
+ "sp1-build",
+]
+
+[[package]]
 name = "strata-asm-spec"
 version = "0.1.0"
 dependencies = [
+ "serde_json",
  "strata-asm-common",
  "strata-asm-params",
  "strata-asm-proto-administration",

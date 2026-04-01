@@ -522,8 +522,6 @@ dependencies = [
 name = "guest-sp1-asm"
 version = "0.1.0"
 dependencies = [
- "serde_json",
- "strata-asm-params",
  "strata-asm-proof-impl",
  "strata-asm-spec",
  "zkaleido-sp1-guest-env",
@@ -1679,6 +1677,7 @@ dependencies = [
 name = "strata-asm-spec"
 version = "0.1.0"
 dependencies = [
+ "serde_json",
  "strata-asm-common 0.1.0",
  "strata-asm-params",
  "strata-asm-proto-administration",

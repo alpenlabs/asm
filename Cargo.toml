@@ -35,6 +35,7 @@ members = [
   # binaries listed separately
   "bin/asm-runner",
   "bin/prover-perf",
+  "guest-builder/sp1",
 ]
 
 [workspace.lints]

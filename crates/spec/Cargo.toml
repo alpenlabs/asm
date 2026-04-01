@@ -13,3 +13,10 @@ strata-asm-proto-administration.workspace = true
 strata-asm-proto-bridge-v1.workspace = true
 strata-asm-proto-checkpoint.workspace = true
 strata-l1-txfmt.workspace = true
+
+[target.'cfg(target_os = "zkvm")'.dependencies]
+serde_json.workspace = true
+
+[build-dependencies]
+serde_json.workspace = true
+strata-asm-params.workspace = true

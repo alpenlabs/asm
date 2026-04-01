@@ -5,10 +5,7 @@
 //! and protocol-level parameters like magic bytes.
 
 use strata_asm_common::{AsmSpec, Loader, Stage};
-use strata_asm_params::{
-    AdministrationInitConfig, AsmParams, BridgeV1InitConfig, CheckpointInitConfig,
-    SubprotocolInstance,
-};
+use strata_asm_params::AsmParams;
 use strata_asm_proto_administration::AdministrationSubprotocol;
 use strata_asm_proto_bridge_v1::BridgeV1Subproto;
 use strata_asm_proto_checkpoint::subprotocol::CheckpointSubprotocol;
@@ -19,25 +16,20 @@ use strata_l1_txfmt::MagicBytes;
 /// Implements the [`AsmSpec`] trait to define subprotocol processing order,
 /// magic bytes for L1 transaction filtering, and genesis configurations.
 #[derive(Debug)]
-pub struct StrataAsmSpec {
-    magic_bytes: MagicBytes,
-
-    // subproto init configs, which right now currently just contain the genesis data
-    checkpoint_config: CheckpointInitConfig,
-    bridge_v1_config: BridgeV1InitConfig,
-    admin_config: AdministrationInitConfig,
-}
+pub struct StrataAsmSpec(AsmParams);
 
 impl AsmSpec for StrataAsmSpec {
     fn magic_bytes(&self) -> MagicBytes {
-        self.magic_bytes
+        self.0.magic
     }
 
     fn load_subprotocols(&self, loader: &mut impl Loader) {
-        // TODO avoid clone?
-        loader.load_subprotocol::<AdministrationSubprotocol>(self.admin_config.clone());
-        loader.load_subprotocol::<CheckpointSubprotocol>(self.checkpoint_config.clone());
-        loader.load_subprotocol::<BridgeV1Subproto>(self.bridge_v1_config.clone());
+        // unwrap is safe: validated at construction
+        loader
+            .load_subprotocol::<AdministrationSubprotocol>(self.0.admin_config().unwrap().clone());
+        loader
+            .load_subprotocol::<CheckpointSubprotocol>(self.0.checkpoint_config().unwrap().clone());
+        loader.load_subprotocol::<BridgeV1Subproto>(self.0.bridge_config().unwrap().clone());
     }
 
     fn call_subprotocols(&self, stage: &mut impl Stage) {
@@ -48,49 +40,41 @@ impl AsmSpec for StrataAsmSpec {
 }
 
 impl StrataAsmSpec {
-    /// Creates a new ASM spec instance.
-    pub fn new(
-        magic_bytes: strata_l1_txfmt::MagicBytes,
-        checkpoint_config: CheckpointInitConfig,
-        bridge_v1_config: BridgeV1InitConfig,
-        admin_config: AdministrationInitConfig,
-    ) -> Self {
-        Self {
-            magic_bytes,
-            checkpoint_config,
-            bridge_v1_config,
-            admin_config,
-        }
+    /// Creates a new ASM spec, validating that all required subprotocols are present.
+    #[cfg(not(target_os = "zkvm"))]
+    pub fn new(params: AsmParams) -> Self {
+        assert!(
+            params.admin_config().is_some(),
+            "AsmParams missing Admin subprotocol"
+        );
+        assert!(
+            params.checkpoint_config().is_some(),
+            "AsmParams missing Checkpoint subprotocol"
+        );
+        assert!(
+            params.bridge_config().is_some(),
+            "AsmParams missing Bridge subprotocol"
+        );
+        Self(params)
     }
 
+    #[cfg(not(target_os = "zkvm"))]
     pub fn from_asm_params(params: &AsmParams) -> Self {
-        let mut checkpoint_config = None;
-        let mut bridge_config = None;
-        let mut admin_config = None;
+        Self::new(params.clone())
+    }
 
-        for instance in &params.subprotocols {
-            match instance {
-                SubprotocolInstance::Checkpoint(cfg) => checkpoint_config = Some(cfg),
-                SubprotocolInstance::Bridge(cfg) => bridge_config = Some(cfg),
-                SubprotocolInstance::Admin(cfg) => admin_config = Some(cfg),
-            }
-        }
+    /// Creates an ASM spec from the `ASM_PARAMS_JSON` environment variable that was
+    /// validated and embedded at compile time by the build script.
+    #[cfg(target_os = "zkvm")]
+    pub fn new() -> Self {
+        const ASM_PARAMS_JSON: &str = env!("ASM_PARAMS_JSON");
+        let params: AsmParams =
+            serde_json::from_str(ASM_PARAMS_JSON).expect("ASM_PARAMS_JSON validated at build time");
+        Self(params)
+    }
 
-        let bridge_v1_config = bridge_config
-            .expect("AsmParams missing Bridge subprotocol")
-            .clone();
-        let admin_config = admin_config
-            .expect("AsmParams missing Admin subprotocol")
-            .clone();
-        let checkpoint_config = checkpoint_config
-            .expect("AsmParams missing Checkpoint subprotocol")
-            .clone();
-
-        Self {
-            magic_bytes: params.magic,
-            checkpoint_config,
-            bridge_v1_config,
-            admin_config,
-        }
+    /// Returns a reference to the inner [`AsmParams`].
+    pub fn params(&self) -> &AsmParams {
+        &self.0
     }
 }
