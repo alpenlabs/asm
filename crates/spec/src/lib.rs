@@ -10,7 +10,7 @@ use strata_asm_proto_administration::AdministrationSubprotocol;
 use strata_asm_proto_bridge_v1::BridgeV1Subproto;
 use strata_asm_proto_checkpoint::subprotocol::CheckpointSubprotocol;
 
-mod genesis;
+pub mod genesis;
 
 /// ASM specification for the Strata protocol.
 ///

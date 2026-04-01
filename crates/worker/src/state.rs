@@ -1,11 +1,9 @@
 use std::sync::Arc;
 
 use bitcoin::Block;
-use strata_asm_common::{
-    AnchorState, AsmHistoryAccumulatorState, AuxData, ChainViewState, HeaderVerificationState,
-};
+use strata_asm_common::AuxData;
 use strata_asm_params::AsmParams;
-use strata_asm_spec::StrataAsmSpec;
+use strata_asm_spec::{StrataAsmSpec, genesis::asm_genesis};
 use strata_asm_stf::AsmStfOutput;
 use strata_btc_verification::TxidInclusionProof;
 use strata_primitives::l1::L1BlockCommitment;
@@ -67,26 +65,13 @@ impl<W: WorkerContext + Send + Sync + 'static> AsmWorkerServiceState<W> {
             }
             None => {
                 // Create genesis anchor state.
-                let genesis_l1_view = &self.asm_params.l1_view;
-                let empty_accumulator =
-                    AsmHistoryAccumulatorState::new(genesis_l1_view.height() as u64);
-                let state = AnchorState {
-                    magic: AnchorState::magic_ssz(self.asm_params.magic),
-                    chain_view: ChainViewState {
-                        pow_state: HeaderVerificationState::new(
-                            self.context.get_network()?,
-                            genesis_l1_view,
-                        ),
-                        history_accumulator: empty_accumulator,
-                    },
-                    sections: vec![].into(),
-                };
+                let genesis_state = asm_genesis(&self.asm_params);
+                let genesis_blk = self.asm_params.l1_view.blk;
 
                 // Persist it and update state.
-                let state = AsmState::new(state, vec![]);
-                self.context
-                    .store_anchor_state(&genesis_l1_view.blk, &state)?;
-                self.update_anchor_state(state, genesis_l1_view.blk);
+                let state = AsmState::new(genesis_state, vec![]);
+                self.context.store_anchor_state(&genesis_blk, &state)?;
+                self.update_anchor_state(state, genesis_blk);
 
                 Ok(())
             }
