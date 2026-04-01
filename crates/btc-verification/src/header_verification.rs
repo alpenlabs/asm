@@ -78,6 +78,46 @@ pub struct HeaderVerificationState {
 }
 
 impl HeaderVerificationState {
+    /// Creates a fresh [`HeaderVerificationState`] from an [`L1Anchor`].
+    ///
+    /// Initializes with an empty timestamp history and zero accumulated proof of work,
+    /// suitable for starting header verification from the anchor block without any prior state.
+    pub fn init(anchor: L1Anchor) -> Self {
+        let block_timestamp_history = TimestampStore::default();
+        let params = BtcParams::from(Params::new(anchor.network));
+        let total_accumulated_pow = BtcWork::default();
+
+        Self {
+            params,
+            last_verified_block: anchor.block,
+            next_block_target: anchor.next_target,
+            epoch_start_timestamp: anchor.epoch_start_timestamp,
+            block_timestamp_history,
+            total_accumulated_pow,
+        }
+    }
+
+    /// Constructs a [`HeaderVerificationState`] at a particular point in the chain.
+    ///
+    /// Unlike [`init`](Self::init), this accepts pre-existing timestamp history and accumulated
+    /// proof of work, allowing reconstruction of the verification state at an arbitrary block
+    /// height (e.g., when resuming from a snapshot or checkpoint).
+    pub fn new_new(
+        anchor: L1Anchor,
+        block_timestamp_history: TimestampStore,
+        total_accumulated_pow: BtcWork,
+    ) -> Self {
+        let params = BtcParams::from(Params::new(anchor.network));
+        Self {
+            params,
+            last_verified_block: anchor.block,
+            next_block_target: anchor.next_target,
+            epoch_start_timestamp: anchor.epoch_start_timestamp,
+            block_timestamp_history,
+            total_accumulated_pow,
+        }
+    }
+
     pub fn new(network: Network, genesis_view: &GenesisL1View) -> Self {
         let params = Params::new(network).into();
 
@@ -251,6 +291,30 @@ impl HeaderVerificationState {
     pub fn get_total_accumulated_pow(&self) -> BtcWork {
         self.total_accumulated_pow.clone()
     }
+}
+
+/// Snapshot of L1 chain state used to anchor the ASM to a known point on the Bitcoin chain.
+///
+/// This struct holds the minimum information required to resume L1 verification from an
+/// arbitrary point: which block was last verified, what difficulty target the next block must
+/// satisfy, when the current difficulty-adjustment epoch began, and which network's consensus
+/// rules apply.
+///
+/// Used to construct a [`HeaderVerificationState`] (along with a timestamp history) when
+/// bootstrapping or resuming header verification.
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
+pub struct L1Anchor {
+    /// Commitment (height + block hash) to the last verified L1 block.
+    pub block: L1BlockCommitment,
+
+    /// Compact-encoded target that the next block header must satisfy.
+    pub next_target: u32,
+
+    /// Timestamp of the first block in the current difficulty-adjustment epoch.
+    pub epoch_start_timestamp: u32,
+
+    /// Bitcoin network (mainnet, testnet, signet, regtest) that determines consensus parameters.
+    pub network: Network,
 }
 
 /// Calculates the height at which a specific difficulty adjustment occurs relative to a
