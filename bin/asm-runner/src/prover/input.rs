@@ -7,10 +7,12 @@ use std::sync::Arc;
 use anyhow::{Context, Result};
 use asm_storage::AsmStateDb;
 use bitcoind_async_client::{Client, traits::Reader};
-use moho_recursive_proof::{MohoRecursiveInput, MohoStateTransition, MohoTransitionWithProof};
+use moho_recursive_proof::{
+    MohoRecursiveInput, MohoRecursiveOutput, MohoStateTransition, MohoTransitionWithProof,
+};
 use moho_runtime_impl::RuntimeInput;
 use moho_runtime_interface::MohoProgram;
-use moho_types::MohoState;
+use moho_types::{MohoAttestation, MohoState};
 use ssz::{Decode, Encode};
 use strata_asm_proof_db::{ProofDb, SledProofDb};
 use strata_asm_proof_impl::moho_program::{input::AsmStepInput, program::AsmStfProgram};
@@ -18,8 +20,9 @@ use strata_asm_proof_types::L1Range;
 use strata_btc_types::{BlockHashExt, L1BlockIdBitcoinExt};
 use strata_btc_verification::{self, TxidInclusionProof};
 use strata_identifiers::L1BlockCommitment;
-use strata_merkle::MerkleProofB32;
+use strata_merkle::{BinaryMerkleTree, MerkleProofB32, Sha256NoPrefixHasher};
 use strata_predicate::PredicateKey;
+use tree_hash::{Sha256Hasher as TreeSha256Hasher, TreeHash};
 
 /// Builds [`RuntimeInput`] for proof generation, dispatching by proof type.
 pub(crate) struct InputBuilder {
@@ -97,9 +100,13 @@ impl InputBuilder {
             .context("ASM step proof not available yet for this block")?;
 
         let asm_receipt = asm_proof.0.receipt();
-        let asm_transition =
-            MohoStateTransition::from_ssz_bytes(asm_receipt.public_values().as_bytes())
-                .context("invalid ASM state transition in stored proof")?;
+        let asm_attestation =
+            MohoAttestation::from_ssz_bytes(asm_receipt.public_values().as_bytes())
+                .context("invalid ASM attestation in stored proof")?;
+        let asm_transition = MohoStateTransition::new(
+            asm_attestation.genesis().clone(),
+            asm_attestation.proven().clone(),
+        );
         let asm_step_proof =
             MohoTransitionWithProof::new(asm_transition, asm_receipt.proof().as_bytes().to_vec());
 
@@ -114,11 +121,11 @@ impl InputBuilder {
                 .await?
                 .context("previous moho recursive proof not available yet")?;
             let receipt = proof.0.receipt();
-            let transition =
-                MohoStateTransition::from_ssz_bytes(receipt.public_values().as_bytes())
-                    .context("invalid moho state transition in stored proof")?;
+            let output =
+                MohoRecursiveOutput::from_ssz_bytes(receipt.public_values().as_bytes())
+                    .context("invalid moho recursive output in stored proof")?;
             Some(MohoTransitionWithProof::new(
-                transition,
+                output.transition().clone(),
                 receipt.proof().as_bytes().to_vec(),
             ))
         };
@@ -185,6 +192,7 @@ impl InputBuilder {
     pub(crate) async fn build_moho_runtime_input(
         &self,
         prerequisite: MohoPrerequisite,
+        l1_ref: L1BlockCommitment,
     ) -> Result<MohoRecursiveInput> {
         let moho_predicate = PredicateKey::always_accept();
 
@@ -194,7 +202,25 @@ impl InputBuilder {
         } = prerequisite;
 
         let step_predicate = PredicateKey::always_accept();
-        let step_predicate_merkle_proof = MerkleProofB32::new_zero();
+
+        let parent = self.get_parent_commitment(l1_ref).await?;
+        let parent_state = self.get_moho_state(parent).await?;
+
+        let leaves = vec![
+            <_ as TreeHash<TreeSha256Hasher>>::tree_hash_root(&parent_state.inner_state)
+                .into_inner(),
+            <_ as TreeHash<TreeSha256Hasher>>::tree_hash_root(&parent_state.next_predicate)
+                .into_inner(),
+            <_ as TreeHash<TreeSha256Hasher>>::tree_hash_root(&parent_state.export_state)
+                .into_inner(),
+            [0u8; 32],
+        ];
+
+        let generic_proof = BinaryMerkleTree::from_leaves::<Sha256NoPrefixHasher>(leaves)
+            .expect("valid tree")
+            .gen_proof(1)
+            .expect("proof exists");
+        let step_predicate_merkle_proof = MerkleProofB32::from_generic(&generic_proof);
 
         Ok(MohoRecursiveInput::new(
             moho_predicate,

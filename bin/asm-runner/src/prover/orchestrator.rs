@@ -264,7 +264,7 @@ impl<R: ZkVmRemoteHost> ProofOrchestrator<R> {
                 };
                 let input = self
                     .input_builder
-                    .build_moho_runtime_input(prerequisite)
+                    .build_moho_runtime_input(prerequisite, *block)
                     .await?;
                 MohoRecursiveProgram::start_proving(&input, &self.moho)
                     .await
