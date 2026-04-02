@@ -138,7 +138,7 @@ impl<R: ZkVmRemoteHost> ProofOrchestrator<R> {
         }
 
         debug!(
-            ?remote_id,
+            %remote_id,
             ?old_status,
             ?new_status,
             "remote proof status changed"
