@@ -327,45 +327,20 @@ mod tests {
 
     use crate::*;
 
-    /// Reconstructs a [`HeaderVerificationState`] at `height` using
-    /// [`HeaderVerificationState::new`].
-    ///
-    /// Gathers the epoch start timestamp and last 11 block timestamps from the fixture,
-    /// then builds the state at the given height with pre-populated timestamp history.
-    fn verification_state_at(
-        chain: &BtcMainnetSegment,
-        height: L1Height,
-    ) -> Result<HeaderVerificationState, &'static str> {
+    fn get_l1_anchor(chain: &BtcMainnetSegment, anchor_height: L1Height) -> L1Anchor {
         let params = Params::from(Network::Bitcoin);
 
         let current_epoch_start_height =
-            get_relative_difficulty_adjustment_height(0, height, &params);
+            get_relative_difficulty_adjustment_height(0, anchor_height, &params);
         let current_epoch_start_header = chain
             .get_block_header_at(current_epoch_start_height)
-            .ok_or("missing current epoch start header in fixture")?;
+            .expect("missing current epoch start header in fixture");
         let block_header = chain
-            .get_block_header_at(height)
-            .ok_or("missing block header in fixture")?;
-
-        let mut timestamps = Vec::with_capacity(TIMESTAMPS_FOR_MEDIAN);
-        for i in (0..TIMESTAMPS_FOR_MEDIAN).rev() {
-            if i as u32 > height {
-                timestamps.push(0);
-            } else {
-                let h = height - i as u32;
-                let ts = chain
-                    .get_block_header_at(h)
-                    .ok_or("missing header while collecting timestamps")?
-                    .time;
-                timestamps.push(ts);
-            }
-        }
-        let timestamps: [u32; TIMESTAMPS_FOR_MEDIAN] = timestamps
-            .try_into()
-            .map_err(|_| "invalid timestamp fixture length")?;
+            .get_block_header_at(anchor_height)
+            .expect("missing block header in fixture");
 
         let next_target =
-            if (height as u64 + 1).is_multiple_of(params.difficulty_adjustment_interval()) {
+            if (anchor_height as u64 + 1).is_multiple_of(params.difficulty_adjustment_interval()) {
                 CompactTarget::from_next_work_required(
                     block_header.bits,
                     (block_header.time - current_epoch_start_header.time) as u64,
@@ -376,18 +351,23 @@ mod tests {
                 block_header.target().to_compact_lossy().to_consensus()
             };
 
-        let anchor = L1Anchor {
-            block: L1BlockCommitment::new(height, block_header.block_hash().to_l1_block_id()),
+        L1Anchor {
+            block: L1BlockCommitment::new(
+                anchor_height,
+                block_header.block_hash().to_l1_block_id(),
+            ),
             next_target,
             epoch_start_timestamp: current_epoch_start_header.time,
             network: Network::Bitcoin,
-        };
+        }
+    }
 
-        Ok(HeaderVerificationState::new(
-            anchor,
-            TimestampStore::new(timestamps),
-            BtcWork::default(),
-        ))
+    fn verification_state_at(
+        chain: &BtcMainnetSegment,
+        anchor_height: L1Height,
+    ) -> Result<HeaderVerificationState, &'static str> {
+        let anchor = get_l1_anchor(chain, anchor_height);
+        Ok(HeaderVerificationState::init(anchor))
     }
 
     #[test]
@@ -403,53 +383,6 @@ mod tests {
                 .check_and_update(&chain.get_block_header_at(header_idx).unwrap())
                 .unwrap()
         }
-    }
-
-    /// Demonstrates that [`HeaderVerificationState::new`] can reconstruct the exact same state
-    /// that was reached by [`HeaderVerificationState::init`] followed by replaying blocks.
-    ///
-    /// This is the primary way to resume verification from a checkpoint/snapshot: save the
-    /// state's parts at some height, then later restore via `new`.
-    #[test]
-    fn test_new_reconstructs_state_from_checkpoint() {
-        let chain = BtcMainnetSegment::load();
-
-        // 1. Build state at a checkpoint height.
-        let checkpoint_height = 40_100;
-        let replayed_state = verification_state_at(&chain, checkpoint_height).unwrap();
-
-        // 2. Snapshot the state's components.
-        let (
-            _params,
-            last_verified_block,
-            next_block_target,
-            epoch_start_timestamp,
-            block_timestamp_history,
-            total_accumulated_pow,
-        ) = replayed_state.clone().into_parts();
-
-        // 3. Reconstruct the same state via `new`.
-        let anchor = L1Anchor {
-            block: last_verified_block,
-            next_target: next_block_target,
-            epoch_start_timestamp,
-            network: Network::Bitcoin,
-        };
-        let restored_state =
-            HeaderVerificationState::new(anchor, block_timestamp_history, total_accumulated_pow);
-
-        // 4. The reconstructed state must be identical.
-        assert_eq!(
-            &replayed_state, &restored_state,
-            "State reconstructed via `new` must match the replayed state"
-        );
-
-        // 5. The restored state can continue verifying subsequent blocks.
-        let mut state = restored_state;
-        let next_header = chain.get_block_header_at(checkpoint_height + 1).unwrap();
-        state
-            .check_and_update(&next_header)
-            .expect("Restored state should be able to continue verifying blocks");
     }
 
     #[test]
@@ -805,6 +738,38 @@ mod tests {
     // - Time Validation: https://github.com/bitcoin/bitcoin/blob/master/src/validation.cpp
     // ========================================================================
 
+    /// Verifies that the Median Time Past (MTP) is correctly computed after
+    /// populating the timestamp history.
+    ///
+    /// A freshly initialized verification state (via [`new_verification_state_at`])
+    /// has no timestamp history, so the median starts at zero. After processing
+    /// exactly [`TIMESTAMPS_FOR_MEDIAN`] (11) blocks, the median should equal the
+    /// timestamp of the middle block in the window.
+    #[test]
+    fn test_median_time_past_after_populating_history() {
+        let chain = BtcMainnetSegment::load();
+        let height = 40_100;
+        let mut verification_state = verification_state_at(&chain, height).unwrap();
+
+        // A fresh state has no timestamp history, so the median defaults to 0.
+        let median = verification_state.get_block_timestamp_history().median();
+        assert_eq!(median, 0);
+
+        // Feed exactly TIMESTAMPS_FOR_MEDIAN blocks to fill the history window.
+        for height in height + 1..=height + TIMESTAMPS_FOR_MEDIAN as u32 {
+            let header = chain.get_block_header_at(height).unwrap();
+            verification_state.check_and_update(&header).unwrap();
+        }
+
+        // The median should now be the timestamp of the middle block in the window.
+        let median = verification_state.get_block_timestamp_history().median();
+        let expected_median = chain
+            .get_block_header_at(height + (TIMESTAMPS_FOR_MEDIAN / 2) as u32 + 1)
+            .unwrap()
+            .time;
+        assert_eq!(median, expected_median);
+    }
+
     /// Test that a timestamp exactly equal to the median is rejected.
     /// Note: When we modify the timestamp, the block hash changes and PoW fails first.
     /// This test verifies that headers with invalid timestamps get rejected (even if via PoW).
@@ -866,6 +831,12 @@ mod tests {
         let chain = BtcMainnetSegment::load();
         let height = 40_100;
         let mut verification_state = verification_state_at(&chain, height).unwrap();
+
+        // Feed exactly TIMESTAMPS_FOR_MEDIAN blocks to fill the history window.
+        for height in height + 1..=height + TIMESTAMPS_FOR_MEDIAN as u32 {
+            let header = chain.get_block_header_at(height).unwrap();
+            verification_state.check_and_update(&header).unwrap();
+        }
 
         let median = verification_state.get_block_timestamp_history().median();
 
