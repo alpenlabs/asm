@@ -1,7 +1,6 @@
 use std::sync::Arc;
 
 use strata_asm_params::AsmParams;
-use strata_asm_spec::StrataAsmSpec;
 use strata_service::ServiceBuilder;
 use strata_tasks::TaskExecutor;
 
@@ -20,7 +19,6 @@ use crate::{
 pub struct AsmWorkerBuilder<W> {
     context: Option<W>,
     asm_params: Option<Arc<AsmParams>>,
-    asm_spec: Option<StrataAsmSpec>,
 }
 
 impl<W> AsmWorkerBuilder<W> {
@@ -29,7 +27,6 @@ impl<W> AsmWorkerBuilder<W> {
         Self {
             context: None,
             asm_params: None,
-            asm_spec: None,
         }
     }
 
@@ -41,15 +38,6 @@ impl<W> AsmWorkerBuilder<W> {
 
     pub fn with_asm_params(mut self, asm_params: Arc<AsmParams>) -> Self {
         self.asm_params = Some(asm_params);
-        self
-    }
-
-    /// Set an explicit ASM spec.
-    ///
-    /// This is kept for compatibility with upstream callers that still pass a spec explicitly.
-    /// If not provided, the worker derives the spec from `AsmParams`.
-    pub fn with_asm_spec(mut self, asm_spec: StrataAsmSpec) -> Self {
-        self.asm_spec = Some(asm_spec);
         self
     }
 
@@ -68,10 +56,9 @@ impl<W> AsmWorkerBuilder<W> {
         let asm_params = self
             .asm_params
             .ok_or(WorkerError::MissingDependency("asm_params"))?;
-        let asm_spec = self.asm_spec.unwrap_or(StrataAsmSpec);
 
         // Create the service state.
-        let service_state = AsmWorkerServiceState::new_with_spec(context, asm_params, asm_spec);
+        let service_state = AsmWorkerServiceState::new(context, asm_params);
 
         // Create the service builder and get command handle.
         let mut service_builder =

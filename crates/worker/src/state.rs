@@ -30,27 +30,17 @@ pub struct AsmWorkerServiceState<W> {
 
     /// Current anchor block.
     pub blkid: Option<L1BlockCommitment>,
-
-    /// ASM spec for ASM STF.
-    asm_spec: StrataAsmSpec,
 }
 
 impl<W: WorkerContext + Send + Sync + 'static> AsmWorkerServiceState<W> {
     /// A new (uninitialized) instance of the service state.
     pub fn new(context: W, asm_params: Arc<AsmParams>) -> Self {
-        let asm_spec = StrataAsmSpec;
-        Self::new_with_spec(context, asm_params, asm_spec)
-    }
-
-    /// A new (uninitialized) instance of the service state with an explicit ASM spec.
-    pub fn new_with_spec(context: W, asm_params: Arc<AsmParams>, asm_spec: StrataAsmSpec) -> Self {
         Self {
             asm_params,
             context,
             anchor: None,
             blkid: None,
             initialized: false,
-            asm_spec,
         }
     }
 
@@ -89,7 +79,7 @@ impl<W: WorkerContext + Send + Sync + 'static> AsmWorkerServiceState<W> {
             let span = tracing::debug_span!("asm.stf.pre_process", protocol_txs = Empty);
             let _guard = span.enter();
 
-            let result = strata_asm_stf::pre_process_asm(&self.asm_spec, cur_state.state(), block)
+            let result = strata_asm_stf::pre_process_asm(&StrataAsmSpec, cur_state.state(), block)
                 .map_err(WorkerError::AsmError)?;
 
             span.record("protocol_txs", result.txs.len());
@@ -118,7 +108,7 @@ impl<W: WorkerContext + Send + Sync + 'static> AsmWorkerServiceState<W> {
         let coinbase_inclusion_proof = TxidInclusionProof::generate(&block.txdata, 0);
 
         strata_asm_stf::compute_asm_transition(
-            &self.asm_spec,
+            &StrataAsmSpec,
             cur_state.state(),
             block,
             &aux_data,
