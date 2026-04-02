@@ -185,15 +185,15 @@ impl HeaderVerificationState {
     ///
     /// The checks include:
     /// 1. Continuity: Ensuring the header's previous block hash matches the last verified hash.
-    /// 2. Proof-of-Work: Validating that the header's target matches the expected target and that
-    ///    the computed block hash meets the target.
+    /// 2. Target Encoding: Validating that the header's target matches the expected target.
     /// 3. Timestamp: Ensuring the header's timestamp is greater than the median of the last 11
     ///    blocks.
+    /// 4. Proof-of-Work: Validating that the computed block hash meets the target.
     /// # Errors
     ///
     /// Returns a [`L1VerificationError`] if any of the checks fail.
     pub fn check_and_update(&mut self, header: &Header) -> Result<(), L1VerificationError> {
-        // Check continuity
+        // 1. Check continuity
         let prev_blockhash: L1BlockId =
             Buf32::from(header.prev_blockhash.as_raw_hash().to_byte_array()).into();
         if prev_blockhash != *self.last_verified_block.blkid() {
@@ -203,9 +203,7 @@ impl HeaderVerificationState {
             });
         }
 
-        let block_hash = compute_block_hash(header);
-
-        // Check Proof-of-Work target encoding
+        // 2. Check Proof-of-Work target encoding
         if header.bits.to_consensus() != self.next_block_target {
             return Err(L1VerificationError::PowMismatch {
                 expected: self.next_block_target,
@@ -213,20 +211,21 @@ impl HeaderVerificationState {
             });
         }
 
-        // Check that the block hash meets the target difficulty.
-        if !header.target().is_met_by(block_hash) {
-            return Err(L1VerificationError::PowNotMet {
-                block_hash,
-                target: header.bits.to_consensus(),
-            });
-        }
-
-        // Check timestamp against the median of the last 11 timestamps.
+        // 3. Check timestamp against the median of the last 11 timestamps.
         let median = self.block_timestamp_history.median();
         if header.time <= median {
             return Err(L1VerificationError::TimestampError {
                 time: header.time,
                 median,
+            });
+        }
+
+        // 4. Check that the block hash meets the target difficulty.
+        let block_hash = compute_block_hash(header);
+        if !header.target().is_met_by(block_hash) {
+            return Err(L1VerificationError::PowNotMet {
+                block_hash,
+                target: header.bits.to_consensus(),
             });
         }
 
@@ -770,9 +769,7 @@ mod tests {
         assert_eq!(median, expected_median);
     }
 
-    /// Test that a timestamp exactly equal to the median is rejected.
-    /// Note: When we modify the timestamp, the block hash changes and PoW fails first.
-    /// This test verifies that headers with invalid timestamps get rejected (even if via PoW).
+    /// Test that a timestamp exactly equal to the median is rejected with `TimestampError`.
     #[test]
     fn test_timestamp_exactly_at_median_rejected() {
         let chain = BtcMainnetSegment::load();
@@ -787,15 +784,18 @@ mod tests {
 
         let result = verification_state.check_and_update(&header);
 
-        // Modifying timestamp breaks PoW (hash changes), so we expect rejection
-        // Either PoW fails or timestamp fails - both indicate invalid header
         assert!(
-            result.is_err(),
-            "Header with timestamp at median should be rejected"
+            matches!(
+                result.unwrap_err(),
+                L1VerificationError::TimestampError { .. }
+            ),
+            "Header with timestamp at median should be rejected with TimestampError"
         );
     }
 
-    /// Test that a timestamp one second greater than median is accepted.
+    /// Test that a timestamp one second greater than median passes the timestamp check.
+    /// The modified timestamp changes the block hash, so PoW fails next — confirming
+    /// the timestamp validation itself accepted the value.
     #[test]
     fn test_timestamp_one_second_after_median() {
         let chain = BtcMainnetSegment::load();
@@ -806,26 +806,20 @@ mod tests {
 
         // Create a header with timestamp = median + 1
         let mut header = chain.get_block_header_at(height + 1).unwrap();
-        let _original_time = header.time;
         header.time = median + 1;
 
-        // Need to recalculate the block hash since we changed the timestamp
-        // For this test, we'll just verify the timestamp check passes
-        // The PoW check will fail, but that's after timestamp validation
         let result = verification_state.check_and_update(&header);
 
-        // If we get TimestampError, test fails. If we get PowNotMet, timestamp passed!
-        if let Err(e) = result {
-            assert!(
-                !matches!(e, L1VerificationError::TimestampError { .. }),
-                "Timestamp check should pass with median + 1, got: {e:?}",
-            );
-        }
+        // Timestamp check passes (median + 1 > median), but the modified timestamp
+        // changes the block hash, so PoW fails.
+        assert!(
+            matches!(result.unwrap_err(), L1VerificationError::PowNotMet { .. }),
+            "Timestamp check should pass; expect PowNotMet from changed hash"
+        );
     }
 
-    /// Test that timestamps must be greater than median (decreasing rejected).
-    /// Note: When we modify the timestamp, the block hash changes and PoW fails first.
-    /// This test verifies that headers with timestamps less than median get rejected.
+    /// Test that timestamps must be greater than median (decreasing rejected with
+    /// `TimestampError`).
     #[test]
     fn test_timestamp_less_than_median_rejected() {
         let chain = BtcMainnetSegment::load();
@@ -840,17 +834,19 @@ mod tests {
 
         let median = verification_state.get_block_timestamp_history().median();
 
-        // Create header with timestamp less than median
-        let mut header = chain.get_block_header_at(height + 1).unwrap();
+        // Create header at the next height (after the 11 blocks we just processed)
+        let next_height = height + TIMESTAMPS_FOR_MEDIAN as u32 + 1;
+        let mut header = chain.get_block_header_at(next_height).unwrap();
         header.time = median.saturating_sub(100); // 100 seconds before median
 
         let result = verification_state.check_and_update(&header);
 
-        // Modifying timestamp breaks PoW (hash changes), so we expect rejection
-        // Either PoW fails or timestamp fails - both indicate invalid header
         assert!(
-            result.is_err(),
-            "Header with timestamp less than median should be rejected"
+            matches!(
+                result.unwrap_err(),
+                L1VerificationError::TimestampError { .. }
+            ),
+            "Header with timestamp less than median should be rejected with TimestampError"
         );
     }
 
@@ -877,7 +873,7 @@ mod tests {
             // Median should be within reasonable bounds
             assert!(
                 new_median >= initial_median,
-                "Median should not decrease significantly (old: {}, new: {})",
+                "Median should not decrease (old: {}, new: {})",
                 initial_median,
                 new_median
             );
