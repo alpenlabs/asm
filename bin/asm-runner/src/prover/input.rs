@@ -121,9 +121,8 @@ impl InputBuilder {
                 .await?
                 .context("previous moho recursive proof not available yet")?;
             let receipt = proof.0.receipt();
-            let output =
-                MohoRecursiveOutput::from_ssz_bytes(receipt.public_values().as_bytes())
-                    .context("invalid moho recursive output in stored proof")?;
+            let output = MohoRecursiveOutput::from_ssz_bytes(receipt.public_values().as_bytes())
+                .context("invalid moho recursive output in stored proof")?;
             Some(MohoTransitionWithProof::new(
                 output.transition().clone(),
                 receipt.proof().as_bytes().to_vec(),

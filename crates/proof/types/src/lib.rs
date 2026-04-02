@@ -91,8 +91,8 @@ impl PartialOrd for ProofId {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct RemoteProofId(pub Vec<u8>);
 
-impl std::fmt::Display for RemoteProofId {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Display for RemoteProofId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         for byte in &self.0 {
             write!(f, "{byte:02x}")?;
         }
