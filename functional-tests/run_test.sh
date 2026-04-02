@@ -16,6 +16,10 @@ else
   TARGET_DIR="debug"
 fi
 
+if [ -n "${CARGO_FEATURES:-}" ]; then
+  CARGO_ARGS+=(--features "$CARGO_FEATURES")
+fi
+
 cargo build --bin strata-asm-runner ${CARGO_ARGS[@]+"${CARGO_ARGS[@]}"}
 TARGET_ROOT="${CARGO_TARGET_DIR:-target}"
 if [[ "$TARGET_ROOT" != /* ]]; then

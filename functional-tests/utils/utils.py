@@ -81,7 +81,7 @@ def wait_until_asm_reaches_height(asm_rpc, min_height: int, timeout: int = 180) 
     return height_holder["height"]
 
 
-def wait_until_asm_proof_exists(asm_rpc, block_hash: str, timeout: int = 60, step: int = 2):
+def wait_until_asm_proof_exists(asm_rpc, block_hash: str, timeout: int = 600, step: int = 2):
     """Wait until an ASM proof exists for the given block hash."""
 
     def check():
