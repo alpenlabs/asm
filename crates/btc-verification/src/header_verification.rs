@@ -3,7 +3,6 @@ use bitcoin::{CompactTarget, Network, block::Header, hashes::Hash, params::Param
 use borsh::{BorshDeserialize, BorshSerialize};
 use serde::{Deserialize, Serialize};
 use strata_btc_types::{BlockHashExt, BtcParams};
-use strata_crypto::hash::compute_borsh_hash;
 use strata_identifiers::{Buf32, L1BlockCommitment, L1BlockId, L1Height};
 
 use crate::{
@@ -247,11 +246,6 @@ impl HeaderVerificationState {
         Ok(())
     }
 
-    /// Calculate the hash of the verification state
-    pub fn compute_hash(&self) -> Result<Buf32, L1VerificationError> {
-        Ok(compute_borsh_hash(&self))
-    }
-
     /// Gets the next block target (for testing)
     pub fn get_next_block_target(&self) -> u32 {
         self.next_block_target
@@ -425,7 +419,6 @@ mod tests {
         let replayed_state = verification_state_at(&chain, checkpoint_height).unwrap();
 
         // 2. Snapshot the state's components.
-        let replayed_hash = replayed_state.compute_hash().unwrap();
         let (
             _params,
             last_verified_block,
@@ -433,7 +426,7 @@ mod tests {
             epoch_start_timestamp,
             block_timestamp_history,
             total_accumulated_pow,
-        ) = replayed_state.into_parts();
+        ) = replayed_state.clone().into_parts();
 
         // 3. Reconstruct the same state via `new`.
         let anchor = L1Anchor {
@@ -447,8 +440,7 @@ mod tests {
 
         // 4. The reconstructed state must be identical.
         assert_eq!(
-            restored_state.compute_hash().unwrap(),
-            replayed_hash,
+            &replayed_state, &restored_state,
             "State reconstructed via `new` must match the replayed state"
         );
 
@@ -469,15 +461,6 @@ mod tests {
             h,
             MAINNET.difficulty_adjustment_interval() as u32 * idx as u32
         );
-    }
-
-    #[test]
-    fn test_hash() {
-        let chain = BtcMainnetSegment::load();
-        let r1 = 45_000;
-        let verification_state = verification_state_at(&chain, r1).unwrap();
-        let hash = verification_state.compute_hash();
-        assert!(hash.is_ok());
     }
 
     // ========================================================================
@@ -1157,43 +1140,6 @@ mod tests {
     // - Serialization in Bitcoin: https://en.bitcoin.it/wiki/Protocol_documentation#Common_structures
     // ========================================================================
 
-    /// Test that state hash is deterministic.
-    #[test]
-    fn test_state_hash_deterministic() {
-        let chain = BtcMainnetSegment::load();
-        let height = 40_100;
-
-        // Create two identical states
-        let state1 = verification_state_at(&chain, height).unwrap();
-        let state2 = verification_state_at(&chain, height).unwrap();
-
-        let hash1 = state1.compute_hash().unwrap();
-        let hash2 = state2.compute_hash().unwrap();
-
-        assert_eq!(hash1, hash2, "Same state should produce same hash");
-    }
-
-    /// Test that state hash changes after update.
-    #[test]
-    fn test_state_hash_changes_after_update() {
-        let chain = BtcMainnetSegment::load();
-        let height = 40_100;
-        let mut verification_state = verification_state_at(&chain, height).unwrap();
-
-        let hash_before = verification_state.compute_hash().unwrap();
-
-        // Process a block
-        let header = chain.get_block_header_at(height + 1).unwrap();
-        verification_state.check_and_update(&header).unwrap();
-
-        let hash_after = verification_state.compute_hash().unwrap();
-
-        assert_ne!(
-            hash_before, hash_after,
-            "Hash should change after state update"
-        );
-    }
-
     /// Test that serialization round-trip preserves state.
     #[test]
     fn test_state_serialization_roundtrip() {
@@ -1211,12 +1157,8 @@ mod tests {
         let deserialized_state = HeaderVerificationState::deserialize(&mut &buffer[..])
             .expect("Deserialization should succeed");
 
-        // Hashes should match
-        let original_hash = original_state.compute_hash().unwrap();
-        let deserialized_hash = deserialized_state.compute_hash().unwrap();
-
         assert_eq!(
-            original_hash, deserialized_hash,
+            original_state, deserialized_state,
             "Serialization round-trip should preserve state"
         );
     }
