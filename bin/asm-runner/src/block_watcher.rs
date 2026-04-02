@@ -159,9 +159,13 @@ async fn submit_block(
     debug!(%height, %hash, "submitted block to ASM worker");
 
     if let Some(tx) = proof_tx {
-        let proof_id = ProofId::Asm(L1Range::single(commitment));
-        if let Err(err) = tx.send(proof_id) {
-            warn!(%height, %hash, ?err, "failed to enqueue proof request");
+        let asm_proof_id = ProofId::Asm(L1Range::single(commitment));
+        if let Err(err) = tx.send(asm_proof_id) {
+            warn!(%height, %hash, ?err, "failed to enqueue ASM proof request");
+        }
+        let moho_proof_id = ProofId::Moho(commitment);
+        if let Err(err) = tx.send(moho_proof_id) {
+            warn!(%height, %hash, ?err, "failed to enqueue Moho proof request");
         }
     }
 
