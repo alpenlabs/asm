@@ -3,7 +3,6 @@
 use moho_runtime_impl::RuntimeInput;
 use moho_types::MohoAttestation;
 use ssz::{decode::Decode, encode::Encode};
-use strata_asm_spec::StrataAsmSpec;
 use zkaleido::{
     DataFormatError, ProofType, PublicValues, ZkVmError, ZkVmHost, ZkVmInputBuilder,
     ZkVmInputResult, ZkVmProgram, ZkVmResult,
@@ -55,19 +54,16 @@ impl ZkVmProgram for AsmStfProofProgram {
 
 impl AsmStfProofProgram {
     /// Native host that can be used for testing
-    pub fn native_host(spec: StrataAsmSpec) -> NativeHost {
-        NativeHost::new(move |zkvm| {
-            process_asm_stf(zkvm, &spec);
-        })
+    pub fn native_host() -> NativeHost {
+        NativeHost::new(process_asm_stf)
     }
 
     /// Executes the program using the native host.
     pub fn execute(
         input: &<Self as ZkVmProgram>::Input,
-        spec: StrataAsmSpec,
     ) -> ZkVmResult<<Self as ZkVmProgram>::Output> {
         // Get the native host and delegate to the trait's execute method
-        let host = Self::native_host(spec);
+        let host = Self::native_host();
         <Self as ZkVmProgram>::execute(input, &host)
     }
 }
@@ -75,13 +71,13 @@ impl AsmStfProofProgram {
 #[cfg(test)]
 mod tests {
 
-    use crate::{program::AsmStfProofProgram, test_utils::create_runtime_input_and_spec};
+    use crate::{program::AsmStfProofProgram, test_utils::create_runtime_input};
 
     #[test]
     fn test_stf() {
-        let (runtime_input, spec) = create_runtime_input_and_spec();
+        let runtime_input = create_runtime_input();
 
-        let output = AsmStfProofProgram::execute(&runtime_input, spec).unwrap();
+        let output = AsmStfProofProgram::execute(&runtime_input).unwrap();
         dbg!(output);
     }
 }

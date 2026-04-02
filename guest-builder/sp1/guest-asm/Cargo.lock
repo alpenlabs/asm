@@ -523,7 +523,6 @@ name = "guest-sp1-asm"
 version = "0.1.0"
 dependencies = [
  "strata-asm-proof-impl",
- "strata-asm-spec",
  "zkaleido-sp1-guest-env",
 ]
 

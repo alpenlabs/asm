@@ -5,7 +5,6 @@ use bitcoind_async_client::{Auth, Client};
 use strata_asm_params::AsmParams;
 use strata_asm_proof_db::SledProofDb;
 use strata_asm_proof_impl::program::AsmStfProofProgram;
-use strata_asm_spec::StrataAsmSpec;
 use strata_asm_worker::AsmWorkerBuilder;
 use strata_tasks::TaskExecutor;
 use tokio::{
@@ -65,8 +64,7 @@ pub(crate) async fn bootstrap(
         let proof_db = SledProofDb::open(&orch_config.proof_db_path)?;
         let proof_db_clone = proof_db.clone();
 
-        let spec = StrataAsmSpec;
-        let native_host = AsmStfProofProgram::native_host(spec);
+        let native_host = AsmStfProofProgram::native_host();
 
         let input_builder = InputBuilder::new(asm_manager.clone(), bitcoin_client.clone());
         let mut orchestrator =

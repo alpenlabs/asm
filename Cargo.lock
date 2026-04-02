@@ -8171,7 +8171,6 @@ dependencies = [
  "strata-asm-proof-types",
  "strata-asm-proto-bridge-v1",
  "strata-asm-rpc",
- "strata-asm-spec",
  "strata-asm-txs-bridge-v1",
  "strata-asm-worker",
  "strata-bridge-common",

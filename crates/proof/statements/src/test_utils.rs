@@ -10,7 +10,7 @@ use moho_types::{ExportState, MohoState};
 use ssz::Encode;
 use strata_asm_common::{AnchorState, AuxData};
 use strata_asm_params::AsmParams;
-use strata_asm_spec::{construct_genesis_state, StrataAsmSpec};
+use strata_asm_spec::construct_genesis_state;
 use strata_btc_types::BlockHashExt;
 use strata_btc_verification::{L1Anchor, TxidInclusionProof};
 use strata_identifiers::L1BlockCommitment;
@@ -52,11 +52,6 @@ pub fn create_genesis_anchor_state(block: &Block) -> AnchorState {
     construct_genesis_state(&params)
 }
 
-/// Creates an ASM spec.
-pub fn create_asm_spec() -> StrataAsmSpec {
-    StrataAsmSpec
-}
-
 /// Creates the Moho pre-state from an existing [`AnchorState`].
 pub fn create_moho_prestate(anchor_state: &AnchorState) -> MohoState {
     let inner_state = AsmStfProgram::compute_state_commitment(anchor_state)
@@ -71,7 +66,8 @@ pub fn create_moho_prestate(anchor_state: &AnchorState) -> MohoState {
 }
 
 /// Creates a runtime input for a single ASM STF step.
-pub fn create_runtime_input(step_input: &AsmStepInput) -> RuntimeInput {
+pub fn create_runtime_input() -> RuntimeInput {
+    let step_input = create_asm_step_input();
     let inner_pre_state = create_genesis_anchor_state(step_input.block());
     let moho_pre_state = create_moho_prestate(&inner_pre_state);
     RuntimeInput::new(
@@ -79,12 +75,4 @@ pub fn create_runtime_input(step_input: &AsmStepInput) -> RuntimeInput {
         inner_pre_state.as_ssz_bytes(),
         step_input.as_ssz_bytes(),
     )
-}
-
-/// Creates a matching `(RuntimeInput, StrataAsmSpec)` test pair.
-pub fn create_runtime_input_and_spec() -> (RuntimeInput, StrataAsmSpec) {
-    let step_input = create_asm_step_input();
-    let spec = create_asm_spec();
-    let runtime_input = create_runtime_input(&step_input);
-    (runtime_input, spec)
 }
