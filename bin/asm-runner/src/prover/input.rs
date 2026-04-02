@@ -26,6 +26,12 @@ pub(crate) struct InputBuilder {
     state_db: Arc<AsmStateDb>,
     bitcoin_client: Arc<Client>,
     proof_db: SledProofDb,
+    genesis: L1BlockCommitment,
+}
+
+pub(crate) struct MohoPrerequisite {
+    prev_moho_proof: Option<MohoTransitionWithProof>,
+    incremental_step_proof: MohoTransitionWithProof,
 }
 
 impl InputBuilder {
@@ -33,11 +39,13 @@ impl InputBuilder {
         state_db: Arc<AsmStateDb>,
         bitcoin_client: Arc<Client>,
         proof_db: SledProofDb,
+        genesis: L1BlockCommitment,
     ) -> Self {
         Self {
             state_db,
             bitcoin_client,
             proof_db,
+            genesis,
         }
     }
 
@@ -75,6 +83,50 @@ impl InputBuilder {
             moho_types::ExportState::new(vec![]),
         );
         Ok(moho_state)
+    }
+
+    pub(crate) async fn check_moho_prerequisite(
+        &self,
+        block: L1BlockCommitment,
+    ) -> Result<MohoPrerequisite> {
+        // 1. ASM step proof is required.
+        let asm_proof = self
+            .proof_db
+            .get_asm_proof(L1Range::single(block))
+            .await?
+            .context("ASM step proof not available yet for this block")?;
+
+        let asm_receipt = asm_proof.0.receipt();
+        let asm_transition =
+            MohoStateTransition::from_ssz_bytes(asm_receipt.public_values().as_bytes())
+                .context("invalid ASM state transition in stored proof")?;
+        let asm_step_proof =
+            MohoTransitionWithProof::new(asm_transition, asm_receipt.proof().as_bytes().to_vec());
+
+        // 2. Previous moho proof: required unless this is the genesis block.
+        let parent = self.get_parent_commitment(block).await?;
+        let prev_moho_proof = if parent == self.genesis {
+            None
+        } else {
+            let proof = self
+                .proof_db
+                .get_moho_proof(parent)
+                .await?
+                .context("previous moho recursive proof not available yet")?;
+            let receipt = proof.0.receipt();
+            let transition =
+                MohoStateTransition::from_ssz_bytes(receipt.public_values().as_bytes())
+                    .context("invalid moho state transition in stored proof")?;
+            Some(MohoTransitionWithProof::new(
+                transition,
+                receipt.proof().as_bytes().to_vec(),
+            ))
+        };
+
+        Ok(MohoPrerequisite {
+            incremental_step_proof: asm_step_proof,
+            prev_moho_proof,
+        })
     }
 
     /// Builds the [`RuntimeInput`] for a single-block ASM proof.
@@ -132,49 +184,21 @@ impl InputBuilder {
 
     pub(crate) async fn build_moho_runtime_input(
         &self,
-        block: L1BlockCommitment,
+        prerequisite: MohoPrerequisite,
     ) -> Result<MohoRecursiveInput> {
         let moho_predicate = PredicateKey::always_accept();
-        let parent = self.get_parent_commitment(block).await?;
 
-        // FIXME: Check for genesis
-        let prev_recursive_proof = if let Some(proof) = self.proof_db.get_moho_proof(parent).await?
-        {
-            let receipt = proof.0.receipt();
-            // FIXME: Use ZkVmProgram instead
-            let transition =
-                MohoStateTransition::from_ssz_bytes(receipt.public_values().as_bytes())
-                    .context("invalid moho state transition in stored proof")?;
-            Some(MohoTransitionWithProof::new(
-                transition,
-                receipt.proof().as_bytes().to_vec(),
-            ))
-        } else {
-            None
-        };
-
-        let asm_proof = self
-            .proof_db
-            .get_asm_proof(L1Range::single(block))
-            .await?
-            .context("asm proof should be available")?
-            .0;
-        let incremental_step_receipt = asm_proof.receipt();
-
-        let asm_transition = MohoStateTransition::from_ssz_bytes(
-            incremental_step_receipt.public_values().as_bytes(),
-        )?;
-        let incremental_step_proof = MohoTransitionWithProof::new(
-            asm_transition,
-            incremental_step_receipt.proof().as_bytes().to_vec(),
-        );
+        let MohoPrerequisite {
+            prev_moho_proof,
+            incremental_step_proof,
+        } = prerequisite;
 
         let step_predicate = PredicateKey::always_accept();
         let step_predicate_merkle_proof = MerkleProofB32::new_zero();
 
         Ok(MohoRecursiveInput::new(
             moho_predicate,
-            prev_recursive_proof,
+            prev_moho_proof,
             incremental_step_proof,
             step_predicate,
             step_predicate_merkle_proof,

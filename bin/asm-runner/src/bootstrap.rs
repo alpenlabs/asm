@@ -2,8 +2,8 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use bitcoind_async_client::{Auth, Client};
-use strata_asm_params::AsmParams;
 use moho_recursive_proof::MohoRecursiveProgram;
+use strata_asm_params::AsmParams;
 use strata_asm_proof_db::SledProofDb;
 use strata_asm_proof_impl::program::AsmStfProofProgram;
 use strata_asm_spec::StrataAsmSpec;
@@ -85,8 +85,12 @@ pub(crate) async fn bootstrap(
             )
         };
 
-        let input_builder =
-            InputBuilder::new(state_db.clone(), bitcoin_client.clone(), proof_db.clone());
+        let input_builder = InputBuilder::new(
+            state_db.clone(),
+            bitcoin_client.clone(),
+            proof_db.clone(),
+            params.anchor.block,
+        );
         let mut orchestrator =
             ProofOrchestrator::new(proof_db, asm, moho, orch_config, input_builder, rx);
 

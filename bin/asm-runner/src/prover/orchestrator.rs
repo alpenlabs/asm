@@ -254,7 +254,18 @@ impl<R: ZkVmRemoteHost> ProofOrchestrator<R> {
                     .map_err(|e| anyhow::anyhow!("failed to submit proof to remote prover: {e}"))?
             }
             ProofId::Moho(block) => {
-                let input = self.input_builder.build_moho_runtime_input(*block).await?;
+                let prerequisite = match self.input_builder.check_moho_prerequisite(*block).await {
+                    Ok(prereq) => prereq,
+                    Err(e) => {
+                        warn!(?e, "moho proof generation cannot be done yet, re-enqueuing");
+                        self.queue.enqueue(proof_id);
+                        return Ok(());
+                    }
+                };
+                let input = self
+                    .input_builder
+                    .build_moho_runtime_input(prerequisite)
+                    .await?;
                 MohoRecursiveProgram::start_proving(&input, &self.moho)
                     .await
                     .map_err(|e| anyhow::anyhow!("failed to submit proof to remote prover: {e}"))?
