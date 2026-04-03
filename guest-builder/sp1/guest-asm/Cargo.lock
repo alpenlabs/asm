@@ -1419,7 +1419,7 @@ dependencies = [
  "ssz_derive",
  "strata-asm-common 0.1.0",
  "strata-asm-txs-bridge-v1",
- "strata-bridge-types",
+ "strata-bridge-types 0.1.0",
  "strata-primitives",
 ]
 
@@ -1619,7 +1619,7 @@ dependencies = [
  "strata-asm-logs 0.1.0",
  "strata-asm-params",
  "strata-asm-txs-bridge-v1",
- "strata-bridge-types",
+ "strata-bridge-types 0.1.0",
  "strata-btc-types",
  "strata-codec",
  "strata-crypto",
@@ -1641,7 +1641,7 @@ dependencies = [
  "strata-asm-logs 0.1.0",
  "strata-asm-params",
  "strata-asm-txs-checkpoint 0.1.0",
- "strata-bridge-types",
+ "strata-bridge-types 0.1.0",
  "strata-btc-types",
  "strata-checkpoint-types-ssz 0.1.0",
  "strata-codec",
@@ -1701,7 +1701,7 @@ dependencies = [
  "arbitrary",
  "bitcoin",
  "strata-asm-common 0.1.0",
- "strata-bridge-types",
+ "strata-bridge-types 0.1.0",
  "strata-codec",
  "strata-l1-txfmt",
  "strata-primitives",
@@ -1735,6 +1735,17 @@ dependencies = [
  "strata-l1-envelope-fmt",
  "strata-l1-txfmt",
  "thiserror 2.0.18",
+]
+
+[[package]]
+name = "strata-bridge-types"
+version = "0.1.0"
+dependencies = [
+ "arbitrary",
+ "borsh",
+ "serde",
+ "ssz",
+ "ssz_derive",
 ]
 
 [[package]]
@@ -2096,7 +2107,7 @@ dependencies = [
  "strata-acct-types",
  "strata-asm-common 0.1.0 (git+https://github.com/alpenlabs/alpen.git?rev=02fe60d1b74470da3db67352b2f74625eb2e0ed1)",
  "strata-asm-logs 0.1.0 (git+https://github.com/alpenlabs/alpen.git?rev=02fe60d1b74470da3db67352b2f74625eb2e0ed1)",
- "strata-bridge-types",
+ "strata-bridge-types 0.3.0-alpha.1",
  "strata-codec",
  "strata-identifiers",
  "strata-ledger-types",

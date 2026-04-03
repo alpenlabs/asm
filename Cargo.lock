@@ -4112,7 +4112,7 @@ dependencies = [
  "strata-asm-txs-admin",
  "strata-asm-txs-bridge-v1",
  "strata-asm-worker",
- "strata-bridge-types 0.3.0-alpha.1 (git+https://github.com/alpenlabs/alpen.git?rev=02fe60d1b74470da3db67352b2f74625eb2e0ed1)",
+ "strata-bridge-types 0.1.0",
  "strata-btc-types 0.1.0 (git+https://github.com/alpenlabs/alpen.git?rev=02fe60d1b74470da3db67352b2f74625eb2e0ed1)",
  "strata-btc-verification",
  "strata-checkpoint-types-ssz",
@@ -7879,7 +7879,7 @@ dependencies = [
  "ssz_derive",
  "strata-asm-common",
  "strata-asm-txs-bridge-v1",
- "strata-bridge-types 0.3.0-alpha.1 (git+https://github.com/alpenlabs/alpen.git?rev=02fe60d1b74470da3db67352b2f74625eb2e0ed1)",
+ "strata-bridge-types 0.1.0",
  "strata-primitives 0.3.0-alpha.1 (git+https://github.com/alpenlabs/alpen.git?rev=02fe60d1b74470da3db67352b2f74625eb2e0ed1)",
 ]
 
@@ -8065,7 +8065,7 @@ dependencies = [
  "strata-asm-logs",
  "strata-asm-params",
  "strata-asm-txs-bridge-v1",
- "strata-bridge-types 0.3.0-alpha.1 (git+https://github.com/alpenlabs/alpen.git?rev=02fe60d1b74470da3db67352b2f74625eb2e0ed1)",
+ "strata-bridge-types 0.1.0",
  "strata-btc-types 0.1.0 (git+https://github.com/alpenlabs/alpen.git?rev=02fe60d1b74470da3db67352b2f74625eb2e0ed1)",
  "strata-codec 0.1.0 (git+https://github.com/alpenlabs/strata-common?tag=v0.1.0-alpha-rc11)",
  "strata-crypto 0.3.0-alpha.1 (git+https://github.com/alpenlabs/alpen.git?rev=02fe60d1b74470da3db67352b2f74625eb2e0ed1)",
@@ -8088,7 +8088,7 @@ dependencies = [
  "strata-asm-logs",
  "strata-asm-params",
  "strata-asm-txs-checkpoint",
- "strata-bridge-types 0.3.0-alpha.1 (git+https://github.com/alpenlabs/alpen.git?rev=02fe60d1b74470da3db67352b2f74625eb2e0ed1)",
+ "strata-bridge-types 0.1.0",
  "strata-btc-types 0.1.0 (git+https://github.com/alpenlabs/alpen.git?rev=02fe60d1b74470da3db67352b2f74625eb2e0ed1)",
  "strata-checkpoint-types-ssz",
  "strata-codec 0.1.0 (git+https://github.com/alpenlabs/strata-common?tag=v0.1.0-alpha-rc11)",
@@ -8111,7 +8111,7 @@ dependencies = [
  "strata-asm-bridge-msgs",
  "strata-asm-common",
  "strata-asm-logs",
- "strata-bridge-types 0.3.0-alpha.1 (git+https://github.com/alpenlabs/alpen.git?rev=02fe60d1b74470da3db67352b2f74625eb2e0ed1)",
+ "strata-bridge-types 0.1.0",
  "strata-codec 0.1.0 (git+https://github.com/alpenlabs/strata-common?tag=v0.1.0-alpha-rc11)",
  "strata-l1-txfmt 0.1.0 (git+https://github.com/alpenlabs/strata-common?tag=v0.1.0-alpha-rc11)",
  "strata-primitives 0.3.0-alpha.1 (git+https://github.com/alpenlabs/alpen.git?rev=02fe60d1b74470da3db67352b2f74625eb2e0ed1)",
@@ -8262,7 +8262,7 @@ dependencies = [
  "rand 0.8.5",
  "strata-asm-common",
  "strata-asm-txs-test-utils",
- "strata-bridge-types 0.3.0-alpha.1 (git+https://github.com/alpenlabs/alpen.git?rev=02fe60d1b74470da3db67352b2f74625eb2e0ed1)",
+ "strata-bridge-types 0.1.0",
  "strata-codec 0.1.0 (git+https://github.com/alpenlabs/strata-common?tag=v0.1.0-alpha-rc11)",
  "strata-crypto 0.3.0-alpha.1 (git+https://github.com/alpenlabs/alpen.git?rev=02fe60d1b74470da3db67352b2f74625eb2e0ed1)",
  "strata-l1-txfmt 0.1.0 (git+https://github.com/alpenlabs/strata-common?tag=v0.1.0-alpha-rc11)",
@@ -8380,6 +8380,17 @@ dependencies = [
  "strata-primitives 0.3.0-alpha.1 (git+https://github.com/alpenlabs/alpen.git?rev=201c3fa0af3b1a2173e8e5ae3cdb5d20c311ed17)",
  "thiserror 2.0.18",
  "tokio",
+]
+
+[[package]]
+name = "strata-bridge-types"
+version = "0.1.0"
+dependencies = [
+ "arbitrary",
+ "borsh",
+ "serde",
+ "ssz",
+ "ssz_derive",
 ]
 
 [[package]]

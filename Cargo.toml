@@ -3,6 +3,7 @@ resolver = "2"
 
 members = [
   "crates/common",
+  "crates/bridge-types",
   "crates/btc-verification",
   "crates/checkpoint-types",
   "crates/logs",
@@ -76,6 +77,7 @@ strata-asm-txs-bridge-v1 = { path = "crates/txs/bridge-v1" }
 strata-asm-txs-checkpoint = { path = "crates/txs/checkpoint" }
 strata-asm-txs-test-utils = { path = "crates/txs/test-utils" }
 strata-asm-worker = { path = "crates/worker" }
+strata-bridge-types = { path = "crates/bridge-types" }
 strata-btc-verification = { path = "crates/btc-verification" }
 strata-checkpoint-types-ssz = { path = "crates/checkpoint-types" }
 strata-test-utils-arb = { path = "crates/test-utils/arb" }
@@ -84,7 +86,6 @@ strata-test-utils-btcio = { path = "crates/test-utils/btcio" }
 strata-test-utils-checkpoint = { path = "crates/test-utils/checkpoint" }
 
 # Dependencies from alpenlabs/alpen pinned to commit 02fe60d1 (main @ 2026-03-31)
-strata-bridge-types = { git = "https://github.com/alpenlabs/alpen.git", rev = "02fe60d1b74470da3db67352b2f74625eb2e0ed1" }
 strata-btc-types = { git = "https://github.com/alpenlabs/alpen.git", rev = "02fe60d1b74470da3db67352b2f74625eb2e0ed1" }
 strata-checkpoint-types = { git = "https://github.com/alpenlabs/alpen.git", rev = "02fe60d1b74470da3db67352b2f74625eb2e0ed1" }
 strata-codec-utils = { git = "https://github.com/alpenlabs/alpen.git", rev = "02fe60d1b74470da3db67352b2f74625eb2e0ed1" }
