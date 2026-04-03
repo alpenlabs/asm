@@ -127,6 +127,10 @@ impl<R: ZkVmRemoteHost> ProofOrchestrator<R> {
     ) -> Result<()> {
         let typed_id = to_typed_proof_id::<R>(remote_id)?;
 
+        // NOTE: We use `self.asm` here but this could be any `ZkVmRemoteHost` instance.
+        // `get_status` only requires a network client and proof ID — not the ELF or
+        // proving key. Since the orchestrator is generic over a single `R: ZkVmRemoteHost`,
+        // both `asm` and `moho` share the same concrete type, so either works.
         let new_status = self
             .asm
             .get_status(&typed_id)
@@ -171,6 +175,10 @@ impl<R: ZkVmRemoteHost> ProofOrchestrator<R> {
         remote_id: &RemoteProofId,
         typed_id: &R::ProofId,
     ) -> Result<()> {
+        // NOTE: We use `self.asm` here but this could be any `ZkVmRemoteHost` instance.
+        // `get_proof` only requires a network client and proof ID — not the ELF or
+        // proving key. Since the orchestrator is generic over a single `R: ZkVmRemoteHost`,
+        // both `asm` and `moho` share the same concrete type, so either works.
         let receipt = self
             .asm
             .get_proof(typed_id)
