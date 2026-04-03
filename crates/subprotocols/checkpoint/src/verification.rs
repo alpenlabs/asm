@@ -1,10 +1,9 @@
 use bitcoin_bosd::Descriptor;
 use ssz::Encode;
 use ssz_primitives::FixedBytes;
-use strata_asm_bridge_msgs::WithdrawOutput;
 use strata_asm_common::{VerifiedAuxData, logging};
 use strata_asm_txs_checkpoint::EnvelopeCheckpoint;
-use strata_bridge_types::{BRIDGE_GATEWAY_ACCT_SERIAL, OperatorSelection};
+use strata_bridge_types::{BRIDGE_GATEWAY_ACCT_SERIAL, OperatorSelection, WithdrawOutput};
 use strata_checkpoint_types_ssz::{
     CheckpointClaim, CheckpointSidecar, CheckpointTip, L2BlockRange, OLLog,
     compute_asm_manifests_hash_from_leaves,

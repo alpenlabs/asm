@@ -7872,14 +7872,11 @@ dependencies = [
 name = "strata-asm-bridge-msgs"
 version = "0.1.0"
 dependencies = [
- "arbitrary",
- "serde",
  "ssz",
  "ssz_derive",
  "strata-asm-common",
  "strata-asm-txs-bridge-v1",
  "strata-bridge-types 0.1.0",
- "strata-primitives 0.3.0-alpha.1 (git+https://github.com/alpenlabs/alpen.git?rev=02fe60d1b74470da3db67352b2f74625eb2e0ed1)",
 ]
 
 [[package]]
@@ -8384,11 +8381,13 @@ name = "strata-bridge-types"
 version = "0.1.0"
 dependencies = [
  "arbitrary",
+ "bitcoin-bosd",
  "bitvec",
  "borsh",
  "serde",
  "ssz",
  "ssz_derive",
+ "strata-btc-types 0.1.0 (git+https://github.com/alpenlabs/alpen.git?rev=02fe60d1b74470da3db67352b2f74625eb2e0ed1)",
  "strata-identifiers 0.1.0 (git+https://github.com/alpenlabs/alpen.git?rev=02fe60d1b74470da3db67352b2f74625eb2e0ed1)",
  "strata-test-utils-arb",
  "thiserror 2.0.18",

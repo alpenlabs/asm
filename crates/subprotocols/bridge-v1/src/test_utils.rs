@@ -16,7 +16,7 @@ use strata_asm_txs_bridge_v1::{
     unstake::{UnstakeInfo, UnstakeTxHeaderAux, parse_unstake_tx},
     withdrawal_fulfillment::{WithdrawalFulfillmentInfo, WithdrawalFulfillmentTxHeaderAux},
 };
-use strata_bridge_types::{OperatorIdx, OperatorSelection};
+use strata_bridge_types::{OperatorIdx, OperatorSelection, WithdrawOutput};
 use strata_btc_types::RawBitcoinTx;
 use strata_crypto::EvenSecretKey;
 use strata_primitives::l1::{BitcoinAmount, L1BlockCommitment};

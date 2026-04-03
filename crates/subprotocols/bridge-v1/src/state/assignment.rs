@@ -15,7 +15,7 @@ use serde::{Deserialize, Serialize};
 use ssz::{Decode as SszDecode, DecodeError, Encode as SszEncode};
 use ssz_derive::{Decode, Encode};
 use strata_bridge_types::{
-    OperatorBitmap, OperatorIdx, OperatorSelection, filter_eligible_operators,
+    OperatorBitmap, OperatorIdx, OperatorSelection, WithdrawalCommand, filter_eligible_operators,
 };
 use strata_primitives::{
     L1BlockCommitment,
@@ -24,7 +24,6 @@ use strata_primitives::{
     sorted_vec::SortedVec,
 };
 
-use super::withdrawal::WithdrawalCommand;
 use crate::{
     errors::{WithdrawalAssignmentError, WithdrawalCommandError},
     state::deposit::DepositEntry,
