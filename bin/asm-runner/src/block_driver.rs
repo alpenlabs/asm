@@ -14,7 +14,6 @@ use strata_asm_proof_types::{L1Range, ProofId};
 use strata_asm_worker::AsmWorkerHandle;
 use strata_btc_types::BlockHashExt;
 use strata_identifiers::L1BlockCommitment;
-use strata_state::BlockSubmitter;
 use strata_tasks::ShutdownGuard;
 use tokio::sync::mpsc;
 use tracing::{debug, error, info, warn};

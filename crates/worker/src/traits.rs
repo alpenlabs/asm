@@ -5,9 +5,8 @@ use strata_asm_common::{AsmManifest, AuxData};
 use strata_btc_types::{BitcoinTxid, RawBitcoinTx};
 use strata_identifiers::{Hash, L1BlockCommitment, L1BlockId};
 use strata_merkle::MerkleProofB32;
-use strata_state::asm_state::AsmState;
 
-use crate::WorkerResult;
+use crate::{AsmState, WorkerResult};
 
 /// Context trait for a worker to interact with the database and Bitcoin Client.
 pub trait WorkerContext {

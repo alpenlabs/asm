@@ -89,11 +89,8 @@ strata-test-utils-checkpoint = { path = "crates/test-utils/checkpoint" }
 strata-btc-types = { git = "https://github.com/alpenlabs/alpen.git", rev = "02fe60d1b74470da3db67352b2f74625eb2e0ed1" }
 strata-codec-utils = { git = "https://github.com/alpenlabs/alpen.git", rev = "02fe60d1b74470da3db67352b2f74625eb2e0ed1" }
 strata-crypto = { git = "https://github.com/alpenlabs/alpen.git", rev = "02fe60d1b74470da3db67352b2f74625eb2e0ed1" }
-strata-db-store-sled = { git = "https://github.com/alpenlabs/alpen.git", rev = "02fe60d1b74470da3db67352b2f74625eb2e0ed1" }
 strata-identifiers = { git = "https://github.com/alpenlabs/alpen.git", rev = "02fe60d1b74470da3db67352b2f74625eb2e0ed1" }
 strata-primitives = { git = "https://github.com/alpenlabs/alpen.git", rev = "02fe60d1b74470da3db67352b2f74625eb2e0ed1" }
-strata-state = { git = "https://github.com/alpenlabs/alpen.git", rev = "02fe60d1b74470da3db67352b2f74625eb2e0ed1" }
-strata-storage = { git = "https://github.com/alpenlabs/alpen.git", rev = "02fe60d1b74470da3db67352b2f74625eb2e0ed1" }
 strata-test-utils-ssz = { git = "https://github.com/alpenlabs/alpen.git", rev = "02fe60d1b74470da3db67352b2f74625eb2e0ed1" }
 
 # Dependencies from alpenlabs/strata-bridge pinned to commit fc966d5 (STR-2598-asm-stf-proof-statements @ 2026-03-17)

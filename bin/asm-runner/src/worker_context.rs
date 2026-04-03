@@ -1,21 +1,35 @@
-//! WorkerContext implementation for ASM worker
+//! WorkerContext implementation for ASM worker.
+//!
+//! This is the glue between the worker (which uses `strata_asm_worker::AsmState`)
+//! and the storage layer (which uses `strata_state::asm_state::AsmState`).
+//! The two types are structurally identical — we convert between them at the
+//! persistence boundary.
 
 use std::sync::Arc;
 
 use bitcoin::{Block, BlockHash, Network};
 use bitcoind_async_client::{Client, traits::Reader};
 use strata_asm_common::{AsmManifest, AuxData};
-use strata_asm_worker::{WorkerContext, WorkerError, WorkerResult};
+use strata_asm_worker::{AsmState, WorkerContext, WorkerError, WorkerResult};
 use strata_btc_types::{BitcoinTxid, L1BlockIdBitcoinExt, RawBitcoinTx};
 use strata_identifiers::{Hash, L1BlockCommitment, L1BlockId};
-use strata_state::asm_state::AsmState;
+use strata_state::asm_state::AsmState as StorageAsmState;
 use strata_storage::{AsmStateManager, MmrIndexHandle};
 use tokio::runtime::Handle;
 
-/// ASM [`WorkerContext`] implementation
+/// Convert storage-layer AsmState to worker AsmState.
+fn from_storage(s: StorageAsmState) -> AsmState {
+    AsmState::new(s.state().clone(), s.logs().clone())
+}
+
+/// Convert worker AsmState to storage-layer AsmState.
+fn to_storage(s: &AsmState) -> StorageAsmState {
+    StorageAsmState::new(s.state().clone(), s.logs().clone())
+}
+
+/// ASM [`WorkerContext`] implementation.
 ///
-/// This implementation fetches L1 blocks directly from a Bitcoin node
-/// and uses SledDB for state storage.
+/// Fetches L1 blocks from a Bitcoin node and persists state via SledDB.
 pub(crate) struct AsmWorkerContext {
     runtime_handle: Handle,
     bitcoin_client: Arc<Client>,
@@ -24,7 +38,6 @@ pub(crate) struct AsmWorkerContext {
 }
 
 impl AsmWorkerContext {
-    /// Create a new BridgeWorkerContext
     pub(crate) const fn new(
         runtime_handle: Handle,
         bitcoin_client: Arc<Client>,
@@ -42,7 +55,6 @@ impl AsmWorkerContext {
 
 impl WorkerContext for AsmWorkerContext {
     fn get_l1_block(&self, blockid: &L1BlockId) -> WorkerResult<Block> {
-        // Fetch block directly from Bitcoin node by hash
         let block_hash: BlockHash = blockid.to_block_hash();
         self.runtime_handle
             .block_on(self.bitcoin_client.get_block(&block_hash))
@@ -52,12 +64,14 @@ impl WorkerContext for AsmWorkerContext {
     fn get_latest_asm_state(&self) -> WorkerResult<Option<(L1BlockCommitment, AsmState)>> {
         self.asm_manager
             .fetch_most_recent_state()
+            .map(|opt| opt.map(|(id, s)| (id, from_storage(s))))
             .map_err(|_| WorkerError::DbError)
     }
 
     fn get_anchor_state(&self, blockid: &L1BlockCommitment) -> WorkerResult<AsmState> {
         self.asm_manager
             .get_state(*blockid)
+            .map(|opt| opt.map(from_storage))
             .map_err(|_| WorkerError::DbError)?
             .ok_or(WorkerError::MissingAsmState(*blockid.blkid()))
     }
@@ -68,13 +82,11 @@ impl WorkerContext for AsmWorkerContext {
         state: &AsmState,
     ) -> WorkerResult<()> {
         self.asm_manager
-            .put_state(*blockid, state.clone())
+            .put_state(*blockid, to_storage(state))
             .map_err(|_| WorkerError::DbError)
     }
 
     fn store_l1_manifest(&self, _manifest: AsmManifest) -> WorkerResult<()> {
-        // Manifests are already stored with AsmState in AsmStateManager
-        // No separate storage needed for now
         Ok(())
     }
 
@@ -130,7 +142,6 @@ impl WorkerContext for AsmWorkerContext {
     }
 
     fn has_l1_manifest(&self, _blockid: &L1BlockId) -> WorkerResult<bool> {
-        // Each block generates a valid manifest
         Ok(true)
     }
 }

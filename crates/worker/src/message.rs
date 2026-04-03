@@ -2,9 +2,8 @@
 
 use strata_identifiers::L1BlockCommitment;
 use strata_service::CommandCompletionSender;
-use strata_state::asm_state::AsmState;
 
-use crate::WorkerResult;
+use crate::{AsmState, WorkerResult};
 
 /// Messages from the ASM Handle to the subprotocol to give it work to do.
 #[derive(Debug)]

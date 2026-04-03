@@ -8,10 +8,11 @@ use strata_asm_stf::AsmStfOutput;
 use strata_btc_verification::TxidInclusionProof;
 use strata_identifiers::L1BlockCommitment;
 use strata_service::ServiceState;
-use strata_state::asm_state::AsmState;
 use tracing::field::Empty;
 
-use crate::{WorkerContext, WorkerError, WorkerResult, aux_resolver::AuxDataResolver, constants};
+use crate::{
+    AsmState, WorkerContext, WorkerError, WorkerResult, aux_resolver::AuxDataResolver, constants,
+};
 
 /// Service state for the ASM worker.
 #[derive(Debug)]
