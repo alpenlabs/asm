@@ -79,6 +79,7 @@ impl InputBuilder {
             .context("anchor state not found")?;
         let anchor_state = asm_state.state();
 
+        // TODO: https://alpenlabs.atlassian.net/browse/STR-2958 Construct proper MohoState
         let inner_state_commitment = AsmStfProgram::compute_state_commitment(anchor_state);
         let moho_state = moho_types::MohoState::new(
             inner_state_commitment,
