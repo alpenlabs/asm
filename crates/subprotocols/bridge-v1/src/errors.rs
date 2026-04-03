@@ -141,25 +141,6 @@ pub enum WithdrawalAssignmentError {
     )]
     NoEligibleOperators { deposit_idx: u32 },
 
-    /// Notary operators and previous assignees bitmaps have mismatched lengths.
-    #[error(
-        "Notary operators length ({notary_len}) does not match previous assignees length ({previous_len})"
-    )]
-    MismatchedBitmapLengths {
-        notary_len: usize,
-        previous_len: usize,
-    },
-
-    /// Current active operators bitmap is shorter than notary operators bitmap.
-    /// This indicates a system inconsistency since operator indices are only appended.
-    #[error(
-        "Current active operators bitmap length ({active_len}) is shorter than notary operators length ({notary_len}). This should never happen as operator bitmaps only grow."
-    )]
-    InsufficientActiveBitmapLength {
-        active_len: usize,
-        notary_len: usize,
-    },
-
     /// Bitmap operation failed
     #[error("Bitmap operation failed")]
     BitmapError(#[from] OperatorBitmapError),

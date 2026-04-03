@@ -474,6 +474,7 @@ impl AssignmentTable {
 
 #[cfg(test)]
 mod tests {
+    use strata_bridge_types::OperatorBitmapError;
     use strata_identifiers::{L1BlockId, L1Height};
     use strata_test_utils_arb::ArbitraryGenerator;
 
@@ -603,7 +604,9 @@ mod tests {
 
         assert!(matches!(
             err,
-            WithdrawalAssignmentError::InsufficientActiveBitmapLength { .. }
+            WithdrawalAssignmentError::BitmapError(
+                OperatorBitmapError::InsufficientActiveBitmapLength { .. }
+            )
         ));
     }
 
