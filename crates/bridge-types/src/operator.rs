@@ -321,24 +321,6 @@ impl<'a> Arbitrary<'a> for OperatorBitmap {
 /// - Must not have previously been assigned to this withdrawal (prevents reassignment to failed
 ///   operators)
 /// - Must be currently active in the network
-///
-/// # Parameters
-///
-/// - `notary_operators` - Bitmap of notary operators authorized for this deposit
-/// - `previous_assignees` - Bitmap of operators who have previously been assigned but failed
-/// - `current_active_operators` - Bitmap of operators currently active in the network
-///
-/// # Returns
-///
-/// `Result<OperatorBitmap, WithdrawalAssignmentError>` - Either the filtered bitmap of eligible
-/// operators, or an error if the input bitmaps have incompatible lengths.
-///
-/// # Errors
-///
-/// - [`WithdrawalAssignmentError::MismatchedBitmapLengths`] - If notary_operators and
-///   previous_assignees have different lengths
-/// - [`WithdrawalAssignmentError::InsufficientActiveBitmapLength`] - If current_active_operators is
-///   shorter than notary_operators
 pub fn filter_eligible_operators(
     notary_operators: &OperatorBitmap,
     previous_assignees: &OperatorBitmap,
@@ -486,5 +468,134 @@ mod tests {
         let serialized_bytes = bitmap.as_ssz_bytes();
         let deserialized_bitmap = OperatorBitmap::from_ssz_bytes(&serialized_bytes).unwrap();
         assert_eq!(bitmap, deserialized_bitmap);
+    }
+
+    /// Helper to create an OperatorBitmap from a slice of bools.
+    fn bitmap_from_bools(bits: &[bool]) -> OperatorBitmap {
+        let bv: BitVec<u8> = bits.iter().collect();
+        OperatorBitmap::from(bv)
+    }
+
+    #[test]
+    fn test_filter_eligible_all_eligible() {
+        let notary = bitmap_from_bools(&[true, true, true]);
+        let previous = bitmap_from_bools(&[false, false, false]);
+        let active = bitmap_from_bools(&[true, true, true]);
+
+        let result = filter_eligible_operators(&notary, &previous, &active).unwrap();
+        assert_eq!(result.active_indices().collect::<Vec<_>>(), vec![0, 1, 2]);
+    }
+
+    #[test]
+    fn test_filter_eligible_some_previously_assigned() {
+        let notary = bitmap_from_bools(&[true, true, true]);
+        let previous = bitmap_from_bools(&[true, false, false]);
+        let active = bitmap_from_bools(&[true, true, true]);
+
+        let result = filter_eligible_operators(&notary, &previous, &active).unwrap();
+        assert_eq!(result.active_indices().collect::<Vec<_>>(), vec![1, 2]);
+    }
+
+    #[test]
+    fn test_filter_eligible_some_inactive() {
+        let notary = bitmap_from_bools(&[true, true, true]);
+        let previous = bitmap_from_bools(&[false, false, false]);
+        let active = bitmap_from_bools(&[true, false, true]);
+
+        let result = filter_eligible_operators(&notary, &previous, &active).unwrap();
+        assert_eq!(result.active_indices().collect::<Vec<_>>(), vec![0, 2]);
+    }
+
+    #[test]
+    fn test_filter_eligible_combined_filtering() {
+        let notary = bitmap_from_bools(&[true, true, true, true]);
+        let previous = bitmap_from_bools(&[true, false, false, false]);
+        let active = bitmap_from_bools(&[true, true, false, true]);
+
+        let result = filter_eligible_operators(&notary, &previous, &active).unwrap();
+        assert_eq!(result.active_indices().collect::<Vec<_>>(), vec![1, 3]);
+    }
+
+    #[test]
+    fn test_filter_eligible_none_eligible() {
+        // All previously assigned
+        let notary = bitmap_from_bools(&[true, true]);
+        let previous = bitmap_from_bools(&[true, true]);
+        let active = bitmap_from_bools(&[true, true]);
+
+        let result = filter_eligible_operators(&notary, &previous, &active).unwrap();
+        assert_eq!(result.active_count(), 0);
+
+        // All inactive
+        let previous = bitmap_from_bools(&[false, false]);
+        let active = bitmap_from_bools(&[false, false]);
+
+        let result = filter_eligible_operators(&notary, &previous, &active).unwrap();
+        assert_eq!(result.active_count(), 0);
+    }
+
+    #[test]
+    fn test_filter_eligible_not_in_notary_set() {
+        let notary = bitmap_from_bools(&[true, false, true]);
+        let previous = bitmap_from_bools(&[false, false, false]);
+        let active = bitmap_from_bools(&[true, true, true]);
+
+        let result = filter_eligible_operators(&notary, &previous, &active).unwrap();
+        assert_eq!(result.active_indices().collect::<Vec<_>>(), vec![0, 2]);
+    }
+
+    #[test]
+    fn test_filter_eligible_active_longer_than_notary() {
+        let notary = bitmap_from_bools(&[true, true]);
+        let previous = bitmap_from_bools(&[false, false]);
+        // Active has extra operators beyond the notary set — they should be ignored
+        let active = bitmap_from_bools(&[true, true, true, true, true]);
+
+        let result = filter_eligible_operators(&notary, &previous, &active).unwrap();
+        assert_eq!(result.active_indices().collect::<Vec<_>>(), vec![0, 1]);
+        assert_eq!(result.len(), 2);
+    }
+
+    #[test]
+    fn test_filter_eligible_empty_bitmaps() {
+        let notary = bitmap_from_bools(&[]);
+        let previous = bitmap_from_bools(&[]);
+        let active = bitmap_from_bools(&[]);
+
+        let result = filter_eligible_operators(&notary, &previous, &active).unwrap();
+        assert!(result.is_empty());
+        assert_eq!(result.active_count(), 0);
+    }
+
+    #[test]
+    fn test_filter_eligible_mismatched_notary_previous_lengths() {
+        let notary = bitmap_from_bools(&[true, true, true]);
+        let previous = bitmap_from_bools(&[false, false]);
+        let active = bitmap_from_bools(&[true, true, true]);
+
+        let err = filter_eligible_operators(&notary, &previous, &active).unwrap_err();
+        assert_eq!(
+            err,
+            OperatorBitmapError::MismatchedBitmapLengths {
+                notary_len: 3,
+                previous_len: 2,
+            }
+        );
+    }
+
+    #[test]
+    fn test_filter_eligible_active_shorter_than_notary() {
+        let notary = bitmap_from_bools(&[true, true, true]);
+        let previous = bitmap_from_bools(&[false, false, false]);
+        let active = bitmap_from_bools(&[true, true]);
+
+        let err = filter_eligible_operators(&notary, &previous, &active).unwrap_err();
+        assert_eq!(
+            err,
+            OperatorBitmapError::InsufficientActiveBitmapLength {
+                active_len: 2,
+                notary_len: 3,
+            }
+        );
     }
 }

@@ -7,7 +7,7 @@ edition = "2024"
 workspace = true
 
 [dependencies]
-bitcoin-bosd.workspace = true
+bitcoin-bosd = { workspace = true, features = ["arbitrary", "serde"] }
 ssz.workspace = true
 ssz_derive.workspace = true
 strata-btc-types.workspace = true
