@@ -103,6 +103,11 @@ impl HeaderVerificationState {
     /// A convenience wrapper around [`new`](Self::new) that initializes with an empty timestamp
     /// history and zero accumulated proof of work, suitable for starting header verification
     /// from the anchor block without any prior state.
+    ///
+    /// Note: the default [`TimestampStore`] fills all 11 slots with `0`, so the
+    /// median-time-past (MTP) check is trivially satisfied until the buffer is fully
+    /// populated with real timestamps (i.e., for the first 11 blocks after the anchor).
+    /// This is an intentional design choice to keep the initialization simple.
     pub fn init(anchor: L1Anchor) -> Self {
         let block_timestamp_history = TimestampStore::default();
         let total_accumulated_pow = BtcWork::default();
