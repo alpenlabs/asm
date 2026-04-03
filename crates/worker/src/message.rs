@@ -1,6 +1,6 @@
 //! Messages from the handle to the worker.
 
-use strata_primitives::prelude::*;
+use strata_identifiers::L1BlockCommitment;
 use strata_service::CommandCompletionSender;
 use strata_state::asm_state::AsmState;
 

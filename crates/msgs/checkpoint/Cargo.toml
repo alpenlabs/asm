@@ -12,5 +12,5 @@ ssz_derive.workspace = true
 
 strata-asm-common.workspace = true
 strata-asm-txs-checkpoint.workspace = true
+strata-btc-types.workspace = true
 strata-predicate.workspace = true
-strata-primitives.workspace = true

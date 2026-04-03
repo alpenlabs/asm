@@ -2,7 +2,8 @@ use ssz_derive::{Decode, Encode};
 use strata_asm_params::BridgeV1InitConfig;
 use strata_asm_txs_bridge_v1::{deposit::DepositInfo, errors::Mismatch};
 use strata_bridge_types::{OperatorIdx, OperatorSelection, WithdrawOutput, WithdrawalCommand};
-use strata_primitives::l1::{BitcoinAmount, L1BlockCommitment};
+use strata_btc_types::BitcoinAmount;
+use strata_identifiers::L1BlockCommitment;
 
 use crate::{
     errors::{DepositValidationError, WithdrawalCommandError},
@@ -227,7 +228,7 @@ impl BridgeV1State {
 #[cfg(test)]
 mod tests {
     use strata_bridge_types::WithdrawOutput;
-    use strata_primitives::l1::L1BlockCommitment;
+    use strata_identifiers::L1BlockCommitment;
     use strata_test_utils_arb::ArbitraryGenerator;
 
     use super::*;

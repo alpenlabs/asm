@@ -7,8 +7,8 @@ use strata_asm_txs_admin::{
     actions::{MultisigAction, UpdateAction, updates::predicate::ProofType},
     parser::SignedPayload,
 };
+use strata_identifiers::{Buf32, L1Height};
 use strata_predicate::{PredicateKey, PredicateTypeId};
-use strata_primitives::{L1Height, buf::Buf32};
 
 use crate::{
     error::AdministrationError, queued_update::QueuedUpdate, state::AdministrationSubprotoState,

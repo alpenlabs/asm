@@ -62,7 +62,7 @@ pub(crate) fn validate_withdrawal_fulfillment_info(
 
 #[cfg(test)]
 mod tests {
-    use strata_primitives::bitcoin_bosd::Descriptor;
+    use bitcoin_bosd::Descriptor;
     use strata_test_utils_arb::ArbitraryGenerator;
 
     use super::*;

@@ -1,5 +1,5 @@
 use arbitrary::Arbitrary;
-use strata_primitives::l1::{BitcoinAmount, BitcoinTxOut};
+use strata_btc_types::{BitcoinAmount, BitcoinTxOut};
 
 use crate::deposit_request::DrtHeaderAux;
 

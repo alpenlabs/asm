@@ -6,7 +6,7 @@ use strata_asm_params::AsmParams;
 use strata_asm_spec::{StrataAsmSpec, construct_genesis_state};
 use strata_asm_stf::AsmStfOutput;
 use strata_btc_verification::TxidInclusionProof;
-use strata_primitives::l1::L1BlockCommitment;
+use strata_identifiers::L1BlockCommitment;
 use strata_service::ServiceState;
 use strata_state::asm_state::AsmState;
 use tracing::field::Empty;
@@ -146,7 +146,7 @@ mod tests {
     use strata_asm_common::AsmManifest;
     use strata_btc_types::{BitcoinTxid, BlockHashExt, RawBitcoinTx};
     use strata_btc_verification::L1Anchor;
-    use strata_primitives::{L1BlockId, hash::Hash};
+    use strata_identifiers::{Hash, L1BlockId};
     use strata_test_utils_arb::ArbitraryGenerator;
     use strata_test_utils_btcio::{get_bitcoind_and_client, mine_blocks};
 

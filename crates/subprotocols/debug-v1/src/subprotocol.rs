@@ -9,7 +9,7 @@ use strata_asm_common::{
     AsmError, AsmLogEntry, MsgRelayer, NullMsg, Subprotocol, SubprotocolId, TxInputRef,
     VerifiedAuxData, logging,
 };
-use strata_primitives::L1BlockCommitment;
+use strata_identifiers::L1BlockCommitment;
 
 use crate::{
     constants::DEBUG_SUBPROTOCOL_ID,

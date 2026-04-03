@@ -44,8 +44,8 @@ use strata_crypto::{
     keys::compressed::CompressedPublicKey,
     threshold_signature::{ThresholdConfig, ThresholdConfigUpdate},
 };
+use strata_identifiers::Buf32;
 use strata_predicate::PredicateKey;
-use strata_primitives::buf::Buf32;
 
 use super::test_harness::AsmTestHarness;
 

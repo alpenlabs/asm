@@ -17,12 +17,8 @@ use ssz_derive::{Decode, Encode};
 use strata_bridge_types::{
     OperatorBitmap, OperatorIdx, OperatorSelection, WithdrawalCommand, filter_eligible_operators,
 };
-use strata_primitives::{
-    L1BlockCommitment,
-    buf::Buf32,
-    l1::{L1BlockId, L1Height},
-    sorted_vec::SortedVec,
-};
+use strata_identifiers::{Buf32, L1BlockCommitment, L1BlockId, L1Height};
+use strata_primitives::sorted_vec::SortedVec;
 
 use crate::{
     errors::{WithdrawalAssignmentError, WithdrawalCommandError},
@@ -478,7 +474,7 @@ impl AssignmentTable {
 
 #[cfg(test)]
 mod tests {
-    use strata_primitives::l1::{L1BlockId, L1Height};
+    use strata_identifiers::{L1BlockId, L1Height};
     use strata_test_utils_arb::ArbitraryGenerator;
 
     use super::*;

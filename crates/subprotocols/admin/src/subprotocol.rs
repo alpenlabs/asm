@@ -8,7 +8,7 @@ use strata_asm_common::{
 };
 use strata_asm_params::AdministrationInitConfig;
 use strata_asm_txs_admin::{constants::ADMINISTRATION_SUBPROTOCOL_ID, parser::parse_tx};
-use strata_primitives::L1BlockCommitment;
+use strata_identifiers::L1BlockCommitment;
 
 use crate::{
     handler::{handle_action, handle_pending_updates},

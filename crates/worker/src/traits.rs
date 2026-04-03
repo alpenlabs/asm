@@ -2,9 +2,9 @@
 
 use bitcoin::{Block, Network};
 use strata_asm_common::{AsmManifest, AuxData};
-use strata_btc_types::BitcoinTxid;
+use strata_btc_types::{BitcoinTxid, RawBitcoinTx};
+use strata_identifiers::{Hash, L1BlockCommitment, L1BlockId};
 use strata_merkle::MerkleProofB32;
-use strata_primitives::{hash::Hash, prelude::*};
 use strata_state::asm_state::AsmState;
 
 use crate::WorkerResult;

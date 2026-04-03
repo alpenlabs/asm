@@ -1,6 +1,6 @@
 use strata_asm_common::TxInputRef;
+use strata_btc_types::BitcoinAmount;
 use strata_codec::decode_buf_exact;
-use strata_primitives::l1::BitcoinAmount;
 
 use crate::{
     constants::BridgeTxType,

@@ -3,10 +3,11 @@
 //! This module implements parsing for debug transaction types that allow
 //! injection of test data into the ASM for testing purposes.
 
+use bitcoin_bosd::Descriptor;
 use strata_asm_common::TxInputRef;
 use strata_bridge_types::{OperatorSelection, WithdrawOutput};
+use strata_btc_types::BitcoinAmount;
 use strata_l1_txfmt::TxType;
-use strata_primitives::{bitcoin_bosd::Descriptor, l1::BitcoinAmount};
 use thiserror::Error;
 
 use crate::constants::{
@@ -154,8 +155,9 @@ fn parse_mock_withdraw_intent_tx(tx: &TxInputRef<'_>) -> Result<ParsedDebugTx, D
 
 #[cfg(test)]
 mod tests {
+    use bitcoin_bosd::Descriptor;
+    use strata_btc_types::BitcoinAmount;
     use strata_codec::VarVec;
-    use strata_primitives::{bitcoin_bosd::Descriptor, l1::BitcoinAmount};
 
     use super::*;
 

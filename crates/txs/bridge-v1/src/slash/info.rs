@@ -1,5 +1,5 @@
 use arbitrary::Arbitrary;
-use strata_primitives::l1::BitcoinOutPoint;
+use strata_btc_types::BitcoinOutPoint;
 
 use crate::slash::SlashTxHeaderAux;
 

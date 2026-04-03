@@ -3,7 +3,7 @@ use std::fmt::Debug;
 use bitcoin::ScriptBuf;
 use strata_asm_txs_bridge_v1::errors::{BridgeTxParseError, Mismatch, TxStructureError};
 use strata_bridge_types::OperatorBitmapError;
-use strata_primitives::l1::BitcoinAmount;
+use strata_btc_types::BitcoinAmount;
 use thiserror::Error;
 
 #[derive(Debug, Error)]

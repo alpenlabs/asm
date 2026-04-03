@@ -1,5 +1,5 @@
 use strata_btc_types::BitcoinTxid;
-use strata_primitives::prelude::*;
+use strata_identifiers::L1BlockId;
 use thiserror::Error;
 
 /// Return type for worker messages.

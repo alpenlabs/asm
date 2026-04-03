@@ -1,5 +1,5 @@
 use strata_asm_txs_bridge_v1::unstake::UnstakeInfo;
-use strata_primitives::l1::BitcoinXOnlyPublicKey;
+use strata_btc_types::BitcoinXOnlyPublicKey;
 
 use crate::{
     errors::UnstakeValidationError,

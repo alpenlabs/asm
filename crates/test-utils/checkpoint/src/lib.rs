@@ -19,7 +19,6 @@ use strata_crypto::hash;
 use strata_identifiers::{OLBlockCommitment, OLBlockId};
 use strata_merkle::{CompactMmr64, Mmr, Sha256Hasher};
 use strata_predicate::{PredicateKey, PredicateTypeId};
-use strata_primitives as _;
 use strata_test_utils_arb::ArbitraryGenerator;
 use strata_test_utils_btc as _;
 
