@@ -11,9 +11,10 @@ use arbitrary::Arbitrary;
 use serde::{Deserialize, Serialize};
 use ssz::{Decode as SszDecode, DecodeError, Encode as SszEncode};
 use ssz_derive::{Decode, Encode};
+use strata_bridge_types::OperatorBitmap;
 use strata_primitives::{l1::BitcoinAmount, sorted_vec::SortedVec};
 
-use crate::{errors::DepositValidationError, state::bitmap::OperatorBitmap};
+use crate::errors::DepositValidationError;
 
 /// Bitcoin deposit entry containing UTXO reference and historical multisig operators.
 ///

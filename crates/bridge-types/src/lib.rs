@@ -1,7 +1,9 @@
 use strata_identifiers::{AccountId, AccountSerial};
 
 mod operator;
-pub use operator::{OperatorIdx, OperatorSelection};
+pub use operator::{
+    OperatorBitmap, OperatorBitmapError, OperatorIdx, OperatorSelection, filter_eligible_operators,
+};
 
 const BRIDGE_GATEWAY_REF: u8 = 0x10;
 

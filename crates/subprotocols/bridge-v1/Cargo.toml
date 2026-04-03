@@ -9,7 +9,6 @@ workspace = true
 [dependencies]
 arbitrary.workspace = true
 bitcoin.workspace = true
-bitvec.workspace = true
 rand_chacha.workspace = true
 serde.workspace = true
 ssz.workspace = true

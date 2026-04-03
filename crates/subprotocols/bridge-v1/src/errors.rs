@@ -2,7 +2,7 @@ use std::fmt::Debug;
 
 use bitcoin::ScriptBuf;
 use strata_asm_txs_bridge_v1::errors::{BridgeTxParseError, Mismatch, TxStructureError};
-use strata_bridge_types::OperatorIdx;
+use strata_bridge_types::OperatorBitmapError;
 use strata_primitives::l1::BitcoinAmount;
 use thiserror::Error;
 
@@ -162,19 +162,5 @@ pub enum WithdrawalAssignmentError {
 
     /// Bitmap operation failed
     #[error("Bitmap operation failed")]
-    BitmapError(#[from] BitmapError),
-}
-
-/// Error type for OperatorBitmap operations.
-#[derive(Debug, Error, PartialEq)]
-pub enum BitmapError {
-    /// Attempted to set a bit at an index that would create a gap in the bitmap.
-    /// Only sequential indices are allowed.
-    #[error(
-        "Index {index} is out of bounds for sequential bitmap (valid range: 0..={max_valid_index})"
-    )]
-    IndexOutOfBounds {
-        index: OperatorIdx,
-        max_valid_index: OperatorIdx,
-    },
+    BitmapError(#[from] OperatorBitmapError),
 }
