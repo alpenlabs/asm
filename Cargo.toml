@@ -87,7 +87,6 @@ strata-test-utils-checkpoint = { path = "crates/test-utils/checkpoint" }
 
 # Dependencies from alpenlabs/alpen pinned to commit 02fe60d1 (main @ 2026-03-31)
 strata-btc-types = { git = "https://github.com/alpenlabs/alpen.git", rev = "02fe60d1b74470da3db67352b2f74625eb2e0ed1" }
-strata-checkpoint-types = { git = "https://github.com/alpenlabs/alpen.git", rev = "02fe60d1b74470da3db67352b2f74625eb2e0ed1" }
 strata-codec-utils = { git = "https://github.com/alpenlabs/alpen.git", rev = "02fe60d1b74470da3db67352b2f74625eb2e0ed1" }
 strata-crypto = { git = "https://github.com/alpenlabs/alpen.git", rev = "02fe60d1b74470da3db67352b2f74625eb2e0ed1" }
 strata-db-store-sled = { git = "https://github.com/alpenlabs/alpen.git", rev = "02fe60d1b74470da3db67352b2f74625eb2e0ed1" }

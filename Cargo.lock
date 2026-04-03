@@ -4124,7 +4124,6 @@ dependencies = [
  "strata-l1-txfmt 0.1.0 (git+https://github.com/alpenlabs/strata-common?tag=v0.1.0-alpha-rc11)",
  "strata-merkle",
  "strata-ol-chain-types-new",
- "strata-ol-stf",
  "strata-predicate",
  "strata-primitives 0.3.0-alpha.1 (git+https://github.com/alpenlabs/alpen.git?rev=02fe60d1b74470da3db67352b2f74625eb2e0ed1)",
  "strata-state",
@@ -8617,15 +8616,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "strata-da-framework"
-version = "0.1.0"
-source = "git+https://github.com/alpenlabs/alpen.git?rev=02fe60d1b74470da3db67352b2f74625eb2e0ed1#02fe60d1b74470da3db67352b2f74625eb2e0ed1"
-dependencies = [
- "strata-codec 0.1.0 (git+https://github.com/alpenlabs/strata-common?tag=v0.1.0-alpha-rc11)",
- "thiserror 2.0.18",
-]
-
-[[package]]
 name = "strata-db-store-sled"
 version = "0.1.0"
 source = "git+https://github.com/alpenlabs/alpen.git?rev=02fe60d1b74470da3db67352b2f74625eb2e0ed1#02fe60d1b74470da3db67352b2f74625eb2e0ed1"
@@ -8859,37 +8849,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "strata-ol-da"
-version = "0.1.0"
-source = "git+https://github.com/alpenlabs/alpen.git?rev=02fe60d1b74470da3db67352b2f74625eb2e0ed1#02fe60d1b74470da3db67352b2f74625eb2e0ed1"
-dependencies = [
- "bitcoin",
- "strata-acct-types",
- "strata-asm-common",
- "strata-asm-txs-checkpoint",
- "strata-btc-types 0.1.0 (git+https://github.com/alpenlabs/alpen.git?rev=02fe60d1b74470da3db67352b2f74625eb2e0ed1)",
- "strata-codec 0.1.0 (git+https://github.com/alpenlabs/strata-common?tag=v0.1.0-alpha-rc11)",
- "strata-da-framework",
- "strata-identifiers 0.1.0 (git+https://github.com/alpenlabs/alpen.git?rev=02fe60d1b74470da3db67352b2f74625eb2e0ed1)",
- "strata-l1-txfmt 0.1.0 (git+https://github.com/alpenlabs/strata-common?tag=v0.1.0-alpha-rc11)",
- "strata-ledger-types",
- "strata-ol-state-types",
- "strata-predicate",
- "strata-snark-acct-types",
- "thiserror 2.0.18",
-]
-
-[[package]]
-name = "strata-ol-msg-types"
-version = "0.1.0"
-source = "git+https://github.com/alpenlabs/alpen.git?rev=02fe60d1b74470da3db67352b2f74625eb2e0ed1#02fe60d1b74470da3db67352b2f74625eb2e0ed1"
-dependencies = [
- "strata-codec 0.1.0 (git+https://github.com/alpenlabs/strata-common?tag=v0.1.0-alpha-rc11)",
- "strata-identifiers 0.1.0 (git+https://github.com/alpenlabs/alpen.git?rev=02fe60d1b74470da3db67352b2f74625eb2e0ed1)",
- "strata-msg-fmt",
-]
-
-[[package]]
 name = "strata-ol-params"
 version = "0.1.0"
 source = "git+https://github.com/alpenlabs/alpen.git?rev=02fe60d1b74470da3db67352b2f74625eb2e0ed1#02fe60d1b74470da3db67352b2f74625eb2e0ed1"
@@ -8923,30 +8882,6 @@ dependencies = [
  "strata-snark-acct-types",
  "tree_hash",
  "tree_hash_derive",
-]
-
-[[package]]
-name = "strata-ol-stf"
-version = "0.1.0"
-source = "git+https://github.com/alpenlabs/alpen.git?rev=02fe60d1b74470da3db67352b2f74625eb2e0ed1#02fe60d1b74470da3db67352b2f74625eb2e0ed1"
-dependencies = [
- "strata-acct-types",
- "strata-asm-common",
- "strata-asm-logs",
- "strata-bridge-types 0.3.0-alpha.1 (git+https://github.com/alpenlabs/alpen.git?rev=02fe60d1b74470da3db67352b2f74625eb2e0ed1)",
- "strata-codec 0.1.0 (git+https://github.com/alpenlabs/strata-common?tag=v0.1.0-alpha-rc11)",
- "strata-identifiers 0.1.0 (git+https://github.com/alpenlabs/alpen.git?rev=02fe60d1b74470da3db67352b2f74625eb2e0ed1)",
- "strata-ledger-types",
- "strata-merkle",
- "strata-msg-fmt",
- "strata-ol-chain-types-new",
- "strata-ol-da",
- "strata-ol-msg-types",
- "strata-ol-state-types",
- "strata-predicate",
- "strata-snark-acct-sys",
- "strata-snark-acct-types",
- "thiserror 2.0.18",
 ]
 
 [[package]]
@@ -9050,17 +8985,6 @@ dependencies = [
  "thiserror 2.0.18",
  "tokio",
  "tracing",
-]
-
-[[package]]
-name = "strata-snark-acct-sys"
-version = "0.1.0"
-source = "git+https://github.com/alpenlabs/alpen.git?rev=02fe60d1b74470da3db67352b2f74625eb2e0ed1#02fe60d1b74470da3db67352b2f74625eb2e0ed1"
-dependencies = [
- "ssz",
- "strata-acct-types",
- "strata-ledger-types",
- "strata-snark-acct-types",
 ]
 
 [[package]]
@@ -9191,7 +9115,6 @@ dependencies = [
  "ssz",
  "strata-asm-common",
  "strata-asm-txs-checkpoint",
- "strata-checkpoint-types",
  "strata-checkpoint-types-ssz",
  "strata-crypto 0.3.0-alpha.1 (git+https://github.com/alpenlabs/alpen.git?rev=02fe60d1b74470da3db67352b2f74625eb2e0ed1)",
  "strata-identifiers 0.1.0 (git+https://github.com/alpenlabs/alpen.git?rev=02fe60d1b74470da3db67352b2f74625eb2e0ed1)",

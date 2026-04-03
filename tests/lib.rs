@@ -28,7 +28,6 @@ use strata_identifiers as _;
 use strata_l1_txfmt as _;
 use strata_merkle as _;
 use strata_ol_chain_types_new as _;
-use strata_ol_stf as _;
 use strata_predicate as _;
 use strata_state as _;
 use strata_tasks as _;
