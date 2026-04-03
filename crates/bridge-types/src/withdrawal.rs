@@ -147,3 +147,20 @@ mod descriptor_ssz {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use ssz::{Decode, Encode};
+    use strata_test_utils_arb::ArbitraryGenerator;
+
+    use super::*;
+
+    #[test]
+    fn withdraw_output_ssz_roundtrip() {
+        let mut arb = ArbitraryGenerator::new();
+        let original: WithdrawOutput = arb.generate();
+        let encoded = original.as_ssz_bytes();
+        let decoded = WithdrawOutput::from_ssz_bytes(&encoded).unwrap();
+        assert_eq!(original, decoded);
+    }
+}
