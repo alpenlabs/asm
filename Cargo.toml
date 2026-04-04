@@ -93,7 +93,6 @@ strata-btc-types = { git = "https://github.com/alpenlabs/alpen.git", rev = "02fe
 strata-codec-utils = { git = "https://github.com/alpenlabs/alpen.git", rev = "02fe60d1b74470da3db67352b2f74625eb2e0ed1" }
 strata-crypto = { git = "https://github.com/alpenlabs/alpen.git", rev = "02fe60d1b74470da3db67352b2f74625eb2e0ed1" }
 strata-identifiers = { git = "https://github.com/alpenlabs/alpen.git", rev = "02fe60d1b74470da3db67352b2f74625eb2e0ed1" }
-strata-primitives = { git = "https://github.com/alpenlabs/alpen.git", rev = "02fe60d1b74470da3db67352b2f74625eb2e0ed1" }
 strata-asm-test-utils-ssz = { path = "crates/test-utils/ssz" }
 
 # Dependencies from alpenlabs/strata-bridge pinned to commit fc966d5 (STR-2598-asm-stf-proof-statements @ 2026-03-17)

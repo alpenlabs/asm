@@ -7,6 +7,7 @@ mod log;
 mod manifest;
 mod mmr;
 mod msg;
+pub mod sorted_vec;
 mod spec;
 mod state;
 mod subprotocol;

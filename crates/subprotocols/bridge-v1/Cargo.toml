@@ -26,7 +26,6 @@ strata-btc-types.workspace = true
 strata-codec.workspace = true
 strata-crypto.workspace = true
 strata-identifiers.workspace = true
-strata-primitives.workspace = true
 
 [dev-dependencies]
 bitcoin-bosd.workspace = true

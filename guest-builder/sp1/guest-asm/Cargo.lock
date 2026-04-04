@@ -103,7 +103,6 @@ checksum = "94fb19ad225b5555a3c99796fe9c5d14b18eb0130eee5c39875bb642f173be6f"
 dependencies = [
  "arbitrary",
  "bitcoin",
- "borsh",
  "hex-conservative",
  "secp256k1",
  "serde",
@@ -1544,7 +1543,6 @@ dependencies = [
  "strata-codec",
  "strata-crypto",
  "strata-identifiers",
- "strata-primitives",
  "thiserror 2.0.18",
 ]
 
@@ -1852,22 +1850,6 @@ dependencies = [
  "tree_hash",
  "tree_hash_derive",
  "zkaleido-sp1-groth16-verifier",
-]
-
-[[package]]
-name = "strata-primitives"
-version = "0.3.0-alpha.1"
-source = "git+https://github.com/alpenlabs/alpen.git?rev=02fe60d1b74470da3db67352b2f74625eb2e0ed1#02fe60d1b74470da3db67352b2f74625eb2e0ed1"
-dependencies = [
- "bitcoin",
- "bitcoin-bosd",
- "borsh",
- "hex",
- "serde",
- "strata-btc-types",
- "strata-crypto",
- "strata-identifiers",
- "thiserror 2.0.18",
 ]
 
 [[package]]

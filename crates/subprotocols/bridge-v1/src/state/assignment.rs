@@ -14,11 +14,11 @@ use rand_chacha::{
 use serde::{Deserialize, Serialize};
 use ssz::{Decode as SszDecode, DecodeError, Encode as SszEncode};
 use ssz_derive::{Decode, Encode};
+use strata_asm_common::sorted_vec::SortedVec;
 use strata_bridge_types::{
     OperatorBitmap, OperatorIdx, OperatorSelection, WithdrawalCommand, filter_eligible_operators,
 };
 use strata_identifiers::{Buf32, L1BlockCommitment, L1BlockId, L1Height};
-use strata_primitives::sorted_vec::SortedVec;
 
 use crate::{
     errors::{WithdrawalAssignmentError, WithdrawalCommandError},
