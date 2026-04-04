@@ -37,6 +37,7 @@
 
 mod claim;
 mod error;
+mod log_payloads;
 mod payload;
 
 #[cfg(any(test, feature = "test-utils"))]
@@ -57,13 +58,15 @@ mod ssz_generated {
 }
 
 // Re-export types from claim.ssz
+pub use log_payloads::{SimpleWithdrawalIntentLogData, SnarkAccountUpdateLogData};
 pub use ssz_generated::ssz::claim::{
     CheckpointClaim, CheckpointClaimRef, L2BlockRange, L2BlockRangeRef,
 };
 // Re-export types from payload.ssz
 pub use ssz_generated::ssz::payload::{
     CheckpointPayload, CheckpointPayloadRef, CheckpointSidecar, CheckpointSidecarRef,
-    CheckpointTip, CheckpointTipRef, TerminalHeaderComplement, TerminalHeaderComplementRef,
+    CheckpointTip, CheckpointTipRef, OLLog, OLLogRef, TerminalHeaderComplement,
+    TerminalHeaderComplementRef,
 };
 // Re-export constants from payload.ssz
 pub use ssz_generated::ssz::payload::{
@@ -81,4 +84,3 @@ pub const MAX_TOTAL_LOG_PAYLOAD_BYTES: usize = 16 * 1024;
 pub use strata_asm_manifest_types::{
     compute_asm_manifests_hash, compute_asm_manifests_hash_from_leaves,
 };
-pub use strata_ol_chain_types_new::OLLog;

@@ -3,15 +3,15 @@
 use ssz_primitives::FixedBytes;
 use ssz_types::VariableList;
 use strata_identifiers::{
-    Buf32, Epoch, OLBlockCommitment, OLBlockId, impl_borsh_via_ssz, impl_borsh_via_ssz_fixed,
+    AccountSerial, Buf32, Epoch, OLBlockCommitment, OLBlockId, impl_borsh_via_ssz,
+    impl_borsh_via_ssz_fixed,
 };
-use strata_ol_chain_types_new::{OLBlockHeader, OLLog};
 use tree_hash::{Sha256Hasher, TreeHash};
 
 use crate::{
     CheckpointPayload, CheckpointPayloadError, CheckpointSidecar, CheckpointTip,
     MAX_LOG_PAYLOAD_BYTES, MAX_OL_LOGS_PER_CHECKPOINT, MAX_PROOF_LEN, MAX_TOTAL_LOG_PAYLOAD_BYTES,
-    OL_DA_DIFF_MAX_SIZE, TerminalHeaderComplement,
+    OL_DA_DIFF_MAX_SIZE, OLLog, TerminalHeaderComplement,
 };
 
 impl CheckpointTip {
@@ -34,7 +34,30 @@ impl CheckpointTip {
 
 impl_borsh_via_ssz_fixed!(CheckpointTip);
 
-/// Minimal subset of the terminal [`OLBlockHeader`] for L1 reconstruction.
+impl OLLog {
+    pub fn new(account_serial: AccountSerial, payload: Vec<u8>) -> Self {
+        Self {
+            account_serial,
+            payload: VariableList::new(payload).expect("log: payload too large"),
+        }
+    }
+
+    pub fn account_serial(&self) -> AccountSerial {
+        self.account_serial
+    }
+
+    pub fn payload(&self) -> &[u8] {
+        &self.payload
+    }
+
+    /// Computes the hash commitment of this log using SSZ tree hash.
+    pub fn compute_hash_commitment(&self) -> Buf32 {
+        let root = TreeHash::<Sha256Hasher>::tree_hash_root(self);
+        Buf32::from(root.0)
+    }
+}
+
+/// Minimal subset of the terminal `OLBlockHeader` for L1 reconstruction.
 ///
 /// A fresh sequencer can reconstruct OL state from L1 but cannot recover the
 /// terminal header needed to continue block production. Most header fields are
@@ -58,16 +81,6 @@ impl TerminalHeaderComplement {
             body_root,
             logs_root,
         }
-    }
-
-    /// Constructs [`TerminalHeaderComplement`] from a full [`OLBlockHeader`].
-    pub fn from_full_header(header: &OLBlockHeader) -> Self {
-        Self::new(
-            header.timestamp(),
-            *header.parent_blkid(),
-            *header.body_root(),
-            *header.logs_root(),
-        )
     }
 
     pub fn timestamp(&self) -> u64 {
@@ -202,7 +215,6 @@ impl_borsh_via_ssz!(CheckpointPayload);
 #[cfg(test)]
 mod tests {
     use strata_identifiers::{AccountSerial, Buf32, OLBlockId};
-    use strata_ol_chain_types_new::OLLog;
 
     use super::*;
 
