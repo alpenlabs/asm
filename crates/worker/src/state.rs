@@ -1,11 +1,9 @@
 use std::sync::Arc;
 
 use bitcoin::Block;
-use strata_asm_common::{
-    AnchorState, AsmHistoryAccumulatorState, AuxData, ChainViewState, HeaderVerificationState,
-};
+use strata_asm_common::AuxData;
 use strata_asm_params::AsmParams;
-use strata_asm_spec::StrataAsmSpec;
+use strata_asm_spec::{StrataAsmSpec, construct_genesis_state};
 use strata_asm_stf::AsmStfOutput;
 use strata_btc_verification::TxidInclusionProof;
 use strata_primitives::l1::L1BlockCommitment;
@@ -32,27 +30,17 @@ pub struct AsmWorkerServiceState<W> {
 
     /// Current anchor block.
     pub blkid: Option<L1BlockCommitment>,
-
-    /// ASM spec for ASM STF.
-    asm_spec: StrataAsmSpec,
 }
 
 impl<W: WorkerContext + Send + Sync + 'static> AsmWorkerServiceState<W> {
     /// A new (uninitialized) instance of the service state.
     pub fn new(context: W, asm_params: Arc<AsmParams>) -> Self {
-        let asm_spec = StrataAsmSpec::from_asm_params(&asm_params);
-        Self::new_with_spec(context, asm_params, asm_spec)
-    }
-
-    /// A new (uninitialized) instance of the service state with an explicit ASM spec.
-    pub fn new_with_spec(context: W, asm_params: Arc<AsmParams>, asm_spec: StrataAsmSpec) -> Self {
         Self {
             asm_params,
             context,
             anchor: None,
             blkid: None,
             initialized: false,
-            asm_spec,
         }
     }
 
@@ -67,25 +55,13 @@ impl<W: WorkerContext + Send + Sync + 'static> AsmWorkerServiceState<W> {
             }
             None => {
                 // Create genesis anchor state.
-                let genesis_l1_view = &self.asm_params.l1_view;
-                let empty_accumulator =
-                    AsmHistoryAccumulatorState::new(genesis_l1_view.height() as u64);
-                let state = AnchorState {
-                    chain_view: ChainViewState {
-                        pow_state: HeaderVerificationState::new(
-                            self.context.get_network()?,
-                            genesis_l1_view,
-                        ),
-                        history_accumulator: empty_accumulator,
-                    },
-                    sections: vec![].into(),
-                };
+                let genesis_state = construct_genesis_state(&self.asm_params);
+                let genesis_blk = self.asm_params.anchor.block;
 
                 // Persist it and update state.
-                let state = AsmState::new(state, vec![]);
-                self.context
-                    .store_anchor_state(&genesis_l1_view.blk, &state)?;
-                self.update_anchor_state(state, genesis_l1_view.blk);
+                let state = AsmState::new(genesis_state, vec![]);
+                self.context.store_anchor_state(&genesis_blk, &state)?;
+                self.update_anchor_state(state, genesis_blk);
 
                 Ok(())
             }
@@ -103,7 +79,7 @@ impl<W: WorkerContext + Send + Sync + 'static> AsmWorkerServiceState<W> {
             let span = tracing::debug_span!("asm.stf.pre_process", protocol_txs = Empty);
             let _guard = span.enter();
 
-            let result = strata_asm_stf::pre_process_asm(&self.asm_spec, cur_state.state(), block)
+            let result = strata_asm_stf::pre_process_asm(&StrataAsmSpec, cur_state.state(), block)
                 .map_err(WorkerError::AsmError)?;
 
             span.record("protocol_txs", result.txs.len());
@@ -121,7 +97,7 @@ impl<W: WorkerContext + Send + Sync + 'static> AsmWorkerServiceState<W> {
                 .history_accumulator
                 .num_entries();
             let resolver =
-                AuxDataResolver::new(&self.context, self.asm_params.l1_view.blk, at_leaf_count);
+                AuxDataResolver::new(&self.context, self.asm_params.anchor.block, at_leaf_count);
             resolver.resolve(&pre_process.aux_requests)?
         };
 
@@ -132,7 +108,7 @@ impl<W: WorkerContext + Send + Sync + 'static> AsmWorkerServiceState<W> {
         let coinbase_inclusion_proof = TxidInclusionProof::generate(&block.txdata, 0);
 
         strata_asm_stf::compute_asm_transition(
-            &self.asm_spec,
+            &StrataAsmSpec,
             cur_state.state(),
             block,
             &aux_data,
@@ -169,7 +145,8 @@ mod tests {
     use corepc_node::Node;
     use strata_asm_common::AsmManifest;
     use strata_btc_types::{BitcoinTxid, BlockHashExt, RawBitcoinTx};
-    use strata_primitives::{L1BlockId, hash::Hash, l1::GenesisL1View};
+    use strata_btc_verification::L1Anchor;
+    use strata_primitives::{L1BlockId, hash::Hash};
     use strata_test_utils_arb::ArbitraryGenerator;
     use strata_test_utils_btcio::{get_bitcoind_and_client, mine_blocks};
 
@@ -197,10 +174,10 @@ mod tests {
         // 2. Setup Params
         let mut asm_params: AsmParams = ArbitraryGenerator::new().generate();
         // Sync parameters with the actual bitcoind state
-        let genesis_view = get_genesis_l1_view(&client, &tip_hash)
+        let l1_anchor = get_l1_anchor(&client, &tip_hash)
             .await
             .expect("Failed to fetch genesis view");
-        asm_params.l1_view = genesis_view;
+        asm_params.anchor = l1_anchor;
         let asm_params = Arc::new(asm_params);
 
         // 3. Set worker context and initialize service state
@@ -224,11 +201,8 @@ mod tests {
         }
     }
 
-    /// Helper to construct `GenesisL1View` from a block hash using the client.
-    async fn get_genesis_l1_view(
-        client: &Client,
-        hash: &BlockHash,
-    ) -> anyhow::Result<GenesisL1View> {
+    /// Helper to construct [`L1Anchor`] from a block hash using the client.
+    async fn get_l1_anchor(client: &Client, hash: &BlockHash) -> anyhow::Result<L1Anchor> {
         let header: Header = client.get_block_header(hash).await?;
         let height = client.get_block_height(hash).await?;
 
@@ -239,13 +213,14 @@ mod tests {
         // Create dummy/default values for other fields
         let next_target = header.bits.to_consensus();
         let epoch_start_timestamp = header.time;
-        let last_11_timestamps = [header.time - 1; 11]; // simplified: ensure median < tip time by making history older
 
-        Ok(GenesisL1View {
-            blk: blk_commitment,
+        let network = client.network().await?;
+
+        Ok(L1Anchor {
+            block: blk_commitment,
             next_target,
             epoch_start_timestamp,
-            last_11_timestamps, // simplified: ensure median < tip time by making history older
+            network,
         })
     }
 

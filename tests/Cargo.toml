@@ -18,6 +18,7 @@ strata-asm-txs-bridge-v1 = { workspace = true, features = ["test-utils"] }
 strata-asm-worker.workspace = true
 strata-bridge-types.workspace = true
 strata-btc-types.workspace = true
+strata-btc-verification.workspace = true
 strata-checkpoint-types-ssz.workspace = true
 strata-codec.workspace = true
 strata-codec-utils.workspace = true

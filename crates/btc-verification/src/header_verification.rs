@@ -2,8 +2,7 @@ use arbitrary::Arbitrary;
 use bitcoin::{CompactTarget, Network, block::Header, hashes::Hash, params::Params};
 use borsh::{BorshDeserialize, BorshSerialize};
 use serde::{Deserialize, Serialize};
-use strata_btc_types::{BlockHashExt, BtcParams, GenesisL1View};
-use strata_crypto::hash::compute_borsh_hash;
+use strata_btc_types::{BlockHashExt, BtcParams};
 use strata_identifiers::{Buf32, L1BlockCommitment, L1BlockId, L1Height};
 
 use crate::{
@@ -78,17 +77,42 @@ pub struct HeaderVerificationState {
 }
 
 impl HeaderVerificationState {
-    pub fn new(network: Network, genesis_view: &GenesisL1View) -> Self {
-        let params = Params::new(network).into();
-
+    /// Constructs a [`HeaderVerificationState`] at a particular point in the chain.
+    ///
+    /// Accepts pre-existing timestamp history and accumulated proof of work, allowing
+    /// reconstruction of the verification state at an arbitrary block height (e.g., when
+    /// resuming from a snapshot or checkpoint).
+    pub fn new(
+        anchor: L1Anchor,
+        block_timestamp_history: TimestampStore,
+        total_accumulated_pow: BtcWork,
+    ) -> Self {
+        let params = BtcParams::from(Params::new(anchor.network));
         Self {
             params,
-            last_verified_block: genesis_view.blk,
-            next_block_target: genesis_view.next_target,
-            epoch_start_timestamp: genesis_view.epoch_start_timestamp,
-            block_timestamp_history: TimestampStore::new(genesis_view.last_11_timestamps),
-            total_accumulated_pow: BtcWork::default(),
+            last_verified_block: anchor.block,
+            next_block_target: anchor.next_target,
+            epoch_start_timestamp: anchor.epoch_start_timestamp,
+            block_timestamp_history,
+            total_accumulated_pow,
         }
+    }
+
+    /// Creates a fresh [`HeaderVerificationState`] from an [`L1Anchor`].
+    ///
+    /// A convenience wrapper around [`new`](Self::new) that initializes with an empty timestamp
+    /// history and zero accumulated proof of work, suitable for starting header verification
+    /// from the anchor block without any prior state.
+    ///
+    /// Note: the default [`TimestampStore`] fills all 11 slots with `0`, so the
+    /// median-time-past (MTP) check is trivially satisfied until the buffer is fully
+    /// populated with real timestamps (i.e., for the first 11 blocks after the anchor).
+    /// This is an intentional design choice to keep the initialization simple.
+    pub fn init(anchor: L1Anchor) -> Self {
+        let block_timestamp_history = TimestampStore::default();
+        let total_accumulated_pow = BtcWork::default();
+
+        Self::new(anchor, block_timestamp_history, total_accumulated_pow)
     }
 
     /// Splits the verification state into its raw components.
@@ -166,15 +190,15 @@ impl HeaderVerificationState {
     ///
     /// The checks include:
     /// 1. Continuity: Ensuring the header's previous block hash matches the last verified hash.
-    /// 2. Proof-of-Work: Validating that the header's target matches the expected target and that
-    ///    the computed block hash meets the target.
+    /// 2. Target Encoding: Validating that the header's target matches the expected target.
     /// 3. Timestamp: Ensuring the header's timestamp is greater than the median of the last 11
     ///    blocks.
+    /// 4. Proof-of-Work: Validating that the computed block hash meets the target.
     /// # Errors
     ///
     /// Returns a [`L1VerificationError`] if any of the checks fail.
     pub fn check_and_update(&mut self, header: &Header) -> Result<(), L1VerificationError> {
-        // Check continuity
+        // 1. Check continuity
         let prev_blockhash: L1BlockId =
             Buf32::from(header.prev_blockhash.as_raw_hash().to_byte_array()).into();
         if prev_blockhash != *self.last_verified_block.blkid() {
@@ -184,9 +208,7 @@ impl HeaderVerificationState {
             });
         }
 
-        let block_hash = compute_block_hash(header);
-
-        // Check Proof-of-Work target encoding
+        // 2. Check Proof-of-Work target encoding
         if header.bits.to_consensus() != self.next_block_target {
             return Err(L1VerificationError::PowMismatch {
                 expected: self.next_block_target,
@@ -194,20 +216,21 @@ impl HeaderVerificationState {
             });
         }
 
-        // Check that the block hash meets the target difficulty.
-        if !header.target().is_met_by(block_hash) {
-            return Err(L1VerificationError::PowNotMet {
-                block_hash,
-                target: header.bits.to_consensus(),
-            });
-        }
-
-        // Check timestamp against the median of the last 11 timestamps.
+        // 3. Check timestamp against the median of the last 11 timestamps.
         let median = self.block_timestamp_history.median();
         if header.time <= median {
             return Err(L1VerificationError::TimestampError {
                 time: header.time,
                 median,
+            });
+        }
+
+        // 4. Check that the block hash meets the target difficulty.
+        let block_hash = compute_block_hash(header);
+        if !header.target().is_met_by(block_hash) {
+            return Err(L1VerificationError::PowNotMet {
+                block_hash,
+                target: header.bits.to_consensus(),
             });
         }
 
@@ -225,11 +248,6 @@ impl HeaderVerificationState {
         self.total_accumulated_pow += header.work().into();
 
         Ok(())
-    }
-
-    /// Calculate the hash of the verification state
-    pub fn compute_hash(&self) -> Result<Buf32, L1VerificationError> {
-        Ok(compute_borsh_hash(&self))
     }
 
     /// Gets the next block target (for testing)
@@ -251,6 +269,30 @@ impl HeaderVerificationState {
     pub fn get_total_accumulated_pow(&self) -> BtcWork {
         self.total_accumulated_pow.clone()
     }
+}
+
+/// Snapshot of L1 chain state used to anchor the ASM to a known point on the Bitcoin chain.
+///
+/// This struct holds the minimum information required to resume L1 verification from an
+/// arbitrary point: which block was last verified, what difficulty target the next block must
+/// satisfy, when the current difficulty-adjustment epoch began, and which network's consensus
+/// rules apply.
+///
+/// Used to construct a [`HeaderVerificationState`] (along with a timestamp history) when
+/// bootstrapping or resuming header verification.
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
+pub struct L1Anchor {
+    /// Commitment (height + block hash) to the last verified L1 block.
+    pub block: L1BlockCommitment,
+
+    /// Compact-encoded target that the next block header must satisfy.
+    pub next_target: u32,
+
+    /// Timestamp of the first block in the current difficulty-adjustment epoch.
+    pub epoch_start_timestamp: u32,
+
+    /// Bitcoin network (mainnet, testnet, signet, regtest) that determines consensus parameters.
+    pub network: Network,
 }
 
 /// Calculates the height at which a specific difficulty adjustment occurs relative to a
@@ -283,46 +325,26 @@ mod tests {
     };
     use borsh::{BorshDeserialize, BorshSerialize};
     use rand::{Rng, rngs::OsRng};
-    use strata_btc_types::{BlockHashExt, GenesisL1View, TIMESTAMPS_FOR_MEDIAN};
+    use strata_btc_types::{BlockHashExt, TIMESTAMPS_FOR_MEDIAN};
     use strata_identifiers::{L1BlockCommitment, L1Height};
     use strata_test_utils_btc::BtcMainnetSegment;
 
     use crate::*;
 
-    fn verification_state_at(
-        chain: &BtcMainnetSegment,
-        height: L1Height,
-    ) -> Result<HeaderVerificationState, &'static str> {
+    fn get_l1_anchor(chain: &BtcMainnetSegment, anchor_height: L1Height) -> L1Anchor {
         let params = Params::from(Network::Bitcoin);
 
         let current_epoch_start_height =
-            get_relative_difficulty_adjustment_height(0, height, &params);
+            get_relative_difficulty_adjustment_height(0, anchor_height, &params);
         let current_epoch_start_header = chain
             .get_block_header_at(current_epoch_start_height)
-            .ok_or("missing current epoch start header in fixture")?;
+            .expect("missing current epoch start header in fixture");
         let block_header = chain
-            .get_block_header_at(height)
-            .ok_or("missing block header in fixture")?;
-
-        let mut timestamps = Vec::with_capacity(TIMESTAMPS_FOR_MEDIAN);
-        for i in (0..TIMESTAMPS_FOR_MEDIAN).rev() {
-            if i as u32 > height {
-                timestamps.push(0);
-            } else {
-                let h = height - i as u32;
-                let ts = chain
-                    .get_block_header_at(h)
-                    .ok_or("missing header while collecting timestamps")?
-                    .time;
-                timestamps.push(ts);
-            }
-        }
-        let timestamps: [u32; TIMESTAMPS_FOR_MEDIAN] = timestamps
-            .try_into()
-            .map_err(|_| "invalid timestamp fixture length")?;
+            .get_block_header_at(anchor_height)
+            .expect("missing block header in fixture");
 
         let next_target =
-            if (height as u64 + 1).is_multiple_of(params.difficulty_adjustment_interval()) {
+            if (anchor_height as u64 + 1).is_multiple_of(params.difficulty_adjustment_interval()) {
                 CompactTarget::from_next_work_required(
                     block_header.bits,
                     (block_header.time - current_epoch_start_header.time) as u64,
@@ -333,17 +355,23 @@ mod tests {
                 block_header.target().to_compact_lossy().to_consensus()
             };
 
-        let genesis_l1_view = GenesisL1View {
-            blk: L1BlockCommitment::new(height, block_header.block_hash().to_l1_block_id()),
+        L1Anchor {
+            block: L1BlockCommitment::new(
+                anchor_height,
+                block_header.block_hash().to_l1_block_id(),
+            ),
             next_target,
             epoch_start_timestamp: current_epoch_start_header.time,
-            last_11_timestamps: timestamps,
-        };
+            network: Network::Bitcoin,
+        }
+    }
 
-        Ok(HeaderVerificationState::new(
-            Network::Bitcoin,
-            &genesis_l1_view,
-        ))
+    fn verification_state_at(
+        chain: &BtcMainnetSegment,
+        anchor_height: L1Height,
+    ) -> Result<HeaderVerificationState, &'static str> {
+        let anchor = get_l1_anchor(chain, anchor_height);
+        Ok(HeaderVerificationState::init(anchor))
     }
 
     #[test]
@@ -370,15 +398,6 @@ mod tests {
             h,
             MAINNET.difficulty_adjustment_interval() as u32 * idx as u32
         );
-    }
-
-    #[test]
-    fn test_hash() {
-        let chain = BtcMainnetSegment::load();
-        let r1 = 45_000;
-        let verification_state = verification_state_at(&chain, r1).unwrap();
-        let hash = verification_state.compute_hash();
-        assert!(hash.is_ok());
     }
 
     // ========================================================================
@@ -723,9 +742,39 @@ mod tests {
     // - Time Validation: https://github.com/bitcoin/bitcoin/blob/master/src/validation.cpp
     // ========================================================================
 
-    /// Test that a timestamp exactly equal to the median is rejected.
-    /// Note: When we modify the timestamp, the block hash changes and PoW fails first.
-    /// This test verifies that headers with invalid timestamps get rejected (even if via PoW).
+    /// Verifies that the Median Time Past (MTP) is correctly computed after
+    /// populating the timestamp history.
+    ///
+    /// A freshly initialized verification state (via [`new_verification_state_at`])
+    /// has no timestamp history, so the median starts at zero. After processing
+    /// exactly [`TIMESTAMPS_FOR_MEDIAN`] (11) blocks, the median should equal the
+    /// timestamp of the middle block in the window.
+    #[test]
+    fn test_median_time_past_after_populating_history() {
+        let chain = BtcMainnetSegment::load();
+        let height = 40_100;
+        let mut verification_state = verification_state_at(&chain, height).unwrap();
+
+        // A fresh state has no timestamp history, so the median defaults to 0.
+        let median = verification_state.get_block_timestamp_history().median();
+        assert_eq!(median, 0);
+
+        // Feed exactly TIMESTAMPS_FOR_MEDIAN blocks to fill the history window.
+        for height in height + 1..=height + TIMESTAMPS_FOR_MEDIAN as u32 {
+            let header = chain.get_block_header_at(height).unwrap();
+            verification_state.check_and_update(&header).unwrap();
+        }
+
+        // The median should now be the timestamp of the middle block in the window.
+        let median = verification_state.get_block_timestamp_history().median();
+        let expected_median = chain
+            .get_block_header_at(height + (TIMESTAMPS_FOR_MEDIAN / 2) as u32 + 1)
+            .unwrap()
+            .time;
+        assert_eq!(median, expected_median);
+    }
+
+    /// Test that a timestamp exactly equal to the median is rejected with `TimestampError`.
     #[test]
     fn test_timestamp_exactly_at_median_rejected() {
         let chain = BtcMainnetSegment::load();
@@ -740,15 +789,18 @@ mod tests {
 
         let result = verification_state.check_and_update(&header);
 
-        // Modifying timestamp breaks PoW (hash changes), so we expect rejection
-        // Either PoW fails or timestamp fails - both indicate invalid header
         assert!(
-            result.is_err(),
-            "Header with timestamp at median should be rejected"
+            matches!(
+                result.unwrap_err(),
+                L1VerificationError::TimestampError { .. }
+            ),
+            "Header with timestamp at median should be rejected with TimestampError"
         );
     }
 
-    /// Test that a timestamp one second greater than median is accepted.
+    /// Test that a timestamp one second greater than median passes the timestamp check.
+    /// The modified timestamp changes the block hash, so PoW fails next — confirming
+    /// the timestamp validation itself accepted the value.
     #[test]
     fn test_timestamp_one_second_after_median() {
         let chain = BtcMainnetSegment::load();
@@ -759,45 +811,47 @@ mod tests {
 
         // Create a header with timestamp = median + 1
         let mut header = chain.get_block_header_at(height + 1).unwrap();
-        let _original_time = header.time;
         header.time = median + 1;
 
-        // Need to recalculate the block hash since we changed the timestamp
-        // For this test, we'll just verify the timestamp check passes
-        // The PoW check will fail, but that's after timestamp validation
         let result = verification_state.check_and_update(&header);
 
-        // If we get TimestampError, test fails. If we get PowNotMet, timestamp passed!
-        if let Err(e) = result {
-            assert!(
-                !matches!(e, L1VerificationError::TimestampError { .. }),
-                "Timestamp check should pass with median + 1, got: {e:?}",
-            );
-        }
+        // Timestamp check passes (median + 1 > median), but the modified timestamp
+        // changes the block hash, so PoW fails.
+        assert!(
+            matches!(result.unwrap_err(), L1VerificationError::PowNotMet { .. }),
+            "Timestamp check should pass; expect PowNotMet from changed hash"
+        );
     }
 
-    /// Test that timestamps must be greater than median (decreasing rejected).
-    /// Note: When we modify the timestamp, the block hash changes and PoW fails first.
-    /// This test verifies that headers with timestamps less than median get rejected.
+    /// Test that timestamps must be greater than median (decreasing rejected with
+    /// `TimestampError`).
     #[test]
     fn test_timestamp_less_than_median_rejected() {
         let chain = BtcMainnetSegment::load();
         let height = 40_100;
         let mut verification_state = verification_state_at(&chain, height).unwrap();
 
+        // Feed exactly TIMESTAMPS_FOR_MEDIAN blocks to fill the history window.
+        for height in height + 1..=height + TIMESTAMPS_FOR_MEDIAN as u32 {
+            let header = chain.get_block_header_at(height).unwrap();
+            verification_state.check_and_update(&header).unwrap();
+        }
+
         let median = verification_state.get_block_timestamp_history().median();
 
-        // Create header with timestamp less than median
-        let mut header = chain.get_block_header_at(height + 1).unwrap();
+        // Create header at the next height (after the 11 blocks we just processed)
+        let next_height = height + TIMESTAMPS_FOR_MEDIAN as u32 + 1;
+        let mut header = chain.get_block_header_at(next_height).unwrap();
         header.time = median.saturating_sub(100); // 100 seconds before median
 
         let result = verification_state.check_and_update(&header);
 
-        // Modifying timestamp breaks PoW (hash changes), so we expect rejection
-        // Either PoW fails or timestamp fails - both indicate invalid header
         assert!(
-            result.is_err(),
-            "Header with timestamp less than median should be rejected"
+            matches!(
+                result.unwrap_err(),
+                L1VerificationError::TimestampError { .. }
+            ),
+            "Header with timestamp less than median should be rejected with TimestampError"
         );
     }
 
@@ -824,7 +878,7 @@ mod tests {
             // Median should be within reasonable bounds
             assert!(
                 new_median >= initial_median,
-                "Median should not decrease significantly (old: {}, new: {})",
+                "Median should not decrease (old: {}, new: {})",
                 initial_median,
                 new_median
             );
@@ -1058,43 +1112,6 @@ mod tests {
     // - Serialization in Bitcoin: https://en.bitcoin.it/wiki/Protocol_documentation#Common_structures
     // ========================================================================
 
-    /// Test that state hash is deterministic.
-    #[test]
-    fn test_state_hash_deterministic() {
-        let chain = BtcMainnetSegment::load();
-        let height = 40_100;
-
-        // Create two identical states
-        let state1 = verification_state_at(&chain, height).unwrap();
-        let state2 = verification_state_at(&chain, height).unwrap();
-
-        let hash1 = state1.compute_hash().unwrap();
-        let hash2 = state2.compute_hash().unwrap();
-
-        assert_eq!(hash1, hash2, "Same state should produce same hash");
-    }
-
-    /// Test that state hash changes after update.
-    #[test]
-    fn test_state_hash_changes_after_update() {
-        let chain = BtcMainnetSegment::load();
-        let height = 40_100;
-        let mut verification_state = verification_state_at(&chain, height).unwrap();
-
-        let hash_before = verification_state.compute_hash().unwrap();
-
-        // Process a block
-        let header = chain.get_block_header_at(height + 1).unwrap();
-        verification_state.check_and_update(&header).unwrap();
-
-        let hash_after = verification_state.compute_hash().unwrap();
-
-        assert_ne!(
-            hash_before, hash_after,
-            "Hash should change after state update"
-        );
-    }
-
     /// Test that serialization round-trip preserves state.
     #[test]
     fn test_state_serialization_roundtrip() {
@@ -1112,12 +1129,8 @@ mod tests {
         let deserialized_state = HeaderVerificationState::deserialize(&mut &buffer[..])
             .expect("Deserialization should succeed");
 
-        // Hashes should match
-        let original_hash = original_state.compute_hash().unwrap();
-        let deserialized_hash = deserialized_state.compute_hash().unwrap();
-
         assert_eq!(
-            original_hash, deserialized_hash,
+            original_state, deserialized_state,
             "Serialization round-trip should preserve state"
         );
     }

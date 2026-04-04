@@ -11,6 +11,33 @@ use strata_identifiers::L1BlockCommitment;
 
 use crate::manager::SubprotoManager;
 
+/// Stage to load each subprotocol.
+pub(crate) struct LoaderStage<'c> {
+    manager: &'c mut SubprotoManager,
+    anchor_state: &'c AnchorState,
+}
+
+impl<'c> LoaderStage<'c> {
+    pub(crate) fn new(manager: &'c mut SubprotoManager, anchor_state: &'c AnchorState) -> Self {
+        Self {
+            manager,
+            anchor_state,
+        }
+    }
+}
+
+impl Stage for LoaderStage<'_> {
+    fn invoke_subprotocol<S: Subprotocol>(&mut self) {
+        let state = self
+            .anchor_state
+            .find_section(S::ID)
+            .unwrap_or_else(|| panic!("asm: missing section for subprotocol {}", S::ID))
+            .try_to_state::<S>()
+            .unwrap_or_else(|e| panic!("asm: failed to deserialize section for {}: {e}", S::ID));
+        self.manager.insert_subproto::<S>(state);
+    }
+}
+
 /// Stage to process txs pre-extracted from the block for each subprotocol.
 pub(crate) struct PreProcessStage<'c> {
     manager: &'c mut SubprotoManager,

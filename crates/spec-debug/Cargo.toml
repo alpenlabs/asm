@@ -10,4 +10,3 @@ workspace = true
 strata-asm-common.workspace = true
 strata-asm-proto-debug-v1.workspace = true
 strata-asm-spec.workspace = true
-strata-l1-txfmt.workspace = true

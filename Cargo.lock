@@ -4114,6 +4114,7 @@ dependencies = [
  "strata-asm-worker",
  "strata-bridge-types 0.3.0-alpha.1 (git+https://github.com/alpenlabs/alpen.git?rev=02fe60d1b74470da3db67352b2f74625eb2e0ed1)",
  "strata-btc-types 0.1.0 (git+https://github.com/alpenlabs/alpen.git?rev=02fe60d1b74470da3db67352b2f74625eb2e0ed1)",
+ "strata-btc-verification",
  "strata-checkpoint-types-ssz",
  "strata-codec 0.1.0 (git+https://github.com/alpenlabs/strata-common?tag=v0.1.0-alpha-rc11)",
  "strata-codec-utils",
@@ -7961,12 +7962,14 @@ name = "strata-asm-params"
 version = "0.1.0"
 dependencies = [
  "arbitrary",
+ "bitcoin",
  "proptest",
  "serde",
  "serde_json",
  "ssz",
  "ssz_derive",
  "strata-btc-types 0.1.0 (git+https://github.com/alpenlabs/alpen.git?rev=02fe60d1b74470da3db67352b2f74625eb2e0ed1)",
+ "strata-btc-verification",
  "strata-crypto 0.3.0-alpha.1 (git+https://github.com/alpenlabs/alpen.git?rev=02fe60d1b74470da3db67352b2f74625eb2e0ed1)",
  "strata-identifiers 0.1.0 (git+https://github.com/alpenlabs/alpen.git?rev=02fe60d1b74470da3db67352b2f74625eb2e0ed1)",
  "strata-l1-txfmt 0.1.0 (git+https://github.com/alpenlabs/strata-common?tag=v0.1.0-alpha-rc11)",
@@ -7995,7 +7998,6 @@ dependencies = [
  "moho-runtime-impl",
  "moho-runtime-interface",
  "moho-types",
- "serde_json",
  "ssz",
  "ssz_derive",
  "strata-asm-common",
@@ -8006,8 +8008,8 @@ dependencies = [
  "strata-btc-types 0.1.0 (git+https://github.com/alpenlabs/alpen.git?rev=02fe60d1b74470da3db67352b2f74625eb2e0ed1)",
  "strata-btc-verification",
  "strata-identifiers 0.1.0 (git+https://github.com/alpenlabs/alpen.git?rev=02fe60d1b74470da3db67352b2f74625eb2e0ed1)",
- "strata-l1-txfmt 0.1.0 (git+https://github.com/alpenlabs/strata-common?tag=v0.1.0-alpha-rc11)",
  "strata-predicate",
+ "strata-test-utils-arb",
  "strata-test-utils-btc",
  "tree_hash",
  "zkaleido 0.1.0 (git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc22)",
@@ -8169,7 +8171,6 @@ dependencies = [
  "strata-asm-proof-types",
  "strata-asm-proto-bridge-v1",
  "strata-asm-rpc",
- "strata-asm-spec",
  "strata-asm-txs-bridge-v1",
  "strata-asm-worker",
  "strata-bridge-common",
@@ -8200,13 +8201,12 @@ dependencies = [
 name = "strata-asm-spec"
 version = "0.1.0"
 dependencies = [
- "serde_json",
  "strata-asm-common",
  "strata-asm-params",
  "strata-asm-proto-administration",
  "strata-asm-proto-bridge-v1",
  "strata-asm-proto-checkpoint",
- "strata-l1-txfmt 0.1.0 (git+https://github.com/alpenlabs/strata-common?tag=v0.1.0-alpha-rc11)",
+ "strata-btc-verification",
 ]
 
 [[package]]
@@ -8216,7 +8216,6 @@ dependencies = [
  "strata-asm-common",
  "strata-asm-proto-debug-v1",
  "strata-asm-spec",
- "strata-l1-txfmt 0.1.0 (git+https://github.com/alpenlabs/strata-common?tag=v0.1.0-alpha-rc11)",
 ]
 
 [[package]]

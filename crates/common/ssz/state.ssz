@@ -25,5 +25,6 @@ class ChainViewState(Container):
 
 ### Top-level ASM state.
 class AnchorState(Container):
+    magic: Bytes4
     chain_view: ChainViewState
     sections: List[SectionState, MAX_SECTIONS]

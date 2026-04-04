@@ -3,8 +3,8 @@
 use std::{any::Any, collections::BTreeMap, marker};
 
 use strata_asm_common::{
-    AnchorState, AsmError, AsmLogEntry, AuxRequestCollector, InterprotoMsg, Loader, MsgRelayer,
-    SectionState, SubprotoHandler, Subprotocol, SubprotocolId, TxInputRef, VerifiedAuxData,
+    AsmError, AsmLogEntry, AuxRequestCollector, InterprotoMsg, MsgRelayer, SectionState,
+    SubprotoHandler, Subprotocol, SubprotocolId, TxInputRef, VerifiedAuxData,
 };
 use strata_identifiers::L1BlockCommitment;
 
@@ -227,36 +227,5 @@ impl MsgRelayer for SubprotoManager {
 
     fn as_mut_any(&mut self) -> &mut dyn Any {
         self
-    }
-}
-
-/// Basic subprotocol loader impl to be passed to spec impls.
-pub(crate) struct AnchorStateLoader<'c> {
-    anchor: &'c AnchorState,
-    man: &'c mut SubprotoManager,
-}
-
-impl<'c> AnchorStateLoader<'c> {
-    pub(crate) fn new(anchor: &'c AnchorState, man: &'c mut SubprotoManager) -> Self {
-        Self { anchor, man }
-    }
-}
-
-impl<'c> Loader for AnchorStateLoader<'c> {
-    fn load_subprotocol<S: Subprotocol>(&mut self, config: S::InitConfig) {
-        // Load or create the subprotocol state.
-        // OPTIMIZE: Linear scan is done every time to find the section
-        let state = match self.anchor.find_section(S::ID) {
-            Some(sec) => sec
-                .try_to_state::<S>()
-                .expect("asm: invalid section subproto state"),
-            // State not found in the anchor state, which occurs in two scenarios:
-            // 1. During genesis block processing, before any state initialization
-            // 2. When introducing a new subprotocol to an existing chain
-            // In either case, we must initialize a fresh state from the provided config
-            None => S::init(&config),
-        };
-
-        self.man.insert_subproto::<S>(state);
     }
 }
