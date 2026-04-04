@@ -63,7 +63,8 @@ pub use ssz_generated::ssz::claim::{
 // Re-export types from payload.ssz
 pub use ssz_generated::ssz::payload::{
     CheckpointPayload, CheckpointPayloadRef, CheckpointSidecar, CheckpointSidecarRef,
-    CheckpointTip, CheckpointTipRef, TerminalHeaderComplement, TerminalHeaderComplementRef,
+    CheckpointTip, CheckpointTipRef, OLLog, OLLogRef, TerminalHeaderComplement,
+    TerminalHeaderComplementRef,
 };
 // Re-export constants from payload.ssz
 pub use ssz_generated::ssz::payload::{
@@ -81,4 +82,3 @@ pub const MAX_TOTAL_LOG_PAYLOAD_BYTES: usize = 16 * 1024;
 pub use strata_asm_manifest_types::{
     compute_asm_manifests_hash, compute_asm_manifests_hash_from_leaves,
 };
-pub use strata_ol_chain_types_new::OLLog;

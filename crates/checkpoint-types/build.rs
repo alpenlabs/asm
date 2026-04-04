@@ -8,7 +8,7 @@ fn main() {
 
     let entry_points = ["claim.ssz", "payload.ssz"];
     let base_dir = "ssz";
-    let crates = ["strata_identifiers", "strata_ol_chain_types_new"];
+    let crates = ["strata_identifiers"];
 
     build_ssz_files(
         &entry_points,
@@ -20,6 +20,5 @@ fn main() {
     .expect("Failed to generate SSZ types");
 
     println!("cargo:rerun-if-changed=ssz/payload.ssz");
-    println!("cargo:rerun-if-changed=ssz/state.ssz");
     println!("cargo:rerun-if-changed=ssz/claim.ssz");
 }

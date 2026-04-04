@@ -264,9 +264,8 @@ fn extract_and_validate_withdrawal_intents(
 mod tests {
     use strata_asm_common::{AsmHistoryAccumulatorState, AuxData, VerifiedAuxData};
     use strata_asm_txs_checkpoint::EnvelopeCheckpoint;
-    use strata_checkpoint_types_ssz::TerminalHeaderComplement;
+    use strata_checkpoint_types_ssz::{OLLog, TerminalHeaderComplement};
     use strata_identifiers::AccountSerial;
-    use strata_ol_chain_types_new::OLLog;
     use strata_predicate::PredicateKey;
     use strata_test_utils_checkpoint::CheckpointTestHarness;
 
