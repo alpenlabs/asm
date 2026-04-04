@@ -12,10 +12,12 @@ ssz.workspace = true
 ssz_derive.workspace = true
 thiserror.workspace = true
 
+bitcoin-bosd.workspace = true
 strata-asm-common.workspace = true
 strata-asm-logs.workspace = true
+strata-btc-types.workspace = true
+strata-identifiers.workspace = true
 strata-l1-txfmt.workspace = true
-strata-primitives.workspace = true
 
 # Bridge subprotocol messages for inter-protocol messaging
 strata-asm-bridge-msgs.workspace = true

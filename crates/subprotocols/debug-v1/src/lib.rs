@@ -42,7 +42,8 @@
 // Silence unused dependency warnings for these crates
 use serde as _;
 use strata_asm_logs as _;
-use strata_primitives as _;
+use strata_btc_types as _;
+use strata_identifiers as _;
 use thiserror as _;
 
 mod constants;

@@ -1,6 +1,6 @@
 use arbitrary::Arbitrary;
 use bitcoin::{OutPoint, ScriptBuf};
-use strata_primitives::l1::{BitcoinAmount, BitcoinOutPoint, BitcoinTxOut};
+use strata_btc_types::{BitcoinAmount, BitcoinOutPoint, BitcoinTxOut};
 
 use crate::deposit::aux::DepositTxHeaderAux;
 

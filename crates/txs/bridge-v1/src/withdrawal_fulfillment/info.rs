@@ -1,6 +1,7 @@
 use arbitrary::{Arbitrary, Unstructured};
 use bitcoin::ScriptBuf;
-use strata_primitives::{bitcoin_bosd::Descriptor, l1::BitcoinAmount};
+use bitcoin_bosd::Descriptor;
+use strata_btc_types::BitcoinAmount;
 
 use crate::withdrawal_fulfillment::aux::WithdrawalFulfillmentTxHeaderAux;
 

@@ -8,12 +8,11 @@ use bitcoin::{ScriptBuf, secp256k1::SECP256K1};
 use serde::{Deserialize, Serialize};
 use ssz::{Decode as SszDecode, DecodeError, Encode as SszEncode};
 use ssz_derive::{Decode, Encode};
-use strata_bridge_types::OperatorIdx;
-use strata_btc_types::BitcoinScriptBuf;
+use strata_bridge_types::{OperatorBitmap, OperatorIdx};
+use strata_btc_types::{BitcoinScriptBuf, BitcoinXOnlyPublicKey};
 use strata_crypto::{EvenPublicKey, aggregate_schnorr_keys};
-use strata_primitives::{buf::Buf32, l1::BitcoinXOnlyPublicKey, sorted_vec::SortedVec};
-
-use super::bitmap::OperatorBitmap;
+use strata_identifiers::Buf32;
+use strata_primitives::sorted_vec::SortedVec;
 
 /// Bridge operator entry containing identification and cryptographic keys.
 ///

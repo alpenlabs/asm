@@ -1,5 +1,5 @@
 use strata_crypto::hash;
-use strata_primitives::buf::Buf32;
+use strata_identifiers::Buf32;
 
 use crate::constants::AdminTxType;
 

@@ -1,16 +1,107 @@
-//! Operator Bitmap Management
-//!
-//! This module contains bitmap types and operations for efficiently tracking
-//! and filtering operators in various contexts.
-
 use arbitrary::Arbitrary;
 use bitvec::prelude::*;
+use borsh::{BorshDeserialize, BorshSerialize};
 use serde::{Deserialize, Serialize};
 use ssz::{Decode as SszDecode, DecodeError, Encode as SszEncode};
 use ssz_derive::{Decode, Encode};
-use strata_bridge_types::OperatorIdx;
+use thiserror::Error;
 
-use crate::BitmapError;
+/// The ID of an operator.
+///
+/// We define it as a type alias over [`u32`] instead of a newtype because we perform a bunch of
+/// mathematical operations on it while managing the operator table.
+pub type OperatorIdx = u32;
+
+/// Sentinel value representing "no specific operator selected."
+const NO_SELECTION_SENTINEL: u32 = u32::MAX;
+
+/// Encapsulates the user's operator selection for a withdrawal assignment.
+///
+/// Wraps a [`u32`] where [`u32::MAX`] means "any operator" (random assignment)
+/// and any other value is a specific [`OperatorIdx`].
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    PartialEq,
+    BorshSerialize,
+    BorshDeserialize,
+    Serialize,
+    Deserialize,
+    Arbitrary,
+    Encode,
+    Decode,
+)]
+pub struct OperatorSelection(u32);
+
+impl OperatorSelection {
+    /// Creates a selection meaning "assign to any eligible operator."
+    pub fn any() -> Self {
+        Self(NO_SELECTION_SENTINEL)
+    }
+
+    /// Creates a selection for a specific operator index.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `idx` equals [`u32::MAX`], which is reserved as the "any" sentinel.
+    pub fn specific(idx: OperatorIdx) -> Self {
+        assert_ne!(
+            idx, NO_SELECTION_SENTINEL,
+            "u32::MAX is reserved for the 'any' sentinel"
+        );
+        Self(idx)
+    }
+
+    /// Returns the specific operator index, or [`None`] if this is an "any" selection.
+    pub fn as_specific(&self) -> Option<OperatorIdx> {
+        (self.0 != NO_SELECTION_SENTINEL).then_some(self.0)
+    }
+
+    /// Returns the raw [`u32`] representation.
+    pub fn raw(self) -> u32 {
+        self.0
+    }
+
+    /// Constructs from a raw [`u32`], as decoded from the wire.
+    pub fn from_raw(raw: u32) -> Self {
+        Self(raw)
+    }
+}
+
+/// Error type for OperatorBitmap operations.
+#[derive(Debug, Error, PartialEq)]
+pub enum OperatorBitmapError {
+    /// Attempted to set a bit at an index that would create a gap in the bitmap.
+    /// Only sequential indices are allowed.
+    #[error(
+        "Index {index} is out of bounds for sequential bitmap (valid range: 0..={max_valid_index})"
+    )]
+    IndexOutOfBounds {
+        index: OperatorIdx,
+        max_valid_index: OperatorIdx,
+    },
+
+    /// Notary operators and previous assignees bitmaps have mismatched lengths.
+    #[error(
+        "Notary operators length ({notary_len}) does not match previous assignees length ({previous_len})"
+    )]
+    MismatchedBitmapLengths {
+        notary_len: usize,
+        previous_len: usize,
+    },
+
+    /// Current active operators bitmap is shorter than notary operators bitmap.
+    /// This indicates a system inconsistency since operator indices are only appended.
+    #[error(
+        "Current active operators bitmap length ({active_len}) is shorter than notary operators length ({notary_len}). This should never happen as operator bitmaps only grow."
+    )]
+    InsufficientActiveBitmapLength {
+        active_len: usize,
+        notary_len: usize,
+    },
+}
 
 /// Memory-efficient bitmap for tracking active operators in a multisig set.
 ///
@@ -28,7 +119,7 @@ use crate::BitmapError;
 pub struct OperatorBitmap {
     /// Bitmap where bit `i` is set if operator index `i` is active.
     /// Uses `BitVec<u8>` for dynamic sizing and memory efficiency.
-    pub(crate) bits: BitVec<u8>,
+    bits: BitVec<u8>,
 }
 
 #[derive(Debug, Encode, Decode)]
@@ -152,11 +243,11 @@ impl OperatorBitmap {
     /// **WARNING**: Since `OperatorIdx` is `u32`, this method cannot handle indices beyond
     /// `u32::MAX` (4,294,967,295). This limits the total number of unique operators that can
     /// ever be registered over the bridge's lifetime.
-    pub fn try_set(&mut self, idx: OperatorIdx, active: bool) -> Result<(), BitmapError> {
+    pub fn try_set(&mut self, idx: OperatorIdx, active: bool) -> Result<(), OperatorBitmapError> {
         let idx_usize = idx as usize;
         // Only allow increasing bitmap size by 1 at a time to maintain sequential indices
         if idx_usize > self.bits.len() {
-            return Err(BitmapError::IndexOutOfBounds {
+            return Err(OperatorBitmapError::IndexOutOfBounds {
                 index: idx,
                 max_valid_index: self.bits.len() as OperatorIdx,
             });
@@ -221,6 +312,50 @@ impl<'a> Arbitrary<'a> for OperatorBitmap {
 
         Ok(OperatorBitmap::from(bits))
     }
+}
+
+/// Filters and returns eligible operators for assignment or reassignment.
+///
+/// Returns a bitmap of operators who meet all eligibility criteria:
+/// - Must be part of the deposit's notary operator set
+/// - Must not have previously been assigned to this withdrawal (prevents reassignment to failed
+///   operators)
+/// - Must be currently active in the network
+pub fn filter_eligible_operators(
+    notary_operators: &OperatorBitmap,
+    previous_assignees: &OperatorBitmap,
+    current_active_operators: &OperatorBitmap,
+) -> Result<OperatorBitmap, OperatorBitmapError> {
+    // Notary operators and previous assignees must have the same length to ensure
+    // bitwise operations don't panic
+    if notary_operators.len() != previous_assignees.len() {
+        return Err(OperatorBitmapError::MismatchedBitmapLengths {
+            notary_len: notary_operators.len(),
+            previous_len: previous_assignees.len(),
+        });
+    }
+
+    // If current_active_operators is shorter, this indicates a system inconsistency
+    // since we only append operator indices to bitmaps, never remove them.
+    // We also need to ensure sufficient length to avoid panics during bitwise operations.
+    if current_active_operators.len() < notary_operators.len() {
+        return Err(OperatorBitmapError::InsufficientActiveBitmapLength {
+            active_len: current_active_operators.len(),
+            notary_len: notary_operators.len(),
+        });
+    }
+
+    let notary_len = notary_operators.len();
+
+    // Clone and truncate current_active_operators to match notary length
+    let mut active_truncated = current_active_operators.bits.clone();
+    active_truncated.truncate(notary_len);
+
+    // In-place operations: active = (notary & !previous) & active
+    active_truncated &= &notary_operators.bits;
+    active_truncated &= &!previous_assignees.bits.clone();
+
+    Ok(active_truncated.into())
 }
 
 #[cfg(test)]
@@ -292,7 +427,7 @@ mod tests {
         // Trying to set bit 3 (skipping 2) should fail
         assert_eq!(
             bitmap.try_set(3, true),
-            Err(BitmapError::IndexOutOfBounds {
+            Err(OperatorBitmapError::IndexOutOfBounds {
                 index: 3,
                 max_valid_index: 2
             })
@@ -318,7 +453,7 @@ mod tests {
         // Trying to unset bit 1000 (skipping 501..) should fail
         assert_eq!(
             bitmap.try_set(1000, false),
-            Err(BitmapError::IndexOutOfBounds {
+            Err(OperatorBitmapError::IndexOutOfBounds {
                 index: 1000,
                 max_valid_index: 501
             })
@@ -333,5 +468,134 @@ mod tests {
         let serialized_bytes = bitmap.as_ssz_bytes();
         let deserialized_bitmap = OperatorBitmap::from_ssz_bytes(&serialized_bytes).unwrap();
         assert_eq!(bitmap, deserialized_bitmap);
+    }
+
+    /// Helper to create an OperatorBitmap from a slice of bools.
+    fn bitmap_from_bools(bits: &[bool]) -> OperatorBitmap {
+        let bv: BitVec<u8> = bits.iter().collect();
+        OperatorBitmap::from(bv)
+    }
+
+    #[test]
+    fn test_filter_eligible_all_eligible() {
+        let notary = bitmap_from_bools(&[true, true, true]);
+        let previous = bitmap_from_bools(&[false, false, false]);
+        let active = bitmap_from_bools(&[true, true, true]);
+
+        let result = filter_eligible_operators(&notary, &previous, &active).unwrap();
+        assert_eq!(result.active_indices().collect::<Vec<_>>(), vec![0, 1, 2]);
+    }
+
+    #[test]
+    fn test_filter_eligible_some_previously_assigned() {
+        let notary = bitmap_from_bools(&[true, true, true]);
+        let previous = bitmap_from_bools(&[true, false, false]);
+        let active = bitmap_from_bools(&[true, true, true]);
+
+        let result = filter_eligible_operators(&notary, &previous, &active).unwrap();
+        assert_eq!(result.active_indices().collect::<Vec<_>>(), vec![1, 2]);
+    }
+
+    #[test]
+    fn test_filter_eligible_some_inactive() {
+        let notary = bitmap_from_bools(&[true, true, true]);
+        let previous = bitmap_from_bools(&[false, false, false]);
+        let active = bitmap_from_bools(&[true, false, true]);
+
+        let result = filter_eligible_operators(&notary, &previous, &active).unwrap();
+        assert_eq!(result.active_indices().collect::<Vec<_>>(), vec![0, 2]);
+    }
+
+    #[test]
+    fn test_filter_eligible_combined_filtering() {
+        let notary = bitmap_from_bools(&[true, true, true, true]);
+        let previous = bitmap_from_bools(&[true, false, false, false]);
+        let active = bitmap_from_bools(&[true, true, false, true]);
+
+        let result = filter_eligible_operators(&notary, &previous, &active).unwrap();
+        assert_eq!(result.active_indices().collect::<Vec<_>>(), vec![1, 3]);
+    }
+
+    #[test]
+    fn test_filter_eligible_none_eligible() {
+        // All previously assigned
+        let notary = bitmap_from_bools(&[true, true]);
+        let previous = bitmap_from_bools(&[true, true]);
+        let active = bitmap_from_bools(&[true, true]);
+
+        let result = filter_eligible_operators(&notary, &previous, &active).unwrap();
+        assert_eq!(result.active_count(), 0);
+
+        // All inactive
+        let previous = bitmap_from_bools(&[false, false]);
+        let active = bitmap_from_bools(&[false, false]);
+
+        let result = filter_eligible_operators(&notary, &previous, &active).unwrap();
+        assert_eq!(result.active_count(), 0);
+    }
+
+    #[test]
+    fn test_filter_eligible_not_in_notary_set() {
+        let notary = bitmap_from_bools(&[true, false, true]);
+        let previous = bitmap_from_bools(&[false, false, false]);
+        let active = bitmap_from_bools(&[true, true, true]);
+
+        let result = filter_eligible_operators(&notary, &previous, &active).unwrap();
+        assert_eq!(result.active_indices().collect::<Vec<_>>(), vec![0, 2]);
+    }
+
+    #[test]
+    fn test_filter_eligible_active_longer_than_notary() {
+        let notary = bitmap_from_bools(&[true, true]);
+        let previous = bitmap_from_bools(&[false, false]);
+        // Active has extra operators beyond the notary set — they should be ignored
+        let active = bitmap_from_bools(&[true, true, true, true, true]);
+
+        let result = filter_eligible_operators(&notary, &previous, &active).unwrap();
+        assert_eq!(result.active_indices().collect::<Vec<_>>(), vec![0, 1]);
+        assert_eq!(result.len(), 2);
+    }
+
+    #[test]
+    fn test_filter_eligible_empty_bitmaps() {
+        let notary = bitmap_from_bools(&[]);
+        let previous = bitmap_from_bools(&[]);
+        let active = bitmap_from_bools(&[]);
+
+        let result = filter_eligible_operators(&notary, &previous, &active).unwrap();
+        assert!(result.is_empty());
+        assert_eq!(result.active_count(), 0);
+    }
+
+    #[test]
+    fn test_filter_eligible_mismatched_notary_previous_lengths() {
+        let notary = bitmap_from_bools(&[true, true, true]);
+        let previous = bitmap_from_bools(&[false, false]);
+        let active = bitmap_from_bools(&[true, true, true]);
+
+        let err = filter_eligible_operators(&notary, &previous, &active).unwrap_err();
+        assert_eq!(
+            err,
+            OperatorBitmapError::MismatchedBitmapLengths {
+                notary_len: 3,
+                previous_len: 2,
+            }
+        );
+    }
+
+    #[test]
+    fn test_filter_eligible_active_shorter_than_notary() {
+        let notary = bitmap_from_bools(&[true, true, true]);
+        let previous = bitmap_from_bools(&[false, false, false]);
+        let active = bitmap_from_bools(&[true, true]);
+
+        let err = filter_eligible_operators(&notary, &previous, &active).unwrap_err();
+        assert_eq!(
+            err,
+            OperatorBitmapError::InsufficientActiveBitmapLength {
+                active_len: 2,
+                notary_len: 3,
+            }
+        );
     }
 }

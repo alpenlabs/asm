@@ -25,7 +25,7 @@ use strata_asm_common::{
     VerifiableManifestHash,
 };
 use strata_asm_manifest_types::Hash32;
-use strata_primitives::prelude::*;
+use strata_identifiers::L1BlockCommitment;
 use tracing::*;
 
 use crate::{WorkerContext, WorkerError, WorkerResult};

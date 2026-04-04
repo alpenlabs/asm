@@ -4,7 +4,7 @@ use ssz_derive::{Decode, Encode};
 use strata_asm_params::{AdministrationInitConfig, Role};
 use strata_asm_txs_admin::actions::UpdateId;
 use strata_crypto::threshold_signature::ThresholdConfigUpdate;
-use strata_primitives::L1Height;
+use strata_identifiers::L1Height;
 
 use crate::{
     authority::MultisigAuthority, error::AdministrationError, queued_update::QueuedUpdate,
@@ -189,7 +189,7 @@ mod tests {
         keys::compressed::CompressedPublicKey,
         threshold_signature::{ThresholdConfig, ThresholdConfigUpdate},
     };
-    use strata_primitives::L1Height;
+    use strata_identifiers::L1Height;
     use strata_test_utils_arb::ArbitraryGenerator;
 
     use crate::{queued_update::QueuedUpdate, state::AdministrationSubprotoState};

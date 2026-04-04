@@ -5,7 +5,7 @@ use std::marker;
 use bitcoin::hashes::Hash;
 use serde::{Deserialize, Serialize};
 use strata_btc_types::BlockHashExt;
-use strata_primitives::prelude::*;
+use strata_identifiers::{Buf32, L1BlockCommitment};
 use strata_service::{Response, Service, SyncService};
 use strata_state::asm_state::AsmState;
 use tracing::*;
@@ -129,7 +129,7 @@ fn process_block<W: WorkerContext + Send + Sync + 'static>(
         let genesis_block = ctx.get_l1_block(pivot_block.blkid())?;
 
         // Compute wtxids_root and create manifest
-        let wtxids_root: strata_primitives::Buf32 = genesis_block
+        let wtxids_root: Buf32 = genesis_block
             .witness_root()
             .map(|root| root.as_raw_hash().to_byte_array())
             .unwrap_or_else(|| {

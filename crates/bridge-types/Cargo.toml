@@ -1,0 +1,23 @@
+[package]
+name = "strata-bridge-types"
+version = "0.1.0"
+edition = "2024"
+
+[lints]
+workspace = true
+
+[dependencies]
+bitcoin-bosd = { workspace = true, features = ["arbitrary", "serde"] }
+ssz.workspace = true
+ssz_derive.workspace = true
+strata-btc-types.workspace = true
+strata-identifiers.workspace = true
+
+arbitrary.workspace = true
+bitvec.workspace = true
+borsh.workspace = true
+serde.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+strata-test-utils-arb.workspace = true

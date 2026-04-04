@@ -2,8 +2,8 @@ use std::fmt::Debug;
 
 use bitcoin::ScriptBuf;
 use strata_asm_txs_bridge_v1::errors::{BridgeTxParseError, Mismatch, TxStructureError};
-use strata_bridge_types::OperatorIdx;
-use strata_primitives::l1::BitcoinAmount;
+use strata_bridge_types::OperatorBitmapError;
+use strata_btc_types::BitcoinAmount;
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -141,40 +141,7 @@ pub enum WithdrawalAssignmentError {
     )]
     NoEligibleOperators { deposit_idx: u32 },
 
-    /// Notary operators and previous assignees bitmaps have mismatched lengths.
-    #[error(
-        "Notary operators length ({notary_len}) does not match previous assignees length ({previous_len})"
-    )]
-    MismatchedBitmapLengths {
-        notary_len: usize,
-        previous_len: usize,
-    },
-
-    /// Current active operators bitmap is shorter than notary operators bitmap.
-    /// This indicates a system inconsistency since operator indices are only appended.
-    #[error(
-        "Current active operators bitmap length ({active_len}) is shorter than notary operators length ({notary_len}). This should never happen as operator bitmaps only grow."
-    )]
-    InsufficientActiveBitmapLength {
-        active_len: usize,
-        notary_len: usize,
-    },
-
     /// Bitmap operation failed
     #[error("Bitmap operation failed")]
-    BitmapError(#[from] BitmapError),
-}
-
-/// Error type for OperatorBitmap operations.
-#[derive(Debug, Error, PartialEq)]
-pub enum BitmapError {
-    /// Attempted to set a bit at an index that would create a gap in the bitmap.
-    /// Only sequential indices are allowed.
-    #[error(
-        "Index {index} is out of bounds for sequential bitmap (valid range: 0..={max_valid_index})"
-    )]
-    IndexOutOfBounds {
-        index: OperatorIdx,
-        max_valid_index: OperatorIdx,
-    },
+    BitmapError(#[from] OperatorBitmapError),
 }

@@ -43,6 +43,7 @@ use strata_asm_txs_bridge_v1::{
     },
     test_utils::create_test_operators,
 };
+use strata_bridge_types::BRIDGE_GATEWAY_ACCT_SERIAL;
 use strata_btc_types::BitcoinAmount;
 use strata_checkpoint_types_ssz::CheckpointTip;
 use strata_codec::{encode_to_vec, VarVec};
@@ -51,7 +52,6 @@ use strata_crypto::{test_utils::schnorr::Musig2Tweak, EvenPublicKey, EvenSecretK
 use strata_identifiers::{OLBlockCommitment, OLBlockId};
 use strata_l1_txfmt::{ParseConfig, TagData};
 use strata_ol_chain_types_new::{OLLog, SimpleWithdrawalIntentLogData};
-use strata_ol_stf::BRIDGE_GATEWAY_ACCT_SERIAL;
 use strata_test_utils_arb::ArbitraryGenerator;
 use strata_test_utils_btcio::{address::derive_musig2_p2tr_address, signing::sign_musig2_keypath};
 use strata_test_utils_checkpoint::CheckpointTestHarness;

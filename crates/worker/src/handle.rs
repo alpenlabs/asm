@@ -1,5 +1,5 @@
 use async_trait::async_trait;
-use strata_primitives::prelude::*;
+use strata_identifiers::L1BlockCommitment;
 use strata_service::{CommandHandle, ServiceError, ServiceMonitor};
 use strata_state::BlockSubmitter;
 

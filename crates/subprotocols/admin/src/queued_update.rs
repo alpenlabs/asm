@@ -1,7 +1,7 @@
 use arbitrary::Arbitrary;
 use ssz_derive::{Decode, Encode};
 use strata_asm_txs_admin::actions::{UpdateAction, UpdateId};
-use strata_primitives::L1Height;
+use strata_identifiers::L1Height;
 
 #[derive(Clone, Debug, Eq, PartialEq, Arbitrary, Encode, Decode)]
 pub struct QueuedUpdate {

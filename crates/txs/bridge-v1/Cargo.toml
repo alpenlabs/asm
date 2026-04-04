@@ -11,11 +11,12 @@ arbitrary.workspace = true
 bitcoin.workspace = true
 thiserror.workspace = true
 
+bitcoin-bosd.workspace = true
 strata-asm-common.workspace = true
 strata-bridge-types.workspace = true
+strata-btc-types.workspace = true
 strata-codec.workspace = true
 strata-l1-txfmt.workspace = true
-strata-primitives.workspace = true
 
 # Optional dependencies for test utilities
 rand = { workspace = true, optional = true }

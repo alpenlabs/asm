@@ -1,6 +1,6 @@
 use arbitrary::Arbitrary;
 use ssz_derive::{Decode, Encode};
-use strata_primitives::buf::Buf32;
+use strata_identifiers::Buf32;
 
 use crate::{actions::Sighash, constants::AdminTxType};
 

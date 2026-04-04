@@ -5,7 +5,7 @@ use bitcoin::{
 use ssz::Encode;
 use strata_asm_txs_test_utils::create_reveal_transaction_stub;
 use strata_crypto::threshold_signature::{IndexedSignature, SignatureSet};
-use strata_primitives::buf::Buf32;
+use strata_identifiers::Buf32;
 
 use crate::{
     actions::{MultisigAction, Sighash},
