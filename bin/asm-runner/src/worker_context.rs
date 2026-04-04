@@ -1,54 +1,39 @@
-//! WorkerContext implementation for ASM worker.
-//!
-//! This is the glue between the worker (which uses `strata_asm_worker::AsmState`)
-//! and the storage layer (which uses `strata_state::asm_state::AsmState`).
-//! The two types are structurally identical — we convert between them at the
-//! persistence boundary.
+//! WorkerContext implementation for the ASM runner.
 
 use std::sync::Arc;
 
+use asm_storage::{AsmStateDb, MmrDb};
 use bitcoin::{Block, BlockHash, Network};
 use bitcoind_async_client::{Client, traits::Reader};
 use strata_asm_common::{AsmManifest, AuxData};
 use strata_asm_worker::{AsmState, WorkerContext, WorkerError, WorkerResult};
 use strata_btc_types::{BitcoinTxid, L1BlockIdBitcoinExt, RawBitcoinTx};
-use strata_identifiers::{Hash, L1BlockCommitment, L1BlockId};
-use strata_state::asm_state::AsmState as StorageAsmState;
-use strata_storage::{AsmStateManager, MmrIndexHandle};
+use strata_identifiers::{Buf32, L1BlockCommitment, L1BlockId};
+use strata_merkle::MerkleProofB32;
 use tokio::runtime::Handle;
-
-/// Convert storage-layer AsmState to worker AsmState.
-fn from_storage(s: StorageAsmState) -> AsmState {
-    AsmState::new(s.state().clone(), s.logs().clone())
-}
-
-/// Convert worker AsmState to storage-layer AsmState.
-fn to_storage(s: &AsmState) -> StorageAsmState {
-    StorageAsmState::new(s.state().clone(), s.logs().clone())
-}
 
 /// ASM [`WorkerContext`] implementation.
 ///
-/// Fetches L1 blocks from a Bitcoin node and persists state via SledDB.
+/// Fetches L1 blocks from a Bitcoin node and persists state via local sled storage.
 pub(crate) struct AsmWorkerContext {
     runtime_handle: Handle,
     bitcoin_client: Arc<Client>,
-    asm_manager: Arc<AsmStateManager>,
-    mmr_handle: MmrIndexHandle,
+    state_db: Arc<AsmStateDb>,
+    mmr_db: Arc<MmrDb>,
 }
 
 impl AsmWorkerContext {
-    pub(crate) const fn new(
+    pub(crate) fn new(
         runtime_handle: Handle,
         bitcoin_client: Arc<Client>,
-        asm_manager: Arc<AsmStateManager>,
-        mmr_handle: MmrIndexHandle,
+        state_db: Arc<AsmStateDb>,
+        mmr_db: Arc<MmrDb>,
     ) -> Self {
         Self {
             runtime_handle,
             bitcoin_client,
-            asm_manager,
-            mmr_handle,
+            state_db,
+            mmr_db,
         }
     }
 }
@@ -62,16 +47,12 @@ impl WorkerContext for AsmWorkerContext {
     }
 
     fn get_latest_asm_state(&self) -> WorkerResult<Option<(L1BlockCommitment, AsmState)>> {
-        self.asm_manager
-            .fetch_most_recent_state()
-            .map(|opt| opt.map(|(id, s)| (id, from_storage(s))))
-            .map_err(|_| WorkerError::DbError)
+        self.state_db.get_latest().map_err(|_| WorkerError::DbError)
     }
 
     fn get_anchor_state(&self, blockid: &L1BlockCommitment) -> WorkerResult<AsmState> {
-        self.asm_manager
-            .get_state(*blockid)
-            .map(|opt| opt.map(from_storage))
+        self.state_db
+            .get(blockid)
             .map_err(|_| WorkerError::DbError)?
             .ok_or(WorkerError::MissingAsmState(*blockid.blkid()))
     }
@@ -81,8 +62,8 @@ impl WorkerContext for AsmWorkerContext {
         blockid: &L1BlockCommitment,
         state: &AsmState,
     ) -> WorkerResult<()> {
-        self.asm_manager
-            .put_state(*blockid, to_storage(state))
+        self.state_db
+            .put(blockid, state)
             .map_err(|_| WorkerError::DbError)
     }
 
@@ -107,9 +88,9 @@ impl WorkerContext for AsmWorkerContext {
             .map_err(|_| WorkerError::BitcoinTxNotFound(*txid))
     }
 
-    fn append_manifest_to_mmr(&self, manifest_hash: Hash) -> WorkerResult<u64> {
-        self.mmr_handle
-            .append_leaf_blocking(manifest_hash)
+    fn append_manifest_to_mmr(&self, manifest_hash: Buf32) -> WorkerResult<u64> {
+        self.mmr_db
+            .append_leaf(manifest_hash)
             .map_err(|_| WorkerError::DbError)
     }
 
@@ -117,27 +98,27 @@ impl WorkerContext for AsmWorkerContext {
         &self,
         index: u64,
         at_leaf_count: u64,
-    ) -> WorkerResult<strata_merkle::MerkleProofB32> {
-        self.mmr_handle
-            .generate_proof_at(index, at_leaf_count)
+    ) -> WorkerResult<MerkleProofB32> {
+        self.mmr_db
+            .generate_proof(index, at_leaf_count)
             .map_err(|_| WorkerError::MmrProofFailed { index })
     }
 
-    fn get_manifest_hash(&self, index: u64) -> WorkerResult<Option<Hash>> {
-        self.mmr_handle
-            .get_leaf_blocking(index)
+    fn get_manifest_hash(&self, index: u64) -> WorkerResult<Option<Buf32>> {
+        self.mmr_db
+            .get_leaf(index)
             .map_err(|_| WorkerError::DbError)
     }
 
     fn store_aux_data(&self, blockid: &L1BlockCommitment, data: &AuxData) -> WorkerResult<()> {
-        self.asm_manager
-            .put_aux_data(*blockid, data.clone())
+        self.state_db
+            .put_aux_data(blockid, data)
             .map_err(|_| WorkerError::DbError)
     }
 
     fn get_aux_data(&self, blockid: &L1BlockCommitment) -> WorkerResult<Option<AuxData>> {
-        self.asm_manager
-            .get_aux_data(*blockid)
+        self.state_db
+            .get_aux_data(blockid)
             .map_err(|_| WorkerError::DbError)
     }
 

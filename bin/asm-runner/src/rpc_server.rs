@@ -3,6 +3,7 @@
 use std::{fmt::Display, sync::Arc};
 
 use anyhow::Result;
+use asm_storage::AsmStateDb;
 use async_trait::async_trait;
 use bitcoin::BlockHash;
 use bitcoind_async_client::{Client, traits::Reader};
@@ -20,7 +21,6 @@ use strata_asm_txs_bridge_v1::BRIDGE_V1_SUBPROTOCOL_ID;
 use strata_asm_worker::{AsmWorkerHandle, AsmWorkerStatus};
 use strata_btc_types::BlockHashExt;
 use strata_identifiers::L1BlockCommitment;
-use strata_storage::AsmStateManager;
 use strata_tasks::ShutdownGuard;
 use tracing::info;
 
@@ -31,7 +31,7 @@ fn to_rpc_error(e: impl Display) -> ErrorObjectOwned {
 
 /// ASM RPC server implementation
 pub(crate) struct AsmRpcServer {
-    asm_manager: Arc<AsmStateManager>,
+    state_db: Arc<AsmStateDb>,
     asm_worker: Arc<AsmWorkerHandle>,
     bitcoin_client: Arc<Client>,
     proof_db: Option<SledProofDb>,
@@ -40,13 +40,13 @@ pub(crate) struct AsmRpcServer {
 impl AsmRpcServer {
     /// Create a new ASM RPC server
     pub(crate) fn new(
-        asm_manager: Arc<AsmStateManager>,
+        state_db: Arc<AsmStateDb>,
         asm_worker: Arc<AsmWorkerHandle>,
         bitcoin_client: Arc<Client>,
         proof_db: Option<SledProofDb>,
     ) -> Self {
         Self {
-            asm_manager,
+            state_db,
             asm_worker,
             bitcoin_client,
             proof_db,
@@ -69,10 +69,7 @@ impl AsmRpcServer {
             .to_block_commitment(block_hash)
             .await
             .map_err(to_rpc_error)?;
-        let state = self
-            .asm_manager
-            .get_state(commitment)
-            .map_err(to_rpc_error)?;
+        let state = self.state_db.get(&commitment).map_err(to_rpc_error)?;
         match state {
             Some(state) => {
                 let bridge_state = state
@@ -140,7 +137,7 @@ impl AssignmentsApiServer for AsmRpcServer {
 
 /// Run the RPC server
 pub(crate) async fn run_rpc_server(
-    asm_manager: Arc<AsmStateManager>,
+    state_db: Arc<AsmStateDb>,
     asm_worker: Arc<AsmWorkerHandle>,
     bitcoin_client: Arc<Client>,
     proof_db: Option<SledProofDb>,
@@ -148,7 +145,7 @@ pub(crate) async fn run_rpc_server(
     rpc_port: u16,
     shutdown: ShutdownGuard,
 ) -> Result<()> {
-    let rpc_server = AsmRpcServer::new(asm_manager, asm_worker, bitcoin_client, proof_db);
+    let rpc_server = AsmRpcServer::new(state_db, asm_worker, bitcoin_client, proof_db);
 
     let server = ServerBuilder::default()
         .build(format!("{}:{}", rpc_host, rpc_port))

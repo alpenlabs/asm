@@ -25,11 +25,7 @@ strata-asm-txs-bridge-v1.workspace = true
 strata-asm-worker.workspace = true
 strata-btc-types.workspace = true
 
-# Storage deps — now only needed by the runner binary, not ASM library crates
-# TODO(STR-2544): eliminate it completely
-strata-db-store-sled = { git = "https://github.com/alpenlabs/alpen.git", rev = "02fe60d1b74470da3db67352b2f74625eb2e0ed1" }
-strata-state = { git = "https://github.com/alpenlabs/alpen.git", rev = "02fe60d1b74470da3db67352b2f74625eb2e0ed1" }
-strata-storage = { git = "https://github.com/alpenlabs/alpen.git", rev = "02fe60d1b74470da3db67352b2f74625eb2e0ed1" }
+asm-storage.workspace = true
 
 strata-identifiers.workspace = true
 strata-merkle.workspace = true
@@ -45,9 +41,9 @@ futures.workspace = true
 jsonrpsee = { workspace = true, features = ["server", "macros"] }
 serde.workspace = true
 serde_json.workspace = true
+sled.workspace = true
 ssz.workspace = true
 strata-asm-sp1-guest-builder = { path = "../../guest-builder/sp1", optional = true }
-threadpool = "1.8"
 tokio.workspace = true
 toml.workspace = true
 tracing.workspace = true
