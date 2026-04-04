@@ -38,7 +38,7 @@ pub(crate) fn run_sp1_programs(programs: &[GuestProgram]) -> Vec<PerformanceRepo
         .collect()
 }
 
-pub(crate) fn sp1_predicate_key(program_vk_hash: [u8; 32]) -> PredicateKey {
+pub(crate) fn compute_sp1_predicate_key(program_vk_hash: [u8; 32]) -> PredicateKey {
     let sp1_verifier = SP1Groth16Verifier::load(&GROTH16_VK_BYTES, program_vk_hash).unwrap();
     let condition_bytes = sp1_verifier.vk.to_uncompressed_bytes();
     PredicateKey::new(Sp1Groth16, condition_bytes)
