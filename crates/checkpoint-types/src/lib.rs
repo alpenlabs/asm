@@ -37,6 +37,7 @@
 
 mod claim;
 mod error;
+mod log_payloads;
 mod payload;
 
 #[cfg(any(test, feature = "test-utils"))]
@@ -57,6 +58,7 @@ mod ssz_generated {
 }
 
 // Re-export types from claim.ssz
+pub use log_payloads::{SimpleWithdrawalIntentLogData, SnarkAccountUpdateLogData};
 pub use ssz_generated::ssz::claim::{
     CheckpointClaim, CheckpointClaimRef, L2BlockRange, L2BlockRangeRef,
 };

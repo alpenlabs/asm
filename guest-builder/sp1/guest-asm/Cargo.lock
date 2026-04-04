@@ -1783,6 +1783,7 @@ dependencies = [
  "ssz_primitives",
  "ssz_types",
  "strata-asm-manifest-types 0.1.0",
+ "strata-codec",
  "strata-identifiers",
  "thiserror 2.0.18",
  "tree_hash",

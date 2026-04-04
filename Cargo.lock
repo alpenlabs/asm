@@ -8514,6 +8514,7 @@ dependencies = [
  "ssz_primitives",
  "ssz_types",
  "strata-asm-manifest-types",
+ "strata-codec 0.1.0 (git+https://github.com/alpenlabs/strata-common?tag=v0.1.0-alpha-rc11)",
  "strata-identifiers 0.1.0 (git+https://github.com/alpenlabs/alpen.git?rev=02fe60d1b74470da3db67352b2f74625eb2e0ed1)",
  "strata-test-utils-ssz",
  "thiserror 2.0.18",
