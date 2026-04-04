@@ -15,6 +15,6 @@ class ProverEnv(BasicEnv):
         proof_db_path = str((envdd_path / "asm_rpc" / "proof_db").resolve())
         return OrchestratorConfig(
             tick_interval=Duration(secs=1, nanos=0),
-            max_concurrent_asm_proofs=4,
+            max_concurrent_proofs=4,
             proof_db_path=proof_db_path,
         )

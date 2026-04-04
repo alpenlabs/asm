@@ -43,7 +43,7 @@ class OrchestratorConfig:
     """Proof orchestrator configuration."""
 
     tick_interval: Duration
-    max_concurrent_asm_proofs: int
+    max_concurrent_proofs: int
     proof_db_path: str
 
 

@@ -2,10 +2,8 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use bitcoind_async_client::{Auth, Client};
-use moho_recursive_proof::MohoRecursiveProgram;
 use strata_asm_params::AsmParams;
 use strata_asm_proof_db::SledProofDb;
-use strata_asm_proof_impl::program::AsmStfProofProgram;
 use strata_asm_spec::StrataAsmSpec;
 use strata_asm_worker::AsmWorkerBuilder;
 use strata_tasks::TaskExecutor;
@@ -79,6 +77,8 @@ pub(crate) async fn bootstrap(
 
         #[cfg(not(feature = "sp1"))]
         let (asm, moho) = {
+            use moho_recursive_proof::MohoRecursiveProgram;
+            use strata_asm_proof_impl::program::AsmStfProofProgram;
             (
                 AsmStfProofProgram::native_host(),
                 MohoRecursiveProgram::native_host(),

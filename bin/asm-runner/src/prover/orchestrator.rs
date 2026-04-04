@@ -213,10 +213,7 @@ impl<R: ZkVmRemoteHost> ProofOrchestrator<R> {
             .context("failed to query in-progress proofs")?
             .len();
 
-        let capacity = self
-            .config
-            .max_concurrent_asm_proofs
-            .saturating_sub(in_flight);
+        let capacity = self.config.max_concurrent_proofs.saturating_sub(in_flight);
 
         if capacity == 0 {
             return Ok(());

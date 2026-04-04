@@ -10,8 +10,8 @@ pub(crate) struct OrchestratorConfig {
     /// Interval between orchestrator ticks.
     pub tick_interval: Duration,
 
-    /// Maximum number of concurrent ASM proof jobs in flight.
-    pub max_concurrent_asm_proofs: usize,
+    /// Maximum number of concurrent proof jobs in flight.
+    pub max_concurrent_proofs: usize,
 
     /// Path to the proof database (SledProofDb).
     pub proof_db_path: PathBuf,
