@@ -7908,11 +7908,11 @@ dependencies = [
  "ssz_derive",
  "ssz_primitives",
  "ssz_types",
+ "strata-asm-test-utils-ssz",
  "strata-codec 0.1.0 (git+https://github.com/alpenlabs/strata-common?tag=v0.1.0-alpha-rc11)",
  "strata-crypto 0.3.0-alpha.1 (git+https://github.com/alpenlabs/alpen.git?rev=02fe60d1b74470da3db67352b2f74625eb2e0ed1)",
  "strata-identifiers 0.1.0 (git+https://github.com/alpenlabs/alpen.git?rev=02fe60d1b74470da3db67352b2f74625eb2e0ed1)",
  "strata-msg-fmt",
- "strata-test-utils-ssz",
  "thiserror 2.0.18",
  "tree_hash",
  "tree_hash_derive",
@@ -8203,6 +8203,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "strata-asm-test-utils-ssz"
+version = "0.1.0"
+dependencies = [
+ "proptest",
+ "ssz",
+ "tree_hash",
+]
+
+[[package]]
 name = "strata-asm-txs-admin"
 version = "0.1.0"
 dependencies = [
@@ -8456,9 +8465,9 @@ dependencies = [
  "ssz_primitives",
  "ssz_types",
  "strata-asm-manifest-types",
+ "strata-asm-test-utils-ssz",
  "strata-codec 0.1.0 (git+https://github.com/alpenlabs/strata-common?tag=v0.1.0-alpha-rc11)",
  "strata-identifiers 0.1.0 (git+https://github.com/alpenlabs/alpen.git?rev=02fe60d1b74470da3db67352b2f74625eb2e0ed1)",
- "strata-test-utils-ssz",
  "thiserror 2.0.18",
  "tree_hash",
  "tree_hash_derive",
@@ -8785,16 +8794,6 @@ dependencies = [
  "strata-predicate",
  "strata-test-utils-arb",
  "strata-test-utils-btc",
-]
-
-[[package]]
-name = "strata-test-utils-ssz"
-version = "0.1.0"
-source = "git+https://github.com/alpenlabs/alpen.git?rev=02fe60d1b74470da3db67352b2f74625eb2e0ed1#02fe60d1b74470da3db67352b2f74625eb2e0ed1"
-dependencies = [
- "proptest",
- "ssz",
- "tree_hash",
 ]
 
 [[package]]

@@ -108,11 +108,11 @@ pub fn compute_asm_manifests_hash_from_leaves(leaves: &[[u8; 32]]) -> FixedBytes
 mod tests {
     use proptest::prelude::*;
     use ssz::{Decode, Encode};
+    use strata_asm_test_utils_ssz::ssz_proptest;
     use strata_identifiers::{
         Buf32, L1BlockId, WtxidsRoot,
         test_utils::{buf32_strategy, l1_block_id_strategy},
     };
-    use strata_test_utils_ssz::ssz_proptest;
 
     use super::AsmManifest;
     use crate::ssz_generated::ssz::log::AsmLogEntry;
