@@ -52,15 +52,15 @@ pub fn create_genesis_anchor_state(block: &Block) -> AnchorState {
     construct_genesis_state(&params)
 }
 
-/// Creates the Moho pre-state from an existing [`AnchorState`].
-pub fn create_moho_prestate(anchor_state: &AnchorState) -> MohoState {
+/// Creates the Moho state from an [`AnchorState`] and [`PredicateKey`] with empty export state.
+pub fn create_moho_state(anchor_state: &AnchorState, next_predicate: PredicateKey) -> MohoState {
     let inner_state = AsmStfProgram::compute_state_commitment(anchor_state)
         .into_inner()
         .into();
 
     MohoState {
         inner_state,
-        next_predicate: PredicateKey::always_accept(),
+        next_predicate,
         export_state: ExportState::new(vec![]),
     }
 }
@@ -69,7 +69,7 @@ pub fn create_moho_prestate(anchor_state: &AnchorState) -> MohoState {
 pub fn create_runtime_input() -> RuntimeInput {
     let step_input = create_asm_step_input();
     let inner_pre_state = create_genesis_anchor_state(step_input.block());
-    let moho_pre_state = create_moho_prestate(&inner_pre_state);
+    let moho_pre_state = create_moho_state(&inner_pre_state, PredicateKey::always_accept());
     RuntimeInput::new(
         moho_pre_state,
         inner_pre_state.as_ssz_bytes(),
