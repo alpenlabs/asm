@@ -23,7 +23,6 @@ strata-checkpoint-types-ssz.workspace = true
 strata-codec.workspace = true
 strata-crypto.workspace = true
 strata-identifiers.workspace = true
-strata-ol-chain-types-new.workspace = true
 strata-predicate = { workspace = true, features = ["all"] }
 
 thiserror.workspace = true

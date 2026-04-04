@@ -6,11 +6,10 @@ use strata_asm_txs_checkpoint::EnvelopeCheckpoint;
 use strata_bridge_types::{BRIDGE_GATEWAY_ACCT_SERIAL, OperatorSelection, WithdrawOutput};
 use strata_checkpoint_types_ssz::{
     CheckpointClaim, CheckpointSidecar, CheckpointTip, L2BlockRange, OLLog,
-    compute_asm_manifests_hash_from_leaves,
+    SimpleWithdrawalIntentLogData, compute_asm_manifests_hash_from_leaves,
 };
 use strata_codec::decode_buf_exact;
 use strata_crypto::hash;
-use strata_ol_chain_types_new::SimpleWithdrawalIntentLogData;
 use strata_predicate::PredicateTypeId;
 
 use crate::{
