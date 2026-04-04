@@ -138,6 +138,7 @@ zkaleido = { git = "https://github.com/alpenlabs/zkaleido", tag = "v0.1.0-alpha-
 zkaleido-native-adapter = { git = "https://github.com/alpenlabs/zkaleido", tag = "v0.1.0-alpha-rc22", features = [
   "remote-prover",
 ] }
+zkaleido-sp1-host = { git = "https://github.com/alpenlabs/zkaleido", tag = "v0.1.0-alpha-rc22" }
 
 # external dependencies
 anyhow = "1.0.86"

@@ -4,7 +4,6 @@ use anyhow::Result;
 use bitcoind_async_client::{Auth, Client};
 use strata_asm_params::AsmParams;
 use strata_asm_proof_db::SledProofDb;
-use strata_asm_proof_impl::program::AsmStfProofProgram;
 use strata_asm_worker::AsmWorkerBuilder;
 use strata_tasks::TaskExecutor;
 use tokio::{
@@ -64,11 +63,26 @@ pub(crate) async fn bootstrap(
         let proof_db = SledProofDb::open(&orch_config.proof_db_path)?;
         let proof_db_clone = proof_db.clone();
 
-        let native_host = AsmStfProofProgram::native_host();
+        #[cfg(feature = "sp1")]
+        let host = {
+            use std::fs;
+
+            use strata_asm_sp1_guest_builder::ASM_ELF_PATH;
+            use zkaleido_sp1_host::SP1Host;
+            let elf = fs::read(ASM_ELF_PATH)
+                .unwrap_or_else(|err| panic!("failed to read guest elf at {ASM_ELF_PATH}: {err}"));
+            SP1Host::init(&elf)
+        };
+
+        #[cfg(not(feature = "sp1"))]
+        let host = {
+            use strata_asm_proof_impl::program::AsmStfProofProgram;
+            AsmStfProofProgram::native_host()
+        };
 
         let input_builder = InputBuilder::new(asm_manager.clone(), bitcoin_client.clone());
         let mut orchestrator =
-            ProofOrchestrator::new(proof_db, native_host, orch_config, input_builder, rx);
+            ProofOrchestrator::new(proof_db, host, orch_config, input_builder, rx);
 
         // ZkVmRemoteProver is !Send (#[async_trait(?Send)]), so the orchestrator
         // future cannot be spawned on a multi-threaded runtime directly. We run it

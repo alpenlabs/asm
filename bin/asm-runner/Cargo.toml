@@ -42,8 +42,15 @@ jsonrpsee = { workspace = true, features = ["server", "macros"] }
 serde.workspace = true
 serde_json.workspace = true
 ssz.workspace = true
+strata-asm-sp1-guest-builder = { path = "../../guest-builder/sp1", optional = true }
 threadpool = "1.8"
 tokio.workspace = true
 toml.workspace = true
 tracing.workspace = true
 zkaleido.workspace = true
+zkaleido-sp1-host = { workspace = true, optional = true, features = [
+  "remote-prover",
+] }
+
+[features]
+sp1 = ["dep:zkaleido-sp1-host", "dep:strata-asm-sp1-guest-builder"]
