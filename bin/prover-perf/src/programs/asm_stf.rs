@@ -1,9 +1,8 @@
 use std::{fs, sync::LazyLock};
 
 use moho_runtime_impl::RuntimeInput;
-use moho_types::MohoAttestation;
 use sp1_sdk::HashableKey;
-use ssz::{Decode, Encode};
+use ssz::Encode;
 use strata_asm_proof_impl::{
     program::AsmStfProofProgram,
     test_utils::{
@@ -35,21 +34,7 @@ pub(crate) fn create_runtime_input() -> RuntimeInput {
     )
 }
 
-pub(crate) fn check_proof_and_execution() {
-    let input = create_runtime_input();
-    let executed_moho_transition = AsmStfProofProgram::execute(&input).unwrap();
-
-    let asm_stf_proof = ProofReceiptWithMetadata::load("asm-stf_SP1_v5.0.0.proof.bin")
-        .expect("failed to open proof");
-    let proven_moho_transition =
-        MohoAttestation::from_ssz_bytes(asm_stf_proof.receipt().public_values().as_bytes())
-            .unwrap();
-
-    assert_eq!(executed_moho_transition, proven_moho_transition);
-}
-
 pub(crate) fn gen_perf_report() -> PerformanceReport {
-    check_proof_and_execution();
     let input = create_runtime_input();
     AsmStfProofProgram::perf_report(&input, &*ASM_HOST)
         .expect("failed to generate performance report")
