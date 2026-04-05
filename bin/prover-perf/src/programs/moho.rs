@@ -7,6 +7,7 @@ use moho_recursive_proof::{
 use moho_runtime_interface::MohoProgram;
 use moho_types::StateRefAttestation;
 use sp1_sdk::HashableKey;
+use ssz::Decode;
 use strata_asm_proof_impl::{
     moho_program::program::AsmStfProgram,
     test_utils::{create_asm_step_input, create_genesis_anchor_state, create_moho_state},
@@ -69,8 +70,19 @@ pub(crate) fn create_moho_recursive_input() -> MohoRecursiveInput {
         moho_post_state.compute_commitment(),
     );
 
-    let moho_transition = MohoStateTransition::new(moho_pre_state_ref, moho_post_state_ref);
-    let incremental_step_proof = MohoTransitionWithProof::new(moho_transition, vec![]); // FIXME: use proper proof
+    let expected_moho_transition =
+        MohoStateTransition::new(moho_pre_state_ref, moho_post_state_ref);
+
+    let asm_stf_proof = ProofReceiptWithMetadata::load("asm-stf_SP1_v5.0.0.proof.bin")
+        .expect("failed to open proof");
+    let proven_moho_transition =
+        MohoStateTransition::from_ssz_bytes(asm_stf_proof.receipt().public_values().as_bytes())
+            .unwrap();
+    assert_eq!(expected_moho_transition, proven_moho_transition);
+
+    let proof = asm_stf_proof.receipt().proof().as_bytes();
+    let incremental_step_proof =
+        MohoTransitionWithProof::new(expected_moho_transition, proof.to_vec());
 
     let step_predicate_merkle_proof = create_predicate_inclusion_proof(&moho_pre_state);
 

@@ -102,10 +102,10 @@ btc-tracker = { git = "https://github.com/alpenlabs/strata-bridge.git", rev = "f
 strata-bridge-common = { git = "https://github.com/alpenlabs/strata-bridge.git", rev = "fc966d5f81c773de10a4ef3a66666687ec11d715" }
 
 # Dependencies from alpenlabs/moho pinned to commit b02b23a9 (main @ 2026-03-31)
-moho-recursive-proof = { git = "https://github.com/alpenlabs/moho", rev = "b02b23a990ec01b3c8fd14fa7c9e1e970608dc7c" }
-moho-runtime-impl = { git = "https://github.com/alpenlabs/moho", rev = "b02b23a990ec01b3c8fd14fa7c9e1e970608dc7c" }
-moho-runtime-interface = { git = "https://github.com/alpenlabs/moho", rev = "b02b23a990ec01b3c8fd14fa7c9e1e970608dc7c" }
-moho-types = { git = "https://github.com/alpenlabs/moho", rev = "b02b23a990ec01b3c8fd14fa7c9e1e970608dc7c" }
+moho-recursive-proof = { git = "https://github.com/alpenlabs/moho", rev = "94fc2fae9a73fae14b9654380777e3987dad35d1" }
+moho-runtime-impl = { git = "https://github.com/alpenlabs/moho", rev = "94fc2fae9a73fae14b9654380777e3987dad35d1" }
+moho-runtime-interface = { git = "https://github.com/alpenlabs/moho", rev = "94fc2fae9a73fae14b9654380777e3987dad35d1" }
+moho-types = { git = "https://github.com/alpenlabs/moho", rev = "94fc2fae9a73fae14b9654380777e3987dad35d1" }
 
 # dependencies from alpenlabs/strata-common
 strata-codec = { git = "https://github.com/alpenlabs/strata-common", features = [
