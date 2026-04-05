@@ -53,12 +53,11 @@ use strata_asm_params::{
     AdministrationInitConfig, AsmParams, BridgeV1InitConfig, CheckpointInitConfig,
     SubprotocolInstance,
 };
-use strata_asm_worker::{AsmWorkerBuilder, AsmWorkerHandle, WorkerContext};
+use strata_asm_worker::{AsmState, AsmWorkerBuilder, AsmWorkerHandle, WorkerContext};
 use strata_btc_types::BlockHashExt;
 use strata_identifiers::{Buf32, L1BlockCommitment};
 use strata_l1_envelope_fmt::builder::{build_envelope_script, EnvelopeScriptBuilder};
 use strata_l1_txfmt::{ParseConfig, TagData};
-use strata_state::{asm_state::AsmState, BlockSubmitter};
 use strata_tasks::{TaskExecutor, TaskManager};
 use strata_test_utils_arb::ArbitraryGenerator;
 use tokio::{runtime::Handle, task::block_in_place};
@@ -66,9 +65,7 @@ use tokio::{runtime::Handle, task::block_in_place};
 use super::worker_context::TestAsmWorkerContext;
 use crate::harness::worker_context::get_l1_anchor;
 
-// ============================================================================
 // Test Harness
-// ============================================================================
 
 /// Test harness that manages ASM worker service and Bitcoin regtest.
 ///
@@ -103,9 +100,7 @@ impl AsmTestHarness {
     /// Default transaction fee.
     pub const DEFAULT_FEE: Amount = Amount::from_sat(1000);
 
-    // ========================================================================
     // Block Mining
-    // ========================================================================
 
     /// Mine a block and wait for ASM worker to process it.
     ///
@@ -166,9 +161,7 @@ impl AsmTestHarness {
         Ok(hashes)
     }
 
-    // ========================================================================
     // Transaction Submission
-    // ========================================================================
 
     /// Submit a transaction to Bitcoin regtest mempool.
     ///
@@ -205,9 +198,7 @@ impl AsmTestHarness {
         anyhow::bail!("Transaction {txid} not included after 10 blocks")
     }
 
-    // ========================================================================
     // State Queries
-    // ========================================================================
 
     /// Get the current chain tip height from Bitcoin.
     pub async fn get_chain_tip(&self) -> anyhow::Result<u64> {
@@ -257,9 +248,7 @@ impl AsmTestHarness {
         self.context.mmr_leaves.lock().unwrap().clone()
     }
 
-    // ========================================================================
     // Funding & Wallet
-    // ========================================================================
 
     /// Create a funding UTXO for transaction building.
     ///
@@ -302,9 +291,7 @@ impl AsmTestHarness {
         Ok((funding_txid, prev_vout))
     }
 
-    // ========================================================================
     // SPS-50 Transaction Building
-    // ========================================================================
 
     /// Build a funded SPS-50 envelope transaction with real UTXOs.
     ///
@@ -453,9 +440,7 @@ impl AsmTestHarness {
     }
 }
 
-// ============================================================================
 // Helper Functions
-// ============================================================================
 
 /// Build a simple envelope script for subprotocols that don't need SPS-51 auth.
 ///
@@ -485,9 +470,7 @@ fn create_taproot_spend_info(
     Ok(taproot_spend_info)
 }
 
-// ============================================================================
 // Builder
-// ============================================================================
 
 /// Builder for [`AsmTestHarness`] with optional subprotocol config overrides.
 ///

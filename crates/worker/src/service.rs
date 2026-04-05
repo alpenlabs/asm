@@ -7,10 +7,9 @@ use serde::{Deserialize, Serialize};
 use strata_btc_types::BlockHashExt;
 use strata_identifiers::{Buf32, L1BlockCommitment};
 use strata_service::{Response, Service, SyncService};
-use strata_state::asm_state::AsmState;
 use tracing::*;
 
-use crate::{AsmWorkerServiceState, message::AsmWorkerMessage, traits::WorkerContext};
+use crate::{AsmState, AsmWorkerServiceState, message::AsmWorkerMessage, traits::WorkerContext};
 
 /// ASM service implementation using the service framework.
 #[derive(Debug)]

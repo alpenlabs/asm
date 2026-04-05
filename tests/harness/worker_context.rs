@@ -11,12 +11,11 @@ use std::{
 use bitcoin::{block::Header, Block, BlockHash, Network, Txid};
 use bitcoind_async_client::{traits::Reader, Client};
 use strata_asm_manifest_types::AsmManifest;
-use strata_asm_worker::{WorkerContext, WorkerError, WorkerResult};
+use strata_asm_worker::{AsmState, WorkerContext, WorkerError, WorkerResult};
 use strata_btc_types::{BitcoinTxid, BlockHashExt, L1BlockIdBitcoinExt, RawBitcoinTx};
 use strata_btc_verification::L1Anchor;
 use strata_identifiers::{Buf32, Hash, L1BlockCommitment, L1BlockId};
 use strata_merkle::{CompactMmr64, MerkleProofB32, Mmr, Sha256Hasher};
-use strata_state::asm_state::AsmState;
 use tokio::{runtime::Handle, task::block_in_place};
 
 /// Test implementation of WorkerContext for integration tests

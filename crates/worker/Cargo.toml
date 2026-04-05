@@ -17,12 +17,11 @@ strata-btc-verification.workspace = true
 strata-identifiers.workspace = true
 strata-merkle = { workspace = true, features = ["ssz"] }
 strata-service.workspace = true
-strata-state.workspace = true
 strata-tasks.workspace = true
 
 anyhow.workspace = true
-async-trait.workspace = true
 bitcoin.workspace = true
+borsh.workspace = true
 serde.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
