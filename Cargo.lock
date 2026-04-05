@@ -7989,6 +7989,7 @@ dependencies = [
 name = "strata-asm-proof-impl"
 version = "0.1.0"
 dependencies = [
+ "arbitrary",
  "bitcoin",
  "moho-runtime-impl",
  "moho-runtime-interface",
