@@ -4,10 +4,8 @@
 //! `RuntimeInput`/`StrataAsmSpec` pair for exercising the proof program.
 
 use bitcoin::Block;
-use moho_runtime_impl::RuntimeInput;
 use moho_runtime_interface::MohoProgram;
 use moho_types::{ExportState, MohoState};
-use ssz::Encode;
 use strata_asm_common::{AnchorState, AuxData};
 use strata_asm_params::AsmParams;
 use strata_asm_spec::construct_genesis_state;
@@ -63,16 +61,4 @@ pub fn create_moho_state(anchor_state: &AnchorState, next_predicate: PredicateKe
         next_predicate,
         export_state: ExportState::new(vec![]),
     }
-}
-
-/// Creates a runtime input for a single ASM STF step.
-pub fn create_runtime_input() -> RuntimeInput {
-    let step_input = create_asm_step_input();
-    let inner_pre_state = create_genesis_anchor_state(step_input.block());
-    let moho_pre_state = create_moho_state(&inner_pre_state, PredicateKey::always_accept());
-    RuntimeInput::new(
-        moho_pre_state,
-        inner_pre_state.as_ssz_bytes(),
-        step_input.as_ssz_bytes(),
-    )
 }
