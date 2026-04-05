@@ -19,6 +19,7 @@ use strata_asm_spec::StrataAsmSpec;
 use strata_asm_stf::compute_asm_transition;
 use strata_predicate::PredicateKey;
 use zkaleido::{PerformanceReport, ProofReceiptWithMetadata, ZkVmProgram, ZkVmProgramPerf};
+use zkaleido_sp1_groth16_verifier::VK_HASH_PREFIX_LENGTH;
 use zkaleido_sp1_host::SP1Host;
 
 use crate::programs::{asm_stf::asm_predicate_key, compute_sp1_predicate_key};
@@ -82,7 +83,7 @@ pub(crate) fn create_moho_recursive_input() -> MohoRecursiveInput {
             .unwrap();
     assert_eq!(expected_moho_transition, proven_moho_transition);
 
-    let proof = asm_stf_proof.receipt().proof().as_bytes();
+    let proof = &asm_stf_proof.receipt().proof().as_bytes()[VK_HASH_PREFIX_LENGTH..];
     let incremental_step_proof =
         MohoTransitionWithProof::new(expected_moho_transition, proof.to_vec());
 
