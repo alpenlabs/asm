@@ -1,13 +1,14 @@
 use std::{fs, sync::LazyLock};
 
-use moho_recursive_proof::MohoStateTransition;
 use moho_runtime_impl::RuntimeInput;
 use moho_types::MohoAttestation;
 use sp1_sdk::HashableKey;
 use ssz::{Decode, Encode};
 use strata_asm_proof_impl::{
     program::AsmStfProofProgram,
-    test_utils::{create_asm_step_input, create_genesis_anchor_state, create_moho_state},
+    test_utils::{
+        create_asm_step_input, create_deterministic_genesis_anchor_state, create_moho_state,
+    },
 };
 use strata_asm_sp1_guest_builder::ASM_ELF_PATH;
 use strata_predicate::PredicateKey;
@@ -25,7 +26,7 @@ static ASM_HOST: LazyLock<SP1Host> = LazyLock::new(|| {
 /// Creates a runtime input for a single ASM STF step.
 pub(crate) fn create_runtime_input() -> RuntimeInput {
     let step_input = create_asm_step_input();
-    let inner_pre_state = create_genesis_anchor_state(step_input.block());
+    let inner_pre_state = create_deterministic_genesis_anchor_state(step_input.block());
     let moho_pre_state = create_moho_state(&inner_pre_state, asm_predicate_key());
     RuntimeInput::new(
         moho_pre_state,

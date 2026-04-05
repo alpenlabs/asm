@@ -10,7 +10,9 @@ use sp1_sdk::HashableKey;
 use ssz::Decode;
 use strata_asm_proof_impl::{
     moho_program::program::AsmStfProgram,
-    test_utils::{create_asm_step_input, create_genesis_anchor_state, create_moho_state},
+    test_utils::{
+        create_asm_step_input, create_deterministic_genesis_anchor_state, create_moho_state,
+    },
 };
 use strata_asm_sp1_guest_builder::MOHO_ELF_PATH;
 use strata_asm_spec::StrataAsmSpec;
@@ -45,7 +47,7 @@ pub(crate) fn moho_predicate_key() -> PredicateKey {
 
 pub(crate) fn create_moho_recursive_input() -> MohoRecursiveInput {
     let input = create_asm_step_input();
-    let asm_pre_state = create_genesis_anchor_state(input.block());
+    let asm_pre_state = create_deterministic_genesis_anchor_state(input.block());
     let moho_pre_state = create_moho_state(&asm_pre_state, asm_predicate_key());
 
     let moho_pre_state_ref = StateRefAttestation::new(
