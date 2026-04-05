@@ -1,4 +1,4 @@
-use std::{fs, sync::LazyLock};
+use std::{fs, path::Path, sync::LazyLock};
 
 use moho_recursive_proof::{
     test_utils::create_predicate_inclusion_proof, MohoRecursiveInput, MohoRecursiveProgram,
@@ -76,8 +76,8 @@ pub(crate) fn create_moho_recursive_input() -> MohoRecursiveInput {
     let expected_moho_transition =
         MohoStateTransition::new(moho_pre_state_ref, moho_post_state_ref);
 
-    let asm_stf_proof = ProofReceiptWithMetadata::load("asm-stf_SP1_v5.0.0.proof.bin")
-        .expect("failed to open proof");
+    let proof_path = Path::new(env!("CARGO_MANIFEST_DIR")).join("asm-stf_SP1_v5.0.0.proof.bin");
+    let asm_stf_proof = ProofReceiptWithMetadata::load(proof_path).expect("failed to open proof");
     let proven_moho_transition =
         MohoStateTransition::from_ssz_bytes(asm_stf_proof.receipt().public_values().as_bytes())
             .unwrap();
