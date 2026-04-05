@@ -11,6 +11,11 @@ fn default_github_repo() -> String {
 /// Evaluate SP1 prover performance for ASM programs.
 #[derive(Debug, Clone, Parser)]
 pub(crate) struct EvalArgs {
+    /// Whether to generate the proof. When proof generation is enabled, the performance report is
+    /// skipped.
+    #[arg(long, default_value_t = false)]
+    pub generate_proof: bool,
+
     /// Whether to post the results as a GitHub PR comment.
     #[arg(long, default_value_t = false)]
     pub post_to_gh: bool,

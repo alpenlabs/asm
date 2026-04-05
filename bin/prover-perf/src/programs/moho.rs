@@ -15,7 +15,7 @@ use strata_asm_sp1_guest_builder::MOHO_ELF_PATH;
 use strata_asm_spec::StrataAsmSpec;
 use strata_asm_stf::compute_asm_transition;
 use strata_predicate::PredicateKey;
-use zkaleido::{PerformanceReport, ZkVmProgramPerf};
+use zkaleido::{PerformanceReport, ProofReceiptWithMetadata, ZkVmProgram, ZkVmProgramPerf};
 use zkaleido_sp1_host::SP1Host;
 
 use crate::programs::{asm_stf::asm_predicate_key, compute_sp1_predicate_key};
@@ -30,6 +30,11 @@ pub(crate) fn gen_perf_report() -> PerformanceReport {
     let input = create_moho_recursive_input();
     MohoRecursiveProgram::perf_report(&input, &*MOHO_HOST)
         .expect("failed to generate performance report")
+}
+
+pub(crate) fn gen_proof() -> ProofReceiptWithMetadata {
+    let input = create_moho_recursive_input();
+    MohoRecursiveProgram::prove(&input, &*MOHO_HOST).expect("failed to generate performance report")
 }
 
 pub(crate) fn moho_predicate_key() -> PredicateKey {

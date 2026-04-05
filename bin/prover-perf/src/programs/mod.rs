@@ -5,7 +5,7 @@ mod moho;
 
 use sp1_verifier::GROTH16_VK_BYTES;
 use strata_predicate::{PredicateKey, PredicateTypeId::Sp1Groth16};
-use zkaleido::PerformanceReport;
+use zkaleido::{PerformanceReport, ProofReceiptWithMetadata};
 use zkaleido_sp1_groth16_verifier::SP1Groth16Verifier;
 
 #[derive(Debug, Clone)]
@@ -13,6 +13,15 @@ use zkaleido_sp1_groth16_verifier::SP1Groth16Verifier;
 pub(crate) enum GuestProgram {
     AsmStf,
     Moho,
+}
+
+impl GuestProgram {
+    pub(crate) fn as_str(&self) -> &'static str {
+        match self {
+            Self::AsmStf => "asm-stf",
+            Self::Moho => "moho",
+        }
+    }
 }
 
 impl FromStr for GuestProgram {
@@ -28,12 +37,23 @@ impl FromStr for GuestProgram {
 }
 
 /// Runs SP1 programs to generate reports.
-pub(crate) fn run_sp1_programs(programs: &[GuestProgram]) -> Vec<PerformanceReport> {
+pub(crate) fn gen_sp1_perf_report(programs: &[GuestProgram]) -> Vec<PerformanceReport> {
     programs
         .iter()
         .map(|program| match program {
             GuestProgram::AsmStf => asm_stf::gen_perf_report(),
             GuestProgram::Moho => moho::gen_perf_report(),
+        })
+        .collect()
+}
+
+/// Runs SP1 programs to generate reports.
+pub(crate) fn gen_sp1_proof(programs: &[GuestProgram]) -> Vec<ProofReceiptWithMetadata> {
+    programs
+        .iter()
+        .map(|program| match program {
+            GuestProgram::AsmStf => asm_stf::gen_proof(),
+            GuestProgram::Moho => moho::gen_proof(),
         })
         .collect()
 }
