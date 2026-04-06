@@ -7915,6 +7915,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "strata-asm-crypto"
+version = "0.1.0"
+
+[[package]]
 name = "strata-asm-logs"
 version = "0.1.0"
 dependencies = [

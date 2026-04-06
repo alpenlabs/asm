@@ -7,6 +7,7 @@ members = [
   "crates/btc-verification",
   "crates/checkpoint-types",
   "crates/logs",
+  "crates/crypto",
   "crates/manifest-types",
   "crates/msgs/bridge",
   "crates/msgs/checkpoint",
@@ -58,6 +59,7 @@ strata-ams-test-utils = { path = "crates/test-utils-btcio" }
 strata-asm-bridge-msgs = { path = "crates/msgs/bridge" }
 strata-asm-checkpoint-msgs = { path = "crates/msgs/checkpoint" }
 strata-asm-common = { path = "crates/common" }
+strata-asm-crypto = { path = "crates/crypto" }
 strata-asm-logs = { path = "crates/logs" }
 strata-asm-manifest-types = { path = "crates/manifest-types" }
 strata-asm-params = { path = "crates/params" }
