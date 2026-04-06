@@ -1,6 +1,6 @@
 use std::ops::Deref;
 
-use secp256k1::{Parity, PublicKey, SECP256K1, SecretKey, ffi::XOnlyPublicKey};
+use secp256k1::{Parity, PublicKey, SECP256K1, SecretKey};
 
 /// Represents a secret key whose x-only public key has even parity.
 ///
@@ -44,6 +44,21 @@ impl From<EvenSecretKey> for SecretKey {
 /// so the resulting [`EvenPublicKey`] always yields even parity.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct EvenPublicKey(PublicKey);
+
+impl From<PublicKey> for EvenPublicKey {
+    fn from(value: PublicKey) -> Self {
+        match value.x_only_public_key().1 == Parity::Odd {
+            true => Self(value.negate(SECP256K1)),
+            false => Self(value),
+        }
+    }
+}
+
+impl From<EvenPublicKey> for PublicKey {
+    fn from(value: EvenPublicKey) -> Self {
+        value.0
+    }
+}
 
 /// Ensures a keypair is even by checking the public key's parity and negating if odd.
 pub fn even_kp((sk, pk): (SecretKey, PublicKey)) -> (EvenSecretKey, EvenPublicKey) {

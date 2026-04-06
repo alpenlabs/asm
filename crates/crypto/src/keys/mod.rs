@@ -1,3 +1,4 @@
+mod arbitrary;
 mod compressed;
 mod even;
 

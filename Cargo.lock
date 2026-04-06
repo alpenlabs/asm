@@ -7918,7 +7918,9 @@ dependencies = [
 name = "strata-asm-crypto"
 version = "0.1.0"
 dependencies = [
+ "arbitrary",
  "bitcoin",
+ "proptest",
  "rand 0.8.5",
  "secp256k1 0.29.1",
  "sha2",

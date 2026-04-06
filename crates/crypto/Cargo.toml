@@ -7,11 +7,18 @@ edition = "2024"
 workspace = true
 
 [dependencies]
-secp256k1.workspace = true
 strata-identifiers.workspace = true
+
+arbitrary = { workspace = true, optional = true }
+secp256k1.workspace = true
 
 sha2.workspace = true
 
 [dev-dependencies]
 bitcoin.workspace = true
 rand.workspace = true
+proptest.workspace = true
+
+[features]
+default = ["arbitrary"]
+arbitrary = ["dep:arbitrary"]
