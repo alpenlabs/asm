@@ -7920,6 +7920,7 @@ version = "0.1.0"
 dependencies = [
  "bitcoin",
  "rand 0.8.5",
+ "secp256k1 0.29.1",
  "sha2",
  "strata-identifiers 0.1.0 (git+https://github.com/alpenlabs/alpen.git?rev=02fe60d1b74470da3db67352b2f74625eb2e0ed1)",
 ]
