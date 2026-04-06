@@ -87,3 +87,58 @@ impl AsmStateDb {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use strata_asm_common::AuxData;
+    use strata_identifiers::{Buf32, L1BlockCommitment, L1BlockId};
+
+    use super::*;
+
+    fn test_db() -> sled::Db {
+        let dir = tempfile::tempdir().unwrap();
+        sled::open(dir.path()).unwrap()
+    }
+
+    fn make_commitment(height: u32, seed: u8) -> L1BlockCommitment {
+        L1BlockCommitment::new(height, L1BlockId::from(Buf32::new([seed; 32])))
+    }
+
+    #[test]
+    fn get_missing_state_returns_none() {
+        let db = test_db();
+        let store = AsmStateDb::open(&db).unwrap();
+        let commitment = make_commitment(1, 0xaa);
+        assert!(store.get(&commitment).unwrap().is_none());
+    }
+
+    #[test]
+    fn get_latest_on_empty_returns_none() {
+        let db = test_db();
+        let store = AsmStateDb::open(&db).unwrap();
+        assert!(store.get_latest().unwrap().is_none());
+    }
+
+    #[test]
+    fn put_aux_data_roundtrip() {
+        let db = test_db();
+        let store = AsmStateDb::open(&db).unwrap();
+        let commitment = make_commitment(100, 0xbb);
+        let aux = AuxData::default();
+
+        store.put_aux_data(&commitment, &aux).unwrap();
+        let retrieved = store.get_aux_data(&commitment).unwrap().unwrap();
+        assert_eq!(
+            borsh::to_vec(&retrieved).unwrap(),
+            borsh::to_vec(&aux).unwrap()
+        );
+    }
+
+    #[test]
+    fn get_missing_aux_data_returns_none() {
+        let db = test_db();
+        let store = AsmStateDb::open(&db).unwrap();
+        let commitment = make_commitment(1, 0xcc);
+        assert!(store.get_aux_data(&commitment).unwrap().is_none());
+    }
+}

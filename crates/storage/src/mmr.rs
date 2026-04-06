@@ -118,3 +118,136 @@ impl MmrDb {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use strata_identifiers::Buf32;
+    use strata_merkle::Mmr64B32;
+
+    use super::*;
+
+    fn test_db() -> sled::Db {
+        let dir = tempfile::tempdir().unwrap();
+        sled::open(dir.path()).unwrap()
+    }
+
+    fn make_leaf(seed: u8) -> Buf32 {
+        Buf32::new([seed; 32])
+    }
+
+    #[test]
+    fn empty_mmr_has_zero_leaves() {
+        let db = test_db();
+        let mmr = MmrDb::open(&db).unwrap();
+        assert_eq!(mmr.leaf_count().unwrap(), 0);
+    }
+
+    #[test]
+    fn append_and_retrieve_leaf() {
+        let db = test_db();
+        let mmr = MmrDb::open(&db).unwrap();
+        let leaf = make_leaf(0xaa);
+
+        let idx = mmr.append_leaf(leaf).unwrap();
+        assert_eq!(idx, 0);
+        assert_eq!(mmr.leaf_count().unwrap(), 1);
+
+        let retrieved = mmr.get_leaf(0).unwrap().unwrap();
+        assert_eq!(retrieved, leaf);
+    }
+
+    #[test]
+    fn append_multiple_leaves() {
+        let db = test_db();
+        let mmr = MmrDb::open(&db).unwrap();
+
+        for i in 0u8..5 {
+            let idx = mmr.append_leaf(make_leaf(i)).unwrap();
+            assert_eq!(idx, i as u64);
+        }
+
+        assert_eq!(mmr.leaf_count().unwrap(), 5);
+
+        for i in 0u8..5 {
+            let leaf = mmr.get_leaf(i as u64).unwrap().unwrap();
+            assert_eq!(leaf, make_leaf(i));
+        }
+    }
+
+    #[test]
+    fn get_missing_leaf_returns_none() {
+        let db = test_db();
+        let mmr = MmrDb::open(&db).unwrap();
+        assert!(mmr.get_leaf(0).unwrap().is_none());
+    }
+
+    #[test]
+    fn generate_and_verify_proof_single_leaf() {
+        let db = test_db();
+        let mmr_db = MmrDb::open(&db).unwrap();
+        let leaf = make_leaf(0x01);
+        mmr_db.append_leaf(leaf).unwrap();
+
+        let proof = mmr_db.generate_proof(0, 1).unwrap();
+        let compact = Mmr64B32::from_generic(&mmr_db.load_compact_mmr().unwrap());
+        assert!(compact.verify(&proof, &leaf.0));
+    }
+
+    #[test]
+    fn generate_proofs_for_all_leaves() {
+        let db = test_db();
+        let mmr_db = MmrDb::open(&db).unwrap();
+
+        for i in 0u8..8 {
+            mmr_db.append_leaf(make_leaf(i)).unwrap();
+        }
+
+        // Generating a proof for each leaf should succeed.
+        for i in 0u64..8 {
+            mmr_db
+                .generate_proof(i, 8)
+                .unwrap_or_else(|e| panic!("proof generation failed for leaf {i}: {e}"));
+        }
+    }
+
+    #[test]
+    fn proof_at_earlier_size_is_valid() {
+        let db = test_db();
+        let mmr_db = MmrDb::open(&db).unwrap();
+
+        // Append 4 leaves, snapshot the compact state.
+        for i in 0u8..4 {
+            mmr_db.append_leaf(make_leaf(i)).unwrap();
+        }
+        let compact_at_4 = Mmr64B32::from_generic(&mmr_db.load_compact_mmr().unwrap());
+
+        // Append 4 more.
+        for i in 4u8..8 {
+            mmr_db.append_leaf(make_leaf(i)).unwrap();
+        }
+
+        // Proof at size 4 should verify against the snapshot.
+        let proof = mmr_db.generate_proof(2, 4).unwrap();
+        assert!(compact_at_4.verify(&proof, &make_leaf(2).0));
+    }
+
+    #[test]
+    fn persistence_across_reopen() {
+        let dir = tempfile::tempdir().unwrap();
+
+        {
+            let db = sled::open(dir.path()).unwrap();
+            let mmr = MmrDb::open(&db).unwrap();
+            mmr.append_leaf(make_leaf(0x42)).unwrap();
+            mmr.append_leaf(make_leaf(0x43)).unwrap();
+        }
+
+        {
+            let db = sled::open(dir.path()).unwrap();
+            let mmr = MmrDb::open(&db).unwrap();
+            assert_eq!(mmr.leaf_count().unwrap(), 2);
+            assert_eq!(mmr.get_leaf(0).unwrap().unwrap(), make_leaf(0x42));
+            assert_eq!(mmr.get_leaf(1).unwrap().unwrap(), make_leaf(0x43));
+        }
+    }
+}

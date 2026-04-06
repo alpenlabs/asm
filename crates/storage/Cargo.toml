@@ -16,3 +16,6 @@ strata-merkle = { workspace = true, features = ["ssz"] }
 anyhow.workspace = true
 borsh.workspace = true
 sled.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

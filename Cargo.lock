@@ -960,6 +960,7 @@ dependencies = [
  "strata-asm-worker",
  "strata-identifiers 0.1.0 (git+https://github.com/alpenlabs/alpen.git?rev=02fe60d1b74470da3db67352b2f74625eb2e0ed1)",
  "strata-merkle",
+ "tempfile",
 ]
 
 [[package]]
