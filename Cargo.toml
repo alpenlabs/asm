@@ -56,6 +56,7 @@ rustdoc.all = "warn"
 
 [workspace.dependencies]
 # workspace crates
+asm-storage = { path = "crates/storage" }
 strata-ams-test-utils = { path = "crates/test-utils-btcio" }
 strata-asm-bridge-msgs = { path = "crates/msgs/bridge" }
 strata-asm-checkpoint-msgs = { path = "crates/msgs/checkpoint" }
@@ -79,7 +80,6 @@ strata-asm-txs-bridge-v1 = { path = "crates/txs/bridge-v1" }
 strata-asm-txs-checkpoint = { path = "crates/txs/checkpoint" }
 strata-asm-txs-test-utils = { path = "crates/txs/test-utils" }
 strata-asm-worker = { path = "crates/worker" }
-asm-storage = { path = "crates/storage" }
 strata-bridge-types = { path = "crates/bridge-types" }
 strata-btc-verification = { path = "crates/btc-verification" }
 strata-checkpoint-types-ssz = { path = "crates/checkpoint-types" }
@@ -88,34 +88,33 @@ strata-test-utils-btc = { path = "crates/test-utils/btc" }
 strata-test-utils-btcio = { path = "crates/test-utils/btcio" }
 strata-test-utils-checkpoint = { path = "crates/test-utils/checkpoint" }
 
-# Dependencies from alpenlabs/alpen pinned to commit 02fe60d1 (main @ 2026-03-31)
-strata-btc-types = { git = "https://github.com/alpenlabs/alpen.git", rev = "02fe60d1b74470da3db67352b2f74625eb2e0ed1" }
-strata-codec-utils = { git = "https://github.com/alpenlabs/alpen.git", rev = "02fe60d1b74470da3db67352b2f74625eb2e0ed1" }
-strata-crypto = { git = "https://github.com/alpenlabs/alpen.git", rev = "02fe60d1b74470da3db67352b2f74625eb2e0ed1" }
-strata-identifiers = { git = "https://github.com/alpenlabs/alpen.git", rev = "02fe60d1b74470da3db67352b2f74625eb2e0ed1" }
 strata-asm-test-utils-ssz = { path = "crates/test-utils/ssz" }
 
 # Dependencies from alpenlabs/strata-bridge pinned to commit fc966d5 (STR-2598-asm-stf-proof-statements @ 2026-03-17)
 btc-tracker = { git = "https://github.com/alpenlabs/strata-bridge.git", rev = "fc966d5f81c773de10a4ef3a66666687ec11d715" }
 strata-bridge-common = { git = "https://github.com/alpenlabs/strata-bridge.git", rev = "fc966d5f81c773de10a4ef3a66666687ec11d715" }
 
-# Dependencies from alpenlabs/moho pinned to commit b02b23a9 (main @ 2026-03-31)
-moho-recursive-proof = { git = "https://github.com/alpenlabs/moho", rev = "94fc2fae9a73fae14b9654380777e3987dad35d1" }
-moho-runtime-impl = { git = "https://github.com/alpenlabs/moho", rev = "94fc2fae9a73fae14b9654380777e3987dad35d1" }
-moho-runtime-interface = { git = "https://github.com/alpenlabs/moho", rev = "94fc2fae9a73fae14b9654380777e3987dad35d1" }
-moho-types = { git = "https://github.com/alpenlabs/moho", rev = "94fc2fae9a73fae14b9654380777e3987dad35d1" }
+# Dependencies from alpenlabs/moho (dc8e6b5 = strata-common rc13)
+moho-recursive-proof = { git = "https://github.com/alpenlabs/moho", rev = "dc8e6b536852ee38aa4280cfda8e7cd009b37eab" }
+moho-runtime-impl = { git = "https://github.com/alpenlabs/moho", rev = "dc8e6b536852ee38aa4280cfda8e7cd009b37eab" }
+moho-runtime-interface = { git = "https://github.com/alpenlabs/moho", rev = "dc8e6b536852ee38aa4280cfda8e7cd009b37eab" }
+moho-types = { git = "https://github.com/alpenlabs/moho", rev = "dc8e6b536852ee38aa4280cfda8e7cd009b37eab" }
 
-# dependencies from alpenlabs/strata-common
+# Dependencies from alpenlabs/strata-common - current version := rc13
+strata-btc-types = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.1.0-alpha-rc13" }
 strata-codec = { git = "https://github.com/alpenlabs/strata-common", features = [
   "derive",
-], tag = "v0.1.0-alpha-rc11" }
-strata-l1-envelope-fmt = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.1.0-alpha-rc11" }
-strata-l1-txfmt = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.1.0-alpha-rc11" }
-strata-merkle = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.1.0-alpha-rc11" }
-strata-msg-fmt = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.1.0-alpha-rc11" }
-strata-predicate = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.1.0-alpha-rc11" }
-strata-service = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.1.0-alpha-rc11" }
-strata-tasks = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.1.0-alpha-rc11" }
+], tag = "v0.1.0-alpha-rc13" }
+strata-codec-utils = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.1.0-alpha-rc13" }
+strata-crypto = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.1.0-alpha-rc13" }
+strata-identifiers = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.1.0-alpha-rc13" }
+strata-l1-envelope-fmt = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.1.0-alpha-rc13" }
+strata-l1-txfmt = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.1.0-alpha-rc13" }
+strata-merkle = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.1.0-alpha-rc13" }
+strata-msg-fmt = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.1.0-alpha-rc13" }
+strata-predicate = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.1.0-alpha-rc13" }
+strata-service = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.1.0-alpha-rc13" }
+strata-tasks = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.1.0-alpha-rc13" }
 
 # dependencies from alpenlabs/ssz-gen
 ssz = { git = "https://github.com/alpenlabs/ssz-gen", tag = "v0.14.0" }
@@ -169,12 +168,9 @@ tokio = { version = "1.37", features = ["full"] }
 toml = "1.0.6"
 tracing = "0.1"
 
-# Temporary override (required for now):
-# `strata-state` and other `alpen.git` crates still pull `strata-asm-*` transitively from git.
-# Without this patch, Cargo resolves both git + local workspace copies of `strata-asm-*`,
-# producing cross-crate type mismatches (same type name, different crate instance).
-# `alpen` currently has this same issue.
-# Remove this once `alpen` starts using the ASM crates from this workspace source.
+# Temporary override: strata-bridge still pulls strata-asm-* from alpen.git transitively.
+# Without this patch, Cargo resolves both git + local workspace copies, causing type mismatches.
+# Remove once strata-bridge stops depending on alpen's copy of ASM crates.
 [patch."https://github.com/alpenlabs/alpen.git"]
 strata-asm-bridge-msgs = { path = "crates/msgs/bridge" }
 strata-asm-checkpoint-msgs = { path = "crates/msgs/checkpoint" }
