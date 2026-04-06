@@ -30,7 +30,6 @@ members = [
   "crates/test-utils/btc",
   "crates/test-utils/btcio",
   "crates/test-utils/checkpoint",
-  "crates/test-utils/ssz",
   "crates/worker",
   "crates/storage",
 
@@ -88,7 +87,7 @@ strata-test-utils-btc = { path = "crates/test-utils/btc" }
 strata-test-utils-btcio = { path = "crates/test-utils/btcio" }
 strata-test-utils-checkpoint = { path = "crates/test-utils/checkpoint" }
 
-strata-asm-test-utils-ssz = { path = "crates/test-utils/ssz" }
+strata-ssz-tests = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.1.0-alpha-rc13" }
 
 # Dependencies from alpenlabs/strata-bridge pinned to commit fc966d5 (STR-2598-asm-stf-proof-statements @ 2026-03-17)
 btc-tracker = { git = "https://github.com/alpenlabs/strata-bridge.git", rev = "fc966d5f81c773de10a4ef3a66666687ec11d715" }
