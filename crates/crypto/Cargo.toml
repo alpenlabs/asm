@@ -10,7 +10,9 @@ workspace = true
 strata-identifiers.workspace = true
 
 arbitrary = { workspace = true, optional = true }
+musig2.workspace = true
 secp256k1.workspace = true
+thiserror.workspace = true
 
 sha2.workspace = true
 
@@ -22,3 +24,4 @@ proptest.workspace = true
 [features]
 default = ["arbitrary"]
 arbitrary = ["dep:arbitrary"]
+test-utils = []
