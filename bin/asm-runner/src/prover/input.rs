@@ -5,6 +5,7 @@
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
+use asm_storage::AsmStateDb;
 use bitcoind_async_client::{Client, traits::Reader};
 use moho_runtime_impl::RuntimeInput;
 use moho_runtime_interface::MohoProgram;
@@ -14,18 +15,17 @@ use strata_asm_proof_types::L1Range;
 use strata_btc_types::{BlockHashExt, L1BlockIdBitcoinExt};
 use strata_btc_verification::{self, TxidInclusionProof};
 use strata_identifiers::L1BlockCommitment;
-use strata_storage::AsmStateManager;
 
 /// Builds [`RuntimeInput`] for proof generation, dispatching by proof type.
 pub(crate) struct InputBuilder {
-    asm_manager: Arc<AsmStateManager>,
+    state_db: Arc<AsmStateDb>,
     bitcoin_client: Arc<Client>,
 }
 
 impl InputBuilder {
-    pub(crate) fn new(asm_manager: Arc<AsmStateManager>, bitcoin_client: Arc<Client>) -> Self {
+    pub(crate) fn new(state_db: Arc<AsmStateDb>, bitcoin_client: Arc<Client>) -> Self {
         Self {
-            asm_manager,
+            state_db,
             bitcoin_client,
         }
     }
@@ -47,8 +47,8 @@ impl InputBuilder {
 
         // 2. Fetch the auxiliary data stored during STF execution.
         let aux_data = self
-            .asm_manager
-            .get_aux_data(commitment)
+            .state_db
+            .get_aux_data(&commitment)
             .context("failed to fetch aux data")?
             .context("aux data not found for block")?;
 
@@ -69,8 +69,8 @@ impl InputBuilder {
         let parent_commitment = L1BlockCommitment::new(parent_height, parent_hash.to_l1_block_id());
 
         let asm_state = self
-            .asm_manager
-            .get_state(parent_commitment)
+            .state_db
+            .get(&parent_commitment)
             .context("failed to fetch parent anchor state")?
             .context("parent anchor state not found")?;
         let anchor_state = asm_state.state();

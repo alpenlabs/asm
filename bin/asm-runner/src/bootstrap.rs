@@ -17,7 +17,7 @@ use crate::{
     config::{AsmRpcConfig, BitcoinConfig},
     prover::{InputBuilder, ProofOrchestrator},
     rpc_server::run_rpc_server,
-    storage::create_storage_managers,
+    storage::create_storage,
     worker_context::AsmWorkerContext,
 };
 pub(crate) async fn bootstrap(
@@ -25,8 +25,8 @@ pub(crate) async fn bootstrap(
     params: AsmParams,
     executor: TaskExecutor,
 ) -> Result<()> {
-    // 1. Create storage managers (AsmStateManager + MmrHandle)
-    let (asm_manager, mmr_handle) = create_storage_managers(&config.database)?;
+    // 1. Create storage
+    let (state_db, mmr_db) = create_storage(&config.database)?;
 
     // 2. Connect to Bitcoin node
     let bitcoin_client = Arc::new(connect_bitcoin(&config.bitcoin).await?);
@@ -36,8 +36,8 @@ pub(crate) async fn bootstrap(
     let worker_context = AsmWorkerContext::new(
         runtime_handle.clone(),
         bitcoin_client.clone(),
-        asm_manager.clone(),
-        mmr_handle,
+        state_db.clone(),
+        mmr_db.clone(),
     );
 
     // 4. Launch ASM worker
@@ -80,7 +80,7 @@ pub(crate) async fn bootstrap(
             AsmStfProofProgram::native_host()
         };
 
-        let input_builder = InputBuilder::new(asm_manager.clone(), bitcoin_client.clone());
+        let input_builder = InputBuilder::new(state_db.clone(), bitcoin_client.clone());
         let mut orchestrator =
             ProofOrchestrator::new(proof_db, host, orch_config, input_builder, rx);
 
@@ -121,7 +121,7 @@ pub(crate) async fn bootstrap(
     let rpc_port = config.rpc.port;
     executor.spawn_critical_async_with_shutdown("rpc_server", move |shutdown| {
         run_rpc_server(
-            asm_manager,
+            state_db,
             asm_worker,
             bitcoin_client,
             proof_db_for_rpc,

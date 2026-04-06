@@ -31,6 +31,7 @@ members = [
   "crates/test-utils/btcio",
   "crates/test-utils/checkpoint",
   "crates/worker",
+  "crates/storage",
 
   # tests
   "tests",
@@ -77,6 +78,7 @@ strata-asm-txs-bridge-v1 = { path = "crates/txs/bridge-v1" }
 strata-asm-txs-checkpoint = { path = "crates/txs/checkpoint" }
 strata-asm-txs-test-utils = { path = "crates/txs/test-utils" }
 strata-asm-worker = { path = "crates/worker" }
+asm-storage = { path = "crates/storage" }
 strata-bridge-types = { path = "crates/bridge-types" }
 strata-btc-verification = { path = "crates/btc-verification" }
 strata-checkpoint-types-ssz = { path = "crates/checkpoint-types" }
@@ -191,5 +193,6 @@ strata-asm-txs-bridge-v1 = { path = "crates/txs/bridge-v1" }
 strata-asm-txs-checkpoint = { path = "crates/txs/checkpoint" }
 strata-asm-txs-test-utils = { path = "crates/txs/test-utils" }
 strata-asm-worker = { path = "crates/worker" }
+asm-storage = { path = "crates/storage" }
 strata-btc-verification = { path = "crates/btc-verification" }
 strata-checkpoint-types-ssz = { path = "crates/checkpoint-types" }
