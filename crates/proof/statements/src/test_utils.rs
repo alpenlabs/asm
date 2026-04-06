@@ -3,11 +3,10 @@
 //! This module is intended for integration binaries/tests that need a known-good
 //! `RuntimeInput`/`StrataAsmSpec` pair for exercising the proof program.
 
+use arbitrary::{Arbitrary, Unstructured};
 use bitcoin::Block;
-use moho_runtime_impl::RuntimeInput;
 use moho_runtime_interface::MohoProgram;
 use moho_types::{ExportState, MohoState};
-use ssz::Encode;
 use strata_asm_common::{AnchorState, AuxData};
 use strata_asm_params::AsmParams;
 use strata_asm_spec::construct_genesis_state;
@@ -44,7 +43,9 @@ pub fn create_l1_anchor_to_process_block(block: &Block) -> L1Anchor {
     }
 }
 
-/// Creates the anchor pre-state corresponding to the parent of `block`.
+/// Note: the returned state is **non-deterministic** because `AsmParams` fields
+/// (magic, subprotocols) are generated randomly via [`ArbitraryGenerator`].
+/// Use [`create_deterministic_genesis_anchor_state`] when reproducibility matters.
 pub fn create_genesis_anchor_state(block: &Block) -> AnchorState {
     let mut params: AsmParams = ArbitraryGenerator::new().generate();
     let anchor = create_l1_anchor_to_process_block(block);
@@ -52,27 +53,28 @@ pub fn create_genesis_anchor_state(block: &Block) -> AnchorState {
     construct_genesis_state(&params)
 }
 
-/// Creates the Moho pre-state from an existing [`AnchorState`].
-pub fn create_moho_prestate(anchor_state: &AnchorState) -> MohoState {
+/// Creates a **deterministic** anchor pre-state corresponding to the parent of `block`.
+///
+/// Uses a fixed byte buffer so that repeated calls with the same block always
+/// produce the same [`AnchorState`].
+pub fn create_deterministic_genesis_anchor_state(block: &Block) -> AnchorState {
+    let buf = [42u8; 65_536];
+    let mut u = Unstructured::new(&buf);
+    let mut params = AsmParams::arbitrary(&mut u).expect("deterministic AsmParams");
+    let anchor = create_l1_anchor_to_process_block(block);
+    params.anchor = anchor;
+    construct_genesis_state(&params)
+}
+
+/// Creates the Moho state from an [`AnchorState`] and [`PredicateKey`] with empty export state.
+pub fn create_moho_state(anchor_state: &AnchorState, next_predicate: PredicateKey) -> MohoState {
     let inner_state = AsmStfProgram::compute_state_commitment(anchor_state)
         .into_inner()
         .into();
 
     MohoState {
         inner_state,
-        next_predicate: PredicateKey::always_accept(),
+        next_predicate,
         export_state: ExportState::new(vec![]),
     }
-}
-
-/// Creates a runtime input for a single ASM STF step.
-pub fn create_runtime_input() -> RuntimeInput {
-    let step_input = create_asm_step_input();
-    let inner_pre_state = create_genesis_anchor_state(step_input.block());
-    let moho_pre_state = create_moho_prestate(&inner_pre_state);
-    RuntimeInput::new(
-        moho_pre_state,
-        inner_pre_state.as_ssz_bytes(),
-        step_input.as_ssz_bytes(),
-    )
 }

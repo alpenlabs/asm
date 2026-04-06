@@ -1,4 +1,4 @@
-//! Prover performance evaluation for ASM STF SP1 guest.
+//! Prover performance evaluation for ASM SP1 guests.
 
 use std::process;
 
@@ -21,8 +21,18 @@ fn main() -> Result<()> {
 
     let programs = parse_programs(&args.programs).map_err(anyhow::Error::msg)?;
 
+    if args.generate_proof {
+        let sp1_proofs = programs::gen_sp1_proof(&programs);
+        for (program, (program_id, proof)) in programs.iter().zip(sp1_proofs) {
+            proof
+                .save(format!("{}_{}", program.as_str(), program_id))
+                .unwrap_or_else(|e| panic!("failed to save proof for {}: {e}", program.as_str()));
+        }
+        return Ok(());
+    }
+
     let mut results_text = vec![format_header(&args)];
-    let sp1_reports = programs::run_sp1_programs(&programs);
+    let sp1_reports = programs::gen_sp1_perf_report(&programs);
     results_text.push(format_results(&sp1_reports, "SP1".to_string()));
 
     println!("{}", results_text.join("\n"));

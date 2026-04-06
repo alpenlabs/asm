@@ -26,6 +26,7 @@ strata-test-utils-btc = { workspace = true, optional = true }
 tree_hash.workspace = true
 zkaleido.workspace = true
 
+arbitrary = { workspace = true, optional = true }
 bitcoin.workspace = true
 
 [target.'cfg(not(target_os = "zkvm"))'.dependencies]
@@ -38,6 +39,7 @@ test-utils = [
   "dep:strata-test-utils-arb",
   "dep:strata-identifiers",
   "dep:strata-asm-params",
+  "dep:arbitrary",
 ]
 
 [dev-dependencies]

@@ -71,7 +71,26 @@ impl AsmStfProofProgram {
 #[cfg(test)]
 mod tests {
 
-    use crate::{program::AsmStfProofProgram, test_utils::create_runtime_input};
+    use moho_runtime_impl::RuntimeInput;
+    use ssz::Encode;
+    use strata_predicate::PredicateKey;
+
+    use crate::{
+        program::AsmStfProofProgram,
+        test_utils::{create_asm_step_input, create_genesis_anchor_state, create_moho_state},
+    };
+
+    /// Creates a runtime input for a single ASM STF step.
+    fn create_runtime_input() -> RuntimeInput {
+        let step_input = create_asm_step_input();
+        let inner_pre_state = create_genesis_anchor_state(step_input.block());
+        let moho_pre_state = create_moho_state(&inner_pre_state, PredicateKey::always_accept());
+        RuntimeInput::new(
+            moho_pre_state,
+            inner_pre_state.as_ssz_bytes(),
+            step_input.as_ssz_bytes(),
+        )
+    }
 
     #[test]
     fn test_stf() {

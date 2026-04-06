@@ -15,13 +15,18 @@ doc = false
 
 [dependencies]
 moho-recursive-proof = { workspace = true, features = ["test-utils"] }
+moho-runtime-impl.workspace = true
+moho-runtime-interface.workspace = true
+moho-types.workspace = true
 strata-asm-proof-impl = { workspace = true, features = ["test-utils"] }
 strata-asm-sp1-guest-builder = { path = "../../guest-builder/sp1" }
-
-zkaleido = { workspace = true, features = ["perf"] }
+strata-asm-spec.workspace = true
+strata-asm-stf.workspace = true
+strata-predicate.workspace = true
 
 anyhow.workspace = true
 clap.workspace = true
+hex.workspace = true
 num-format = "0.4.4"
 reqwest = { version = "0.12.28", default-features = false, features = [
   "blocking",
@@ -30,6 +35,10 @@ reqwest = { version = "0.12.28", default-features = false, features = [
 ] }
 serde_json.workspace = true
 sp1-sdk = "5.2.1"
+sp1-verifier = "5.2.1"
+ssz.workspace = true
+zkaleido = { workspace = true, features = ["perf"] }
+zkaleido-sp1-groth16-verifier = { git = "https://github.com/alpenlabs/zkaleido", tag = "v0.1.0-alpha-rc22" }
 zkaleido-sp1-host = { git = "https://github.com/alpenlabs/zkaleido", tag = "v0.1.0-alpha-rc22", features = [
   "perf",
 ] }
