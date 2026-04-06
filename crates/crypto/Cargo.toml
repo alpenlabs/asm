@@ -3,7 +3,14 @@ name = "strata-asm-crypto"
 version = "0.1.0"
 edition = "2024"
 
-[dependencies]
-
 [lints]
 workspace = true
+
+[dependencies]
+strata-identifiers.workspace = true
+
+sha2.workspace = true
+
+[dev-dependencies]
+bitcoin.workspace = true
+rand.workspace = true
