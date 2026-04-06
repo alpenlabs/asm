@@ -48,7 +48,7 @@ pub(crate) fn gen_sp1_perf_report(programs: &[GuestProgram]) -> Vec<PerformanceR
 }
 
 /// Runs SP1 programs to generate reports.
-pub(crate) fn gen_sp1_proof(programs: &[GuestProgram]) -> Vec<ProofReceiptWithMetadata> {
+pub(crate) fn gen_sp1_proof(programs: &[GuestProgram]) -> Vec<(String, ProofReceiptWithMetadata)> {
     programs
         .iter()
         .map(|program| match program {

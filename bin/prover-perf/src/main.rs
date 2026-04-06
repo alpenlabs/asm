@@ -23,9 +23,9 @@ fn main() -> Result<()> {
 
     if args.generate_proof {
         let sp1_proofs = programs::gen_sp1_proof(&programs);
-        for (program, proof) in programs.iter().zip(sp1_proofs) {
+        for (program, (program_id, proof)) in programs.iter().zip(sp1_proofs) {
             proof
-                .save(program.as_str())
+                .save(format!("{}_{}", program.as_str(), program_id))
                 .unwrap_or_else(|e| panic!("failed to save proof for {}: {e}", program.as_str()));
         }
         return Ok(());

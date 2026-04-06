@@ -26,7 +26,7 @@ static ASM_HOST: LazyLock<SP1Host> = LazyLock::new(|| {
 pub(crate) fn create_runtime_input() -> RuntimeInput {
     let step_input = create_asm_step_input();
     let inner_pre_state = create_deterministic_genesis_anchor_state(step_input.block());
-    let moho_pre_state = create_moho_state(&inner_pre_state, asm_predicate_key());
+    let moho_pre_state = create_moho_state(&inner_pre_state, compute_asm_predicate_key());
     RuntimeInput::new(
         moho_pre_state,
         inner_pre_state.as_ssz_bytes(),
@@ -40,12 +40,13 @@ pub(crate) fn gen_perf_report() -> PerformanceReport {
         .expect("failed to generate performance report")
 }
 
-pub(crate) fn gen_proof() -> ProofReceiptWithMetadata {
+pub(crate) fn gen_proof() -> (String, ProofReceiptWithMetadata) {
     let input = create_runtime_input();
-    AsmStfProofProgram::prove(&input, &*ASM_HOST).expect("failed to generate proof")
+    let proof = AsmStfProofProgram::prove(&input, &*ASM_HOST).expect("failed to generate proof");
+    (ASM_HOST.proving_key.vk.bytes32(), proof)
 }
 
-pub(crate) fn asm_predicate_key() -> PredicateKey {
+pub(crate) fn compute_asm_predicate_key() -> PredicateKey {
     let vk = ASM_HOST.proving_key.vk.bytes32_raw();
     compute_sp1_predicate_key(vk)
 }
