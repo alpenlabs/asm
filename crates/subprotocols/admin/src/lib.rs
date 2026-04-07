@@ -12,5 +12,6 @@ mod queued_update;
 mod state;
 mod subprotocol;
 
+pub use queued_update::QueuedUpdate;
 pub use state::AdministrationSubprotoState;
 pub use subprotocol::AdministrationSubprotocol;
