@@ -41,6 +41,7 @@ use strata_asm_txs_admin::{
     test_utils::create_signature_set,
 };
 use strata_crypto::{
+    EvenPublicKey,
     keys::compressed::CompressedPublicKey,
     threshold_signature::{ThresholdConfig, ThresholdConfigUpdate},
 };
@@ -152,10 +153,9 @@ pub fn sequencer_update(key: [u8; 32]) -> MultisigAction {
 }
 
 /// Create an operator set update action.
-pub fn operator_set_update(add: Vec<[u8; 32]>, remove: Vec<[u8; 32]>) -> MultisigAction {
+pub fn operator_set_update(add: Vec<EvenPublicKey>, remove: Vec<u32>) -> MultisigAction {
     MultisigAction::Update(UpdateAction::OperatorSet(OperatorSetUpdate::new(
-        add.into_iter().map(Buf32::from).collect(),
-        remove.into_iter().map(Buf32::from).collect(),
+        add, remove,
     )))
 }
 
