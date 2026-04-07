@@ -1,8 +1,9 @@
 use strata_asm_checkpoint_msgs::CheckpointIncomingMsg;
 use strata_asm_common::{
-    MsgRelayer,
+    AsmLogEntry, MsgRelayer,
     logging::{error, info},
 };
+use strata_asm_logs::AsmStfUpdate;
 use strata_asm_txs_admin::{
     actions::{MultisigAction, UpdateAction, updates::predicate::ProofType},
     parser::SignedPayload,
@@ -56,7 +57,13 @@ pub(crate) fn handle_pending_updates(
                 let (key, kind) = update.into_inner();
                 match kind {
                     ProofType::Asm => {
-                        // TODO(STR-1721): Emit ASM Log
+                        let log_entry = AsmLogEntry::from_log(&AsmStfUpdate::new(key))
+                            .expect("AsmStfUpdate encoding is infallible");
+                        relayer.emit_log(log_entry);
+                        info!(
+                            %update_id,
+                            "Emitted ASM STF verifying key update log",
+                        );
                     }
                     ProofType::OLStf => {
                         relay_checkpoint_predicate(relayer, key);
@@ -183,6 +190,7 @@ mod tests {
     use rand::{rngs::OsRng, seq::SliceRandom, thread_rng};
     use strata_asm_checkpoint_msgs::CheckpointIncomingMsg;
     use strata_asm_common::{AsmLogEntry, InterprotoMsg, MsgRelayer};
+    use strata_asm_logs::AsmStfUpdate;
     use strata_asm_params::{AdministrationInitConfig, Role};
     use strata_asm_txs_admin::{
         actions::{
@@ -500,6 +508,38 @@ mod tests {
             }
             _ => panic!("expected rollup verifying key update to checkpoint"),
         }
+    }
+
+    #[test]
+    fn test_asm_verifying_key_update_emits_log() {
+        let (params, _, _) = create_test_params();
+        let mut state = AdministrationSubprotoState::new(&params);
+        let mut relayer = MockRelayer::<CheckpointIncomingMsg>::new();
+
+        let predicate = PredicateKey::always_accept();
+
+        let update = PredicateUpdate::new(predicate.clone(), ProofType::Asm);
+        let update_id = state.next_update_id();
+        let activation_height = 42;
+        state.enqueue(QueuedUpdate::new(
+            update_id,
+            update.into(),
+            activation_height,
+        ));
+
+        handle_pending_updates(&mut state, &mut relayer, activation_height);
+
+        assert!(state.queued().is_empty());
+        // No inter-protocol messages should be sent for ASM updates
+        assert!(relayer.messages().is_empty());
+        // Exactly one log should be emitted
+        assert_eq!(relayer.logs.len(), 1);
+
+        let log_entry = &relayer.logs[0];
+        let asm_update = log_entry
+            .try_into_log::<AsmStfUpdate>()
+            .expect("log should deserialize as AsmStfUpdate");
+        assert_eq!(asm_update.new_predicate(), &predicate);
     }
 
     /// Test that cancel actions properly remove queued updates:
