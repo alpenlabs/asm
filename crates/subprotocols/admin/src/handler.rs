@@ -1,4 +1,4 @@
-use strata_asm_bridge_msgs::BridgeIncomingMsg;
+use strata_asm_bridge_msgs::{BridgeIncomingMsg, UpdateOperatorSetPayload};
 use strata_asm_checkpoint_msgs::CheckpointIncomingMsg;
 use strata_asm_common::{
     MsgRelayer,
@@ -186,10 +186,10 @@ fn relay_bridge_operator_set_update(
     add_members: Vec<strata_crypto::EvenPublicKey>,
     remove_members: Vec<u32>,
 ) {
-    let msg = BridgeIncomingMsg::UpdateOperatorSet {
+    let msg = BridgeIncomingMsg::UpdateOperatorSet(UpdateOperatorSetPayload {
         add_members,
         remove_members,
-    };
+    });
     relayer.relay_msg(&msg);
 }
 

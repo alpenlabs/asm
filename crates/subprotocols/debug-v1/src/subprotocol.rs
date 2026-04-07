@@ -4,7 +4,7 @@
 //! with the Strata Anchor State Machine (ASM).
 
 use ssz_derive::{Decode, Encode};
-use strata_asm_bridge_msgs::BridgeIncomingMsg;
+use strata_asm_bridge_msgs::{BridgeIncomingMsg, DispatchWithdrawalPayload};
 use strata_asm_common::{
     AsmError, AsmLogEntry, MsgRelayer, NullMsg, Subprotocol, SubprotocolId, TxInputRef,
     VerifiedAuxData, logging,
@@ -95,10 +95,10 @@ fn process_parsed_debug_tx(
         ParsedDebugTx::MockWithdrawIntent((output, selected_operator)) => {
             logging::info!(amount = output.amt.to_sat(), "Processing mock withdrawal");
 
-            let bridge_msg = BridgeIncomingMsg::DispatchWithdrawal {
+            let bridge_msg = BridgeIncomingMsg::DispatchWithdrawal(DispatchWithdrawalPayload {
                 output,
                 selected_operator,
-            };
+            });
             relayer.relay_msg(&bridge_msg);
 
             logging::info!("Successfully sent mock withdrawal intent to bridge");
