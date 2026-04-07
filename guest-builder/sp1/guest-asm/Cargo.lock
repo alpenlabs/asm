@@ -103,7 +103,6 @@ checksum = "94fb19ad225b5555a3c99796fe9c5d14b18eb0130eee5c39875bb642f173be6f"
 dependencies = [
  "arbitrary",
  "bitcoin",
- "borsh",
  "hex-conservative",
  "secp256k1",
  "serde",
@@ -671,7 +670,7 @@ checksum = "f8ca58f447f06ed17d5fc4043ce1b10dd205e060fb3ce5b979b8ed8e59ff3f79"
 [[package]]
 name = "moho-runtime-impl"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/moho?rev=94fc2fae9a73fae14b9654380777e3987dad35d1#94fc2fae9a73fae14b9654380777e3987dad35d1"
+source = "git+https://github.com/alpenlabs/moho?rev=dc8e6b536852ee38aa4280cfda8e7cd009b37eab#dc8e6b536852ee38aa4280cfda8e7cd009b37eab"
 dependencies = [
  "moho-runtime-interface",
  "moho-types",
@@ -682,7 +681,7 @@ dependencies = [
 [[package]]
 name = "moho-runtime-interface"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/moho?rev=94fc2fae9a73fae14b9654380777e3987dad35d1#94fc2fae9a73fae14b9654380777e3987dad35d1"
+source = "git+https://github.com/alpenlabs/moho?rev=dc8e6b536852ee38aa4280cfda8e7cd009b37eab#dc8e6b536852ee38aa4280cfda8e7cd009b37eab"
 dependencies = [
  "moho-types",
  "ssz",
@@ -692,7 +691,7 @@ dependencies = [
 [[package]]
 name = "moho-types"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/moho?rev=94fc2fae9a73fae14b9654380777e3987dad35d1#94fc2fae9a73fae14b9654380777e3987dad35d1"
+source = "git+https://github.com/alpenlabs/moho?rev=dc8e6b536852ee38aa4280cfda8e7cd009b37eab#dc8e6b536852ee38aa4280cfda8e7cd009b37eab"
 dependencies = [
  "hex",
  "sha2",
@@ -720,8 +719,6 @@ dependencies = [
  "once_cell",
  "secp",
  "secp256k1",
- "serde",
- "serdect",
  "sha2",
  "subtle",
 ]
@@ -1141,8 +1138,6 @@ dependencies = [
  "base16ct",
  "once_cell",
  "secp256k1",
- "serde",
- "serdect",
  "subtle",
 ]
 
@@ -1203,16 +1198,6 @@ version = "0.6.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bf41e0cfaf7226dca15e8197172c295a782857fcb97fad1808a166870dee75a3"
 dependencies = [
- "serde",
-]
-
-[[package]]
-name = "serdect"
-version = "0.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a84f14a19e9a014bb9f4512488d9829a68e04ecabffb0f9904cd1ace94598177"
-dependencies = [
- "base16ct",
  "serde",
 ]
 
@@ -1544,7 +1529,6 @@ dependencies = [
  "strata-codec",
  "strata-crypto",
  "strata-identifiers",
- "strata-primitives",
  "thiserror 2.0.18",
 ]
 
@@ -1661,7 +1645,7 @@ dependencies = [
 [[package]]
 name = "strata-btc-types"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/alpen.git?rev=02fe60d1b74470da3db67352b2f74625eb2e0ed1#02fe60d1b74470da3db67352b2f74625eb2e0ed1"
+source = "git+https://github.com/alpenlabs/strata-common?tag=v0.1.0-alpha-rc13#91eebd79a8054b2457983739e5d16f74446c7d37"
 dependencies = [
  "arbitrary",
  "bitcoin",
@@ -1716,7 +1700,7 @@ dependencies = [
 [[package]]
 name = "strata-codec"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/strata-common?tag=v0.1.0-alpha-rc11#d2393230f55c47eaec4e6e293b2e2032f1e52611"
+source = "git+https://github.com/alpenlabs/strata-common?tag=v0.1.0-alpha-rc13#91eebd79a8054b2457983739e5d16f74446c7d37"
 dependencies = [
  "strata-codec-derive",
  "thiserror 2.0.18",
@@ -1725,7 +1709,7 @@ dependencies = [
 [[package]]
 name = "strata-codec-derive"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/strata-common?tag=v0.1.0-alpha-rc11#d2393230f55c47eaec4e6e293b2e2032f1e52611"
+source = "git+https://github.com/alpenlabs/strata-common?tag=v0.1.0-alpha-rc13#91eebd79a8054b2457983739e5d16f74446c7d37"
 dependencies = [
  "quote",
  "syn",
@@ -1734,7 +1718,7 @@ dependencies = [
 [[package]]
 name = "strata-codec-utils"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/alpen.git?rev=02fe60d1b74470da3db67352b2f74625eb2e0ed1#02fe60d1b74470da3db67352b2f74625eb2e0ed1"
+source = "git+https://github.com/alpenlabs/strata-common?tag=v0.1.0-alpha-rc13#91eebd79a8054b2457983739e5d16f74446c7d37"
 dependencies = [
  "borsh",
  "ssz",
@@ -1745,7 +1729,7 @@ dependencies = [
 [[package]]
 name = "strata-crypto"
 version = "0.3.0-alpha.1"
-source = "git+https://github.com/alpenlabs/alpen.git?rev=02fe60d1b74470da3db67352b2f74625eb2e0ed1#02fe60d1b74470da3db67352b2f74625eb2e0ed1"
+source = "git+https://github.com/alpenlabs/strata-common?tag=v0.1.0-alpha-rc13#91eebd79a8054b2457983739e5d16f74446c7d37"
 dependencies = [
  "arbitrary",
  "bitcoin",
@@ -1765,7 +1749,7 @@ dependencies = [
 [[package]]
 name = "strata-identifiers"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/alpen.git?rev=02fe60d1b74470da3db67352b2f74625eb2e0ed1#02fe60d1b74470da3db67352b2f74625eb2e0ed1"
+source = "git+https://github.com/alpenlabs/strata-common?tag=v0.1.0-alpha-rc13#91eebd79a8054b2457983739e5d16f74446c7d37"
 dependencies = [
  "arbitrary",
  "borsh",
@@ -1786,7 +1770,7 @@ dependencies = [
 [[package]]
 name = "strata-l1-envelope-fmt"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/strata-common?tag=v0.1.0-alpha-rc11#d2393230f55c47eaec4e6e293b2e2032f1e52611"
+source = "git+https://github.com/alpenlabs/strata-common?tag=v0.1.0-alpha-rc13#91eebd79a8054b2457983739e5d16f74446c7d37"
 dependencies = [
  "bitcoin",
  "thiserror 2.0.18",
@@ -1795,7 +1779,7 @@ dependencies = [
 [[package]]
 name = "strata-l1-txfmt"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/strata-common?tag=v0.1.0-alpha-rc11#d2393230f55c47eaec4e6e293b2e2032f1e52611"
+source = "git+https://github.com/alpenlabs/strata-common?tag=v0.1.0-alpha-rc13#91eebd79a8054b2457983739e5d16f74446c7d37"
 dependencies = [
  "arbitrary",
  "bitcoin",
@@ -1807,7 +1791,7 @@ dependencies = [
 [[package]]
 name = "strata-merkle"
 version = "0.2.0"
-source = "git+https://github.com/alpenlabs/strata-common?tag=v0.1.0-alpha-rc11#d2393230f55c47eaec4e6e293b2e2032f1e52611"
+source = "git+https://github.com/alpenlabs/strata-common?tag=v0.1.0-alpha-rc13#91eebd79a8054b2457983739e5d16f74446c7d37"
 dependencies = [
  "borsh",
  "digest",
@@ -1827,7 +1811,7 @@ dependencies = [
 [[package]]
 name = "strata-msg-fmt"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/strata-common?tag=v0.1.0-alpha-rc11#d2393230f55c47eaec4e6e293b2e2032f1e52611"
+source = "git+https://github.com/alpenlabs/strata-common?tag=v0.1.0-alpha-rc13#91eebd79a8054b2457983739e5d16f74446c7d37"
 dependencies = [
  "thiserror 2.0.18",
 ]
@@ -1835,7 +1819,7 @@ dependencies = [
 [[package]]
 name = "strata-predicate"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/strata-common?tag=v0.1.0-alpha-rc11#d2393230f55c47eaec4e6e293b2e2032f1e52611"
+source = "git+https://github.com/alpenlabs/strata-common?tag=v0.1.0-alpha-rc13#91eebd79a8054b2457983739e5d16f74446c7d37"
 dependencies = [
  "arbitrary",
  "borsh",
@@ -1852,22 +1836,6 @@ dependencies = [
  "tree_hash",
  "tree_hash_derive",
  "zkaleido-sp1-groth16-verifier",
-]
-
-[[package]]
-name = "strata-primitives"
-version = "0.3.0-alpha.1"
-source = "git+https://github.com/alpenlabs/alpen.git?rev=02fe60d1b74470da3db67352b2f74625eb2e0ed1#02fe60d1b74470da3db67352b2f74625eb2e0ed1"
-dependencies = [
- "bitcoin",
- "bitcoin-bosd",
- "borsh",
- "hex",
- "serde",
- "strata-btc-types",
- "strata-crypto",
- "strata-identifiers",
- "thiserror 2.0.18",
 ]
 
 [[package]]

@@ -112,7 +112,7 @@ mod tests {
         Buf32, L1BlockId, WtxidsRoot,
         test_utils::{buf32_strategy, l1_block_id_strategy},
     };
-    use strata_test_utils_ssz::ssz_proptest;
+    use strata_ssz_tests::ssz_proptest;
 
     use super::AsmManifest;
     use crate::ssz_generated::ssz::log::AsmLogEntry;

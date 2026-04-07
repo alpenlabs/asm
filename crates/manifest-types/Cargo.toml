@@ -25,7 +25,7 @@ ssz_codegen.workspace = true
 [dev-dependencies]
 proptest.workspace = true
 strata-identifiers = { workspace = true, features = ["test-utils"] }
-strata-test-utils-ssz.workspace = true
+strata-ssz-tests.workspace = true
 
 [features]
 arbitrary = ["dep:arbitrary"]
