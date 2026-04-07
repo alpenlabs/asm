@@ -47,9 +47,8 @@ impl Sighash for OperatorSetUpdate {
     /// where lengths are encoded as big-endian `u32`, add members as 32-byte x-only keys,
     /// and remove members as 4-byte big-endian operator indices.
     fn sighash_payload(&self) -> Vec<u8> {
-        let mut buf = Vec::with_capacity(
-            4 + self.add_members.len() * 32 + 4 + self.remove_members.len() * 4,
-        );
+        let mut buf =
+            Vec::with_capacity(4 + self.add_members.len() * 32 + 4 + self.remove_members.len() * 4);
         buf.extend_from_slice(&(self.add_members.len() as u32).to_be_bytes());
         for member in &self.add_members {
             buf.extend_from_slice(&member.x_only_public_key().0.serialize());

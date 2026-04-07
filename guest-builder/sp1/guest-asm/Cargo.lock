@@ -1403,6 +1403,7 @@ dependencies = [
  "strata-asm-common",
  "strata-asm-txs-bridge-v1",
  "strata-bridge-types",
+ "strata-crypto",
 ]
 
 [[package]]
@@ -1520,6 +1521,7 @@ dependencies = [
  "arbitrary",
  "ssz",
  "ssz_derive",
+ "strata-asm-bridge-msgs",
  "strata-asm-checkpoint-msgs",
  "strata-asm-common",
  "strata-asm-params",

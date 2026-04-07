@@ -10,7 +10,8 @@ use ssz::{Decode as SszDecode, DecodeError, Encode as SszEncode};
 use ssz_derive::{Decode, Encode};
 use strata_asm_common::{InterprotoMsg, SubprotocolId};
 use strata_asm_txs_bridge_v1::BRIDGE_V1_SUBPROTOCOL_ID;
-use strata_bridge_types::{OperatorSelection, WithdrawOutput};
+use strata_bridge_types::{OperatorIdx, OperatorSelection, WithdrawOutput};
+use strata_crypto::EvenPublicKey;
 
 /// Incoming message types received from other subprotocols.
 ///
@@ -26,12 +27,27 @@ pub enum BridgeIncomingMsg {
         /// User's operator selection for withdrawal assignment.
         selected_operator: OperatorSelection,
     },
+
+    /// Emitted by the admin subprotocol when the operator set is updated.
+    /// Adds new operators by public key and removes existing operators by index.
+    UpdateOperatorSet {
+        /// Operator public keys to add to the bridge multisig.
+        add_members: Vec<EvenPublicKey>,
+        /// Operator indices to remove from the bridge multisig.
+        remove_members: Vec<OperatorIdx>,
+    },
 }
 
 #[derive(Debug, Encode, Decode)]
 struct DispatchWithdrawalPayload {
     output: WithdrawOutput,
     selected_operator: OperatorSelection,
+}
+
+#[derive(Debug, Encode, Decode)]
+struct UpdateOperatorSetPayload {
+    add_members: Vec<EvenPublicKey>,
+    remove_members: Vec<OperatorIdx>,
 }
 
 impl SszEncode for BridgeIncomingMsg {
@@ -52,6 +68,17 @@ impl SszEncode for BridgeIncomingMsg {
                 }
                 .ssz_append(buf);
             }
+            Self::UpdateOperatorSet {
+                add_members,
+                remove_members,
+            } => {
+                1_u8.ssz_append(buf);
+                UpdateOperatorSetPayload {
+                    add_members: add_members.clone(),
+                    remove_members: remove_members.clone(),
+                }
+                .ssz_append(buf);
+            }
         }
     }
 
@@ -64,6 +91,16 @@ impl SszEncode for BridgeIncomingMsg {
                 1 + DispatchWithdrawalPayload {
                     output: output.clone(),
                     selected_operator: *selected_operator,
+                }
+                .ssz_bytes_len()
+            }
+            Self::UpdateOperatorSet {
+                add_members,
+                remove_members,
+            } => {
+                1 + UpdateOperatorSetPayload {
+                    add_members: add_members.clone(),
+                    remove_members: remove_members.clone(),
                 }
                 .ssz_bytes_len()
             }
@@ -87,6 +124,13 @@ impl SszDecode for BridgeIncomingMsg {
                 Ok(Self::DispatchWithdrawal {
                     output: payload.output,
                     selected_operator: payload.selected_operator,
+                })
+            }
+            1 => {
+                let payload = UpdateOperatorSetPayload::from_ssz_bytes(payload_bytes)?;
+                Ok(Self::UpdateOperatorSet {
+                    add_members: payload.add_members,
+                    remove_members: payload.remove_members,
                 })
             }
             tag => Err(DecodeError::BytesInvalid(format!(

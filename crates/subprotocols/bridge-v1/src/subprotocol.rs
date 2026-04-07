@@ -151,6 +151,17 @@ impl Subprotocol for BridgeV1Subproto {
                         panic!("Failed to create withdrawal assignment: {e}",);
                     }
                 }
+                BridgeIncomingMsg::UpdateOperatorSet {
+                    add_members,
+                    remove_members,
+                } => {
+                    info!(
+                        added = add_members.len(),
+                        removed = remove_members.len(),
+                        "Applying operator set update from admin subprotocol",
+                    );
+                    state.apply_operator_set_update(add_members, remove_members);
+                }
             }
         }
     }

@@ -214,6 +214,16 @@ impl BridgeV1State {
         self.assignments.remove_assignment(deposit_idx)
     }
 
+    /// Applies an operator set update by adding new operators and removing existing ones.
+    pub fn apply_operator_set_update(
+        &mut self,
+        add_members: &[strata_crypto::EvenPublicKey],
+        remove_members: &[OperatorIdx],
+    ) {
+        self.operators
+            .apply_membership_changes(add_members, remove_members);
+    }
+
     /// Removes an operator from the active multisig by deactivating them.
     ///
     /// # Panics

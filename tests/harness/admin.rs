@@ -41,9 +41,9 @@ use strata_asm_txs_admin::{
     test_utils::create_signature_set,
 };
 use strata_crypto::{
-    EvenPublicKey,
     keys::compressed::CompressedPublicKey,
     threshold_signature::{ThresholdConfig, ThresholdConfigUpdate},
+    EvenPublicKey,
 };
 use strata_identifiers::Buf32;
 use strata_predicate::PredicateKey;
