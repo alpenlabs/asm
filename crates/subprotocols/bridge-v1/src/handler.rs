@@ -1,6 +1,7 @@
 use strata_asm_checkpoint_msgs::CheckpointIncomingMsg;
 use strata_asm_common::{
-    AsmLogEntry, AuxRequestCollector, MsgRelayer, VerifiedAuxData, logging::error,
+    AsmLogEntry, AuxRequestCollector, MsgRelayer, VerifiedAuxData,
+    logging::{error, info},
 };
 use strata_asm_logs::{DepositLog, NewExportEntry};
 use strata_asm_txs_bridge_v1::{
@@ -66,6 +67,11 @@ pub(crate) fn handle_parsed_tx(
             relayer
                 .emit_log(AsmLogEntry::from_log(&deposit_log).expect("deposit log must not fail"));
 
+            info!(
+                deposit_idx = info.header_aux().deposit_idx(),
+                amount_sat = info.amt().to_sat(),
+                "Added deposit",
+            );
             Ok(())
         }
         ParsedTx::WithdrawalFulfillment(info) => {
@@ -75,15 +81,22 @@ pub(crate) fn handle_parsed_tx(
             let fulfilled_assignment = state
                 .remove_assignment(deposit_idx)
                 .expect("validation checks that the assignment exists");
+            let assignee = fulfilled_assignment.current_assignee();
 
-            let unlock =
-                OperatorClaimUnlock::new(deposit_idx, fulfilled_assignment.current_assignee());
+            let unlock = OperatorClaimUnlock::new(deposit_idx, assignee);
 
             // Use SubprotocolId as the containerId.
             let withdrawal_processed_log =
                 NewExportEntry::new(BRIDGE_V1_SUBPROTOCOL_ID, unlock.compute_hash());
             relayer.emit_log(AsmLogEntry::from_log(&withdrawal_processed_log).expect("FIXME:PG"));
 
+            info!(
+                deposit_idx,
+                assignee,
+                recipient = ?info.withdrawal_destination(),
+                amount_sat = info.withdrawal_amount().to_sat(),
+                "Fulfilled withdrawal assignment",
+            );
             Ok(())
         }
         ParsedTx::Slash(info) => {
@@ -95,12 +108,18 @@ pub(crate) fn handle_parsed_tx(
                     panic!("invalid aux: stake connector tx not provided");
                 });
             validate_slash_stake_connector(state, &stake_connector_txout.script_pubkey)?;
-            state.remove_operator(info.header_aux().operator_idx());
+            let operator_idx = info.header_aux().operator_idx();
+            state.remove_operator(operator_idx);
+
+            info!(operator_idx, "Removed operator via slash");
             Ok(())
         }
         ParsedTx::Unstake(info) => {
             validate_unstake_info(state, &info)?;
-            state.remove_operator(info.header_aux().operator_idx());
+            let operator_idx = info.header_aux().operator_idx();
+            state.remove_operator(operator_idx);
+
+            info!(operator_idx, "Removed operator via unstake");
             Ok(())
         }
     }
