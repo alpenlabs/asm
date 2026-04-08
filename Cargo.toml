@@ -89,10 +89,6 @@ strata-test-utils-checkpoint = { path = "crates/test-utils/checkpoint" }
 
 strata-ssz-tests = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.1.0-alpha-rc13" }
 
-# Dependencies from alpenlabs/strata-bridge pinned to commit fc966d5 (STR-2598-asm-stf-proof-statements @ 2026-03-17)
-btc-tracker = { git = "https://github.com/alpenlabs/strata-bridge.git", rev = "fc966d5f81c773de10a4ef3a66666687ec11d715" }
-strata-bridge-common = { git = "https://github.com/alpenlabs/strata-bridge.git", rev = "fc966d5f81c773de10a4ef3a66666687ec11d715" }
-
 # Dependencies from alpenlabs/moho (dc8e6b5 = strata-common rc13)
 moho-recursive-proof = { git = "https://github.com/alpenlabs/moho", rev = "dc8e6b536852ee38aa4280cfda8e7cd009b37eab" }
 moho-runtime-impl = { git = "https://github.com/alpenlabs/moho", rev = "dc8e6b536852ee38aa4280cfda8e7cd009b37eab" }
@@ -166,29 +162,3 @@ thiserror = "2.0.11"
 tokio = { version = "1.37", features = ["full"] }
 toml = "1.0.6"
 tracing = "0.1"
-
-# Temporary override: strata-bridge still pulls strata-asm-* from alpen.git transitively.
-# Without this patch, Cargo resolves both git + local workspace copies, causing type mismatches.
-# Remove once strata-bridge stops depending on alpen's copy of ASM crates.
-[patch."https://github.com/alpenlabs/alpen.git"]
-strata-asm-bridge-msgs = { path = "crates/msgs/bridge" }
-strata-asm-checkpoint-msgs = { path = "crates/msgs/checkpoint" }
-strata-asm-common = { path = "crates/common" }
-strata-asm-logs = { path = "crates/logs" }
-strata-asm-manifest-types = { path = "crates/manifest-types" }
-strata-asm-params = { path = "crates/params" }
-strata-asm-proto-administration = { path = "crates/subprotocols/admin" }
-strata-asm-proto-bridge-v1 = { path = "crates/subprotocols/bridge-v1" }
-strata-asm-proto-checkpoint = { path = "crates/subprotocols/checkpoint" }
-strata-asm-proto-debug-v1 = { path = "crates/subprotocols/debug-v1" }
-strata-asm-spec = { path = "crates/spec" }
-strata-asm-spec-debug = { path = "crates/spec-debug" }
-strata-asm-stf = { path = "crates/stf" }
-strata-asm-txs-admin = { path = "crates/txs/admin" }
-strata-asm-txs-bridge-v1 = { path = "crates/txs/bridge-v1" }
-strata-asm-txs-checkpoint = { path = "crates/txs/checkpoint" }
-strata-asm-txs-test-utils = { path = "crates/txs/test-utils" }
-strata-asm-worker = { path = "crates/worker" }
-asm-storage = { path = "crates/storage" }
-strata-btc-verification = { path = "crates/btc-verification" }
-strata-checkpoint-types-ssz = { path = "crates/checkpoint-types" }
