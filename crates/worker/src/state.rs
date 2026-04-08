@@ -1,9 +1,9 @@
 use std::sync::Arc;
 
 use bitcoin::Block;
-use strata_asm_common::AuxData;
+use strata_asm_common::{AsmSpec, AuxData};
 use strata_asm_params::AsmParams;
-use strata_asm_spec::{StrataAsmSpec, construct_genesis_state};
+use strata_asm_spec::construct_genesis_state;
 use strata_asm_stf::AsmStfOutput;
 use strata_btc_verification::TxidInclusionProof;
 use strata_identifiers::L1BlockCommitment;
@@ -15,13 +15,20 @@ use crate::{
 };
 
 /// Service state for the ASM worker.
+///
+/// Generic over the worker context `W` and the ASM spec `S`, so callers can
+/// inject alternative specs (e.g. `DebugAsmSpec` wrapping `StrataAsmSpec` for
+/// testing) without forking the worker.
 #[derive(Debug)]
-pub struct AsmWorkerServiceState<W> {
+pub struct AsmWorkerServiceState<W, S> {
     /// Params.
     pub(crate) asm_params: Arc<AsmParams>,
 
     /// Context for the state to interact with outer world.
     pub(crate) context: W,
+
+    /// ASM spec driving the subprotocol pipeline.
+    pub(crate) spec: S,
 
     /// Whether the service is initialized.
     pub initialized: bool,
@@ -33,12 +40,17 @@ pub struct AsmWorkerServiceState<W> {
     pub blkid: Option<L1BlockCommitment>,
 }
 
-impl<W: WorkerContext + Send + Sync + 'static> AsmWorkerServiceState<W> {
+impl<W, S> AsmWorkerServiceState<W, S>
+where
+    W: WorkerContext + Send + Sync + 'static,
+    S: AsmSpec + Send + Sync + 'static,
+{
     /// A new (uninitialized) instance of the service state.
-    pub fn new(context: W, asm_params: Arc<AsmParams>) -> Self {
+    pub fn new(context: W, asm_params: Arc<AsmParams>, spec: S) -> Self {
         Self {
             asm_params,
             context,
+            spec,
             anchor: None,
             blkid: None,
             initialized: false,
@@ -80,7 +92,7 @@ impl<W: WorkerContext + Send + Sync + 'static> AsmWorkerServiceState<W> {
             let span = tracing::debug_span!("asm.stf.pre_process", protocol_txs = Empty);
             let _guard = span.enter();
 
-            let result = strata_asm_stf::pre_process_asm(&StrataAsmSpec, cur_state.state(), block)
+            let result = strata_asm_stf::pre_process_asm(&self.spec, cur_state.state(), block)
                 .map_err(WorkerError::AsmError)?;
 
             span.record("protocol_txs", result.txs.len());
@@ -109,7 +121,7 @@ impl<W: WorkerContext + Send + Sync + 'static> AsmWorkerServiceState<W> {
         let coinbase_inclusion_proof = TxidInclusionProof::generate(&block.txdata, 0);
 
         strata_asm_stf::compute_asm_transition(
-            &StrataAsmSpec,
+            &self.spec,
             cur_state.state(),
             block,
             &aux_data,
@@ -127,7 +139,11 @@ impl<W: WorkerContext + Send + Sync + 'static> AsmWorkerServiceState<W> {
     }
 }
 
-impl<W: WorkerContext + Send + Sync + 'static> ServiceState for AsmWorkerServiceState<W> {
+impl<W, S> ServiceState for AsmWorkerServiceState<W, S>
+where
+    W: WorkerContext + Send + Sync + 'static,
+    S: AsmSpec + Send + Sync + 'static,
+{
     fn name(&self) -> &str {
         constants::SERVICE_NAME
     }
@@ -145,6 +161,7 @@ mod tests {
     };
     use corepc_node::Node;
     use strata_asm_common::AsmManifest;
+    use strata_asm_spec::StrataAsmSpec;
     use strata_btc_types::{BitcoinTxid, BlockHashExt, RawBitcoinTx};
     use strata_btc_verification::L1Anchor;
     use strata_identifiers::{Hash, L1BlockId};
@@ -156,7 +173,7 @@ mod tests {
     struct TestEnv {
         pub _node: Node, // Keep node alive
         pub client: Arc<Client>,
-        pub service_state: AsmWorkerServiceState<MockWorkerContext>,
+        pub service_state: AsmWorkerServiceState<MockWorkerContext, StrataAsmSpec>,
     }
 
     async fn setup_env() -> TestEnv {
@@ -183,7 +200,8 @@ mod tests {
 
         // 3. Set worker context and initialize service state
         let context = MockWorkerContext::new();
-        let mut service_state = AsmWorkerServiceState::new(context.clone(), asm_params);
+        let mut service_state =
+            AsmWorkerServiceState::new(context.clone(), asm_params, StrataAsmSpec);
 
         // Initialize: this should create genesis state based on our `genesis_l1_view`
         service_state
