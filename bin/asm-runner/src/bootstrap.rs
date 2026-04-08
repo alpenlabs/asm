@@ -13,7 +13,7 @@ use tokio::{
 };
 
 use crate::{
-    block_driver::{drive_asm_from_btc_tracker, setup_btc_tracker},
+    block_watcher::drive_asm_from_bitcoin,
     config::{AsmRpcConfig, BitcoinConfig},
     prover::{InputBuilder, ProofOrchestrator},
     rpc_server::run_rpc_server,
@@ -46,14 +46,11 @@ pub(crate) async fn bootstrap(
         .with_asm_params(Arc::new(params.clone()))
         .launch(&executor)?;
 
-    // 5. Set up BtcTracker to drive ASM
+    // 5. Compute the starting height for the block watcher.
     let start_height = match asm_worker.monitor().get_current().cur_block {
         Some(blk) => blk.height(),
         None => params.anchor.block.height() + 1,
     };
-    let btc_tracker = Arc::new(
-        setup_btc_tracker(&config.bitcoin, bitcoin_client.clone(), start_height as u64).await?,
-    );
     let asm_worker = Arc::new(asm_worker);
 
     // 6. Optionally create the proof channel and spawn the orchestrator
@@ -104,13 +101,16 @@ pub(crate) async fn bootstrap(
         (None, None)
     };
 
-    // 7. Spawn block driver as a critical task
-    let btc_tracker_for_driver = btc_tracker.clone();
+    // 7. Spawn block watcher as a critical task.
     let asm_worker_for_driver = asm_worker.clone();
-    executor.spawn_critical_async_with_shutdown("block_driver", move |shutdown| {
-        drive_asm_from_btc_tracker(
-            btc_tracker_for_driver,
+    let bitcoin_config = config.bitcoin.clone();
+    let bitcoin_client_for_driver = bitcoin_client.clone();
+    executor.spawn_critical_async_with_shutdown("block_watcher", move |shutdown| {
+        drive_asm_from_bitcoin(
+            bitcoin_config,
+            bitcoin_client_for_driver,
             asm_worker_for_driver,
+            start_height as u64,
             proof_tx,
             shutdown,
         )

@@ -7,12 +7,10 @@ edition = "2024"
 workspace = true
 
 [dependencies]
-btc-tracker.workspace = true
 moho-runtime-impl.workspace = true
 moho-runtime-interface.workspace = true
 moho-types.workspace = true
 strata-asm-rpc.workspace = true
-strata-bridge-common.workspace = true
 strata-btc-verification.workspace = true
 
 strata-asm-common.workspace = true
@@ -35,6 +33,7 @@ strata-tasks.workspace = true
 anyhow.workspace = true
 async-trait.workspace = true
 bitcoin.workspace = true
+bitcoincore-zmq = { version = "1.5.2", features = ["async"] }
 bitcoind-async-client.workspace = true
 clap.workspace = true
 futures.workspace = true
@@ -47,6 +46,7 @@ strata-asm-sp1-guest-builder = { path = "../../guest-builder/sp1", optional = tr
 tokio.workspace = true
 toml.workspace = true
 tracing.workspace = true
+tracing-subscriber = { version = "0.3.19", features = ["env-filter"] }
 zkaleido.workspace = true
 zkaleido-sp1-host = { workspace = true, optional = true, features = [
   "remote-prover",

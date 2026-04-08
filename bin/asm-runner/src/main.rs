@@ -2,7 +2,7 @@
 //!
 //! Standalone binary that runs the ASM (Anchor State Machine) STF and exposes an RPC API
 //! for querying ASM state.
-mod block_driver;
+mod block_watcher;
 mod bootstrap;
 mod config;
 mod prover;
@@ -15,10 +15,10 @@ use std::{fs::read_to_string, path::PathBuf, time::Duration};
 use anyhow::Result;
 use clap::Parser;
 use strata_asm_params::AsmParams;
-use strata_bridge_common::logging::{self, LoggerConfig};
 use strata_tasks::TaskManager;
 use tokio::runtime::Builder;
 use tracing::info;
+use tracing_subscriber::{EnvFilter, fmt, layer::SubscriberExt, util::SubscriberInitExt};
 
 use crate::{bootstrap::bootstrap, config::AsmRpcConfig};
 
@@ -41,7 +41,7 @@ struct Cli {
 
 fn main() {
     // 1. Initialize logging
-    logging::init(LoggerConfig::with_base_name("asm-runner"));
+    init_logging();
 
     // 2. Parse CLI args
     let cli = Cli::parse();
@@ -94,4 +94,16 @@ fn load_config(path: &PathBuf) -> Result<AsmRpcConfig> {
     let contents = read_to_string(path)?;
     let config: AsmRpcConfig = toml::from_str(&contents)?;
     Ok(config)
+}
+
+/// Initialize tracing-based logging with an env filter.
+///
+/// Honors the `RUST_LOG` environment variable. When unset, defaults to `info`.
+fn init_logging() {
+    let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
+    let layer = fmt::layer().compact();
+    tracing_subscriber::registry()
+        .with(filter)
+        .with(layer)
+        .init();
 }
