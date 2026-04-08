@@ -25,4 +25,9 @@ pub trait MohoStateDb {
         &self,
         l1ref: L1BlockCommitment,
     ) -> impl Future<Output = Result<Option<MohoState>, Self::Error>> + Send;
+
+    /// Prunes all Moho state entries for blocks before the given height.
+    ///
+    /// Deletes all entries with height strictly less than `before_height`.
+    fn prune(&self, before_height: u32) -> impl Future<Output = Result<(), Self::Error>> + Send;
 }
