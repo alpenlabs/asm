@@ -43,3 +43,20 @@ impl OperatorClaimUnlock {
         hash::raw(&buf).0
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use proptest::prelude::*;
+
+    use super::*;
+
+    proptest! {
+        #[test]
+        fn compute_hash_is_infallible(deposit_idx: u32, operator_idx: u32) {
+            let claim = OperatorClaimUnlock::new(deposit_idx, operator_idx);
+            // Should never panic for any input.
+            let _hash = claim.compute_hash();
+        }
+    }
+}
+
