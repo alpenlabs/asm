@@ -1,16 +1,13 @@
 use std::fmt::Debug;
 
 use bitcoin::ScriptBuf;
-use strata_asm_txs_bridge_v1::errors::{BridgeTxParseError, Mismatch, TxStructureError};
+use strata_asm_txs_bridge_v1::errors::{Mismatch, TxStructureError};
 use strata_bridge_types::OperatorBitmapError;
 use strata_btc_types::BitcoinAmount;
 use thiserror::Error;
 
 #[derive(Debug, Error)]
 pub enum BridgeSubprotocolError {
-    #[error("failed to parse bridge tx")]
-    BridgeTxParseError(#[from] BridgeTxParseError),
-
     #[error("failed to process deposit tx")]
     DepositTxProcess(#[from] DepositValidationError),
 

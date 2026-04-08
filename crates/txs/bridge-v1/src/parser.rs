@@ -5,7 +5,6 @@ use strata_asm_common::TxInputRef;
 use crate::{
     constants::BridgeTxType,
     deposit::{DepositInfo, parse_deposit_tx},
-    errors::BridgeTxParseError,
     slash::{SlashInfo, parse_slash_tx},
     unstake::{UnstakeInfo, parse_unstake_tx},
     withdrawal_fulfillment::{WithdrawalFulfillmentInfo, parse_withdrawal_fulfillment_tx},
@@ -35,47 +34,39 @@ pub enum ParsedTx {
 ///
 /// # Returns
 ///
-/// Returns a [`ParsedTx`] variant containing the extracted transaction information:
-/// * `Ok(ParsedTx::Deposit)` - For deposit transactions
-/// * `Ok(ParsedTx::WithdrawalFulfillment)` - For withdrawal fulfillment transactions
-/// * `Ok(ParsedTx::Slash)` - For slash transactions
-/// * `Ok(ParsedTx::Unstake)` - For unstake transactions
+/// Returns `Some(ParsedTx)` for transaction types directly processed by the bridge
+/// subprotocol (`Deposit`, `WithdrawalFulfillment`, `Slash`, `Unstake`) when the
+/// transaction structure is well-formed.
 ///
-/// # Errors
-///
-/// Returns [`BridgeTxParseError`] if:
+/// Returns `None` when the transaction should be skipped, including:
 /// - The transaction type is not directly processed (e.g., `DepositRequest` - fetched as auxiliary
-///   data)
+///   data when its corresponding `Deposit` is encountered)
 /// - The transaction type is not supported by the bridge subprotocol (e.g., `Commit`)
+/// - The transaction tag has an unsupported type
 /// - The transaction data extraction fails (malformed transaction structure)
-pub fn parse_tx<'t>(tx: &'t TxInputRef<'t>) -> Result<ParsedTx, BridgeTxParseError> {
-    match tx.tag().tx_type().try_into() {
-        Ok(BridgeTxType::Deposit) => {
-            let info = parse_deposit_tx(tx)?;
-            Ok(ParsedTx::Deposit(info))
+pub fn parse_tx<'t>(tx: &'t TxInputRef<'t>) -> Option<ParsedTx> {
+    match tx.tag().tx_type().try_into().ok()? {
+        BridgeTxType::Deposit => {
+            let info = parse_deposit_tx(tx).ok()?;
+            Some(ParsedTx::Deposit(info))
         }
-        Ok(BridgeTxType::WithdrawalFulfillment) => {
-            let info = parse_withdrawal_fulfillment_tx(tx)?;
-            Ok(ParsedTx::WithdrawalFulfillment(info))
+        BridgeTxType::WithdrawalFulfillment => {
+            let info = parse_withdrawal_fulfillment_tx(tx).ok()?;
+            Some(ParsedTx::WithdrawalFulfillment(info))
         }
-        Ok(BridgeTxType::Slash) => {
-            let info = parse_slash_tx(tx)?;
-            Ok(ParsedTx::Slash(info))
+        BridgeTxType::Slash => {
+            let info = parse_slash_tx(tx).ok()?;
+            Some(ParsedTx::Slash(info))
         }
-        Ok(BridgeTxType::Unstake) => {
-            let info = parse_unstake_tx(tx)?;
-            Ok(ParsedTx::Unstake(info))
+        BridgeTxType::Unstake => {
+            let info = parse_unstake_tx(tx).ok()?;
+            Some(ParsedTx::Unstake(info))
         }
-        Ok(BridgeTxType::DepositRequest) => {
-            // DepositRequest transactions are not parsed at this stage.
-            // They are requested as auxiliary input during preprocessing when we encounter
-            // a BridgeTxType::Deposit transaction, then parsed on-demand using parse_drt().
-            Err(BridgeTxParseError::NotDirectlyProcessed(tx.tag().tx_type()))
-        }
-        Ok(BridgeTxType::Commit) => {
-            // Commit transactions are not currently supported by the bridge subprotocol.
-            Err(BridgeTxParseError::UnsupportedTxType(tx.tag().tx_type()))
-        }
-        Err(unsupported_type) => Err(BridgeTxParseError::UnsupportedTxType(unsupported_type)),
+        // DepositRequest transactions are not parsed at this stage. They are requested as
+        // auxiliary input during preprocessing when we encounter a `BridgeTxType::Deposit`
+        // transaction, then parsed on-demand using `parse_drt()`.
+        BridgeTxType::DepositRequest => None,
+        // Commit transactions are not currently supported by the bridge subprotocol.
+        BridgeTxType::Commit => None,
     }
 }
