@@ -87,15 +87,13 @@ strata-test-utils-btc = { path = "crates/test-utils/btc" }
 strata-test-utils-btcio = { path = "crates/test-utils/btcio" }
 strata-test-utils-checkpoint = { path = "crates/test-utils/checkpoint" }
 
-strata-ssz-tests = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.1.0-alpha-rc13" }
-
 # Dependencies from alpenlabs/moho (dc8e6b5 = strata-common rc13)
 moho-recursive-proof = { git = "https://github.com/alpenlabs/moho", rev = "dc8e6b536852ee38aa4280cfda8e7cd009b37eab" }
 moho-runtime-impl = { git = "https://github.com/alpenlabs/moho", rev = "dc8e6b536852ee38aa4280cfda8e7cd009b37eab" }
 moho-runtime-interface = { git = "https://github.com/alpenlabs/moho", rev = "dc8e6b536852ee38aa4280cfda8e7cd009b37eab" }
 moho-types = { git = "https://github.com/alpenlabs/moho", rev = "dc8e6b536852ee38aa4280cfda8e7cd009b37eab" }
 
-# Dependencies from alpenlabs/strata-common - current version := rc13
+# Dependencies from alpenlabs/strata-common
 strata-btc-types = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.1.0-alpha-rc13" }
 strata-codec = { git = "https://github.com/alpenlabs/strata-common", features = [
   "derive",
@@ -109,6 +107,7 @@ strata-merkle = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.
 strata-msg-fmt = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.1.0-alpha-rc13" }
 strata-predicate = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.1.0-alpha-rc13" }
 strata-service = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.1.0-alpha-rc13" }
+strata-ssz-tests = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.1.0-alpha-rc13" }
 strata-tasks = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.1.0-alpha-rc13" }
 
 # dependencies from alpenlabs/ssz-gen
