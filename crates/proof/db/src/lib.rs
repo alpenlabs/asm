@@ -15,12 +15,14 @@
 //!
 //! A sled-backed implementation ([`SledProofDb`]) is provided out of the box.
 
+mod moho_state;
 mod proof_db;
 mod remote_mapping;
 mod remote_status;
 mod sled;
 
 pub use self::{
+    moho_state::MohoStateDb,
     proof_db::ProofDb,
     remote_mapping::RemoteProofMappingDb,
     remote_status::RemoteProofStatusDb,

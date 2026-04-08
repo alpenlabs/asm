@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+moho-types.workspace = true
 strata-asm-proof-types.workspace = true
 strata-identifiers.workspace = true
 
