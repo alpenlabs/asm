@@ -63,25 +63,36 @@ pub(crate) async fn bootstrap(
         let proof_db_clone = proof_db.clone();
 
         #[cfg(feature = "sp1")]
-        let host = {
+        let (asm, moho) = {
             use std::fs;
 
-            use strata_asm_sp1_guest_builder::ASM_ELF_PATH;
+            use strata_asm_sp1_guest_builder::{ASM_ELF_PATH, MOHO_ELF_PATH};
             use zkaleido_sp1_host::SP1Host;
-            let elf = fs::read(ASM_ELF_PATH)
+            let asm_elf = fs::read(ASM_ELF_PATH)
                 .unwrap_or_else(|err| panic!("failed to read guest elf at {ASM_ELF_PATH}: {err}"));
-            SP1Host::init(&elf)
+            let moho_elf = fs::read(MOHO_ELF_PATH)
+                .unwrap_or_else(|err| panic!("failed to read guest elf at {MOHO_ELF_PATH}: {err}"));
+            (SP1Host::init(&asm_elf), SP1Host::init(&moho_elf))
         };
 
         #[cfg(not(feature = "sp1"))]
-        let host = {
+        let (asm, moho) = {
+            use moho_recursive_proof::MohoRecursiveProgram;
             use strata_asm_proof_impl::program::AsmStfProofProgram;
-            AsmStfProofProgram::native_host()
+            (
+                AsmStfProofProgram::native_host(),
+                MohoRecursiveProgram::native_host(),
+            )
         };
 
-        let input_builder = InputBuilder::new(state_db.clone(), bitcoin_client.clone());
+        let input_builder = InputBuilder::new(
+            state_db.clone(),
+            bitcoin_client.clone(),
+            proof_db.clone(),
+            params.anchor.block,
+        );
         let mut orchestrator =
-            ProofOrchestrator::new(proof_db, host, orch_config, input_builder, rx);
+            ProofOrchestrator::new(proof_db, asm, moho, orch_config, input_builder, rx);
 
         // ZkVmRemoteProver is !Send (#[async_trait(?Send)]), so the orchestrator
         // future cannot be spawned on a multi-threaded runtime directly. We run it

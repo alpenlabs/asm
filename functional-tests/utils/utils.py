@@ -98,3 +98,22 @@ def wait_until_asm_proof_exists(asm_rpc, block_hash: str, timeout: int = 600, st
         step=step,
         error_msg=f"ASM proof was not generated for block {block_hash} within timeout",
     )
+
+
+def wait_until_moho_proof_exists(asm_rpc, block_hash: str, timeout: int = 60, step: int = 2):
+    """Wait until a Moho recursive proof exists for the given block hash."""
+
+    def check():
+        try:
+            result = asm_rpc.strata_asm_getMohoProof(block_hash)
+            return result is not None
+        except Exception as exc:
+            logging.debug("Error checking Moho proof: %s", exc)
+            return False
+
+    wait_until(
+        check,
+        timeout=timeout,
+        step=step,
+        error_msg=f"Moho proof was not generated for block {block_hash} within timeout",
+    )

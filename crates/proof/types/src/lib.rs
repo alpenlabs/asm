@@ -91,6 +91,15 @@ impl PartialOrd for ProofId {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct RemoteProofId(pub Vec<u8>);
 
+impl fmt::Display for RemoteProofId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        for byte in &self.0 {
+            write!(f, "{byte:02x}")?;
+        }
+        Ok(())
+    }
+}
+
 /// A range of L1 blocks defined by start and end commitments.
 ///
 /// Ordered by start commitment first, then end commitment.

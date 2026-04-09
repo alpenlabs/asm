@@ -3,6 +3,7 @@ from pathlib import Path
 import flexitest
 
 from constants import ASM_MAGIC_BYTES, INITIAL_BLOCKS
+from factory.asm_rpc.config_cfg import OrchestratorConfig
 from factory.common.asm_params import build_asm_params, write_asm_params_json
 from utils.utils import wait_until_bitcoind_ready
 
@@ -22,6 +23,24 @@ class BasicEnv(flexitest.EnvConfig):
     def init(self, ectx: flexitest.EnvContext) -> flexitest.LiveEnv:
         svcs: dict[str, flexitest.Service] = {}
 
+        bitcoind, params_file_path = self._setup_bitcoind_and_params(ectx)
+        svcs["bitcoin"] = bitcoind
+
+        asm_factory = ectx.get_factory("asm_rpc")
+        svcs["asm_rpc"] = asm_factory.create_asm_rpc_service(
+            bitcoind.props, params_file_path, orchestrator=self._orchestrator_config(ectx)
+        )
+
+        return flexitest.LiveEnv(svcs)
+
+    def _orchestrator_config(self, ectx: flexitest.EnvContext) -> OrchestratorConfig | None:
+        """Return orchestrator config. Override in subclasses to enable proving."""
+        return None
+
+    def _setup_bitcoind_and_params(
+        self, ectx: flexitest.EnvContext
+    ) -> tuple[flexitest.Service, str]:
+        """Set up bitcoind and generate ASM params. Shared by all env variants."""
         btc_factory = ectx.get_factory("bitcoin")
         bitcoind = btc_factory.create_regtest_bitcoin()
         bitcoin_rpc = bitcoind.create_rpc()
@@ -45,9 +64,4 @@ class BasicEnv(flexitest.EnvConfig):
         params_path = Path(ectx.envdd_path) / "generated" / "asm-params.json"
         params_file_path = write_asm_params_json(params_path, asm_params)
 
-        asm_factory = ectx.get_factory("asm_rpc")
-        asm_rpc = asm_factory.create_asm_rpc_service(bitcoind.props, params_file_path)
-
-        svcs["bitcoin"] = bitcoind
-        svcs["asm_rpc"] = asm_rpc
-        return flexitest.LiveEnv(svcs)
+        return bitcoind, params_file_path

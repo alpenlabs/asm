@@ -5,6 +5,7 @@
 //! 2. Schedules new proofs from the pending queue, enforcing prerequisites.
 
 use anyhow::{Context, Result};
+use moho_recursive_proof::MohoRecursiveProgram;
 use strata_asm_proof_db::{RemoteProofMappingDb, RemoteProofStatusDb, SledProofDb};
 use strata_asm_proof_impl::program::AsmStfProofProgram;
 use strata_asm_proof_types::{ProofId, RemoteProofId};
@@ -17,12 +18,13 @@ use super::{
     config::OrchestratorConfig, input::InputBuilder, proof_store, queue::PendingProofQueue,
 };
 
-/// Orchestrates remote proof generation for ASM proofs.
-pub(crate) struct ProofOrchestrator<R: ZkVmRemoteHost> {
+/// Orchestrates remote proof generation for ASM and Moho proofs.
+pub(crate) struct ProofOrchestrator<Host: ZkVmRemoteHost> {
     db: SledProofDb,
     queue: PendingProofQueue,
     rx: mpsc::UnboundedReceiver<ProofId>,
-    remote: R,
+    asm: Host,
+    moho: Host,
     config: OrchestratorConfig,
     input_builder: InputBuilder,
 }
@@ -31,7 +33,8 @@ impl<R: ZkVmRemoteHost> ProofOrchestrator<R> {
     /// Creates a new orchestrator.
     pub(crate) fn new(
         db: SledProofDb,
-        remote: R,
+        asm: R,
+        moho: R,
         config: OrchestratorConfig,
         input_builder: InputBuilder,
         rx: mpsc::UnboundedReceiver<ProofId>,
@@ -40,7 +43,8 @@ impl<R: ZkVmRemoteHost> ProofOrchestrator<R> {
             db,
             queue: PendingProofQueue::new(),
             rx,
-            remote,
+            asm,
+            moho,
             config,
             input_builder,
         }
@@ -123,8 +127,12 @@ impl<R: ZkVmRemoteHost> ProofOrchestrator<R> {
     ) -> Result<()> {
         let typed_id = to_typed_proof_id::<R>(remote_id)?;
 
+        // NOTE: We use `self.asm` here but this could be any `ZkVmRemoteHost` instance.
+        // `get_status` only requires a network client and proof ID — not the ELF or
+        // proving key. Since the orchestrator is generic over a single `R: ZkVmRemoteHost`,
+        // both `asm` and `moho` share the same concrete type, so either works.
         let new_status = self
-            .remote
+            .asm
             .get_status(&typed_id)
             .await
             .map_err(|e| anyhow::anyhow!("failed to query remote proof status: {e}"))?;
@@ -134,7 +142,7 @@ impl<R: ZkVmRemoteHost> ProofOrchestrator<R> {
         }
 
         debug!(
-            ?remote_id,
+            %remote_id,
             ?old_status,
             ?new_status,
             "remote proof status changed"
@@ -167,8 +175,12 @@ impl<R: ZkVmRemoteHost> ProofOrchestrator<R> {
         remote_id: &RemoteProofId,
         typed_id: &R::ProofId,
     ) -> Result<()> {
+        // NOTE: We use `self.asm` here but this could be any `ZkVmRemoteHost` instance.
+        // `get_proof` only requires a network client and proof ID — not the ELF or
+        // proving key. Since the orchestrator is generic over a single `R: ZkVmRemoteHost`,
+        // both `asm` and `moho` share the same concrete type, so either works.
         let receipt = self
-            .remote
+            .asm
             .get_proof(typed_id)
             .await
             .map_err(|e| anyhow::anyhow!("failed to retrieve completed proof: {e}"))?;
@@ -201,10 +213,7 @@ impl<R: ZkVmRemoteHost> ProofOrchestrator<R> {
             .context("failed to query in-progress proofs")?
             .len();
 
-        let capacity = self
-            .config
-            .max_concurrent_asm_proofs
-            .saturating_sub(in_flight);
+        let capacity = self.config.max_concurrent_proofs.saturating_sub(in_flight);
 
         if capacity == 0 {
             return Ok(());
@@ -245,16 +254,26 @@ impl<R: ZkVmRemoteHost> ProofOrchestrator<R> {
         let typed_id = match &proof_id {
             ProofId::Asm(range) => {
                 let runtime_input = self.input_builder.build_asm_runtime_input(range).await?;
-                AsmStfProofProgram::start_proving(&runtime_input, &self.remote)
+                AsmStfProofProgram::start_proving(&runtime_input, &self.asm)
                     .await
                     .map_err(|e| anyhow::anyhow!("failed to submit proof to remote prover: {e}"))?
             }
-            ProofId::Moho(_) => {
-                debug!(
-                    ?proof_id,
-                    "Moho proof generation not yet supported, skipping"
-                );
-                return Ok(());
+            ProofId::Moho(block) => {
+                let prerequisite = match self.input_builder.check_moho_prerequisite(*block).await {
+                    Ok(prereq) => prereq,
+                    Err(e) => {
+                        warn!(?e, "moho proof generation cannot be done yet, re-enqueuing");
+                        self.queue.enqueue(proof_id);
+                        return Ok(());
+                    }
+                };
+                let input = self
+                    .input_builder
+                    .build_moho_runtime_input(prerequisite, *block)
+                    .await?;
+                MohoRecursiveProgram::start_proving(&input, &self.moho)
+                    .await
+                    .map_err(|e| anyhow::anyhow!("failed to submit proof to remote prover: {e}"))?
             }
         };
 
