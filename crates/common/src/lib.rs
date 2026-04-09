@@ -45,6 +45,5 @@ pub use ssz_generated::ssz::{
 pub use subprotocol::*;
 use tracing as _;
 pub use tx::*;
-
 // Re-export the logging module
-pub mod logging;
+pub use zkaleido_logging as logging;

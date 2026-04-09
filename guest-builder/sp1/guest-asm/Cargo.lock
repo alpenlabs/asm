@@ -1419,6 +1419,7 @@ dependencies = [
  "tracing",
  "tree_hash",
  "tree_hash_derive",
+ "zkaleido-logging",
 ]
 
 [[package]]
@@ -2189,6 +2190,14 @@ dependencies = [
  "borsh",
  "serde",
  "thiserror 1.0.69",
+]
+
+[[package]]
+name = "zkaleido-logging"
+version = "0.1.0"
+source = "git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc23#aa78497efed37c3d194d6d759ab0de75eccc7242"
+dependencies = [
+ "tracing",
 ]
 
 [[package]]
