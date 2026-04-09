@@ -129,9 +129,7 @@ impl<'a> Arbitrary<'a> for DrtHeaderAux {
         let mut recovery_pk = [0u8; 32];
         u.fill_buffer(&mut recovery_pk)?;
 
-        // FIXME: -1 can be removed after we have a new release of strata-common that includes https://github.com/alpenlabs/strata-common/pull/79
-        let destination_len = u.int_in_range(0..=MAX_DESTINATION_LEN - 1)?;
-
+        let destination_len = u.int_in_range(0..=MAX_DESTINATION_LEN)?;
         let mut destination_bytes = vec![0u8; destination_len];
         u.fill_buffer(&mut destination_bytes)?;
 
