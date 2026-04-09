@@ -16,7 +16,7 @@ use tokio::{
 use crate::{
     block_watcher::drive_asm_from_bitcoin,
     config::{AsmRpcConfig, BitcoinConfig},
-    prover::{InputBuilder, ProofOrchestrator},
+    prover::{InputBuilder, ProofBackend, ProofOrchestrator},
     rpc_server::run_rpc_server,
     storage::create_storage,
     worker_context::AsmWorkerContext,
@@ -62,37 +62,24 @@ pub(crate) async fn bootstrap(
         let proof_db = SledProofDb::open(&orch_config.proof_db_path)?;
         let proof_db_clone = proof_db.clone();
 
-        #[cfg(feature = "sp1")]
-        let (asm, moho) = {
-            use std::fs;
-
-            use strata_asm_sp1_guest_builder::{ASM_ELF_PATH, MOHO_ELF_PATH};
-            use zkaleido_sp1_host::SP1Host;
-            let asm_elf = fs::read(ASM_ELF_PATH)
-                .unwrap_or_else(|err| panic!("failed to read guest elf at {ASM_ELF_PATH}: {err}"));
-            let moho_elf = fs::read(MOHO_ELF_PATH)
-                .unwrap_or_else(|err| panic!("failed to read guest elf at {MOHO_ELF_PATH}: {err}"));
-            (SP1Host::init(&asm_elf), SP1Host::init(&moho_elf))
-        };
-
-        #[cfg(not(feature = "sp1"))]
-        let (asm, moho) = {
-            use moho_recursive_proof::MohoRecursiveProgram;
-            use strata_asm_proof_impl::program::AsmStfProofProgram;
-            (
-                AsmStfProofProgram::native_host(),
-                MohoRecursiveProgram::native_host(),
-            )
-        };
+        let backend = ProofBackend::new()?;
 
         let input_builder = InputBuilder::new(
             state_db.clone(),
             bitcoin_client.clone(),
             proof_db.clone(),
             params.anchor.block,
+            backend.asm_predicate.clone(),
+            backend.moho_predicate.clone(),
         );
-        let mut orchestrator =
-            ProofOrchestrator::new(proof_db, asm, moho, orch_config, input_builder, rx);
+        let mut orchestrator = ProofOrchestrator::new(
+            proof_db,
+            backend.asm_host,
+            backend.moho_host,
+            orch_config,
+            input_builder,
+            rx,
+        );
 
         // ZkVmRemoteProver is !Send (#[async_trait(?Send)]), so the orchestrator
         // future cannot be spawned on a multi-threaded runtime directly. We run it

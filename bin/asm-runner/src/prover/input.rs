@@ -30,6 +30,8 @@ pub(crate) struct InputBuilder {
     bitcoin_client: Arc<Client>,
     proof_db: SledProofDb,
     genesis: L1BlockCommitment,
+    asm_predicate: PredicateKey,
+    moho_predicate: PredicateKey,
 }
 
 pub(crate) struct MohoPrerequisite {
@@ -43,12 +45,16 @@ impl InputBuilder {
         bitcoin_client: Arc<Client>,
         proof_db: SledProofDb,
         genesis: L1BlockCommitment,
+        asm_predicate: PredicateKey,
+        moho_predicate: PredicateKey,
     ) -> Self {
         Self {
             state_db,
             bitcoin_client,
             proof_db,
             genesis,
+            asm_predicate,
+            moho_predicate,
         }
     }
 
@@ -194,14 +200,16 @@ impl InputBuilder {
         prerequisite: MohoPrerequisite,
         l1_ref: L1BlockCommitment,
     ) -> Result<MohoRecursiveInput> {
-        let moho_predicate = PredicateKey::always_accept();
+        let moho_predicate = self.moho_predicate.clone();
 
         let MohoPrerequisite {
             prev_moho_proof,
             incremental_step_proof,
         } = prerequisite;
 
-        let step_predicate = PredicateKey::always_accept();
+        // The inner step proof is the ASM STF proof, so the step predicate is
+        // the ASM predicate.
+        let step_predicate = self.asm_predicate.clone();
 
         let parent = self.get_parent_commitment(l1_ref).await?;
         let parent_state = self.get_moho_state(parent).await?;
