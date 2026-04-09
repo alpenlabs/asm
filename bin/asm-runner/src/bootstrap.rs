@@ -4,6 +4,7 @@ use anyhow::Result;
 use bitcoind_async_client::{Auth, Client};
 use strata_asm_params::AsmParams;
 use strata_asm_proof_db::SledProofDb;
+use strata_asm_spec::StrataAsmSpec;
 use strata_asm_worker::AsmWorkerBuilder;
 use strata_tasks::TaskExecutor;
 use tokio::{
@@ -44,6 +45,7 @@ pub(crate) async fn bootstrap(
     let asm_worker = AsmWorkerBuilder::new()
         .with_context(worker_context)
         .with_asm_params(Arc::new(params.clone()))
+        .with_asm_spec(StrataAsmSpec)
         .launch(&executor)?;
 
     // 5. Compute the starting height for the block watcher.

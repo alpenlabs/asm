@@ -4,6 +4,7 @@ use std::{marker, thread::sleep, time::Duration};
 
 use bitcoin::hashes::Hash;
 use serde::{Deserialize, Serialize};
+use strata_asm_common::AsmSpec;
 use strata_btc_types::BlockHashExt;
 use strata_identifiers::{Buf32, L1BlockCommitment, L1BlockId};
 use strata_service::{Response, Service, SyncService};
@@ -16,12 +17,16 @@ use crate::{
 
 /// ASM service implementation using the service framework.
 #[derive(Debug)]
-pub struct AsmWorkerService<W> {
-    _phantom: marker::PhantomData<W>,
+pub struct AsmWorkerService<W, S> {
+    _phantom: marker::PhantomData<(W, S)>,
 }
 
-impl<W: WorkerContext + Send + Sync + 'static> Service for AsmWorkerService<W> {
-    type State = AsmWorkerServiceState<W>;
+impl<W, S> Service for AsmWorkerService<W, S>
+where
+    W: WorkerContext + Send + Sync + 'static,
+    S: AsmSpec + Send + Sync + 'static,
+{
+    type State = AsmWorkerServiceState<W, S>;
     type Msg = AsmWorkerMessage;
     type Status = AsmWorkerStatus;
 
@@ -34,14 +39,18 @@ impl<W: WorkerContext + Send + Sync + 'static> Service for AsmWorkerService<W> {
     }
 }
 
-impl<W: WorkerContext + Send + Sync + 'static> SyncService for AsmWorkerService<W> {
-    fn on_launch(state: &mut AsmWorkerServiceState<W>) -> anyhow::Result<()> {
+impl<W, S> SyncService for AsmWorkerService<W, S>
+where
+    W: WorkerContext + Send + Sync + 'static,
+    S: AsmSpec + Send + Sync + 'static,
+{
+    fn on_launch(state: &mut AsmWorkerServiceState<W, S>) -> anyhow::Result<()> {
         Ok(state.load_latest_or_create_genesis()?)
     }
 
     // TODO(STR-1928): add tests.
     fn process_input(
-        state: &mut AsmWorkerServiceState<W>,
+        state: &mut AsmWorkerServiceState<W, S>,
         input: AsmWorkerMessage,
     ) -> anyhow::Result<Response> {
         match input {
@@ -59,10 +68,14 @@ impl<W: WorkerContext + Send + Sync + 'static> SyncService for AsmWorkerService<
 }
 
 /// Processes an L1 block through the ASM state transition.
-fn process_block<W: WorkerContext + Send + Sync + 'static>(
-    state: &mut AsmWorkerServiceState<W>,
+fn process_block<W, S>(
+    state: &mut AsmWorkerServiceState<W, S>,
     incoming_block: &L1BlockCommitment,
-) -> crate::WorkerResult<()> {
+) -> crate::WorkerResult<()>
+where
+    W: WorkerContext + Send + Sync + 'static,
+    S: AsmSpec + Send + Sync + 'static,
+{
     let ctx = &state.context;
 
     // Handle pre-genesis: if the block is before genesis we don't care about it.
