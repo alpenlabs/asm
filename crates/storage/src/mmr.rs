@@ -1,8 +1,9 @@
 //! Sled-backed Merkle Mountain Range for manifest hashes.
 
 use anyhow::{Context, Result};
+use ssz::{Decode, Encode};
 use strata_identifiers::Buf32;
-use strata_merkle::{CompactMmr64, MerkleProofB32, Mmr, Sha256Hasher};
+use strata_merkle::{MerkleProofB32, Mmr, Mmr64B32, MmrState, Sha256Hasher};
 
 /// Sled-backed MMR for manifest hashes.
 ///
@@ -81,7 +82,7 @@ impl MmrDb {
     /// Rebuilds the MMR from stored leaves up to `at_leaf_count`, then
     /// extracts the proof for the given index.
     pub fn generate_proof(&self, index: u64, at_leaf_count: u64) -> Result<MerkleProofB32> {
-        let mut compact = CompactMmr64::new(64);
+        let mut compact = Mmr64B32::new_empty();
         let mut proof_list = Vec::with_capacity(at_leaf_count as usize);
 
         for i in 0..at_leaf_count {
@@ -105,15 +106,16 @@ impl MmrDb {
             .context(format!("no proof for index {index}"))
     }
 
-    fn load_compact_mmr(&self) -> Result<CompactMmr64<[u8; 32]>> {
+    fn load_compact_mmr(&self) -> Result<Mmr64B32> {
         match self.meta.get(MMR_STATE_KEY)? {
-            Some(bytes) => borsh::from_slice(&bytes).context("failed to deserialize compact MMR"),
-            None => Ok(CompactMmr64::new(64)),
+            Some(bytes) => Mmr64B32::from_ssz_bytes(bytes.as_ref())
+                .context("failed to deserialize compact MMR"),
+            None => Ok(Mmr64B32::new_empty()),
         }
     }
 
-    fn save_compact_mmr(&self, mmr: &CompactMmr64<[u8; 32]>) -> Result<()> {
-        let bytes = borsh::to_vec(mmr)?;
+    fn save_compact_mmr(&self, mmr: &Mmr64B32) -> Result<()> {
+        let bytes = mmr.as_ssz_bytes();
         self.meta.insert(MMR_STATE_KEY, bytes)?;
         Ok(())
     }
@@ -122,7 +124,6 @@ impl MmrDb {
 #[cfg(test)]
 mod tests {
     use strata_identifiers::Buf32;
-    use strata_merkle::Mmr64B32;
 
     use super::*;
 
@@ -189,7 +190,7 @@ mod tests {
         mmr_db.append_leaf(leaf).unwrap();
 
         let proof = mmr_db.generate_proof(0, 1).unwrap();
-        let compact = Mmr64B32::from_generic(&mmr_db.load_compact_mmr().unwrap());
+        let compact = mmr_db.load_compact_mmr().unwrap();
         assert!(compact.verify(&proof, &leaf.0));
     }
 
@@ -219,7 +220,7 @@ mod tests {
         for i in 0u8..4 {
             mmr_db.append_leaf(make_leaf(i)).unwrap();
         }
-        let compact_at_4 = Mmr64B32::from_generic(&mmr_db.load_compact_mmr().unwrap());
+        let compact_at_4 = mmr_db.load_compact_mmr().unwrap();
 
         // Append 4 more.
         for i in 4u8..8 {
