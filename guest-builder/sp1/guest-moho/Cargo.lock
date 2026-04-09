@@ -523,7 +523,7 @@ checksum = "f8ca58f447f06ed17d5fc4043ce1b10dd205e060fb3ce5b979b8ed8e59ff3f79"
 [[package]]
 name = "moho-recursive-proof"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/moho?rev=0365d7be6139f396dea598278345a13a23d8fdeb#0365d7be6139f396dea598278345a13a23d8fdeb"
+source = "git+https://github.com/alpenlabs/moho?rev=28ef75cf39758c4214cb383a4de2b2dcf0a3dd67#28ef75cf39758c4214cb383a4de2b2dcf0a3dd67"
 dependencies = [
  "moho-types",
  "ssz",
@@ -532,14 +532,14 @@ dependencies = [
  "strata-predicate",
  "thiserror 2.0.18",
  "tree_hash",
- "zkaleido 0.1.0 (git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc22)",
+ "zkaleido 0.1.0 (git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc23)",
  "zkaleido-native-adapter",
 ]
 
 [[package]]
 name = "moho-types"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/moho?rev=0365d7be6139f396dea598278345a13a23d8fdeb#0365d7be6139f396dea598278345a13a23d8fdeb"
+source = "git+https://github.com/alpenlabs/moho?rev=28ef75cf39758c4214cb383a4de2b2dcf0a3dd67#28ef75cf39758c4214cb383a4de2b2dcf0a3dd67"
 dependencies = [
  "hex",
  "sha2",
@@ -553,7 +553,7 @@ dependencies = [
  "thiserror 2.0.18",
  "tree_hash",
  "tree_hash_derive",
- "zkaleido 0.1.0 (git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc22)",
+ "zkaleido 0.1.0 (git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc23)",
 ]
 
 [[package]]
@@ -1109,7 +1109,7 @@ dependencies = [
 [[package]]
 name = "strata-codec"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/strata-common?tag=v0.1.0-alpha-rc9#b9d24f391cb7b0004788230d673685363f6975bb"
+source = "git+https://github.com/alpenlabs/strata-common?tag=v0.1.0-alpha-rc14#814957d5254ac1b1ff4b5c641da21549972c53b7"
 dependencies = [
  "thiserror 2.0.18",
 ]
@@ -1117,7 +1117,7 @@ dependencies = [
 [[package]]
 name = "strata-merkle"
 version = "0.2.0"
-source = "git+https://github.com/alpenlabs/strata-common?tag=v0.1.0-alpha-rc9#b9d24f391cb7b0004788230d673685363f6975bb"
+source = "git+https://github.com/alpenlabs/strata-common?tag=v0.1.0-alpha-rc14#814957d5254ac1b1ff4b5c641da21549972c53b7"
 dependencies = [
  "borsh",
  "digest",
@@ -1137,7 +1137,7 @@ dependencies = [
 [[package]]
 name = "strata-predicate"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/strata-common?tag=v0.1.0-alpha-rc9#b9d24f391cb7b0004788230d673685363f6975bb"
+source = "git+https://github.com/alpenlabs/strata-common?tag=v0.1.0-alpha-rc14#814957d5254ac1b1ff4b5c641da21549972c53b7"
 dependencies = [
  "borsh",
  "hex",
@@ -1470,7 +1470,7 @@ dependencies = [
 [[package]]
 name = "zkaleido"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc22#c084082b8f9e7f62406878313d25b9225f278188"
+source = "git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc23#aa78497efed37c3d194d6d759ab0de75eccc7242"
 dependencies = [
  "bincode",
  "borsh",
@@ -1482,13 +1482,13 @@ dependencies = [
 [[package]]
 name = "zkaleido-native-adapter"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc22#c084082b8f9e7f62406878313d25b9225f278188"
+source = "git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc23#aa78497efed37c3d194d6d759ab0de75eccc7242"
 dependencies = [
  "bincode",
  "k256",
  "rand_core 0.6.4",
  "serde",
- "zkaleido 0.1.0 (git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc22)",
+ "zkaleido 0.1.0 (git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc23)",
 ]
 
 [[package]]
@@ -1509,13 +1509,13 @@ dependencies = [
 [[package]]
 name = "zkaleido-sp1-guest-env"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc22#c084082b8f9e7f62406878313d25b9225f278188"
+source = "git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc23#aa78497efed37c3d194d6d759ab0de75eccc7242"
 dependencies = [
  "bincode",
  "cfg-if",
  "serde",
  "sp1-zkvm",
- "zkaleido 0.1.0 (git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc22)",
+ "zkaleido 0.1.0 (git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc23)",
 ]
 
 [[patch.unused]]

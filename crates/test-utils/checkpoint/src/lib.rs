@@ -17,7 +17,7 @@ use strata_checkpoint_types_ssz::{
 };
 use strata_crypto::hash;
 use strata_identifiers::{OLBlockCommitment, OLBlockId};
-use strata_merkle::{CompactMmr64, Mmr, Sha256Hasher};
+use strata_merkle::{Mmr, Mmr64B32, MmrState, Sha256Hasher};
 use strata_predicate::{PredicateKey, PredicateTypeId};
 use strata_test_utils_arb::ArbitraryGenerator;
 use strata_test_utils_btc as _;
@@ -180,7 +180,7 @@ impl CheckpointTestHarness {
         let leaves = self.gen_manifest_leaves(new_tip);
         let mut proof_list = Vec::new();
 
-        let mut manifest_mmr = CompactMmr64::new(64);
+        let mut manifest_mmr = Mmr64B32::new_empty();
         let mut asm_accumulator_state =
             AsmHistoryAccumulatorState::new(self.genesis_l1_height as u64);
 

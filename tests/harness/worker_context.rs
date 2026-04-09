@@ -15,7 +15,7 @@ use strata_asm_worker::{AsmState, WorkerContext, WorkerError, WorkerResult};
 use strata_btc_types::{BitcoinTxid, BlockHashExt, L1BlockIdBitcoinExt, RawBitcoinTx};
 use strata_btc_verification::L1Anchor;
 use strata_identifiers::{Buf32, Hash, L1BlockCommitment, L1BlockId};
-use strata_merkle::{CompactMmr64, MerkleProofB32, Mmr, Sha256Hasher};
+use strata_merkle::{MerkleProofB32, Mmr, Mmr64B32, MmrState, Sha256Hasher};
 use tokio::{runtime::Handle, task::block_in_place};
 
 /// Test implementation of WorkerContext for integration tests
@@ -166,7 +166,7 @@ impl WorkerContext for TestAsmWorkerContext {
             return Err(WorkerError::MmrProofFailed { index });
         }
 
-        let mut compact = CompactMmr64::new(64);
+        let mut compact = Mmr64B32::new_empty();
         let at_leaf_count = at_leaf_count as usize;
         let mut proof_list = Vec::with_capacity(at_leaf_count);
         for leaf in leaves.iter().take(at_leaf_count) {
