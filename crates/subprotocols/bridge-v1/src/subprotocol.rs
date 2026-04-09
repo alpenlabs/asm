@@ -13,7 +13,6 @@ use strata_asm_txs_bridge_v1::{BRIDGE_V1_SUBPROTOCOL_ID, parser::parse_tx};
 use strata_identifiers::L1BlockCommitment;
 
 use crate::{
-    errors::BridgeSubprotocolError,
     handler::{handle_parsed_tx, preprocess_parsed_tx},
     state::BridgeV1State,
 };
@@ -51,18 +50,11 @@ impl Subprotocol for BridgeV1Subproto {
         // Pre-Process each transaction
         for tx in txs {
             // Parse transaction to extract structured data, then handle the preprocess transaction
-            // to get the auxiliary requests
-            match parse_tx(tx) {
-                Ok(parsed_tx) => {
-                    preprocess_parsed_tx(parsed_tx, state, collector);
-                }
-                Err(e) => {
-                    error!(
-                        txid = %tx.tx().compute_txid(),
-                        error = %e,
-                        "Failed to pre-process tx"
-                    )
-                }
+            // to get the auxiliary requests. Transactions that are not directly processed by the
+            // bridge subprotocol (e.g. `DepositRequest`, `Commit`) or are otherwise unparseable
+            // are silently skipped.
+            if let Some(parsed_tx) = parse_tx(tx) {
+                preprocess_parsed_tx(parsed_tx, state, collector);
             }
         }
     }
@@ -90,12 +82,13 @@ impl Subprotocol for BridgeV1Subproto {
         // Process each transaction
         for tx in txs {
             // Parse transaction to extract structured data (deposit/withdrawal info)
-            // then handle the parsed transaction to update state and emit events
-            match parse_tx(tx)
-                .map_err(BridgeSubprotocolError::from)
-                .and_then(|parsed_tx| {
-                    handle_parsed_tx(state, parsed_tx, verified_aux_data, relayer)
-                }) {
+            // then handle the parsed transaction to update state and emit events.
+            // Transactions that are not directly processed by the bridge subprotocol
+            // (e.g. `DepositRequest`, `Commit`) or are otherwise unparseable are silently skipped.
+            let Some(parsed_tx) = parse_tx(tx) else {
+                continue;
+            };
+            match handle_parsed_tx(state, parsed_tx, verified_aux_data, relayer) {
                 // `tx_id` is computed inside macro, because logging is compiled to noop in ZkVM
                 Ok(()) => info!(tx_id = %tx.tx().compute_txid(), "Successfully processed tx"),
                 Err(e) => {

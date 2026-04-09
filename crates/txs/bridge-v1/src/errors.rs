@@ -1,23 +1,10 @@
 use std::fmt::Debug;
 
 use strata_codec::CodecError;
-use strata_l1_txfmt::{TxFmtError, TxType};
+use strata_l1_txfmt::TxFmtError;
 use thiserror::Error;
 
 use crate::constants::BridgeTxType;
-
-/// Errors that can occur when parsing bridge transaction
-#[derive(Debug, Error)]
-pub enum BridgeTxParseError {
-    #[error("invalid bridge tx structure: {0}")]
-    InvalidStructure(#[from] TxStructureError),
-
-    #[error("tx type {0} is not directly processed (fetched as auxiliary data)")]
-    NotDirectlyProcessed(TxType),
-
-    #[error("unsupported tx type {0}")]
-    UnsupportedTxType(TxType),
-}
 
 /// Specific reasons for a structural error when parsing bridge transactions.
 #[derive(Debug, Error)]
