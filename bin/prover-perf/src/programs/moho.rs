@@ -2,10 +2,9 @@ use std::{fs, path::Path, sync::LazyLock};
 
 use moho_recursive_proof::{
     test_utils::create_predicate_inclusion_proof, MohoRecursiveInput, MohoRecursiveProgram,
-    MohoStateTransition, MohoTransitionWithProof,
 };
 use moho_runtime_interface::MohoProgram;
-use moho_types::StateRefAttestation;
+use moho_types::{StateRefAttestation, StepMohoAttestation, StepMohoProof};
 use sp1_sdk::HashableKey;
 use ssz::Decode;
 use strata_asm_proof_impl::{
@@ -48,9 +47,9 @@ pub(crate) fn compute_moho_predicate_key() -> PredicateKey {
     compute_sp1_predicate_key(vk)
 }
 
-pub(crate) fn load_asm_stf_predicate_and_proof() -> (PredicateKey, MohoTransitionWithProof) {
+pub(crate) fn load_asm_stf_predicate_and_proof() -> (PredicateKey, StepMohoProof) {
     const ASM_PROGRAM_ID_STR: &str =
-        "00d0c2a2a163035da6766fd1fdb1cd044425e8b26faa69282fc8d8851452e6fc";
+        "0040f228996377e03af318ad050f7ac466f27e776613992336862b1c9057b2a4";
     let asm_program_id: [u8; 32] = hex::decode(ASM_PROGRAM_ID_STR).unwrap().try_into().unwrap();
     let asm_predicate = compute_sp1_predicate_key(asm_program_id);
 
@@ -59,13 +58,12 @@ pub(crate) fn load_asm_stf_predicate_and_proof() -> (PredicateKey, MohoTransitio
         ASM_PROGRAM_ID_STR
     ));
     let asm_stf_proof = ProofReceiptWithMetadata::load(proof_path).expect("failed to open proof");
-    let proven_moho_transition =
-        MohoStateTransition::from_ssz_bytes(asm_stf_proof.receipt().public_values().as_bytes())
+    let proven_moho_attestation =
+        StepMohoAttestation::from_ssz_bytes(asm_stf_proof.receipt().public_values().as_bytes())
             .unwrap();
 
     let proof = &asm_stf_proof.receipt().proof().as_bytes()[VK_HASH_PREFIX_LENGTH..];
-    let incremental_step_proof =
-        MohoTransitionWithProof::new(proven_moho_transition, proof.to_vec());
+    let incremental_step_proof = StepMohoProof::new(proven_moho_attestation, proof.to_vec());
 
     (asm_predicate, incremental_step_proof)
 }
@@ -99,12 +97,12 @@ pub(crate) fn create_moho_recursive_input() -> MohoRecursiveInput {
         moho_post_state.compute_commitment(),
     );
 
-    let expected_moho_transition =
-        MohoStateTransition::new(moho_pre_state_ref, moho_post_state_ref);
+    let expected_moho_attestation =
+        StepMohoAttestation::new(moho_pre_state_ref, moho_post_state_ref);
 
     assert_eq!(
-        &expected_moho_transition,
-        incremental_step_proof.transition()
+        &expected_moho_attestation,
+        incremental_step_proof.attestation()
     );
 
     let step_predicate_merkle_proof = create_predicate_inclusion_proof(&moho_pre_state);

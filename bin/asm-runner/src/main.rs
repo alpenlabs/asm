@@ -19,6 +19,7 @@ use strata_tasks::TaskManager;
 use tokio::runtime::Builder;
 use tracing::info;
 use tracing_subscriber::{EnvFilter, fmt, layer::SubscriberExt, util::SubscriberInitExt};
+use zkaleido_native_adapter as _;
 
 use crate::{bootstrap::bootstrap, config::AsmRpcConfig};
 

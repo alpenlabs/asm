@@ -691,7 +691,7 @@ checksum = "f8ca58f447f06ed17d5fc4043ce1b10dd205e060fb3ce5b979b8ed8e59ff3f79"
 [[package]]
 name = "moho-runtime-impl"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/moho?rev=b399fdbf3b5108f4b0d0559dc1e74b9e53858744#b399fdbf3b5108f4b0d0559dc1e74b9e53858744"
+source = "git+https://github.com/alpenlabs/moho?tag=v0.1-alpha.1#a80ef1e534a6ebbda5dff7125efb5ab5bf9b2485"
 dependencies = [
  "moho-runtime-interface",
  "moho-types",
@@ -702,7 +702,7 @@ dependencies = [
 [[package]]
 name = "moho-runtime-interface"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/moho?rev=b399fdbf3b5108f4b0d0559dc1e74b9e53858744#b399fdbf3b5108f4b0d0559dc1e74b9e53858744"
+source = "git+https://github.com/alpenlabs/moho?tag=v0.1-alpha.1#a80ef1e534a6ebbda5dff7125efb5ab5bf9b2485"
 dependencies = [
  "moho-types",
  "ssz",
@@ -712,7 +712,7 @@ dependencies = [
 [[package]]
 name = "moho-types"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/moho?rev=b399fdbf3b5108f4b0d0559dc1e74b9e53858744#b399fdbf3b5108f4b0d0559dc1e74b9e53858744"
+source = "git+https://github.com/alpenlabs/moho?tag=v0.1-alpha.1#a80ef1e534a6ebbda5dff7125efb5ab5bf9b2485"
 dependencies = [
  "hex",
  "sha2",

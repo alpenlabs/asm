@@ -185,7 +185,7 @@ async fn test_proof_program_reflects_predicate_update() {
 
     // The proven commitment in the attestation must match.
     assert_eq!(
-        attestation.proven().commitment(),
+        attestation.to().commitment(),
         &expected_post_moho.compute_commitment(),
         "post-state commitment should reflect the updated predicate (never_accept)"
     );
