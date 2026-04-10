@@ -262,7 +262,7 @@ impl<'a> fmt::Debug for AuxDataResolver<'a> {
 
 #[cfg(test)]
 mod tests {
-    // TODO: Add tests once we have mock implementations
+    // TODO(STR-3031): Add tests
     // - test_resolve_empty_requests
     // - test_resolve_bitcoin_txs
     // - test_resolve_manifest_hashes

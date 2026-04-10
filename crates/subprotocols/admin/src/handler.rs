@@ -56,7 +56,7 @@ pub(crate) fn handle_pending_updates(
                 let (key, kind) = update.into_inner();
                 match kind {
                     ProofType::Asm => {
-                        // TODO: STR-1721 Emit ASM Log
+                        // TODO(STR-1721): Emit ASM Log
                     }
                     ProofType::OLStf => {
                         relay_checkpoint_predicate(relayer, key);
@@ -68,7 +68,7 @@ pub(crate) fn handle_pending_updates(
                 }
             }
             UpdateAction::OperatorSet(_update) => {
-                // TODO: STR-1721 Set an InterProtoMsg to the Bridge Subprotocol
+                // TODO(STR-1721): Set an InterProtoMsg to the Bridge Subprotocol
             }
             UpdateAction::Sequencer(update) => {
                 let new_key = update.into_inner();

@@ -149,10 +149,8 @@ pub trait Subprotocol: 'static {
     /// * `msgs` - Slice of messages received from other subprotocols
     /// * `l1ref` - L1 block being processed
     ///
-    /// TODO:
-    /// Also generate the event logs that is later needed for other components
-    /// to read ASM activity. Return the commitment of the events. The actual
-    /// event is defined by the subprotocol and is not visible to the ASM.
+    /// TODO(STR-3028): Enable log emission from process_msgs to support multi-round
+    /// inter-subprotocol messaging
     fn process_msgs(state: &mut Self::State, msgs: &[Self::Msg], l1ref: &L1BlockCommitment);
 }
 

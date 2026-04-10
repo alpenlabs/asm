@@ -1,4 +1,3 @@
-// TODO: Move the logic with other libraries to do all the L1 transaction parsing logic.
 use std::collections::BTreeMap;
 
 use bitcoin::Transaction;

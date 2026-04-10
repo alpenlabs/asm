@@ -10,8 +10,8 @@ use strata_msg_fmt::TypeId;
 use crate::AsmLog;
 
 // Define type IDs for these log types
-pub const DEPOSIT_INTENT_ASM_LOG_TYPE_ID: TypeId = 100; // TODO: Confirm the actual type ID
-pub const CHECKPOINT_ACK_ASM_LOG_TYPE_ID: TypeId = 101; // TODO: Confirm the actual type ID
+pub const DEPOSIT_INTENT_ASM_LOG_TYPE_ID: TypeId = 100; // TODO(STR-3029): Consolidate logs together
+pub const CHECKPOINT_ACK_ASM_LOG_TYPE_ID: TypeId = 101; // TODO(STR-3029): Consolidate logs together
 
 /// Payload for a deposit intent ASM log.
 ///

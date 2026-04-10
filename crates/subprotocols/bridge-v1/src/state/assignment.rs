@@ -70,7 +70,7 @@ impl Ord for AssignmentEntry {
 }
 
 impl AssignmentEntry {
-    // TODO: rename this function — it's no longer purely random, it honors user-selected
+    // TODO(STR-2356): rename this function — it's no longer purely random, it honors user-selected
     // operators when eligible and falls back to random.
     /// Creates a new assignment entry by randomly selecting an eligible operator.
     ///

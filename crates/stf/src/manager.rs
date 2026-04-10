@@ -40,7 +40,7 @@ impl<S: Subprotocol, R: MsgRelayer> SubprotoHandler for HandlerImpl<S, R> {
         self.interproto_msg_buf.push(m.clone());
     }
 
-    // TODO make this just return the aux request
+    // TODO(STR-0003): make this just return the aux request
     fn pre_process_txs(&mut self, txs: &[TxInputRef<'_>], collector: &mut AuxRequestCollector) {
         S::pre_process_txs(&self.state, txs, collector);
     }
@@ -61,7 +61,7 @@ impl<S: Subprotocol, R: MsgRelayer> SubprotoHandler for HandlerImpl<S, R> {
     }
 
     fn process_buffered_msgs(&mut self, l1ref: &L1BlockCommitment) {
-        // TODO probably will make this more sophisticated
+        // TODO(STR-2416): allow multi rounds of interproto msg passing
         S::process_msgs(&mut self.state, &self.interproto_msg_buf, l1ref)
     }
 
