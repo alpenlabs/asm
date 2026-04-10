@@ -5,6 +5,7 @@ use std::{marker, thread::sleep, time::Duration};
 use bitcoin::hashes::Hash;
 use serde::{Deserialize, Serialize};
 use strata_asm_common::AsmSpec;
+use strata_asm_params::AsmParams;
 use strata_btc_types::BlockHashExt;
 use strata_identifiers::{Buf32, L1BlockCommitment, L1BlockId};
 use strata_service::{Response, Service, SyncService};
@@ -24,7 +25,7 @@ pub struct AsmWorkerService<W, S> {
 impl<W, S> Service for AsmWorkerService<W, S>
 where
     W: WorkerContext + Send + Sync + 'static,
-    S: AsmSpec + Send + Sync + 'static,
+    S: AsmSpec<Params = AsmParams> + Send + Sync + 'static,
 {
     type State = AsmWorkerServiceState<W, S>;
     type Msg = AsmWorkerMessage;
@@ -42,7 +43,7 @@ where
 impl<W, S> SyncService for AsmWorkerService<W, S>
 where
     W: WorkerContext + Send + Sync + 'static,
-    S: AsmSpec + Send + Sync + 'static,
+    S: AsmSpec<Params = AsmParams> + Send + Sync + 'static,
 {
     fn on_launch(state: &mut AsmWorkerServiceState<W, S>) -> anyhow::Result<()> {
         Ok(state.load_latest_or_create_genesis()?)
@@ -74,7 +75,7 @@ fn process_block<W, S>(
 ) -> crate::WorkerResult<()>
 where
     W: WorkerContext + Send + Sync + 'static,
-    S: AsmSpec + Send + Sync + 'static,
+    S: AsmSpec<Params = AsmParams> + Send + Sync + 'static,
 {
     let ctx = &state.context;
 

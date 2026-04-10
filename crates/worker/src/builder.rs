@@ -65,7 +65,7 @@ impl<W, S> AsmWorkerBuilder<W, S> {
     pub fn launch(self, executor: &TaskExecutor) -> anyhow::Result<AsmWorkerHandle>
     where
         W: WorkerContext + Send + Sync + 'static,
-        S: AsmSpec + Send + Sync + 'static,
+        S: AsmSpec<Params = AsmParams> + Send + Sync + 'static,
     {
         let context = self
             .context

@@ -3,7 +3,6 @@ use std::sync::Arc;
 use bitcoin::Block;
 use strata_asm_common::{AsmSpec, AuxData};
 use strata_asm_params::AsmParams;
-use strata_asm_spec::construct_genesis_state;
 use strata_asm_stf::AsmStfOutput;
 use strata_btc_verification::TxidInclusionProof;
 use strata_identifiers::L1BlockCommitment;
@@ -43,7 +42,7 @@ pub struct AsmWorkerServiceState<W, S> {
 impl<W, S> AsmWorkerServiceState<W, S>
 where
     W: WorkerContext + Send + Sync + 'static,
-    S: AsmSpec + Send + Sync + 'static,
+    S: AsmSpec<Params = AsmParams> + Send + Sync + 'static,
 {
     /// A new (uninitialized) instance of the service state.
     pub fn new(context: W, asm_params: Arc<AsmParams>, spec: S) -> Self {
@@ -68,7 +67,7 @@ where
             }
             None => {
                 // Create genesis anchor state.
-                let genesis_state = construct_genesis_state(&self.asm_params);
+                let genesis_state = self.spec.construct_genesis_state(&self.asm_params);
                 let genesis_blk = self.asm_params.anchor.block;
 
                 // Persist it and update state.
@@ -142,7 +141,7 @@ where
 impl<W, S> ServiceState for AsmWorkerServiceState<W, S>
 where
     W: WorkerContext + Send + Sync + 'static,
-    S: AsmSpec + Send + Sync + 'static,
+    S: AsmSpec<Params = AsmParams> + Send + Sync + 'static,
 {
     fn name(&self) -> &str {
         constants::SERVICE_NAME
