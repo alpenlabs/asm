@@ -62,20 +62,25 @@ pub(crate) async fn bootstrap(
         let proof_db = SledProofDb::open(&orch_config.proof_db_path)?;
         let proof_db_clone = proof_db.clone();
 
-        let backend = ProofBackend::new()?;
+        let ProofBackend {
+            asm_host,
+            moho_host,
+            asm_predicate,
+            moho_predicate,
+        } = ProofBackend::new()?;
 
         let input_builder = InputBuilder::new(
             state_db.clone(),
             bitcoin_client.clone(),
             proof_db.clone(),
             params.anchor.block,
-            backend.asm_predicate.clone(),
-            backend.moho_predicate.clone(),
+            asm_predicate,
+            moho_predicate,
         );
         let mut orchestrator = ProofOrchestrator::new(
             proof_db,
-            backend.asm_host,
-            backend.moho_host,
+            asm_host,
+            moho_host,
             orch_config,
             input_builder,
             rx,

@@ -34,6 +34,7 @@ pub(crate) type ProofHost = zkaleido_native_adapter::NativeHost;
 /// each one's proofs verify against. Constructed once at startup via
 /// [`ProofBackend::new`] and consumed by the proof orchestrator (hosts) and
 /// the input builder (predicates).
+#[derive(Debug)]
 pub(crate) struct ProofBackend {
     pub(crate) asm_host: ProofHost,
     pub(crate) moho_host: ProofHost,
@@ -111,7 +112,7 @@ fn build_proof_hosts() -> Result<(ProofHost, ProofHost)> {
 /// # Errors
 ///
 /// - For SP1 hosts, returns an error if the host's verifying key cannot be deserialized into an
-///   [`SP1VerifyingKey`] or if the SP1 Groth16 verifier cannot be loaded for the resulting program
+///   `SP1VerifyingKey` or if the SP1 Groth16 verifier cannot be loaded for the resulting program
 ///   hash.
 /// - For Risc0 hosts, returns an error because predicate resolution is not yet implemented for that
 ///   backend.
