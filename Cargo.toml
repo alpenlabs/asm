@@ -125,6 +125,7 @@ zkaleido = { git = "https://github.com/alpenlabs/zkaleido", tag = "v0.1.0-alpha-
   "remote-prover",
   "serde",
 ] }
+zkaleido-logging = { git = "https://github.com/alpenlabs/zkaleido", tag = "v0.1.0-alpha-rc23" }
 zkaleido-native-adapter = { git = "https://github.com/alpenlabs/zkaleido", tag = "v0.1.0-alpha-rc23", features = [
   "remote-prover",
 ] }

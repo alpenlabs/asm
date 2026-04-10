@@ -26,6 +26,7 @@ thiserror.workspace = true
 tracing.workspace = true
 tree_hash.workspace = true
 tree_hash_derive.workspace = true
+zkaleido-logging.workspace = true
 
 [build-dependencies]
 ssz_codegen.workspace = true
