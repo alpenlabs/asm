@@ -1,8 +1,5 @@
-use std::sync::Arc;
-
 use bitcoin::Block;
 use strata_asm_common::{AsmSpec, AuxData};
-use strata_asm_params::AsmParams;
 use strata_asm_stf::AsmStfOutput;
 use strata_btc_verification::TxidInclusionProof;
 use strata_identifiers::L1BlockCommitment;
@@ -19,9 +16,9 @@ use crate::{
 /// inject alternative specs (e.g. `DebugAsmSpec` wrapping `StrataAsmSpec` for
 /// testing) without forking the worker.
 #[derive(Debug)]
-pub struct AsmWorkerServiceState<W, S> {
-    /// Params.
-    pub(crate) asm_params: Arc<AsmParams>,
+pub struct AsmWorkerServiceState<W, S: AsmSpec> {
+    /// Params used to construct the genesis state.
+    pub(crate) params: S::Params,
 
     /// Context for the state to interact with outer world.
     pub(crate) context: W,
@@ -42,12 +39,13 @@ pub struct AsmWorkerServiceState<W, S> {
 impl<W, S> AsmWorkerServiceState<W, S>
 where
     W: WorkerContext + Send + Sync + 'static,
-    S: AsmSpec<Params = AsmParams> + Send + Sync + 'static,
+    S: AsmSpec + Send + Sync + 'static,
+    S::Params: Send + Sync + 'static,
 {
     /// A new (uninitialized) instance of the service state.
-    pub fn new(context: W, asm_params: Arc<AsmParams>, spec: S) -> Self {
+    pub fn new(context: W, spec: S, params: S::Params) -> Self {
         Self {
-            asm_params,
+            params,
             context,
             spec,
             anchor: None,
@@ -67,7 +65,7 @@ where
             }
             None => {
                 // Create genesis anchor state.
-                let genesis_state = self.spec.construct_genesis_state(&self.asm_params);
+                let genesis_state = self.spec.construct_genesis_state(&self.params);
                 let genesis_blk = genesis_state.chain_view.pow_state.last_verified_block;
 
                 // Persist it and update state.
@@ -150,7 +148,8 @@ where
 impl<W, S> ServiceState for AsmWorkerServiceState<W, S>
 where
     W: WorkerContext + Send + Sync + 'static,
-    S: AsmSpec<Params = AsmParams> + Send + Sync + 'static,
+    S: AsmSpec + Send + Sync + 'static,
+    S::Params: Send + Sync + 'static,
 {
     fn name(&self) -> &str {
         constants::SERVICE_NAME
@@ -159,7 +158,10 @@ where
 
 #[cfg(test)]
 mod tests {
-    use std::{collections::HashMap, sync::Mutex};
+    use std::{
+        collections::HashMap,
+        sync::{Arc, Mutex},
+    };
 
     use async_trait::async_trait;
     use bitcoin::{BlockHash, Network, block::Header};
@@ -169,6 +171,7 @@ mod tests {
     };
     use corepc_node::Node;
     use strata_asm_common::AsmManifest;
+    use strata_asm_params::AsmParams;
     use strata_asm_spec::StrataAsmSpec;
     use strata_btc_types::{BitcoinTxid, BlockHashExt, RawBitcoinTx};
     use strata_btc_verification::L1Anchor;
@@ -204,12 +207,11 @@ mod tests {
             .await
             .expect("Failed to fetch genesis view");
         asm_params.anchor = l1_anchor;
-        let asm_params = Arc::new(asm_params);
 
         // 3. Set worker context and initialize service state
         let context = MockWorkerContext::new();
         let mut service_state =
-            AsmWorkerServiceState::new(context.clone(), asm_params, StrataAsmSpec);
+            AsmWorkerServiceState::new(context.clone(), StrataAsmSpec, asm_params);
 
         // Initialize: this should create genesis state based on our `genesis_l1_view`
         service_state
