@@ -25,7 +25,6 @@ use strata_asm_common::{
     VerifiableManifestHash,
 };
 use strata_asm_manifest_types::Hash32;
-use strata_identifiers::L1BlockCommitment;
 use tracing::*;
 
 use crate::{WorkerContext, WorkerError, WorkerResult};
@@ -42,8 +41,9 @@ use crate::{WorkerContext, WorkerError, WorkerResult};
 pub struct AuxDataResolver<'a> {
     /// Worker context for accessing ASM state and MMR database
     context: &'a dyn WorkerContext,
-    /// Rollup parameters for genesis height calculation
-    l1_genesis: L1BlockCommitment,
+    /// L1 genesis block height. Stored as `u64` instead of `L1Height` to match MMR index
+    /// arithmetic.
+    genesis_height: u64,
     /// Leaf count at which manifest proofs should be generated.
     at_leaf_count: u64,
 }
@@ -54,16 +54,12 @@ impl<'a> AuxDataResolver<'a> {
     /// # Arguments
     ///
     /// * `context` - Worker context for ASM state access and MMR database
-    /// * `l1_genesis` - L1 genesis block commitment
+    /// * `genesis_height` - L1 genesis block height
     /// * `at_leaf_count` - MMR leaf count snapshot for proof generation
-    pub fn new(
-        context: &'a dyn WorkerContext,
-        l1_genesis: L1BlockCommitment,
-        at_leaf_count: u64,
-    ) -> Self {
+    pub fn new(context: &'a dyn WorkerContext, genesis_height: u64, at_leaf_count: u64) -> Self {
         Self {
             context,
-            l1_genesis,
+            genesis_height,
             at_leaf_count,
         }
     }
@@ -178,7 +174,7 @@ impl<'a> AuxDataResolver<'a> {
 
         debug!(count = ranges.len(), "Resolving manifest hash ranges");
 
-        let genesis_height = self.l1_genesis.height() as u64;
+        let genesis_height = self.genesis_height;
 
         let mut resolved = Vec::new();
 
@@ -255,7 +251,7 @@ impl<'a> AuxDataResolver<'a> {
 impl<'a> fmt::Debug for AuxDataResolver<'a> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("AuxDataResolver")
-            .field("l1_genesis", &self.l1_genesis)
+            .field("genesis_height", &self.genesis_height)
             .finish_non_exhaustive()
     }
 }

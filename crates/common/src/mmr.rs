@@ -30,6 +30,10 @@ impl AsmHistoryAccumulatorState {
         self.offset
     }
 
+    pub fn genesis_height(&self) -> u64 {
+        self.offset - 1
+    }
+
     /// Returns the current number of leaves in the manifest MMR.
     pub fn num_entries(&self) -> u64 {
         self.manifest_mmr.num_entries()

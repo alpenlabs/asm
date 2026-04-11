@@ -80,9 +80,16 @@ where
     let ctx = &state.context;
 
     // Handle pre-genesis: if the block is before genesis we don't care about it.
-    let genesis_height = state.asm_params.anchor.block.height();
+    let genesis_height = state
+        .anchor
+        .as_ref()
+        .unwrap()
+        .state()
+        .chain_view
+        .history_accumulator
+        .genesis_height();
     let height = incoming_block.height();
-    if height < genesis_height {
+    if height < genesis_height as u32 {
         warn!(height, "ignoring unexpected L1 block before genesis");
         return Ok(());
     }
@@ -99,7 +106,7 @@ where
     let mut pivot_block = *incoming_block;
     let mut pivot_anchor = ctx.get_anchor_state(&pivot_block);
 
-    while pivot_anchor.is_err() && pivot_block.height() >= genesis_height {
+    while pivot_anchor.is_err() && pivot_block.height() as u64 >= genesis_height {
         let block = get_l1_block_with_retry(ctx, pivot_block.blkid())?;
         let parent_height = pivot_block.height() - 1;
         let parent_block_id =
@@ -114,7 +121,7 @@ where
     }
 
     // We reached the height before genesis (while traversing), but didn't find genesis state.
-    if pivot_block.height() < genesis_height {
+    if (pivot_block.height() as u64) < genesis_height {
         warn!("ASM hasn't found pivot anchor state at genesis.");
         return Err(crate::WorkerError::MissingGenesisState);
     }
@@ -135,7 +142,7 @@ where
     // empty with offset = genesis_height + 1. Appending genesis here would shift
     // all external MMR indices by 1 relative to the internal accumulator.
     // Idempotency: skip if the genesis manifest already exists in the L1 database.
-    if pivot_block.height() == genesis_height && !ctx.has_l1_manifest(pivot_block.blkid())? {
+    if pivot_block.height() as u64 == genesis_height && !ctx.has_l1_manifest(pivot_block.blkid())? {
         let genesis_span = info_span!("asm.genesis_manifest",
             pivot_height = pivot_block.height(),
             pivot_block = %pivot_block.blkid()

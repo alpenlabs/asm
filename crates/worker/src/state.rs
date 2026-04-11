@@ -68,7 +68,7 @@ where
             None => {
                 // Create genesis anchor state.
                 let genesis_state = self.spec.construct_genesis_state(&self.asm_params);
-                let genesis_blk = self.asm_params.anchor.block;
+                let genesis_blk = genesis_state.chain_view.pow_state.last_verified_block;
 
                 // Persist it and update state.
                 let state = AsmState::new(genesis_state, vec![]);
@@ -108,8 +108,17 @@ where
                 .chain_view
                 .history_accumulator
                 .num_entries();
-            let resolver =
-                AuxDataResolver::new(&self.context, self.asm_params.anchor.block, at_leaf_count);
+            let resolver = AuxDataResolver::new(
+                &self.context,
+                self.anchor
+                    .as_ref()
+                    .unwrap()
+                    .state()
+                    .chain_view
+                    .history_accumulator
+                    .genesis_height(),
+                at_leaf_count,
+            );
             resolver.resolve(&pre_process.aux_requests)?
         };
 
