@@ -33,9 +33,9 @@ where
 
     fn get_status(state: &Self::State) -> Self::Status {
         AsmWorkerStatus {
-            is_initialized: state.initialized,
-            cur_block: state.blkid,
-            cur_state: state.anchor.clone(),
+            is_initialized: true,
+            cur_block: Some(state.blkid),
+            cur_state: Some(state.anchor.clone()),
         }
     }
 }
@@ -46,10 +46,6 @@ where
     S: AsmSpec + Send + Sync + 'static,
     S::Params: Send + Sync + 'static,
 {
-    fn on_launch(state: &mut AsmWorkerServiceState<W, S>) -> anyhow::Result<()> {
-        Ok(state.load_latest_or_create_genesis()?)
-    }
-
     // TODO(STR-1928): add tests.
     fn process_input(
         state: &mut AsmWorkerServiceState<W, S>,
@@ -84,8 +80,6 @@ where
     // Handle pre-genesis: if the block is before genesis we don't care about it.
     let genesis_height = state
         .anchor
-        .as_ref()
-        .unwrap()
         .state()
         .chain_view
         .history_accumulator

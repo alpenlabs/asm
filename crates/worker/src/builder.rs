@@ -48,8 +48,8 @@ impl<W, S: AsmSpec> AsmWorkerBuilder<W, S> {
 
     /// Set the ASM spec driving the subprotocol pipeline.
     ///
-    /// Production deployments pass [`strata_asm_spec::StrataAsmSpec`]; tests
-    /// can pass a wrapped debug spec to inject extra subprotocols.
+    /// Production deployments pass `StrataAsmSpec`; tests can pass a wrapped
+    /// debug spec to inject extra subprotocols.
     pub fn with_asm_spec(mut self, spec: S) -> Self {
         self.spec = Some(spec);
         self
@@ -75,7 +75,7 @@ impl<W, S: AsmSpec> AsmWorkerBuilder<W, S> {
         let spec = self.spec.ok_or(WorkerError::MissingDependency("spec"))?;
 
         // Create the service state.
-        let service_state = AsmWorkerServiceState::new(context, spec, params);
+        let service_state = AsmWorkerServiceState::new(context, spec, params)?;
 
         // Create the service builder and get command handle.
         let mut service_builder =
