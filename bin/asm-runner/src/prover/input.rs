@@ -84,7 +84,7 @@ impl InputBuilder {
         let moho_state = moho_types::MohoState::new(
             inner_state_commitment,
             strata_predicate::PredicateKey::always_accept(),
-            moho_types::ExportState::new(vec![]),
+            moho_types::ExportState::new(vec![])?,
         );
         Ok(moho_state)
     }

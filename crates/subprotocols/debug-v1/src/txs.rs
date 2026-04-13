@@ -180,7 +180,7 @@ mod tests {
         assert_eq!(extracted_info.bytes, log_bytes);
 
         // Step 4: Create a new AsmLogEntry from the extracted bytes
-        let reconstructed_entry = AsmLogEntry::from_raw(extracted_info.bytes);
+        let reconstructed_entry = AsmLogEntry::from_raw(extracted_info.bytes).unwrap();
 
         // Step 5: Deserialize back to DepositLog
         let reconstructed_log: DepositLog = reconstructed_entry.try_into_log().unwrap();

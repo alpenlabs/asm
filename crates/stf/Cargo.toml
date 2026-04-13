@@ -13,3 +13,4 @@ strata-identifiers.workspace = true
 strata-l1-txfmt.workspace = true
 
 bitcoin.workspace = true
+ssz_types.workspace = true

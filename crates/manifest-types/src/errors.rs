@@ -1,6 +1,7 @@
 use std::fmt::{Debug, Display};
 
 use borsh::io;
+use ssz_types::Error as SszError;
 use strata_codec::CodecError;
 use strata_msg_fmt::TypeId;
 use thiserror::Error;
@@ -40,6 +41,15 @@ pub enum AsmManifestError {
     /// Codec error.
     #[error("codec: {0}")]
     Codec(#[from] CodecError),
+
+    /// Encoded log entry exceeds the SSZ `VariableList` capacity
+    /// (`MAX_LOG_DATA_BYTES`).
+    #[error("log entry too large: {0}")]
+    LogTooLarge(#[source] SszError),
+
+    /// Too many logs to fit into a single manifest (`MAX_LOGS_PER_MANIFEST`).
+    #[error("too many logs for manifest: {0}")]
+    TooManyLogs(#[source] SszError),
 }
 
 /// Wrapper result type for ASM operations.

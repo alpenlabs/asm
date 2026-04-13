@@ -4,6 +4,7 @@
 // TODO rename this module to `transition`
 
 use bitcoin::Block;
+use ssz_types::VariableList;
 use strata_asm_common::{
     AnchorState, AsmError, AsmManifest, AsmResult, AsmSpec, AuxData, ChainViewState,
     VerifiedAuxData,
@@ -74,13 +75,13 @@ pub fn compute_asm_transition<S: AsmSpec>(
     spec.call_subprotocols(&mut finish_stage);
 
     // 7. Construct the manifest with the logs.
-    let (sections, logs) = manager.export_sections_and_logs();
+    let (sections, logs) = manager.export_sections_and_logs()?;
     let manifest = AsmManifest::new(
         current_l1ref.height(),
         *current_l1ref.blkid(),
         wtxids_root.into(),
         logs,
-    );
+    )?;
 
     // 8. Append the manifest to the history accumulator
     history_accumulator.add_manifest(&manifest)?;
@@ -93,7 +94,7 @@ pub fn compute_asm_transition<S: AsmSpec>(
     let state = AnchorState {
         magic: pre_state.magic,
         chain_view,
-        sections: sections.into(),
+        sections: VariableList::new(sections).map_err(AsmError::TooManySections)?,
     };
     let output = AsmStfOutput { state, manifest };
     Ok(output)

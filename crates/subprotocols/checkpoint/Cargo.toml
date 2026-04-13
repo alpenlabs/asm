@@ -28,4 +28,5 @@ strata-predicate = { workspace = true, features = ["all"] }
 thiserror.workspace = true
 
 [dev-dependencies]
+ssz_types.workspace = true
 strata-test-utils-checkpoint.workspace = true

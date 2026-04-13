@@ -261,6 +261,7 @@ fn extract_and_validate_withdrawal_intents(
 
 #[cfg(test)]
 mod tests {
+    use ssz_types::VariableList;
     use strata_asm_common::{AsmHistoryAccumulatorState, AuxData, VerifiedAuxData};
     use strata_asm_txs_checkpoint::EnvelopeCheckpoint;
     use strata_checkpoint_types_ssz::{OLLog, TerminalHeaderComplement};
@@ -572,7 +573,7 @@ mod tests {
         let current_l1_height = payload.new_tip().l1_height + 1;
 
         // Modify the payload to include invalid state diff after proof generation.
-        payload.sidecar.ol_state_diff = vec![99u8; 88].into();
+        payload.sidecar.ol_state_diff = vec![99u8; 88].try_into().unwrap();
         let envelope = harness.wrap_in_envelope(payload);
 
         let err = validate_checkpoint_and_extract_withdrawal_intents(
@@ -599,7 +600,7 @@ mod tests {
 
         // Modify the payload to include OL Logs that wasn't covered by the proof.
         let dummy_log = OLLog::new(AccountSerial::zero(), Vec::new());
-        payload.sidecar.ol_logs = vec![dummy_log].into();
+        payload.sidecar.ol_logs = VariableList::new(vec![dummy_log]).unwrap();
 
         let envelope = harness.wrap_in_envelope(payload);
 

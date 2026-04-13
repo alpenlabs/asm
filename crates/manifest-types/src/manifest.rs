@@ -1,29 +1,33 @@
 #[cfg(feature = "arbitrary")]
 use arbitrary::Arbitrary;
-use ssz_types::FixedBytes;
+use ssz_types::{FixedBytes, VariableList};
 use strata_crypto::hash;
 use strata_identifiers::{L1BlockId, L1Height, WtxidsRoot};
 use tree_hash::{Sha256Hasher, TreeHash};
 
 use crate::{
-    Hash32,
+    AsmManifestError, AsmManifestResult, Hash32,
     ssz_generated::ssz::{log::AsmLogEntry, manifest::AsmManifest},
 };
 
 impl AsmManifest {
     /// Creates a new ASM manifest.
+    ///
+    /// Returns [`AsmManifestError::TooManyLogs`] if `logs` exceeds the SSZ
+    /// capacity for the manifest's `logs` field.
     pub fn new(
         height: L1Height,
         blkid: L1BlockId,
         wtxids_root: WtxidsRoot,
         logs: Vec<AsmLogEntry>,
-    ) -> Self {
-        Self {
+    ) -> AsmManifestResult<Self> {
+        let logs = VariableList::new(logs).map_err(AsmManifestError::TooManyLogs)?;
+        Ok(Self {
             height,
             blkid,
             wtxids_root,
-            logs: logs.into(),
-        }
+            logs,
+        })
     }
 
     /// Returns the L1 block height.
@@ -75,7 +79,8 @@ impl<'a> Arbitrary<'a> for AsmManifest {
             logs.push(AsmLogEntry::arbitrary(u)?);
         }
 
-        Ok(AsmManifest::new(height, blkid, wtxids_root, logs))
+        AsmManifest::new(height, blkid, wtxids_root, logs)
+            .map_err(|_| arbitrary::Error::IncorrectFormat)
     }
 }
 
@@ -122,7 +127,8 @@ mod tests {
     }
 
     fn asm_log_entry_strategy() -> impl Strategy<Value = AsmLogEntry> {
-        prop::collection::vec(any::<u8>(), 0..256).prop_map(AsmLogEntry::from_raw)
+        prop::collection::vec(any::<u8>(), 0..256)
+            .prop_map(|bytes| AsmLogEntry::from_raw(bytes).expect("bytes within capacity"))
     }
 
     fn asm_manifest_strategy() -> impl Strategy<Value = AsmManifest> {
@@ -133,7 +139,7 @@ mod tests {
             prop::collection::vec(asm_log_entry_strategy(), 0..10),
         )
             .prop_map(|(height, blkid, wtxids_root, logs)| {
-                AsmManifest::new(height, blkid, wtxids_root, logs)
+                AsmManifest::new(height, blkid, wtxids_root, logs).expect("logs within capacity")
             })
     }
 
@@ -149,7 +155,8 @@ mod tests {
                 L1BlockId::from(Buf32::from([0u8; 32])),
                 WtxidsRoot::from(Buf32::from([1u8; 32])),
                 vec![],
-            );
+            )
+            .unwrap();
             let encoded = manifest.as_ssz_bytes();
             let decoded = AsmManifest::from_ssz_bytes(&encoded).unwrap();
             assert_eq!(manifest.height(), decoded.height());
@@ -161,15 +168,16 @@ mod tests {
         #[test]
         fn test_with_logs() {
             let logs = vec![
-                AsmLogEntry::from_raw(vec![1, 2, 3]),
-                AsmLogEntry::from_raw(vec![4, 5, 6]),
+                AsmLogEntry::from_raw(vec![1, 2, 3]).unwrap(),
+                AsmLogEntry::from_raw(vec![4, 5, 6]).unwrap(),
             ];
             let manifest = AsmManifest::new(
                 200,
                 L1BlockId::from(Buf32::from([0u8; 32])),
                 WtxidsRoot::from(Buf32::from([1u8; 32])),
                 logs.clone(),
-            );
+            )
+            .unwrap();
             let encoded = manifest.as_ssz_bytes();
             let decoded = AsmManifest::from_ssz_bytes(&encoded).unwrap();
             assert_eq!(manifest.height(), decoded.height());
@@ -185,8 +193,9 @@ mod tests {
                 100,
                 L1BlockId::from(Buf32::from([0u8; 32])),
                 WtxidsRoot::from(Buf32::from([1u8; 32])),
-                vec![AsmLogEntry::from_raw(vec![1, 2, 3])],
-            );
+                vec![AsmLogEntry::from_raw(vec![1, 2, 3]).unwrap()],
+            )
+            .unwrap();
             let hash1 = manifest.compute_hash();
             let hash2 = manifest.compute_hash();
             assert_eq!(hash1, hash2);
@@ -198,14 +207,16 @@ mod tests {
                 100,
                 L1BlockId::from(Buf32::from([0u8; 32])),
                 WtxidsRoot::from(Buf32::from([1u8; 32])),
-                vec![AsmLogEntry::from_raw(vec![1, 2, 3])],
-            );
+                vec![AsmLogEntry::from_raw(vec![1, 2, 3]).unwrap()],
+            )
+            .unwrap();
             let manifest2 = AsmManifest::new(
                 100,
                 L1BlockId::from(Buf32::from([1u8; 32])),
                 WtxidsRoot::from(Buf32::from([1u8; 32])),
-                vec![AsmLogEntry::from_raw(vec![1, 2, 3])],
-            );
+                vec![AsmLogEntry::from_raw(vec![1, 2, 3]).unwrap()],
+            )
+            .unwrap();
             let hash1 = manifest1.compute_hash();
             let hash2 = manifest2.compute_hash();
             assert_ne!(hash1, hash2);

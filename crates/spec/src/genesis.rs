@@ -20,7 +20,8 @@ pub fn construct_genesis_state(params: &AsmParams) -> AnchorState {
             .expect("asm: missing Admin subprotocol config in params"),
     );
     let admin_subprotocol_section =
-        SectionState::from_state::<AdministrationSubprotocol>(&genesis_admin_subprotocol_state);
+        SectionState::from_state::<AdministrationSubprotocol>(&genesis_admin_subprotocol_state)
+            .expect("asm: Admin subprotocol genesis state fits section data capacity");
 
     let genesis_checkpoint_subprotocol_state = CheckpointState::init(
         params
@@ -29,7 +30,8 @@ pub fn construct_genesis_state(params: &AsmParams) -> AnchorState {
             .clone(),
     );
     let checkpoint_subprotocol_section =
-        SectionState::from_state::<CheckpointSubprotocol>(&genesis_checkpoint_subprotocol_state);
+        SectionState::from_state::<CheckpointSubprotocol>(&genesis_checkpoint_subprotocol_state)
+            .expect("asm: Checkpoint subprotocol genesis state fits section data capacity");
 
     let genesis_bridge_subprotocol_state = BridgeV1State::new(
         params
@@ -37,7 +39,8 @@ pub fn construct_genesis_state(params: &AsmParams) -> AnchorState {
             .expect("asm: missing Bridge subprotocol config in params"),
     );
     let bridge_subprotocol_section =
-        SectionState::from_state::<BridgeV1Subproto>(&genesis_bridge_subprotocol_state);
+        SectionState::from_state::<BridgeV1Subproto>(&genesis_bridge_subprotocol_state)
+            .expect("asm: Bridge subprotocol genesis state fits section data capacity");
 
     let native_header_vs = NativeHeaderVerificationState::init(params.anchor.clone());
     let history_accumulator = AsmHistoryAccumulatorState::new(params.anchor.block.height() as u64);
@@ -54,6 +57,7 @@ pub fn construct_genesis_state(params: &AsmParams) -> AnchorState {
             checkpoint_subprotocol_section,
             bridge_subprotocol_section,
         ]
-        .into(),
+        .try_into()
+        .expect("asm: genesis sections fit within capacity"),
     }
 }
