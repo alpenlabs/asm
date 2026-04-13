@@ -1443,11 +1443,23 @@ version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "94fb19ad225b5555a3c99796fe9c5d14b18eb0130eee5c39875bb642f173be6f"
 dependencies = [
+ "bitcoin",
+ "hex-conservative",
+ "secp256k1 0.29.1",
+]
+
+[[package]]
+name = "bitcoin-bosd"
+version = "0.10.0"
+source = "git+https://github.com/alpenlabs/bitcoin-bosd?tag=v0.10.0#a55e1e7c85a4d2ce12a8f9a3f875f10996ccc495"
+dependencies = [
  "arbitrary",
  "bitcoin",
  "hex-conservative",
  "secp256k1 0.29.1",
  "serde",
+ "ssz",
+ "ssz_types",
 ]
 
 [[package]]
@@ -3682,7 +3694,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "bitcoin",
- "bitcoin-bosd",
+ "bitcoin-bosd 0.10.0",
  "bitcoind-async-client",
  "borsh",
  "corepc-node",
@@ -7260,7 +7272,7 @@ version = "0.1.0"
 dependencies = [
  "arbitrary",
  "bitcoin",
- "bitcoin-bosd",
+ "bitcoin-bosd 0.10.0",
  "proptest",
  "rand 0.8.5",
  "rand_chacha 0.9.0",
@@ -7286,7 +7298,7 @@ dependencies = [
 name = "strata-asm-proto-checkpoint"
 version = "0.1.0"
 dependencies = [
- "bitcoin-bosd",
+ "bitcoin-bosd 0.10.0",
  "ssz",
  "ssz_derive",
  "ssz_primitives",
@@ -7312,7 +7324,7 @@ dependencies = [
 name = "strata-asm-proto-debug-v1"
 version = "0.1.0"
 dependencies = [
- "bitcoin-bosd",
+ "bitcoin-bosd 0.10.0",
  "serde",
  "ssz",
  "ssz_derive",
@@ -7481,7 +7493,7 @@ version = "0.1.0"
 dependencies = [
  "arbitrary",
  "bitcoin",
- "bitcoin-bosd",
+ "bitcoin-bosd 0.10.0",
  "proptest",
  "rand 0.8.5",
  "strata-asm-common",
@@ -7555,7 +7567,7 @@ name = "strata-bridge-types"
 version = "0.1.0"
 dependencies = [
  "arbitrary",
- "bitcoin-bosd",
+ "bitcoin-bosd 0.10.0",
  "bitvec",
  "borsh",
  "serde",
@@ -7574,7 +7586,7 @@ source = "git+https://github.com/alpenlabs/strata-common?tag=v0.1.0-alpha-rc15#9
 dependencies = [
  "arbitrary",
  "bitcoin",
- "bitcoin-bosd",
+ "bitcoin-bosd 0.9.0",
  "borsh",
  "num_enum 0.7.6",
  "serde",

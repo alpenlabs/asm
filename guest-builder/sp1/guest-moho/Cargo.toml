@@ -6,7 +6,7 @@ version = "0.1.0"
 [workspace]
 
 [dependencies]
-moho-recursive-proof = { git = "https://github.com/alpenlabs/moho", rev = "28ef75cf39758c4214cb383a4de2b2dcf0a3dd67" }
+moho-recursive-proof = { git = "https://github.com/alpenlabs/moho", rev = "19c4099ffea81d754086bcb8ba324ad360148cfe" }
 zkaleido-sp1-guest-env = { git = "https://github.com/alpenlabs/zkaleido", tag = "v0.1.0-alpha-rc24" }
 
 [patch.crates-io]

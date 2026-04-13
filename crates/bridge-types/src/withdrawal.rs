@@ -23,7 +23,6 @@ use strata_btc_types::BitcoinAmount;
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, Arbitrary, Encode, Decode)]
 pub struct WithdrawOutput {
     /// Bitcoin Output Script Descriptor specifying the destination address.
-    #[ssz(with = "descriptor_ssz")]
     pub destination: Descriptor,
 
     /// Amount to withdraw (in satoshis).
@@ -98,69 +97,5 @@ impl WithdrawalCommand {
     /// which equals the withdrawal amount minus the operator fee.
     pub fn net_amount(&self) -> BitcoinAmount {
         self.output.amt().saturating_sub(self.operator_fee)
-    }
-}
-
-#[expect(unreachable_pub, reason = "used by ssz_derive field adapters")]
-mod descriptor_ssz {
-    use super::Descriptor;
-
-    pub mod encode {
-        use ssz::Encode as SszEncode;
-
-        use super::Descriptor;
-
-        pub fn is_ssz_fixed_len() -> bool {
-            <Vec<u8> as SszEncode>::is_ssz_fixed_len()
-        }
-
-        pub fn ssz_fixed_len() -> usize {
-            <Vec<u8> as SszEncode>::ssz_fixed_len()
-        }
-
-        pub fn ssz_bytes_len(value: &Descriptor) -> usize {
-            value.to_bytes().ssz_bytes_len()
-        }
-
-        pub fn ssz_append(value: &Descriptor, buf: &mut Vec<u8>) {
-            value.to_bytes().ssz_append(buf);
-        }
-    }
-
-    pub mod decode {
-        use ssz::{Decode as SszDecode, DecodeError};
-
-        use super::Descriptor;
-
-        pub fn is_ssz_fixed_len() -> bool {
-            <Vec<u8> as SszDecode>::is_ssz_fixed_len()
-        }
-
-        pub fn ssz_fixed_len() -> usize {
-            <Vec<u8> as SszDecode>::ssz_fixed_len()
-        }
-
-        pub fn from_ssz_bytes(bytes: &[u8]) -> Result<Descriptor, DecodeError> {
-            let descriptor_bytes = Vec::<u8>::from_ssz_bytes(bytes)?;
-            Descriptor::from_bytes(&descriptor_bytes)
-                .map_err(|err| DecodeError::BytesInvalid(err.to_string()))
-        }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use ssz::{Decode, Encode};
-    use strata_test_utils_arb::ArbitraryGenerator;
-
-    use super::*;
-
-    #[test]
-    fn withdraw_output_ssz_roundtrip() {
-        let mut arb = ArbitraryGenerator::new();
-        let original: WithdrawOutput = arb.generate();
-        let encoded = original.as_ssz_bytes();
-        let decoded = WithdrawOutput::from_ssz_bytes(&encoded).unwrap();
-        assert_eq!(original, decoded);
     }
 }
