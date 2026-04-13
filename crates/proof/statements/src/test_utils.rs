@@ -75,6 +75,6 @@ pub fn create_moho_state(anchor_state: &AnchorState, next_predicate: PredicateKe
     MohoState {
         inner_state,
         next_predicate,
-        export_state: ExportState::new(vec![]),
+        export_state: ExportState::new(vec![]).unwrap(),
     }
 }

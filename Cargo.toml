@@ -88,10 +88,10 @@ strata-test-utils-btcio = { path = "crates/test-utils/btcio" }
 strata-test-utils-checkpoint = { path = "crates/test-utils/checkpoint" }
 
 # Dependencies from alpenlabs/moho (28ef75c = strata-common rc15)
-moho-recursive-proof = { git = "https://github.com/alpenlabs/moho", rev = "28ef75cf39758c4214cb383a4de2b2dcf0a3dd67" }
-moho-runtime-impl = { git = "https://github.com/alpenlabs/moho", rev = "28ef75cf39758c4214cb383a4de2b2dcf0a3dd67" }
-moho-runtime-interface = { git = "https://github.com/alpenlabs/moho", rev = "28ef75cf39758c4214cb383a4de2b2dcf0a3dd67" }
-moho-types = { git = "https://github.com/alpenlabs/moho", rev = "28ef75cf39758c4214cb383a4de2b2dcf0a3dd67" }
+moho-recursive-proof = { git = "https://github.com/alpenlabs/moho", rev = "19c4099ffea81d754086bcb8ba324ad360148cfe" }
+moho-runtime-impl = { git = "https://github.com/alpenlabs/moho", rev = "19c4099ffea81d754086bcb8ba324ad360148cfe" }
+moho-runtime-interface = { git = "https://github.com/alpenlabs/moho", rev = "19c4099ffea81d754086bcb8ba324ad360148cfe" }
+moho-types = { git = "https://github.com/alpenlabs/moho", rev = "19c4099ffea81d754086bcb8ba324ad360148cfe" }
 
 # Dependencies from alpenlabs/strata-common
 strata-btc-types = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.1.0-alpha-rc15" }
@@ -120,16 +120,16 @@ tree_hash = { git = "https://github.com/alpenlabs/ssz-gen", tag = "v0.15.0" }
 tree_hash_derive = { git = "https://github.com/alpenlabs/ssz-gen", tag = "v0.15.0" }
 
 # dependencies from alpenlabs/zkaleido
-zkaleido = { git = "https://github.com/alpenlabs/zkaleido", tag = "v0.1.0-alpha-rc23", features = [
+zkaleido = { git = "https://github.com/alpenlabs/zkaleido", tag = "v0.1.0-alpha-rc24", features = [
   "borsh",
   "remote-prover",
   "serde",
 ] }
-zkaleido-logging = { git = "https://github.com/alpenlabs/zkaleido", tag = "v0.1.0-alpha-rc23" }
-zkaleido-native-adapter = { git = "https://github.com/alpenlabs/zkaleido", tag = "v0.1.0-alpha-rc23", features = [
+zkaleido-logging = { git = "https://github.com/alpenlabs/zkaleido", tag = "v0.1.0-alpha-rc24" }
+zkaleido-native-adapter = { git = "https://github.com/alpenlabs/zkaleido", tag = "v0.1.0-alpha-rc24", features = [
   "remote-prover",
 ] }
-zkaleido-sp1-host = { git = "https://github.com/alpenlabs/zkaleido", tag = "v0.1.0-alpha-rc23" }
+zkaleido-sp1-host = { git = "https://github.com/alpenlabs/zkaleido", tag = "v0.1.0-alpha-rc24" }
 
 # external dependencies
 anyhow = "1.0.86"
