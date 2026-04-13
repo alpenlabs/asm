@@ -1,7 +1,7 @@
 use bitcoin::{Network, block::Header, params::Params};
 use serde::{Deserialize, Deserializer, Serialize, Serializer, de::Error as SerdeDeError};
 use ssz::{Decode, Encode};
-use ssz_types::FixedBytes;
+use ssz_types::{FixedBytes, VariableList};
 use strata_btc_verification::{
     HeaderVerificationState as NativeHeaderVerificationState, L1Anchor, L1VerificationError,
 };
@@ -63,7 +63,8 @@ impl SectionState {
     /// Returns [`AsmError::SectionTooLarge`] if `data` exceeds the SSZ capacity
     /// for the section data field.
     pub fn new(id: SubprotocolId, data: Vec<u8>) -> Result<Self, AsmError> {
-        let data = data.try_into().map_err(|_| AsmError::SectionTooLarge(id))?;
+        let data =
+            VariableList::new(data).map_err(|source| AsmError::SectionTooLarge { id, source })?;
         Ok(Self { id, data })
     }
 

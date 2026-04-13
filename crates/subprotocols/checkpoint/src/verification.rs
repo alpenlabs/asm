@@ -572,7 +572,7 @@ mod tests {
         let current_l1_height = payload.new_tip().l1_height + 1;
 
         // Modify the payload to include invalid state diff after proof generation.
-        payload.sidecar.ol_state_diff = vec![99u8; 88].into();
+        payload.sidecar.ol_state_diff = vec![99u8; 88].try_into().unwrap();
         let envelope = harness.wrap_in_envelope(payload);
 
         let err = validate_checkpoint_and_extract_withdrawal_intents(

@@ -7514,6 +7514,7 @@ name = "strata-asm-stf"
 version = "0.1.0"
 dependencies = [
  "bitcoin",
+ "ssz_types 0.15.0",
  "strata-asm-common",
  "strata-btc-verification",
  "strata-identifiers",

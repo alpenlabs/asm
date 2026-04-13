@@ -4,6 +4,7 @@
 // TODO rename this module to `transition`
 
 use bitcoin::Block;
+use ssz_types::VariableList;
 use strata_asm_common::{
     AnchorState, AsmError, AsmManifest, AsmResult, AsmSpec, AuxData, ChainViewState,
     VerifiedAuxData,
@@ -93,9 +94,7 @@ pub fn compute_asm_transition<S: AsmSpec>(
     let state = AnchorState {
         magic: pre_state.magic,
         chain_view,
-        sections: sections
-            .try_into()
-            .map_err(|_| AsmError::TooManySections)?,
+        sections: VariableList::new(sections).map_err(AsmError::TooManySections)?,
     };
     let output = AsmStfOutput { state, manifest };
     Ok(output)

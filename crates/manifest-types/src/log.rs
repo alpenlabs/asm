@@ -1,5 +1,6 @@
 #[cfg(feature = "arbitrary")]
 use arbitrary::Arbitrary;
+use ssz_types::VariableList;
 use strata_codec::encode_to_vec;
 // Re-export from the separate logs crate
 use strata_codec::{Codec, decode_buf_exact};
@@ -27,7 +28,7 @@ impl AsmLogEntry {
     /// Returns [`AsmManifestError::LogTooLarge`] if `bytes` exceeds the
     /// maximum log-entry length.
     pub fn from_raw(bytes: Vec<u8>) -> AsmManifestResult<Self> {
-        let data = bytes.try_into().map_err(|_| AsmManifestError::LogTooLarge)?;
+        let data = VariableList::new(bytes).map_err(AsmManifestError::LogTooLarge)?;
         Ok(AsmLogEntry { data })
     }
 
@@ -36,10 +37,7 @@ impl AsmLogEntry {
     /// This creates a properly formatted SPS-52 message with type ID and body.
     pub fn from_msg(ty: TypeId, body: Vec<u8>) -> AsmManifestResult<Self> {
         let owned_msg = OwnedMsg::new(ty, body)?;
-        let data = owned_msg
-            .to_vec()
-            .try_into()
-            .map_err(|_| AsmManifestError::LogTooLarge)?;
+        let data = VariableList::new(owned_msg.to_vec()).map_err(AsmManifestError::LogTooLarge)?;
         Ok(AsmLogEntry { data })
     }
 

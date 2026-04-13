@@ -54,11 +54,16 @@ pub enum AsmError {
     #[error("invalid auxiliary data")]
     InvalidAuxData(#[from] AuxError),
 
-    /// Serialised subprotocol state exceeds the section-data capacity.
-    #[error("subprotocol {0} section state exceeds maximum size")]
-    SectionTooLarge(SubprotocolId),
+    /// Serialised subprotocol state exceeds the section-data capacity
+    /// (`MAX_SECTION_STATE_BYTES`).
+    #[error("subprotocol {id} section too large: {source}")]
+    SectionTooLarge {
+        id: SubprotocolId,
+        #[source]
+        source: ssz_types::Error,
+    },
 
-    /// Too many sections to fit into the anchor state.
-    #[error("anchor state section count exceeds maximum")]
-    TooManySections,
+    /// Too many sections to fit into the anchor state (`MAX_SECTIONS`).
+    #[error("too many sections: {0}")]
+    TooManySections(#[source] ssz_types::Error),
 }

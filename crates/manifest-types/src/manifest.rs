@@ -1,6 +1,6 @@
 #[cfg(feature = "arbitrary")]
 use arbitrary::Arbitrary;
-use ssz_types::FixedBytes;
+use ssz_types::{FixedBytes, VariableList};
 use strata_crypto::hash;
 use strata_identifiers::{L1BlockId, L1Height, WtxidsRoot};
 use tree_hash::{Sha256Hasher, TreeHash};
@@ -21,7 +21,7 @@ impl AsmManifest {
         wtxids_root: WtxidsRoot,
         logs: Vec<AsmLogEntry>,
     ) -> AsmManifestResult<Self> {
-        let logs = logs.try_into().map_err(|_| AsmManifestError::TooManyLogs)?;
+        let logs = VariableList::new(logs).map_err(AsmManifestError::TooManyLogs)?;
         Ok(Self {
             height,
             blkid,
