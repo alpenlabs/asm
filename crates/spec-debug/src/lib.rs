@@ -56,13 +56,16 @@ pub fn construct_debug_genesis_state(params: &AsmParams) -> AnchorState {
     let mut state = construct_genesis_state(params);
 
     let debug_state = DebugSubproto::init(&());
-    let debug_section = SectionState::from_state::<DebugSubproto>(&debug_state);
+    let debug_section = SectionState::from_state::<DebugSubproto>(&debug_state)
+        .expect("asm: Debug subprotocol genesis state fits section data capacity");
 
     // Prepend so section order matches call_subprotocols order
     // (debug first, then production subprotocols).
     let mut sections: Vec<_> = state.sections.to_vec();
     sections.insert(0, debug_section);
-    state.sections = sections.into();
+    state.sections = sections
+        .try_into()
+        .expect("asm: genesis sections fit within capacity");
 
     state
 }
