@@ -40,6 +40,14 @@ pub enum AsmManifestError {
     /// Codec error.
     #[error("codec: {0}")]
     Codec(#[from] CodecError),
+
+    /// Encoded log entry exceeds the SSZ `VariableList` capacity.
+    #[error("log entry exceeds maximum size")]
+    LogTooLarge,
+
+    /// Too many logs to fit into a single manifest.
+    #[error("manifest log count exceeds maximum")]
+    TooManyLogs,
 }
 
 /// Wrapper result type for ASM operations.

@@ -59,15 +59,16 @@ impl ChainViewState {
 
 impl SectionState {
     /// Constructs a new instance.
-    pub fn new(id: SubprotocolId, data: Vec<u8>) -> Self {
-        Self {
-            id,
-            data: data.into(),
-        }
+    ///
+    /// Returns [`AsmError::SectionTooLarge`] if `data` exceeds the SSZ capacity
+    /// for the section data field.
+    pub fn new(id: SubprotocolId, data: Vec<u8>) -> Result<Self, AsmError> {
+        let data = data.try_into().map_err(|_| AsmError::SectionTooLarge(id))?;
+        Ok(Self { id, data })
     }
 
     /// Constructs an instance by serializing a subprotocol state.
-    pub fn from_state<S: Subprotocol>(state: &S::State) -> Self {
+    pub fn from_state<S: Subprotocol>(state: &S::State) -> Result<Self, AsmError> {
         Self::new(S::ID, state.as_ssz_bytes())
     }
 
@@ -139,7 +140,10 @@ impl TimestampStore {
             store.into_parts();
 
         Self {
-            buffer: buffer.to_vec().into(),
+            buffer: buffer
+                .to_vec()
+                .try_into()
+                .expect("asm: timestamp store buffer fits into SSZ capacity"),
             head: head
                 .try_into()
                 .expect("asm: timestamp store head always fits into u8"),

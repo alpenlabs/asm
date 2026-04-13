@@ -161,7 +161,8 @@ where
             *pivot_block.blkid(),
             wtxids_root.into(),
             vec![], // TODO: this is not supposed to be empty right?
-        );
+        )
+        .expect("empty genesis manifest is within capacity");
 
         ctx.store_l1_manifest(genesis_manifest)?;
 

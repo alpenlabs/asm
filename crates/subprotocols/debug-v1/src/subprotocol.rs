@@ -80,7 +80,13 @@ fn process_parsed_debug_tx(
 
             // Create log entry directly from raw bytes
             // The log_info contains the raw bytes that represent the log
-            let log_entry = AsmLogEntry::from_raw(log_info.bytes);
+            let log_entry = match AsmLogEntry::from_raw(log_info.bytes) {
+                Ok(entry) => entry,
+                Err(err) => {
+                    logging::warn!("Skipping ASM log injection: {err}");
+                    return Ok(());
+                }
+            };
 
             relayer.emit_log(log_entry);
             logging::info!("Successfully emitted ASM log");

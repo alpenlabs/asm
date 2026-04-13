@@ -11,7 +11,8 @@ use strata_identifiers::L1BlockCommitment;
 pub use strata_l1_txfmt::SubprotocolId;
 
 use crate::{
-    AsmLogEntry, AuxRequestCollector, SectionState, TxInputRef, VerifiedAuxData, msg::InterprotoMsg,
+    AsmError, AsmLogEntry, AuxRequestCollector, SectionState, TxInputRef, VerifiedAuxData,
+    msg::InterprotoMsg,
 };
 
 /// Trait for defining subprotocol behavior within the ASM framework.
@@ -208,5 +209,8 @@ pub trait SubprotoHandler {
     fn process_buffered_msgs(&mut self, l1ref: &L1BlockCommitment);
 
     /// Repacks the state into a [`SectionState`] instance.
-    fn to_section(&self) -> SectionState;
+    ///
+    /// Returns [`AsmError::SectionTooLarge`] if the serialised state exceeds
+    /// the SSZ section-data capacity.
+    fn to_section(&self) -> Result<SectionState, AsmError>;
 }

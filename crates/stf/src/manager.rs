@@ -65,7 +65,7 @@ impl<S: Subprotocol, R: MsgRelayer> SubprotoHandler for HandlerImpl<S, R> {
         S::process_msgs(&mut self.state, &self.interproto_msg_buf, l1ref)
     }
 
-    fn to_section(&self) -> SectionState {
+    fn to_section(&self) -> Result<SectionState, AsmError> {
         SectionState::from_state::<S>(&self.state)
     }
 }
@@ -175,7 +175,7 @@ impl SubprotoManager {
 
     /// Extracts the section state for a subprotocol.
     #[expect(dead_code, reason = "Method is part of section state management API")]
-    pub(crate) fn to_section_state<S: Subprotocol>(&self) -> SectionState {
+    pub(crate) fn to_section_state<S: Subprotocol>(&self) -> Result<SectionState, AsmError> {
         let h = self.get_handler(S::ID).expect("asm: unloaded subprotocol");
         h.to_section()
     }
@@ -187,12 +187,14 @@ impl SubprotoManager {
     /// # Panics
     ///
     /// Panics if the exported sections are not sorted by `id`.
-    pub(crate) fn export_sections_and_logs(self) -> (Vec<SectionState>, Vec<AsmLogEntry>) {
+    pub(crate) fn export_sections_and_logs(
+        self,
+    ) -> Result<(Vec<SectionState>, Vec<AsmLogEntry>), AsmError> {
         let sections = self
             .handlers
             .into_values()
             .map(|h| h.to_section())
-            .collect::<Vec<_>>();
+            .collect::<Result<Vec<_>, _>>()?;
 
         // sanity check
         assert!(
@@ -200,7 +202,7 @@ impl SubprotoManager {
             "asm: sections not sorted on export"
         );
 
-        (sections, self.logs)
+        Ok((sections, self.logs))
     }
 }
 

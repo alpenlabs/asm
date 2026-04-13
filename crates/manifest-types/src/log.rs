@@ -1,5 +1,6 @@
 #[cfg(feature = "arbitrary")]
 use arbitrary::Arbitrary;
+use strata_codec::encode_to_vec;
 // Re-export from the separate logs crate
 use strata_codec::{Codec, decode_buf_exact};
 use strata_msg_fmt::{Msg, MsgRef, OwnedMsg, TypeId};
@@ -23,8 +24,11 @@ impl AsmLogEntry {
     /// Create an AsmLogEntry directly from raw bytes.
     ///
     /// This is the most basic constructor - logs are just bytes.
-    pub fn from_raw(bytes: Vec<u8>) -> Self {
-        AsmLogEntry { data: bytes.into() }
+    /// Returns [`AsmManifestError::LogTooLarge`] if `bytes` exceeds the
+    /// maximum log-entry length.
+    pub fn from_raw(bytes: Vec<u8>) -> AsmManifestResult<Self> {
+        let data = bytes.try_into().map_err(|_| AsmManifestError::LogTooLarge)?;
+        Ok(AsmLogEntry { data })
     }
 
     /// Create an AsmLogEntry from SPS-52 message components.
@@ -32,9 +36,11 @@ impl AsmLogEntry {
     /// This creates a properly formatted SPS-52 message with type ID and body.
     pub fn from_msg(ty: TypeId, body: Vec<u8>) -> AsmManifestResult<Self> {
         let owned_msg = OwnedMsg::new(ty, body)?;
-        Ok(AsmLogEntry {
-            data: owned_msg.to_vec().into(),
-        })
+        let data = owned_msg
+            .to_vec()
+            .try_into()
+            .map_err(|_| AsmManifestError::LogTooLarge)?;
+        Ok(AsmLogEntry { data })
     }
 
     /// Create an AsmLogEntry from any type that implements AsmLog.
@@ -42,7 +48,6 @@ impl AsmLogEntry {
     /// This provides backwards compatibility with typed log entries.
     pub fn from_log<T: AsmLog>(log: &T) -> AsmManifestResult<Self> {
         let ty = TypeId::from(T::TY);
-        use strata_codec::encode_to_vec;
         let body = encode_to_vec(log)?;
         Self::from_msg(ty, body)
     }
@@ -106,7 +111,7 @@ impl<'a> Arbitrary<'a> for AsmLogEntry {
         for _ in 0..len {
             bytes.push(u8::arbitrary(u)?);
         }
-        Ok(AsmLogEntry::from_raw(bytes))
+        AsmLogEntry::from_raw(bytes).map_err(|_| arbitrary::Error::IncorrectFormat)
     }
 }
 
@@ -119,7 +124,8 @@ mod tests {
     use super::AsmLogEntry;
 
     fn asm_log_entry_strategy() -> impl Strategy<Value = AsmLogEntry> {
-        prop::collection::vec(any::<u8>(), 0..1024).prop_map(AsmLogEntry::from_raw)
+        prop::collection::vec(any::<u8>(), 0..1024)
+            .prop_map(|bytes| AsmLogEntry::from_raw(bytes).expect("bytes within capacity"))
     }
 
     mod asm_log_entry {
@@ -129,7 +135,7 @@ mod tests {
 
         #[test]
         fn test_empty_data() {
-            let log = AsmLogEntry::from_raw(vec![]);
+            let log = AsmLogEntry::from_raw(vec![]).unwrap();
             let encoded = log.as_ssz_bytes();
             let decoded = AsmLogEntry::from_ssz_bytes(&encoded).unwrap();
             assert_eq!(log.as_bytes(), decoded.as_bytes());
@@ -137,7 +143,7 @@ mod tests {
 
         #[test]
         fn test_with_data() {
-            let log = AsmLogEntry::from_raw(vec![1, 2, 3, 4, 5]);
+            let log = AsmLogEntry::from_raw(vec![1, 2, 3, 4, 5]).unwrap();
             let encoded = log.as_ssz_bytes();
             let decoded = AsmLogEntry::from_ssz_bytes(&encoded).unwrap();
             assert_eq!(log.as_bytes(), decoded.as_bytes());
@@ -146,7 +152,7 @@ mod tests {
         #[test]
         fn test_from_raw_roundtrip() {
             let data = vec![42u8; 100];
-            let log = AsmLogEntry::from_raw(data.clone());
+            let log = AsmLogEntry::from_raw(data.clone()).unwrap();
             assert_eq!(log.as_bytes(), &data);
             assert_eq!(log.into_bytes(), data);
         }
