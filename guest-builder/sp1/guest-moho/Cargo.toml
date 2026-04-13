@@ -7,7 +7,7 @@ version = "0.1.0"
 
 [dependencies]
 moho-recursive-proof = { git = "https://github.com/alpenlabs/moho", rev = "28ef75cf39758c4214cb383a4de2b2dcf0a3dd67" }
-zkaleido-sp1-guest-env = { git = "https://github.com/alpenlabs/zkaleido", tag = "v0.1.0-alpha-rc23" }
+zkaleido-sp1-guest-env = { git = "https://github.com/alpenlabs/zkaleido", tag = "v0.1.0-alpha-rc24" }
 
 [patch.crates-io]
 secp256k1 = { git = "https://github.com/sp1-patches/rust-secp256k1", tag = "patch-0.29.1-sp1-5.0.0" }
