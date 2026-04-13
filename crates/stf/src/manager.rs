@@ -40,7 +40,7 @@ impl<S: Subprotocol, R: MsgRelayer> SubprotoHandler for HandlerImpl<S, R> {
         self.interproto_msg_buf.push(m.clone());
     }
 
-    // TODO(STR-0003): make this just return the aux request
+    // TODO(STR-3065): make this just return the aux request
     fn pre_process_txs(&mut self, txs: &[TxInputRef<'_>], collector: &mut AuxRequestCollector) {
         S::pre_process_txs(&self.state, txs, collector);
     }
