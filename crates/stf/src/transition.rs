@@ -1,7 +1,6 @@
 //! The `asm_stf` crate implements the core Anchor State Machine state transition function (STF). It
 //! glues together block‐level validation, a set of pluggable subprotocols, and the global chain
 //! view into a single deterministic state transition.
-// TODO rename this module to `transition`
 
 use bitcoin::Block;
 use ssz_types::VariableList;
@@ -68,7 +67,7 @@ pub fn compute_asm_transition<S: AsmSpec>(
 
     // 6. FINISH: Allow each subprotocol to process buffered inter-protocol messages.
     // This stage handles cross-protocol communication and finalizes state changes.
-    // TODO probably will have change this to repeat the interproto message
+    // TODO(STR-2416): probably will have change this to repeat the interproto message
     // processing phase until we have no more messages to deliver, or some
     // bounded number of times
     let mut finish_stage = FinishStage::new(&mut manager, &pow_state.last_verified_block);

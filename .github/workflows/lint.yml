@@ -84,6 +84,21 @@ jobs:
         run: |
           taplo fmt --check
 
+  todo-tickets:
+    name: Check ticketed TODOs
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v4
+        with:
+          persist-credentials: false
+
+      - name: Check for ticketless TODOs
+        run: bash contrib/check_ticketless_todos.sh
+
   lint-success:
     name: Check that lints passed
     runs-on: ubuntu-latest
@@ -92,6 +107,7 @@ jobs:
       - clippy
       - fmt
       - taplo
+      - todo-tickets
     timeout-minutes: 30
     steps:
       - name: Decide whether the needed jobs succeeded or failed

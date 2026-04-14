@@ -32,5 +32,5 @@ pub use ssz_generated::ssz::{
 };
 
 /// Type alias for a 32-byte hash.
-// TODO use Buf32 from identifiers?
+// TODO(STR-3027): use Buf32 from identifiers or use proper newtype instead
 pub type Hash32 = [u8; 32];

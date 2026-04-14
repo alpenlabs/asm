@@ -87,11 +87,6 @@ impl Message {
     }
 }
 
-// [PLACE_HOLDER] Update the names to align with the team’s new naming convention.
-// TODO: [PLACE_HOLDER] L2ToL1Msg are not expected to be used as inter-proto messages. (probably
-// it's gonna be part of Aux input) Temporary alias
-pub type L2ToL1Msg = Message;
-
 #[cfg(test)]
 mod tests {
     use std::any::Any;

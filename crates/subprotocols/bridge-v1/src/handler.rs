@@ -88,7 +88,10 @@ pub(crate) fn handle_parsed_tx(
             // Use SubprotocolId as the containerId.
             let withdrawal_processed_log =
                 NewExportEntry::new(BRIDGE_V1_SUBPROTOCOL_ID, unlock.compute_hash());
-            relayer.emit_log(AsmLogEntry::from_log(&withdrawal_processed_log).expect("FIXME:PG"));
+            relayer.emit_log(
+                AsmLogEntry::from_log(&withdrawal_processed_log)
+                    .expect("withdrawal processed log must not fail"),
+            );
 
             info!(
                 deposit_idx,

@@ -1,5 +1,4 @@
 //! Loader infrastructure for setting up the context.
-// TODO maybe move (parts of) this module to common?
 
 use std::collections::BTreeMap;
 

@@ -50,8 +50,12 @@ doctest:
 functional-test:
   cd functional-tests && ./run_test.sh
 
+# Check that all TODO/FIXME/HACK comments have ticket references
+check-todos:
+  bash contrib/check_ticketless_todos.sh
+
 # Run all lints and formatting checks
-lints: toml-check-fmt toml-lint check-fmt clippy functional-check-fmt functional-lint
+lints: toml-check-fmt toml-lint check-fmt clippy functional-check-fmt functional-lint check-todos
 
 # Rust all tests
 test: unit-test doctest

@@ -160,7 +160,8 @@ where
             pivot_block.height(),
             *pivot_block.blkid(),
             wtxids_root.into(),
-            vec![], // TODO: this is not supposed to be empty right?
+            vec![], /* TODO(STR-2771): we shouldn't require a genesis manifest. The manifest
+                     * should start from the block after genesis. */
         )
         .expect("empty genesis manifest is within capacity");
 
