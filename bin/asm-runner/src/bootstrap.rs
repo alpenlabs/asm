@@ -44,8 +44,8 @@ pub(crate) async fn bootstrap(
     // 4. Launch ASM worker
     let asm_worker = AsmWorkerBuilder::new()
         .with_context(worker_context)
-        .with_asm_params(Arc::new(params.clone()))
         .with_asm_spec(StrataAsmSpec)
+        .with_params(params.clone())
         .launch(&executor)?;
 
     // 5. Compute the starting height for the block watcher.

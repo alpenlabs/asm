@@ -1,7 +1,4 @@
-use std::sync::Arc;
-
 use strata_asm_common::AsmSpec;
-use strata_asm_params::AsmParams;
 use strata_service::ServiceBuilder;
 use strata_tasks::TaskExecutor;
 
@@ -21,18 +18,18 @@ use crate::{
 /// inject alternative specs (e.g. a debug-wrapped spec for testing) without
 /// forking the worker.
 #[derive(Debug)]
-pub struct AsmWorkerBuilder<W, S> {
+pub struct AsmWorkerBuilder<W, S: AsmSpec> {
     context: Option<W>,
-    asm_params: Option<Arc<AsmParams>>,
+    params: Option<S::Params>,
     spec: Option<S>,
 }
 
-impl<W, S> AsmWorkerBuilder<W, S> {
+impl<W, S: AsmSpec> AsmWorkerBuilder<W, S> {
     /// Create a new builder instance.
     pub fn new() -> Self {
         Self {
             context: None,
-            asm_params: None,
+            params: None,
             spec: None,
         }
     }
@@ -43,15 +40,16 @@ impl<W, S> AsmWorkerBuilder<W, S> {
         self
     }
 
-    pub fn with_asm_params(mut self, asm_params: Arc<AsmParams>) -> Self {
-        self.asm_params = Some(asm_params);
+    /// Set the ASM parameters used to construct the genesis state.
+    pub fn with_params(mut self, params: S::Params) -> Self {
+        self.params = Some(params);
         self
     }
 
     /// Set the ASM spec driving the subprotocol pipeline.
     ///
-    /// Production deployments pass [`strata_asm_spec::StrataAsmSpec`]; tests
-    /// can pass a wrapped debug spec to inject extra subprotocols.
+    /// Production deployments pass `StrataAsmSpec`; tests can pass a wrapped
+    /// debug spec to inject extra subprotocols.
     pub fn with_asm_spec(mut self, spec: S) -> Self {
         self.spec = Some(spec);
         self
@@ -66,17 +64,18 @@ impl<W, S> AsmWorkerBuilder<W, S> {
     where
         W: WorkerContext + Send + Sync + 'static,
         S: AsmSpec + Send + Sync + 'static,
+        S::Params: Send + Sync + 'static,
     {
         let context = self
             .context
             .ok_or(WorkerError::MissingDependency("context"))?;
-        let asm_params = self
-            .asm_params
-            .ok_or(WorkerError::MissingDependency("asm_params"))?;
+        let params = self
+            .params
+            .ok_or(WorkerError::MissingDependency("params"))?;
         let spec = self.spec.ok_or(WorkerError::MissingDependency("spec"))?;
 
         // Create the service state.
-        let service_state = AsmWorkerServiceState::new(context, asm_params, spec);
+        let service_state = AsmWorkerServiceState::new(context, spec, params)?;
 
         // Create the service builder and get command handle.
         let mut service_builder =
@@ -95,7 +94,7 @@ impl<W, S> AsmWorkerBuilder<W, S> {
     }
 }
 
-impl<W, S> Default for AsmWorkerBuilder<W, S> {
+impl<W, S: AsmSpec> Default for AsmWorkerBuilder<W, S> {
     fn default() -> Self {
         Self::new()
     }

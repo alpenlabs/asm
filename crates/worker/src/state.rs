@@ -1,9 +1,5 @@
-use std::sync::Arc;
-
 use bitcoin::Block;
 use strata_asm_common::{AsmSpec, AuxData};
-use strata_asm_params::AsmParams;
-use strata_asm_spec::construct_genesis_state;
 use strata_asm_stf::AsmStfOutput;
 use strata_btc_verification::TxidInclusionProof;
 use strata_identifiers::L1BlockCommitment;
@@ -20,72 +16,54 @@ use crate::{
 /// inject alternative specs (e.g. `DebugAsmSpec` wrapping `StrataAsmSpec` for
 /// testing) without forking the worker.
 #[derive(Debug)]
-pub struct AsmWorkerServiceState<W, S> {
-    /// Params.
-    pub(crate) asm_params: Arc<AsmParams>,
-
+pub struct AsmWorkerServiceState<W, S: AsmSpec> {
     /// Context for the state to interact with outer world.
     pub(crate) context: W,
 
     /// ASM spec driving the subprotocol pipeline.
     pub(crate) spec: S,
 
-    /// Whether the service is initialized.
-    pub initialized: bool,
-
     /// Current ASM state.
-    pub anchor: Option<AsmState>,
+    pub anchor: AsmState,
 
     /// Current anchor block.
-    pub blkid: Option<L1BlockCommitment>,
+    pub blkid: L1BlockCommitment,
 }
 
 impl<W, S> AsmWorkerServiceState<W, S>
 where
     W: WorkerContext + Send + Sync + 'static,
     S: AsmSpec + Send + Sync + 'static,
+    S::Params: Send + Sync + 'static,
 {
-    /// A new (uninitialized) instance of the service state.
-    pub fn new(context: W, asm_params: Arc<AsmParams>, spec: S) -> Self {
-        Self {
-            asm_params,
-            context,
-            spec,
-            anchor: None,
-            blkid: None,
-            initialized: false,
-        }
-    }
-
-    /// Loads and sets the latest anchor state.
-    ///
-    /// If there are no anchor states yet, creates and stores genesis one beforehand.
-    pub fn load_latest_or_create_genesis(&mut self) -> WorkerResult<()> {
-        match self.context.get_latest_asm_state()? {
-            Some((blkid, state)) => {
-                self.update_anchor_state(state, blkid);
-                Ok(())
-            }
+    /// Creates a new service state, loading the latest anchor or creating genesis.
+    pub fn new(context: W, spec: S, params: S::Params) -> WorkerResult<Self> {
+        let (anchor, blkid) = match context.get_latest_asm_state()? {
+            Some((blkid, state)) => (state, blkid),
             None => {
                 // Create genesis anchor state.
-                let genesis_state = construct_genesis_state(&self.asm_params);
-                let genesis_blk = self.asm_params.anchor.block;
+                let genesis_state = spec.construct_genesis_state(&params);
+                let genesis_blk = genesis_state.chain_view.pow_state.last_verified_block;
 
-                // Persist it and update state.
                 let state = AsmState::new(genesis_state, vec![]);
-                self.context.store_anchor_state(&genesis_blk, &state)?;
-                self.update_anchor_state(state, genesis_blk);
-
-                Ok(())
+                context.store_anchor_state(&genesis_blk, &state)?;
+                (state, genesis_blk)
             }
-        }
+        };
+
+        Ok(Self {
+            context,
+            spec,
+            anchor,
+            blkid,
+        })
     }
 
     /// Returns the actual ASM STF results and the auxiliary data used during the transition.
     ///
     /// A caller is responsible for ensuring the current anchor is a parent of a passed block.
     pub fn transition(&self, block: &Block) -> WorkerResult<(AsmStfOutput, AuxData)> {
-        let cur_state = self.anchor.as_ref().expect("state should be set before");
+        let cur_state = &self.anchor;
 
         // Pre process transition next block against current anchor state.
         let pre_process = {
@@ -104,13 +82,12 @@ where
             let span = tracing::debug_span!("asm.stf.aux_resolve");
             let _guard = span.enter();
 
-            let at_leaf_count = cur_state
-                .state()
-                .chain_view
-                .history_accumulator
-                .num_entries();
-            let resolver =
-                AuxDataResolver::new(&self.context, self.asm_params.anchor.block, at_leaf_count);
+            let accumulator = &cur_state.state().chain_view.history_accumulator;
+            let resolver = AuxDataResolver::new(
+                &self.context,
+                accumulator.genesis_height(),
+                accumulator.num_entries(),
+            );
             resolver.resolve(&pre_process.aux_requests)?
         };
 
@@ -131,11 +108,10 @@ where
         .map_err(WorkerError::AsmError)
     }
 
-    /// Updates anchor related bookkeping.
+    /// Updates anchor related bookkeeping.
     pub(crate) fn update_anchor_state(&mut self, anchor: AsmState, blkid: L1BlockCommitment) {
-        self.initialized = true;
-        self.anchor = Some(anchor);
-        self.blkid = Some(blkid);
+        self.anchor = anchor;
+        self.blkid = blkid;
     }
 }
 
@@ -143,6 +119,7 @@ impl<W, S> ServiceState for AsmWorkerServiceState<W, S>
 where
     W: WorkerContext + Send + Sync + 'static,
     S: AsmSpec + Send + Sync + 'static,
+    S::Params: Send + Sync + 'static,
 {
     fn name(&self) -> &str {
         constants::SERVICE_NAME
@@ -151,7 +128,10 @@ where
 
 #[cfg(test)]
 mod tests {
-    use std::{collections::HashMap, sync::Mutex};
+    use std::{
+        collections::HashMap,
+        sync::{Arc, Mutex},
+    };
 
     use async_trait::async_trait;
     use bitcoin::{BlockHash, Network, block::Header};
@@ -161,6 +141,7 @@ mod tests {
     };
     use corepc_node::Node;
     use strata_asm_common::AsmManifest;
+    use strata_asm_params::AsmParams;
     use strata_asm_spec::StrataAsmSpec;
     use strata_btc_types::{BitcoinTxid, BlockHashExt, RawBitcoinTx};
     use strata_btc_verification::L1Anchor;
@@ -196,20 +177,11 @@ mod tests {
             .await
             .expect("Failed to fetch genesis view");
         asm_params.anchor = l1_anchor;
-        let asm_params = Arc::new(asm_params);
 
         // 3. Set worker context and initialize service state
         let context = MockWorkerContext::new();
-        let mut service_state =
-            AsmWorkerServiceState::new(context.clone(), asm_params, StrataAsmSpec);
-
-        // Initialize: this should create genesis state based on our `genesis_l1_view`
-        service_state
-            .load_latest_or_create_genesis()
-            .expect("Failed to load/create genesis state");
-
-        assert!(service_state.initialized);
-        assert!(service_state.anchor.is_some());
+        let service_state = AsmWorkerServiceState::new(context.clone(), StrataAsmSpec, asm_params)
+            .expect("Failed to create service state");
 
         println!("Service initialized with genesis at height 101");
 

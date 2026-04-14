@@ -25,6 +25,7 @@ impl<W, S> Service for AsmWorkerService<W, S>
 where
     W: WorkerContext + Send + Sync + 'static,
     S: AsmSpec + Send + Sync + 'static,
+    S::Params: Send + Sync + 'static,
 {
     type State = AsmWorkerServiceState<W, S>;
     type Msg = AsmWorkerMessage;
@@ -32,9 +33,9 @@ where
 
     fn get_status(state: &Self::State) -> Self::Status {
         AsmWorkerStatus {
-            is_initialized: state.initialized,
-            cur_block: state.blkid,
-            cur_state: state.anchor.clone(),
+            is_initialized: true,
+            cur_block: Some(state.blkid),
+            cur_state: Some(state.anchor.clone()),
         }
     }
 }
@@ -43,11 +44,8 @@ impl<W, S> SyncService for AsmWorkerService<W, S>
 where
     W: WorkerContext + Send + Sync + 'static,
     S: AsmSpec + Send + Sync + 'static,
+    S::Params: Send + Sync + 'static,
 {
-    fn on_launch(state: &mut AsmWorkerServiceState<W, S>) -> anyhow::Result<()> {
-        Ok(state.load_latest_or_create_genesis()?)
-    }
-
     // TODO(STR-1928): add tests.
     fn process_input(
         state: &mut AsmWorkerServiceState<W, S>,
@@ -75,13 +73,19 @@ fn process_block<W, S>(
 where
     W: WorkerContext + Send + Sync + 'static,
     S: AsmSpec + Send + Sync + 'static,
+    S::Params: Send + Sync + 'static,
 {
     let ctx = &state.context;
 
     // Handle pre-genesis: if the block is before genesis we don't care about it.
-    let genesis_height = state.asm_params.anchor.block.height();
+    let genesis_height = state
+        .anchor
+        .state()
+        .chain_view
+        .history_accumulator
+        .genesis_height();
     let height = incoming_block.height();
-    if height < genesis_height {
+    if height < genesis_height as u32 {
         warn!(height, "ignoring unexpected L1 block before genesis");
         return Ok(());
     }
@@ -98,7 +102,7 @@ where
     let mut pivot_block = *incoming_block;
     let mut pivot_anchor = ctx.get_anchor_state(&pivot_block);
 
-    while pivot_anchor.is_err() && pivot_block.height() >= genesis_height {
+    while pivot_anchor.is_err() && pivot_block.height() as u64 >= genesis_height {
         let block = get_l1_block_with_retry(ctx, pivot_block.blkid())?;
         let parent_height = pivot_block.height() - 1;
         let parent_block_id =
@@ -113,7 +117,7 @@ where
     }
 
     // We reached the height before genesis (while traversing), but didn't find genesis state.
-    if pivot_block.height() < genesis_height {
+    if (pivot_block.height() as u64) < genesis_height {
         warn!("ASM hasn't found pivot anchor state at genesis.");
         return Err(crate::WorkerError::MissingGenesisState);
     }
@@ -134,7 +138,7 @@ where
     // empty with offset = genesis_height + 1. Appending genesis here would shift
     // all external MMR indices by 1 relative to the internal accumulator.
     // Idempotency: skip if the genesis manifest already exists in the L1 database.
-    if pivot_block.height() == genesis_height && !ctx.has_l1_manifest(pivot_block.blkid())? {
+    if pivot_block.height() as u64 == genesis_height && !ctx.has_l1_manifest(pivot_block.blkid())? {
         let genesis_span = info_span!("asm.genesis_manifest",
             pivot_height = pivot_block.height(),
             pivot_block = %pivot_block.blkid()
