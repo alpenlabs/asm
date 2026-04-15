@@ -17,10 +17,14 @@ ignore = [
   "RUSTSEC-2026-0048",
 
   # RUSTSEC-2026-0049 (rustls-webpki 0.101.7) — CRL matching logic error
-  # rustls-webpki 0.103.9 was bumped to 0.103.10 via cargo update.
+  # RUSTSEC-2026-0098 (rustls-webpki 0.101.7) — Name constraints for URI names incorrectly accepted
+  # RUSTSEC-2026-0099 (rustls-webpki 0.101.7) — Name constraints accepted for wildcard certificates
+  # rustls-webpki 0.103.10 was bumped to 0.103.12 via cargo update.
   # The 0.101.7 instance is pulled in via bitreq -> bitcoind-async-client (strata-bridge git dep).
   # Upgrade blocked until the strata-bridge dependency updates its rustls/webpki stack.
   "RUSTSEC-2026-0049",
+  "RUSTSEC-2026-0098",
+  "RUSTSEC-2026-0099",
 
   # RUSTSEC-2026-0002 (lru 0.12.5) — IterMut unsound (Stacked Borrows violation)
   # Pulled in via sp1-prover -> sp1-sdk.
