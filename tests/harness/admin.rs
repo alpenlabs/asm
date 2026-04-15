@@ -23,7 +23,6 @@ use bitcoin::{
     secp256k1::{PublicKey, Secp256k1, SecretKey},
     BlockHash,
 };
-use ssz::Encode;
 use strata_asm_common::{AnchorState, Subprotocol};
 use strata_asm_params::{AdministrationInitConfig, Role};
 use strata_asm_proto_administration::{AdministrationSubprotoState, AdministrationSubprotocol};
@@ -37,7 +36,7 @@ use strata_asm_txs_admin::{
         },
         CancelAction, MultisigAction, Sighash, UpdateAction,
     },
-    parser::SignedPayload,
+    signed_action::SignedAction,
     test_utils::create_signature_set,
 };
 use strata_crypto::{
@@ -97,10 +96,10 @@ impl AdminContext {
         }
     }
 
-    /// Sign an action and return the serialized payload.
+    /// Sign an action and return the signed admin payload.
     ///
     /// Auto-increments the appropriate role's sequence number after signing.
-    pub fn sign(&mut self, action: &MultisigAction) -> Vec<u8> {
+    pub fn sign(&mut self, action: &MultisigAction) -> SignedAction {
         let role = Self::role_for_action(action);
         let seqno = *self.seqnos.entry(role).or_insert(1);
         let result = self.sign_impl(action, seqno);
@@ -111,7 +110,7 @@ impl AdminContext {
     /// Sign an action with a specific sequence number (for replay attack testing).
     ///
     /// Does NOT auto-increment the internal sequence number.
-    pub fn sign_with_seqno(&self, action: &MultisigAction, seqno: u64) -> Vec<u8> {
+    pub fn sign_with_seqno(&self, action: &MultisigAction, seqno: u64) -> SignedAction {
         self.sign_impl(action, seqno)
     }
 
@@ -133,10 +132,10 @@ impl AdminContext {
         }
     }
 
-    fn sign_impl(&self, action: &MultisigAction, seqno: u64) -> Vec<u8> {
+    fn sign_impl(&self, action: &MultisigAction, seqno: u64) -> SignedAction {
         let sighash = action.compute_sighash(seqno);
         let sig_set = create_signature_set(&self.privkeys, &self.signer_indices, sighash);
-        SignedPayload::new(seqno, action.clone(), sig_set).as_ssz_bytes()
+        SignedAction::new(seqno, action.clone(), sig_set)
     }
 }
 
@@ -242,8 +241,10 @@ impl AdminExt for AsmTestHarness {
         ctx: &mut AdminContext,
         action: MultisigAction,
     ) -> anyhow::Result<BlockHash> {
-        let payload = ctx.sign(&action);
-        let tx = self.build_envelope_tx(action.tag(), payload).await?;
+        let signed_action = ctx.sign(&action);
+        let tx = self
+            .build_envelope_tx(signed_action.tag(), signed_action.payload_bytes())
+            .await?;
         self.submit_and_mine_tx(&tx).await
     }
 
@@ -253,9 +254,10 @@ impl AdminExt for AsmTestHarness {
         action: MultisigAction,
         seqno: u64,
     ) -> anyhow::Result<BlockHash> {
-        let tag = action.tag();
-        let payload = ctx.sign_with_seqno(&action, seqno);
-        let tx = self.build_envelope_tx(tag, payload).await?;
+        let signed_action = ctx.sign_with_seqno(&action, seqno);
+        let tx = self
+            .build_envelope_tx(signed_action.tag(), signed_action.payload_bytes())
+            .await?;
         self.submit_and_mine_tx(&tx).await
     }
 }

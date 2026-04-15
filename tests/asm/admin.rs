@@ -35,12 +35,11 @@ use harness::{
 };
 use integration_tests::harness;
 use rand::rngs::OsRng;
-use ssz::Encode;
 use strata_asm_params::Role;
 use strata_asm_txs_admin::{
     actions::{updates::predicate::ProofType, Sighash},
     constants::ADMINISTRATION_SUBPROTOCOL_ID,
-    parser::SignedPayload,
+    signed_action::SignedAction,
     test_utils::create_signature_set,
 };
 use strata_crypto::{
@@ -350,11 +349,11 @@ async fn test_wrong_key_rejected() {
     let seqno = 1;
     let sighash = action.compute_sighash(seqno);
     let sig_set = create_signature_set(&[wrong_privkey], &[0u8], sighash);
-    let signed = SignedPayload::new(seqno, action.clone(), sig_set);
-    let payload = signed.as_ssz_bytes();
+    let signed_action = SignedAction::new(seqno, action.clone(), sig_set);
+    let payload = signed_action.payload_bytes();
 
     let tx = harness
-        .build_envelope_tx(action.tag(), payload)
+        .build_envelope_tx(signed_action.tag(), payload)
         .await
         .unwrap();
 
@@ -401,11 +400,11 @@ async fn test_corrupted_signature_rejected() {
     }
 
     let corrupted_sig_set = SignatureSet::new(indexed_sigs).unwrap();
-    let signed = SignedPayload::new(seqno, action.clone(), corrupted_sig_set);
-    let payload = signed.as_ssz_bytes();
+    let signed_action = SignedAction::new(seqno, action.clone(), corrupted_sig_set);
+    let payload = signed_action.payload_bytes();
 
     let tx = harness
-        .build_envelope_tx(action.tag(), payload)
+        .build_envelope_tx(signed_action.tag(), payload)
         .await
         .unwrap();
 
@@ -474,20 +473,20 @@ async fn test_multiple_updates_same_block() {
     let action2 = sequencer_update([8u8; 32]);
     let action3 = sequencer_update([9u8; 32]);
 
-    let payload1 = ctx.sign(&action1);
-    let payload2 = ctx.sign(&action2);
-    let payload3 = ctx.sign(&action3);
+    let signed_action_1 = ctx.sign(&action1);
+    let signed_action_2 = ctx.sign(&action2);
+    let signed_action_3 = ctx.sign(&action3);
 
     let tx1 = harness
-        .build_envelope_tx(action1.tag(), payload1)
+        .build_envelope_tx(signed_action_1.tag(), signed_action_1.payload_bytes())
         .await
         .unwrap();
     let tx2 = harness
-        .build_envelope_tx(action2.tag(), payload2)
+        .build_envelope_tx(signed_action_2.tag(), signed_action_2.payload_bytes())
         .await
         .unwrap();
     let tx3 = harness
-        .build_envelope_tx(action3.tag(), payload3)
+        .build_envelope_tx(signed_action_3.tag(), signed_action_3.payload_bytes())
         .await
         .unwrap();
 
