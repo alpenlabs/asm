@@ -1,4 +1,4 @@
-use strata_asm_bridge_msgs::BridgeIncomingMsg;
+use strata_asm_bridge_msgs::{BridgeIncomingMsg, DispatchWithdrawalPayload};
 use strata_asm_common::{AsmLogEntry, MsgRelayer, TxInputRef, VerifiedAuxData, logging};
 use strata_asm_logs::CheckpointTipUpdate;
 use strata_asm_txs_checkpoint::extract_checkpoint_from_envelope;
@@ -61,10 +61,10 @@ pub(crate) fn handle_checkpoint_tx(
             relayer.emit_log(log_entry);
 
             for (output, selected_operator) in withdrawal_intents {
-                let bridge_msg = BridgeIncomingMsg::DispatchWithdrawal {
+                let bridge_msg = BridgeIncomingMsg::DispatchWithdrawal(DispatchWithdrawalPayload {
                     output,
                     selected_operator,
-                };
+                });
                 relayer.relay_msg(&bridge_msg);
             }
         }

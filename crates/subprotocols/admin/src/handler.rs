@@ -1,3 +1,4 @@
+use strata_asm_bridge_msgs::{BridgeIncomingMsg, UpdateOperatorSetPayload};
 use strata_asm_checkpoint_msgs::CheckpointIncomingMsg;
 use strata_asm_common::{
     MsgRelayer,
@@ -67,8 +68,13 @@ pub(crate) fn handle_pending_updates(
                     }
                 }
             }
-            UpdateAction::OperatorSet(_update) => {
-                // TODO(STR-1721): Set an InterProtoMsg to the Bridge Subprotocol
+            UpdateAction::OperatorSet(update) => {
+                let (add_members, remove_members) = update.into_inner();
+                relay_bridge_operator_set_update(relayer, add_members, remove_members);
+                info!(
+                    update_id = update_id,
+                    "Forwarded operator set update to bridge subprotocol",
+                );
             }
             UpdateAction::Sequencer(update) => {
                 let new_key = update.into_inner();
@@ -172,6 +178,18 @@ fn relay_checkpoint_sequencer_update(relayer: &mut impl MsgRelayer, new_key: Buf
 
 fn relay_checkpoint_predicate(relayer: &mut impl MsgRelayer, key: PredicateKey) {
     let msg = CheckpointIncomingMsg::UpdateCheckpointPredicate(key);
+    relayer.relay_msg(&msg);
+}
+
+fn relay_bridge_operator_set_update(
+    relayer: &mut impl MsgRelayer,
+    add_members: Vec<strata_crypto::EvenPublicKey>,
+    remove_members: Vec<u32>,
+) {
+    let msg = BridgeIncomingMsg::UpdateOperatorSet(UpdateOperatorSetPayload {
+        add_members,
+        remove_members,
+    });
     relayer.relay_msg(&msg);
 }
 

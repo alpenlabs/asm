@@ -72,5 +72,9 @@ name = "asm_checkpoint"
 path = "asm/checkpoint.rs"
 
 [[test]]
+name = "asm_admin_to_bridge"
+path = "asm/admin_to_bridge.rs"
+
+[[test]]
 name = "asm_bridge_to_checkpoint"
 path = "asm/bridge_to_checkpoint.rs"

@@ -6,94 +6,44 @@
 
 use std::any::Any;
 
-use ssz::{Decode as SszDecode, DecodeError, Encode as SszEncode};
 use ssz_derive::{Decode, Encode};
 use strata_asm_common::{InterprotoMsg, SubprotocolId};
 use strata_asm_txs_bridge_v1::BRIDGE_V1_SUBPROTOCOL_ID;
-use strata_bridge_types::{OperatorSelection, WithdrawOutput};
+use strata_bridge_types::{OperatorIdx, OperatorSelection, WithdrawOutput};
+use strata_crypto::EvenPublicKey;
 
 /// Incoming message types received from other subprotocols.
 ///
 /// This enum represents all possible message types that the bridge subprotocol can
 /// receive from other subprotocols in the ASM.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, Encode, Decode)]
+#[ssz(enum_behaviour = "union")]
 pub enum BridgeIncomingMsg {
     /// Emitted after a checkpoint proof has been validated. Contains the withdrawal command
     /// specifying the destination descriptor and amount to be withdrawn.
-    DispatchWithdrawal {
-        /// The withdrawal output (destination + amount).
-        output: WithdrawOutput,
-        /// User's operator selection for withdrawal assignment.
-        selected_operator: OperatorSelection,
-    },
+    DispatchWithdrawal(DispatchWithdrawalPayload),
+
+    /// Emitted by the admin subprotocol when the operator set is updated.
+    /// Adds new operators by public key and removes existing operators by index.
+    UpdateOperatorSet(UpdateOperatorSetPayload),
 }
 
-#[derive(Debug, Encode, Decode)]
-struct DispatchWithdrawalPayload {
-    output: WithdrawOutput,
-    selected_operator: OperatorSelection,
+/// Payload for [`BridgeIncomingMsg::DispatchWithdrawal`].
+#[derive(Clone, Debug, Eq, PartialEq, Encode, Decode)]
+pub struct DispatchWithdrawalPayload {
+    /// The withdrawal output (destination + amount).
+    pub output: WithdrawOutput,
+    /// User's operator selection for withdrawal assignment.
+    pub selected_operator: OperatorSelection,
 }
 
-impl SszEncode for BridgeIncomingMsg {
-    fn is_ssz_fixed_len() -> bool {
-        false
-    }
-
-    fn ssz_append(&self, buf: &mut Vec<u8>) {
-        match self {
-            Self::DispatchWithdrawal {
-                output,
-                selected_operator,
-            } => {
-                0_u8.ssz_append(buf);
-                DispatchWithdrawalPayload {
-                    output: output.clone(),
-                    selected_operator: *selected_operator,
-                }
-                .ssz_append(buf);
-            }
-        }
-    }
-
-    fn ssz_bytes_len(&self) -> usize {
-        match self {
-            Self::DispatchWithdrawal {
-                output,
-                selected_operator,
-            } => {
-                1 + DispatchWithdrawalPayload {
-                    output: output.clone(),
-                    selected_operator: *selected_operator,
-                }
-                .ssz_bytes_len()
-            }
-        }
-    }
-}
-
-impl SszDecode for BridgeIncomingMsg {
-    fn is_ssz_fixed_len() -> bool {
-        false
-    }
-
-    fn from_ssz_bytes(bytes: &[u8]) -> Result<Self, DecodeError> {
-        let (tag_bytes, payload_bytes) = bytes.split_first().ok_or_else(|| {
-            DecodeError::BytesInvalid("missing bridge message variant tag".into())
-        })?;
-
-        match *tag_bytes {
-            0 => {
-                let payload = DispatchWithdrawalPayload::from_ssz_bytes(payload_bytes)?;
-                Ok(Self::DispatchWithdrawal {
-                    output: payload.output,
-                    selected_operator: payload.selected_operator,
-                })
-            }
-            tag => Err(DecodeError::BytesInvalid(format!(
-                "unknown bridge message variant tag {tag}"
-            ))),
-        }
-    }
+/// Payload for [`BridgeIncomingMsg::UpdateOperatorSet`].
+#[derive(Clone, Debug, Eq, PartialEq, Encode, Decode)]
+pub struct UpdateOperatorSetPayload {
+    /// Operator public keys to add to the bridge multisig.
+    pub add_members: Vec<EvenPublicKey>,
+    /// Operator indices to remove from the bridge multisig.
+    pub remove_members: Vec<OperatorIdx>,
 }
 
 impl InterprotoMsg for BridgeIncomingMsg {

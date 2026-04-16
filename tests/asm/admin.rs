@@ -43,6 +43,7 @@ use strata_asm_txs_admin::{
     parser::SignedPayload,
     test_utils::create_signature_set,
 };
+use strata_asm_txs_bridge_v1::test_utils::create_test_operators;
 use strata_crypto::{
     keys::compressed::CompressedPublicKey,
     threshold_signature::{IndexedSignature, SignatureSet, ThresholdConfig},
@@ -100,7 +101,7 @@ async fn test_operator_update_is_queued() {
     harness
         .submit_admin_action(
             &mut ctx,
-            operator_set_update(vec![[10u8; 32], [11u8; 32]], vec![[20u8; 32]]),
+            operator_set_update(create_test_operators(2).1, vec![0]),
         )
         .await
         .unwrap();
@@ -299,7 +300,10 @@ async fn test_cancel_removes_queued_update() {
 
     // Create an operator set update that gets queued (ID=0)
     harness
-        .submit_admin_action(&mut ctx, operator_set_update(vec![[6u8; 32]], vec![]))
+        .submit_admin_action(
+            &mut ctx,
+            operator_set_update(create_test_operators(1).1, vec![]),
+        )
         .await
         .unwrap();
 
@@ -552,7 +556,10 @@ async fn test_cancel_prevents_queued_update_activation() {
 
     // Submit operator update (gets queued, will activate in current_height + 2)
     harness
-        .submit_admin_action(&mut ctx, operator_set_update(vec![[10u8; 32]], vec![]))
+        .submit_admin_action(
+            &mut ctx,
+            operator_set_update(create_test_operators(1).1, vec![]),
+        )
         .await
         .unwrap();
 
