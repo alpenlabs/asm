@@ -89,7 +89,7 @@ impl InputBuilder {
         let inner_state_commitment = AsmStfProgram::compute_state_commitment(anchor_state);
         let moho_state = moho_types::MohoState::new(
             inner_state_commitment,
-            strata_predicate::PredicateKey::always_accept(),
+            self.asm_predicate.clone(),
             moho_types::ExportState::new(vec![])?,
         );
         Ok(moho_state)
