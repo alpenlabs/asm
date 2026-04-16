@@ -1524,6 +1524,7 @@ dependencies = [
  "strata-asm-bridge-msgs",
  "strata-asm-checkpoint-msgs",
  "strata-asm-common",
+ "strata-asm-logs",
  "strata-asm-params",
  "strata-asm-txs-admin",
  "strata-crypto",

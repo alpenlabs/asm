@@ -7,13 +7,19 @@ version = "0.1.0"
 workspace = true
 
 [dependencies]
+moho-runtime-impl.workspace = true
+moho-runtime-interface.workspace = true
+moho-types.workspace = true
 strata-asm-common.workspace = true
+strata-asm-logs.workspace = true
 strata-asm-manifest-types.workspace = true
 strata-asm-params = { workspace = true, features = ["arbitrary"] }
+strata-asm-proof-impl = { workspace = true, features = ["test-utils"] }
 strata-asm-proto-administration.workspace = true
 strata-asm-proto-bridge-v1.workspace = true
 strata-asm-proto-checkpoint.workspace = true
 strata-asm-spec.workspace = true
+strata-asm-stf.workspace = true
 strata-asm-txs-admin = { workspace = true, features = ["test-utils"] }
 strata-asm-txs-bridge-v1 = { workspace = true, features = ["test-utils"] }
 strata-asm-worker.workspace = true
@@ -31,6 +37,7 @@ strata-merkle.workspace = true
 strata-predicate.workspace = true
 strata-tasks.workspace = true
 strata-test-utils-arb.workspace = true
+strata-test-utils-btc.workspace = true
 strata-test-utils-btcio.workspace = true
 strata-test-utils-checkpoint.workspace = true
 
@@ -78,3 +85,7 @@ path = "asm/admin_to_bridge.rs"
 [[test]]
 name = "asm_bridge_to_checkpoint"
 path = "asm/bridge_to_checkpoint.rs"
+
+[[test]]
+name = "asm_admin_to_stf"
+path = "asm/admin_to_stf.rs"
