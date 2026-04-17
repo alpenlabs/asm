@@ -35,6 +35,7 @@ tree_hash.workspace = true
 
 anyhow.workspace = true
 async-trait.workspace = true
+bincode = { workspace = true, optional = true }
 bitcoin.workspace = true
 bitcoincore-zmq = { version = "1.5.2", features = ["async"] }
 bitcoind-async-client.workspace = true
@@ -44,6 +45,8 @@ jsonrpsee = { workspace = true, features = ["server", "macros"] }
 serde.workspace = true
 serde_json.workspace = true
 sled.workspace = true
+sp1-sdk = { workspace = true, optional = true }
+sp1-verifier = { workspace = true, optional = true }
 ssz.workspace = true
 strata-asm-sp1-guest-builder = { path = "../../guest-builder/sp1", optional = true }
 tokio.workspace = true
@@ -51,9 +54,19 @@ toml.workspace = true
 tracing.workspace = true
 tracing-subscriber = { version = "0.3.19", features = ["env-filter"] }
 zkaleido.workspace = true
+zkaleido-native-adapter.workspace = true
+zkaleido-sp1-groth16-verifier = { workspace = true, optional = true }
 zkaleido-sp1-host = { workspace = true, optional = true, features = [
   "remote-prover",
 ] }
 
 [features]
-sp1 = ["dep:zkaleido-sp1-host", "dep:strata-asm-sp1-guest-builder"]
+default = []
+sp1 = [
+  "dep:zkaleido-sp1-host",
+  "dep:zkaleido-sp1-groth16-verifier",
+  "dep:strata-asm-sp1-guest-builder",
+  "dep:sp1-verifier",
+  "dep:sp1-sdk",
+  "dep:bincode",
+]

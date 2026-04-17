@@ -532,7 +532,7 @@ checksum = "f8ca58f447f06ed17d5fc4043ce1b10dd205e060fb3ce5b979b8ed8e59ff3f79"
 [[package]]
 name = "moho-recursive-proof"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/moho?rev=19c4099ffea81d754086bcb8ba324ad360148cfe#19c4099ffea81d754086bcb8ba324ad360148cfe"
+source = "git+https://github.com/alpenlabs/moho?tag=v0.1-alpha.1#a80ef1e534a6ebbda5dff7125efb5ab5bf9b2485"
 dependencies = [
  "moho-types",
  "ssz",
@@ -548,7 +548,7 @@ dependencies = [
 [[package]]
 name = "moho-types"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/moho?rev=19c4099ffea81d754086bcb8ba324ad360148cfe#19c4099ffea81d754086bcb8ba324ad360148cfe"
+source = "git+https://github.com/alpenlabs/moho?tag=v0.1-alpha.1#a80ef1e534a6ebbda5dff7125efb5ab5bf9b2485"
 dependencies = [
  "hex",
  "sha2",
@@ -1118,7 +1118,7 @@ dependencies = [
 [[package]]
 name = "strata-codec"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/strata-common?tag=v0.1.0-alpha-rc15#9e46374e50aa4a5b059e53b81395d9733a958434"
+source = "git+https://github.com/alpenlabs/strata-common?tag=v0.1.0-alpha-rc16#a0c346696ffbf2bc95b7fa37174e09d41462efa3"
 dependencies = [
  "thiserror 2.0.18",
 ]
@@ -1126,7 +1126,7 @@ dependencies = [
 [[package]]
 name = "strata-merkle"
 version = "0.2.0"
-source = "git+https://github.com/alpenlabs/strata-common?tag=v0.1.0-alpha-rc15#9e46374e50aa4a5b059e53b81395d9733a958434"
+source = "git+https://github.com/alpenlabs/strata-common?tag=v0.1.0-alpha-rc16#a0c346696ffbf2bc95b7fa37174e09d41462efa3"
 dependencies = [
  "borsh",
  "digest",
@@ -1146,7 +1146,7 @@ dependencies = [
 [[package]]
 name = "strata-predicate"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/strata-common?tag=v0.1.0-alpha-rc15#9e46374e50aa4a5b059e53b81395d9733a958434"
+source = "git+https://github.com/alpenlabs/strata-common?tag=v0.1.0-alpha-rc16#a0c346696ffbf2bc95b7fa37174e09d41462efa3"
 dependencies = [
  "borsh",
  "hex",

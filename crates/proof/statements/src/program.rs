@@ -1,7 +1,7 @@
 //! ASM STF [`ZkVmProgram`] definition.
 
 use moho_runtime_impl::RuntimeInput;
-use moho_types::MohoAttestation;
+use moho_types::StepMohoAttestation;
 use ssz::{decode::Decode, encode::Encode};
 use zkaleido::{
     DataFormatError, ProofType, PublicValues, ZkVmError, ZkVmHost, ZkVmInputBuilder,
@@ -14,14 +14,14 @@ use crate::statements::process_asm_stf;
 /// The ASM STF program for ZKVM proof generation and verification.
 ///
 /// This implements [`ZkVmProgram`] to define how the ASM STF runtime input is serialized
-/// into the ZKVM guest and how the resulting [`MohoAttestation`] is extracted from the
-/// proof's public values.
+/// into the ZKVM guest and how the resulting [`StepMohoAttestation`] is extracted from
+/// the proof's public values.
 #[derive(Debug)]
 pub struct AsmStfProofProgram;
 
 impl ZkVmProgram for AsmStfProofProgram {
     type Input = RuntimeInput;
-    type Output = MohoAttestation;
+    type Output = StepMohoAttestation;
 
     fn name() -> String {
         "ASM STF".to_string()
@@ -44,7 +44,7 @@ impl ZkVmProgram for AsmStfProofProgram {
     where
         H: ZkVmHost,
     {
-        MohoAttestation::from_ssz_bytes(public_values.as_bytes()).map_err(|e| {
+        StepMohoAttestation::from_ssz_bytes(public_values.as_bytes()).map_err(|e| {
             ZkVmError::OutputExtractionError {
                 source: DataFormatError::Other(e.to_string()),
             }

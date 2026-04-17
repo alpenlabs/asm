@@ -4330,7 +4330,7 @@ dependencies = [
 [[package]]
 name = "moho-recursive-proof"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/moho?rev=b399fdbf3b5108f4b0d0559dc1e74b9e53858744#b399fdbf3b5108f4b0d0559dc1e74b9e53858744"
+source = "git+https://github.com/alpenlabs/moho?tag=v0.1-alpha.1#a80ef1e534a6ebbda5dff7125efb5ab5bf9b2485"
 dependencies = [
  "k256",
  "moho-types",
@@ -4348,7 +4348,7 @@ dependencies = [
 [[package]]
 name = "moho-runtime-impl"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/moho?rev=b399fdbf3b5108f4b0d0559dc1e74b9e53858744#b399fdbf3b5108f4b0d0559dc1e74b9e53858744"
+source = "git+https://github.com/alpenlabs/moho?tag=v0.1-alpha.1#a80ef1e534a6ebbda5dff7125efb5ab5bf9b2485"
 dependencies = [
  "moho-runtime-interface",
  "moho-types",
@@ -4359,7 +4359,7 @@ dependencies = [
 [[package]]
 name = "moho-runtime-interface"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/moho?rev=b399fdbf3b5108f4b0d0559dc1e74b9e53858744#b399fdbf3b5108f4b0d0559dc1e74b9e53858744"
+source = "git+https://github.com/alpenlabs/moho?tag=v0.1-alpha.1#a80ef1e534a6ebbda5dff7125efb5ab5bf9b2485"
 dependencies = [
  "moho-types",
  "ssz",
@@ -4369,7 +4369,7 @@ dependencies = [
 [[package]]
 name = "moho-types"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/moho?rev=b399fdbf3b5108f4b0d0559dc1e74b9e53858744#b399fdbf3b5108f4b0d0559dc1e74b9e53858744"
+source = "git+https://github.com/alpenlabs/moho?tag=v0.1-alpha.1#a80ef1e534a6ebbda5dff7125efb5ab5bf9b2485"
 dependencies = [
  "hex",
  "sha2",
@@ -7394,6 +7394,7 @@ dependencies = [
  "anyhow",
  "asm-storage",
  "async-trait",
+ "bincode",
  "bitcoin",
  "bitcoincore-zmq",
  "bitcoind-async-client",
@@ -7407,6 +7408,8 @@ dependencies = [
  "serde",
  "serde_json",
  "sled",
+ "sp1-sdk",
+ "sp1-verifier",
  "ssz",
  "strata-asm-common",
  "strata-asm-params",
@@ -7431,6 +7434,8 @@ dependencies = [
  "tracing-subscriber",
  "tree_hash",
  "zkaleido 0.1.0 (git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc24)",
+ "zkaleido-native-adapter",
+ "zkaleido-sp1-groth16-verifier 0.1.0 (git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc24)",
  "zkaleido-sp1-host",
 ]
 

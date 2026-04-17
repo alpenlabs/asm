@@ -7,12 +7,10 @@ use std::sync::Arc;
 use anyhow::{Context, Result};
 use asm_storage::AsmStateDb;
 use bitcoind_async_client::{Client, traits::Reader};
-use moho_recursive_proof::{
-    MohoRecursiveInput, MohoRecursiveOutput, MohoStateTransition, MohoTransitionWithProof,
-};
+use moho_recursive_proof::{MohoRecursiveInput, MohoRecursiveOutput};
 use moho_runtime_impl::RuntimeInput;
 use moho_runtime_interface::MohoProgram;
-use moho_types::{MohoAttestation, MohoState};
+use moho_types::{MohoState, RecursiveMohoProof, StepMohoAttestation, StepMohoProof};
 use ssz::{Decode, Encode};
 use strata_asm_proof_db::{ProofDb, SledProofDb};
 use strata_asm_proof_impl::moho_program::{input::AsmStepInput, program::AsmStfProgram};
@@ -30,11 +28,13 @@ pub(crate) struct InputBuilder {
     bitcoin_client: Arc<Client>,
     proof_db: SledProofDb,
     genesis: L1BlockCommitment,
+    asm_predicate: PredicateKey,
+    moho_predicate: PredicateKey,
 }
 
 pub(crate) struct MohoPrerequisite {
-    prev_moho_proof: Option<MohoTransitionWithProof>,
-    incremental_step_proof: MohoTransitionWithProof,
+    prev_moho_proof: Option<RecursiveMohoProof>,
+    incremental_step_proof: StepMohoProof,
 }
 
 impl InputBuilder {
@@ -43,12 +43,16 @@ impl InputBuilder {
         bitcoin_client: Arc<Client>,
         proof_db: SledProofDb,
         genesis: L1BlockCommitment,
+        asm_predicate: PredicateKey,
+        moho_predicate: PredicateKey,
     ) -> Self {
         Self {
             state_db,
             bitcoin_client,
             proof_db,
             genesis,
+            asm_predicate,
+            moho_predicate,
         }
     }
 
@@ -83,7 +87,7 @@ impl InputBuilder {
         let inner_state_commitment = AsmStfProgram::compute_state_commitment(anchor_state);
         let moho_state = moho_types::MohoState::new(
             inner_state_commitment,
-            strata_predicate::PredicateKey::always_accept(),
+            self.asm_predicate.clone(),
             moho_types::ExportState::new(vec![])?,
         );
         Ok(moho_state)
@@ -102,14 +106,10 @@ impl InputBuilder {
 
         let asm_receipt = asm_proof.0.receipt();
         let asm_attestation =
-            MohoAttestation::from_ssz_bytes(asm_receipt.public_values().as_bytes())
+            StepMohoAttestation::from_ssz_bytes(asm_receipt.public_values().as_bytes())
                 .context("invalid ASM attestation in stored proof")?;
-        let asm_transition = MohoStateTransition::new(
-            asm_attestation.genesis().clone(),
-            asm_attestation.proven().clone(),
-        );
         let asm_step_proof =
-            MohoTransitionWithProof::new(asm_transition, asm_receipt.proof().as_bytes().to_vec());
+            StepMohoProof::new(asm_attestation, asm_receipt.proof().as_bytes().to_vec());
 
         // 2. Previous moho proof: required unless this is the genesis block.
         let parent = self.get_parent_commitment(block).await?;
@@ -124,8 +124,8 @@ impl InputBuilder {
             let receipt = proof.0.receipt();
             let output = MohoRecursiveOutput::from_ssz_bytes(receipt.public_values().as_bytes())
                 .context("invalid moho recursive output in stored proof")?;
-            Some(MohoTransitionWithProof::new(
-                output.transition().clone(),
+            Some(RecursiveMohoProof::new(
+                output.attestation().clone(),
                 receipt.proof().as_bytes().to_vec(),
             ))
         };
@@ -194,14 +194,16 @@ impl InputBuilder {
         prerequisite: MohoPrerequisite,
         l1_ref: L1BlockCommitment,
     ) -> Result<MohoRecursiveInput> {
-        let moho_predicate = PredicateKey::always_accept();
+        let moho_predicate = self.moho_predicate.clone();
 
         let MohoPrerequisite {
             prev_moho_proof,
             incremental_step_proof,
         } = prerequisite;
 
-        let step_predicate = PredicateKey::always_accept();
+        // The inner step proof is the ASM STF proof, so the step predicate is
+        // the ASM predicate.
+        let step_predicate = self.asm_predicate.clone();
 
         let parent = self.get_parent_commitment(l1_ref).await?;
         let parent_state = self.get_moho_state(parent).await?;

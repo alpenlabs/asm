@@ -43,6 +43,7 @@ test-utils = [
 ]
 
 [dev-dependencies]
+arbitrary.workspace = true
 strata-btc-types.workspace = true
 strata-identifiers.workspace = true
 strata-test-utils-btc.workspace = true

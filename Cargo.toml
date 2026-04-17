@@ -88,10 +88,10 @@ strata-test-utils-btcio = { path = "crates/test-utils/btcio" }
 strata-test-utils-checkpoint = { path = "crates/test-utils/checkpoint" }
 
 # Dependencies from alpenlabs/moho (moho's b399fdb depends on strata-common rc16)
-moho-recursive-proof = { git = "https://github.com/alpenlabs/moho", rev = "b399fdbf3b5108f4b0d0559dc1e74b9e53858744" }
-moho-runtime-impl = { git = "https://github.com/alpenlabs/moho", rev = "b399fdbf3b5108f4b0d0559dc1e74b9e53858744" }
-moho-runtime-interface = { git = "https://github.com/alpenlabs/moho", rev = "b399fdbf3b5108f4b0d0559dc1e74b9e53858744" }
-moho-types = { git = "https://github.com/alpenlabs/moho", rev = "b399fdbf3b5108f4b0d0559dc1e74b9e53858744" }
+moho-recursive-proof = { git = "https://github.com/alpenlabs/moho", tag = "v0.1-alpha.1" }
+moho-runtime-impl = { git = "https://github.com/alpenlabs/moho", tag = "v0.1-alpha.1" }
+moho-runtime-interface = { git = "https://github.com/alpenlabs/moho", tag = "v0.1-alpha.1" }
+moho-types = { git = "https://github.com/alpenlabs/moho", tag = "v0.1-alpha.1" }
 
 # Dependencies from alpenlabs/strata-common
 strata-btc-types = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.1.0-alpha-rc16" }
@@ -129,6 +129,7 @@ zkaleido-logging = { git = "https://github.com/alpenlabs/zkaleido", tag = "v0.1.
 zkaleido-native-adapter = { git = "https://github.com/alpenlabs/zkaleido", tag = "v0.1.0-alpha-rc24", features = [
   "remote-prover",
 ] }
+zkaleido-sp1-groth16-verifier = { git = "https://github.com/alpenlabs/zkaleido", tag = "v0.1.0-alpha-rc24" }
 zkaleido-sp1-host = { git = "https://github.com/alpenlabs/zkaleido", tag = "v0.1.0-alpha-rc24" }
 
 bitcoin-bosd = { git = "https://github.com/alpenlabs/bitcoin-bosd", version = "0.10.0", tag = "v0.10.0", features = [
@@ -160,6 +161,8 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0.94"
 sha2 = "0.10"
 sled = "0.34.7"
+sp1-sdk = "5.2.1"
+sp1-verifier = "5.2.1"
 tempfile = "3.10.1"
 thiserror = "2.0.11"
 tokio = { version = "1.37", features = ["full"] }
