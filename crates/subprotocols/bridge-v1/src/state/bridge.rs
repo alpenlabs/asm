@@ -176,6 +176,40 @@ impl BridgeV1State {
         )
     }
 
+    /// Decomposes a batch withdrawal into N individual assignments.
+    ///
+    /// Splits `withdrawal_output.amt()` into `N = amt / denomination` calls to
+    /// [`create_withdrawal_assignment`](Self::create_withdrawal_assignment), each with the
+    /// bridge denomination and the same destination and operator selection.
+    pub fn create_batch_withdrawal_assignments(
+        &mut self,
+        withdrawal_output: &WithdrawOutput,
+        selected_operator: OperatorSelection,
+        l1_block: &L1BlockCommitment,
+    ) -> Result<(), WithdrawalCommandError> {
+        let amt = withdrawal_output.amt().to_sat();
+        let denom = self.denomination.to_sat();
+
+        if !amt.is_multiple_of(denom) {
+            return Err(WithdrawalCommandError::DepositWithdrawalAmountMismatch(
+                Mismatch {
+                    expected: denom,
+                    got: amt,
+                },
+            ));
+        }
+
+        let n = amt / denom;
+        let single_output =
+            WithdrawOutput::new(withdrawal_output.destination().clone(), self.denomination);
+
+        for _ in 0..n {
+            self.create_withdrawal_assignment(&single_output, selected_operator, l1_block)?;
+        }
+
+        Ok(())
+    }
+
     /// Processes all expired assignments by reassigning them to new operators.
     ///
     /// This function iterates through all assignments, identifies those that have expired
@@ -238,6 +272,7 @@ impl BridgeV1State {
 #[cfg(test)]
 mod tests {
     use strata_bridge_types::WithdrawOutput;
+    use strata_btc_types::BitcoinAmount;
     use strata_identifiers::L1BlockCommitment;
     use strata_test_utils_arb::ArbitraryGenerator;
 
@@ -309,5 +344,54 @@ mod tests {
             assert_eq!(mismatch.got, output.amt.to_sat());
             assert_eq!(mismatch.expected, deposit.amt().to_sat());
         }
+    }
+
+    #[test]
+    fn test_create_batch_withdrawal_assignments_success() {
+        let (mut state, _privkeys) = create_test_state();
+        let mut arb = ArbitraryGenerator::new();
+
+        add_deposits(&mut state, 5);
+
+        let l1blk: L1BlockCommitment = arb.generate();
+        let mut output: WithdrawOutput = arb.generate();
+        output.amt = BitcoinAmount::from_sat(state.denomination.to_sat() * 3);
+        let selected_operator: OperatorSelection = arb.generate();
+
+        state
+            .create_batch_withdrawal_assignments(&output, selected_operator, &l1blk)
+            .unwrap();
+
+        assert_eq!(state.assignments.len(), 3);
+        assert_eq!(state.deposits.len(), 2);
+    }
+
+    #[test]
+    fn test_create_batch_withdrawal_assignments_non_multiple_fails() {
+        let (mut state, _privkeys) = create_test_state();
+        let mut arb = ArbitraryGenerator::new();
+
+        add_deposits(&mut state, 2);
+
+        let l1blk: L1BlockCommitment = arb.generate();
+        let mut output: WithdrawOutput = arb.generate();
+        output.amt = BitcoinAmount::from_sat(state.denomination.to_sat() + 1);
+        let selected_operator: OperatorSelection = arb.generate();
+
+        let err = state
+            .create_batch_withdrawal_assignments(&output, selected_operator, &l1blk)
+            .unwrap_err();
+
+        assert!(matches!(
+            err,
+            WithdrawalCommandError::DepositWithdrawalAmountMismatch(..)
+        ));
+        if let WithdrawalCommandError::DepositWithdrawalAmountMismatch(mismatch) = err {
+            assert_eq!(mismatch.expected, state.denomination.to_sat());
+            assert_eq!(mismatch.got, output.amt.to_sat());
+        }
+
+        assert_eq!(state.assignments.len(), 0);
+        assert_eq!(state.deposits.len(), 2);
     }
 }

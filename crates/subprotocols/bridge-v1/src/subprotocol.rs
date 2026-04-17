@@ -140,7 +140,7 @@ impl Subprotocol for BridgeV1Subproto {
         for msg in msgs {
             match msg {
                 BridgeIncomingMsg::DispatchWithdrawal(payload) => {
-                    if let Err(e) = state.create_withdrawal_assignment(
+                    if let Err(e) = state.create_batch_withdrawal_assignments(
                         &payload.output,
                         payload.selected_operator,
                         l1ref,
