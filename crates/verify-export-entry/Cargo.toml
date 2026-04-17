@@ -1,0 +1,11 @@
+[package]
+name = "strata-asm-verify-export-entry"
+version = "0.1.0"
+edition = "2024"
+
+[lints]
+workspace = true
+
+[dependencies]
+moho-types.workspace = true
+strata-merkle = { workspace = true, features = ["ssz"] }

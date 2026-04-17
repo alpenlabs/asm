@@ -7355,10 +7355,17 @@ name = "strata-asm-rpc"
 version = "0.1.0"
 dependencies = [
  "bitcoin",
+ "hex",
  "jsonrpsee",
+ "moho-types",
+ "serde",
+ "ssz",
  "strata-asm-proof-types",
  "strata-asm-proto-bridge-v1",
  "strata-asm-worker",
+ "strata-merkle",
+ "strata-predicate",
+ "thiserror 2.0.18",
 ]
 
 [[package]]
@@ -7382,6 +7389,7 @@ dependencies = [
  "sled",
  "ssz",
  "strata-asm-common",
+ "strata-asm-logs",
  "strata-asm-params",
  "strata-asm-proof-db",
  "strata-asm-proof-impl",
@@ -7511,6 +7519,14 @@ dependencies = [
  "strata-asm-common",
  "strata-l1-envelope-fmt",
  "strata-l1-txfmt",
+]
+
+[[package]]
+name = "strata-asm-verify-export-entry"
+version = "0.1.0"
+dependencies = [
+ "moho-types",
+ "strata-merkle",
 ]
 
 [[package]]

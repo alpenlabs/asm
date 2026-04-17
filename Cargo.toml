@@ -30,6 +30,7 @@ members = [
   "crates/test-utils/btc",
   "crates/test-utils/btcio",
   "crates/test-utils/checkpoint",
+  "crates/verify-export-entry",
   "crates/worker",
   "crates/storage",
 
