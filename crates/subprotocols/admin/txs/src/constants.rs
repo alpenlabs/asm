@@ -19,6 +19,8 @@ pub enum AdminTxType {
     StrataAdminMultisigUpdate = 10,
     /// Update the strata seq manager multisignature configuration.
     StrataSeqManagerMultisigUpdate = 11,
+    /// Update the alpen admin multisignature configuration.
+    AlpenAdminMultisigUpdate = 12,
     /// Update the set of authorized operators.
     OperatorUpdate = 20,
     /// Update the sequencer configuration.
@@ -43,6 +45,7 @@ impl TryFrom<u8> for AdminTxType {
             0 => Ok(AdminTxType::Cancel),
             10 => Ok(AdminTxType::StrataAdminMultisigUpdate),
             11 => Ok(AdminTxType::StrataSeqManagerMultisigUpdate),
+            12 => Ok(AdminTxType::AlpenAdminMultisigUpdate),
             20 => Ok(AdminTxType::OperatorUpdate),
             21 => Ok(AdminTxType::SequencerUpdate),
             30 => Ok(AdminTxType::OlStfVkUpdate),
@@ -68,6 +71,10 @@ impl AdminTxType {
             // SHA256("strata/admin/strata_seq_manager_multisig_update")
             Self::StrataSeqManagerMultisigUpdate => {
                 &hex!("0134b3ef6be62aa4d34cc93aa5f2e89ffdc3dec7f615c147c2d5e45667a500a9")
+            }
+            // SHA256("strata/admin/alpen_admin_multisig_update")
+            Self::AlpenAdminMultisigUpdate => {
+                &hex!("708b4b614d33e226001b45b9917de65ee5cda9756a51b6a1e0e617dd06cddd91")
             }
             // SHA256("strata/admin/operator_update")
             Self::OperatorUpdate => {
@@ -97,6 +104,7 @@ impl fmt::Display for AdminTxType {
             AdminTxType::StrataSeqManagerMultisigUpdate => {
                 write!(f, "StrataSeqManagerMultisigUpdate")
             }
+            AdminTxType::AlpenAdminMultisigUpdate => write!(f, "AlpenAdminMultisigUpdate"),
             AdminTxType::OperatorUpdate => write!(f, "OperatorUpdate"),
             AdminTxType::SequencerUpdate => write!(f, "SequencerUpdate"),
             AdminTxType::OlStfVkUpdate => write!(f, "OlStfVkUpdate"),
@@ -121,6 +129,7 @@ mod tests {
                 Just(AdminTxType::Cancel),
                 Just(AdminTxType::StrataAdminMultisigUpdate),
                 Just(AdminTxType::StrataSeqManagerMultisigUpdate),
+                Just(AdminTxType::AlpenAdminMultisigUpdate),
                 Just(AdminTxType::OperatorUpdate),
                 Just(AdminTxType::SequencerUpdate),
                 Just(AdminTxType::OlStfVkUpdate),
@@ -135,6 +144,7 @@ mod tests {
         assert_eq!(AdminTxType::Cancel as u8, 0);
         assert_eq!(AdminTxType::StrataAdminMultisigUpdate as u8, 10);
         assert_eq!(AdminTxType::StrataSeqManagerMultisigUpdate as u8, 11);
+        assert_eq!(AdminTxType::AlpenAdminMultisigUpdate as u8, 12);
         assert_eq!(AdminTxType::OperatorUpdate as u8, 20);
         assert_eq!(AdminTxType::SequencerUpdate as u8, 21);
         assert_eq!(AdminTxType::OlStfVkUpdate as u8, 30);
