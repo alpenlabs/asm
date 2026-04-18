@@ -215,9 +215,19 @@ mod tests {
         let strata_sequencer_manager =
             ThresholdConfig::try_new(seq_pks, NonZero::new(2).unwrap()).unwrap();
 
+        // Create alpen administrator keys
+        let alpen_sks: Vec<SecretKey> = (0..3).map(|_| SecretKey::new(&mut OsRng)).collect();
+        let alpen_pks: Vec<CompressedPublicKey> = alpen_sks
+            .iter()
+            .map(|sk| CompressedPublicKey::from(PublicKey::from_secret_key(&secp, sk)))
+            .collect();
+        let alpen_administrator =
+            ThresholdConfig::try_new(alpen_pks, NonZero::new(2).unwrap()).unwrap();
+
         AdministrationInitConfig {
             strata_administrator,
             strata_sequencer_manager,
+            alpen_administrator,
             confirmation_depth: 2016,
             max_seqno_gap: NonZero::new(10).unwrap(),
         }
