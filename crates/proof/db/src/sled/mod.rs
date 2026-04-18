@@ -10,6 +10,7 @@ use std::path::Path;
 use strata_asm_proof_types::L1Range;
 use strata_identifiers::{Buf32, L1BlockCommitment, L1BlockId};
 
+mod moho_state;
 mod proof_db;
 mod remote_mapping;
 mod remote_status;
@@ -34,6 +35,8 @@ pub struct SledProofDb {
     pub(crate) remote_to_proof: sled::Tree,
     /// Status tracking: `RemoteProofId` (raw bytes) → `RemoteProofStatus` (borsh-encoded).
     pub(crate) remote_proof_status: sled::Tree,
+    /// Moho state snapshots, keyed by `[height‖blkid]` (36 bytes), SSZ-encoded values.
+    pub(crate) moho_states: sled::Tree,
 }
 
 impl SledProofDb {
@@ -45,12 +48,14 @@ impl SledProofDb {
         let proof_to_remote = db.open_tree("proof_to_remote")?;
         let remote_to_proof = db.open_tree("remote_to_proof")?;
         let remote_proof_status = db.open_tree("remote_proof_status")?;
+        let moho_states = db.open_tree("moho_states")?;
         Ok(Self {
             asm_proofs,
             moho_proofs,
             proof_to_remote,
             remote_to_proof,
             remote_proof_status,
+            moho_states,
         })
     }
 }
