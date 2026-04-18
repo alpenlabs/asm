@@ -1,13 +1,35 @@
-//! [`MohoStateDb`] implementation for [`SledProofDb`].
+//! [`MohoStateDb`] implementation backed by sled.
 
 use moho_types::MohoState;
 use ssz::{Decode, Encode};
 use strata_identifiers::L1BlockCommitment;
 
-use super::{SledProofDb, encode_moho_key};
+use super::encode_moho_key;
 use crate::MohoStateDb;
 
-impl MohoStateDb for SledProofDb {
+/// Sled-backed store for [`MohoState`] snapshots keyed by [`L1BlockCommitment`].
+///
+/// Values are SSZ-encoded; keys use the same big-endian height encoding as the
+/// proof trees so lexicographic range scans match block-height ordering.
+#[derive(Debug, Clone)]
+pub struct SledMohoStateDb {
+    moho_states: sled::Tree,
+}
+
+impl SledMohoStateDb {
+    /// Opens the Moho-state tree on an already-open sled database.
+    ///
+    /// Callers open the [`sled::Db`] themselves so multiple handles — e.g.
+    /// [`super::SledProofDb`] — can share the same on-disk directory; sled
+    /// does not allow opening the same path twice in a process.
+    pub fn open(db: &sled::Db) -> Result<Self, sled::Error> {
+        Ok(Self {
+            moho_states: db.open_tree("moho_states")?,
+        })
+    }
+}
+
+impl MohoStateDb for SledMohoStateDb {
     type Error = sled::Error;
 
     async fn store_moho_state(
@@ -53,6 +75,14 @@ mod tests {
     use super::*;
     use crate::sled::test_util::*;
 
+    /// Creates an isolated [`SledMohoStateDb`] backed by a temporary directory.
+    fn temp_moho_db() -> (SledMohoStateDb, tempfile::TempDir) {
+        let dir = tempfile::tempdir().expect("failed to create temp dir");
+        let db = sled::open(dir.path()).expect("failed to open sled db");
+        let moho_db = SledMohoStateDb::open(&db).expect("failed to open moho state tree");
+        (moho_db, dir)
+    }
+
     /// Generates an arbitrary [`MohoState`].
     fn arb_moho_state() -> impl Strategy<Value = MohoState> {
         any::<[u8; 32]>().prop_map(|inner| {
@@ -73,7 +103,7 @@ mod tests {
             commitment in arb_l1_block_commitment(),
             state in arb_moho_state(),
         ) {
-            let (db, _dir) = temp_db();
+            let (db, _dir) = temp_moho_db();
 
             Runtime::new().unwrap().block_on(async {
                 db.store_moho_state(commitment, state.clone()).await.unwrap();
@@ -91,7 +121,7 @@ mod tests {
         fn get_missing_moho_state_returns_none(
             commitment in arb_l1_block_commitment(),
         ) {
-            let (db, _dir) = temp_db();
+            let (db, _dir) = temp_moho_db();
 
             Runtime::new().unwrap().block_on(async {
                 let result = db.get_moho_state(commitment).await.unwrap();
@@ -116,7 +146,7 @@ mod tests {
                 1..4,
             ),
         ) {
-            let (db, _dir) = temp_db();
+            let (db, _dir) = temp_moho_db();
 
             Runtime::new().unwrap().block_on(async {
                 let below_entries: Vec<_> = below.into_iter().map(|(offset, blkid, state)| {

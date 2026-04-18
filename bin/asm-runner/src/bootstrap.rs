@@ -59,7 +59,8 @@ pub(crate) async fn bootstrap(
     let (proof_tx, proof_db_for_rpc) = if let Some(orch_config) = config.orchestrator {
         let (tx, rx) = mpsc::unbounded_channel();
 
-        let proof_db = SledProofDb::open(&orch_config.proof_db_path)?;
+        let sled_db = sled::open(&orch_config.proof_db_path)?;
+        let proof_db = SledProofDb::open(&sled_db)?;
         let proof_db_clone = proof_db.clone();
 
         let ProofBackend {
