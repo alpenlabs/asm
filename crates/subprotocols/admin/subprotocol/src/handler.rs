@@ -2,14 +2,14 @@ use strata_asm_common::{
     AsmLogEntry, MsgRelayer,
     logging::{error, info},
 };
-use strata_asm_logs::AsmStfUpdate;
+use strata_asm_logs::{AsmStfUpdate, EePredicateKeyUpdate};
 use strata_asm_proto_admin_txs::{
     actions::{MultisigAction, UpdateAction, updates::predicate::ProofType},
     parser::SignedPayload,
 };
 use strata_asm_proto_bridge_v1_msgs::{BridgeIncomingMsg, UpdateOperatorSetPayload};
 use strata_asm_proto_checkpoint_msgs::CheckpointIncomingMsg;
-use strata_identifiers::{Buf32, L1Height};
+use strata_identifiers::{AccountSerial, Buf32, L1Height};
 use strata_predicate::{PredicateKey, PredicateTypeId};
 
 use crate::{
@@ -71,6 +71,20 @@ pub(crate) fn handle_pending_updates(
                         info!(
                             %update_id,
                             "Forwarded rollup verifying key update to checkpoint subprotocol",
+                        );
+                    }
+                    ProofType::EeStf => {
+                        // The EE predicate update targets the single EE
+                        // snark account at `AccountSerial::one()`.
+                        let account = AccountSerial::one();
+                        let log_entry =
+                            AsmLogEntry::from_log(&EePredicateKeyUpdate::new(account, key))
+                                .expect("EePredicateKeyUpdate encoding is infallible");
+                        relayer.emit_log(log_entry);
+                        info!(
+                            %update_id,
+                            %account,
+                            "Emitted EE predicate key update log",
                         );
                     }
                 }

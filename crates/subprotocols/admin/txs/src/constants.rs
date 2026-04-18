@@ -29,6 +29,8 @@ pub enum AdminTxType {
     OlStfVkUpdate = 30,
     /// Update the verifying key for the ASM STF.
     AsmStfVkUpdate = 31,
+    /// Update the verifying key for the EE STF.
+    EeStfVkUpdate = 32,
 }
 
 impl From<AdminTxType> for u8 {
@@ -50,6 +52,7 @@ impl TryFrom<u8> for AdminTxType {
             21 => Ok(AdminTxType::SequencerUpdate),
             30 => Ok(AdminTxType::OlStfVkUpdate),
             31 => Ok(AdminTxType::AsmStfVkUpdate),
+            32 => Ok(AdminTxType::EeStfVkUpdate),
             invalid => Err(invalid),
         }
     }
@@ -92,6 +95,10 @@ impl AdminTxType {
             Self::AsmStfVkUpdate => {
                 &hex!("3b997494e33fb473fd81869e0128ff44489e8ee2b07a791ab157514672d36ced")
             }
+            // SHA256("strata/admin/ee_stf_vk_update")
+            Self::EeStfVkUpdate => {
+                &hex!("e4234b4fb3ac646c0a3492a7445f7b9b04bb879360cd85c24c459db93caa0284")
+            }
         }
     }
 }
@@ -109,6 +116,7 @@ impl fmt::Display for AdminTxType {
             AdminTxType::SequencerUpdate => write!(f, "SequencerUpdate"),
             AdminTxType::OlStfVkUpdate => write!(f, "OlStfVkUpdate"),
             AdminTxType::AsmStfVkUpdate => write!(f, "AsmStfVkUpdate"),
+            AdminTxType::EeStfVkUpdate => write!(f, "EeStfVkUpdate"),
         }
     }
 }
@@ -134,6 +142,7 @@ mod tests {
                 Just(AdminTxType::SequencerUpdate),
                 Just(AdminTxType::OlStfVkUpdate),
                 Just(AdminTxType::AsmStfVkUpdate),
+                Just(AdminTxType::EeStfVkUpdate),
             ]
             .boxed()
         }
@@ -149,6 +158,7 @@ mod tests {
         assert_eq!(AdminTxType::SequencerUpdate as u8, 21);
         assert_eq!(AdminTxType::OlStfVkUpdate as u8, 30);
         assert_eq!(AdminTxType::AsmStfVkUpdate as u8, 31);
+        assert_eq!(AdminTxType::EeStfVkUpdate as u8, 32);
     }
 
     /// Verifies that each hardcoded sighash tag constant equals
@@ -175,6 +185,11 @@ mod tests {
                 AdminTxType::AsmStfVkUpdate,
                 "strata/admin/asm_stf_vk_update",
             ),
+            (AdminTxType::EeStfVkUpdate, "strata/admin/ee_stf_vk_update"),
+            (
+                AdminTxType::AlpenAdminMultisigUpdate,
+                "strata/admin/alpen_admin_multisig_update",
+            ),
         ];
 
         for (tx_type, tag) in cases {
@@ -199,7 +214,7 @@ mod tests {
         #[test]
         fn test_admin_tx_type_invalid_values(
             value in (0u8..=255u8).prop_filter("must not be a valid variant", |v| {
-                !matches!(*v, 0 | 10 | 11 | 20 | 21 | 30 | 31)
+                !matches!(*v, 0 | 10 | 11 | 12 | 20 | 21 | 30 | 31 | 32)
             })
         ) {
             prop_assert!(AdminTxType::try_from(value).is_err());
