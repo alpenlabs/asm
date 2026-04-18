@@ -89,3 +89,7 @@ path = "asm/bridge_to_checkpoint.rs"
 [[test]]
 name = "asm_admin_to_stf"
 path = "asm/admin_to_stf.rs"
+
+[[test]]
+name = "asm_admin_to_ee_stf"
+path = "asm/admin_to_ee_stf.rs"
