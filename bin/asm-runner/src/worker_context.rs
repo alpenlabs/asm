@@ -19,7 +19,7 @@ use bitcoind_async_client::{Client, traits::Reader};
 use moho_runtime_interface::MohoProgram;
 use moho_types::{ExportState, MohoState};
 use strata_asm_common::{AnchorState, AsmManifest, AuxData};
-use strata_asm_proof_db::{MohoStateDb, SledMohoStateDb};
+use strata_asm_proof_db::SledMohoStateDb;
 use strata_asm_proof_impl::moho_program::program::{
     AsmStfProgram, advance_export_state_with_logs, extract_next_predicate_from_logs,
 };
@@ -100,16 +100,16 @@ impl AsmWorkerContext {
                 block.header.prev_blockhash.to_l1_block_id(),
             );
 
-            let prev_moho = self
-                .runtime_handle
-                .block_on(moho.db.get_moho_state(parent))
+            let prev_moho = moho
+                .db
+                .get(parent)
                 .map_err(|_| WorkerError::DbError)?
                 .ok_or(WorkerError::DbError)?; // TODO(STR-3124): use appropriate error types after fixing the piggybanking on ASM worker
             construct_next_moho_state(&prev_moho, asm_state)
         };
 
-        self.runtime_handle
-            .block_on(moho.db.store_moho_state(*blockid, moho_state))
+        moho.db
+            .store(*blockid, moho_state)
             .map_err(|_| WorkerError::DbError)?;
 
         Ok(())

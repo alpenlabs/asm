@@ -27,6 +27,36 @@ impl SledMohoStateDb {
             moho_states: db.open_tree("moho_states")?,
         })
     }
+
+    /// Synchronous variant of [`MohoStateDb::store_moho_state`]. The ASM
+    /// worker runs on a sync thread (via `ServiceBuilder::launch_sync`) and
+    /// its genesis-seed path is invoked from an async bootstrap task, where
+    /// `Handle::block_on` would panic. Calling this directly avoids that.
+    pub fn store(&self, l1ref: L1BlockCommitment, state: MohoState) -> Result<(), sled::Error> {
+        self.moho_states
+            .insert(encode_moho_key(&l1ref), state.as_ssz_bytes())?;
+        Ok(())
+    }
+
+    /// Synchronous variant of [`MohoStateDb::get_moho_state`]. See [`Self::store`].
+    pub fn get(&self, l1ref: L1BlockCommitment) -> Result<Option<MohoState>, sled::Error> {
+        Ok(self
+            .moho_states
+            .get(encode_moho_key(&l1ref))?
+            .map(|v| MohoState::from_ssz_bytes(&v).expect("stored state should be valid SSZ")))
+    }
+
+    /// Synchronous variant of [`MohoStateDb::prune`]. See [`Self::store`].
+    pub fn prune_before(&self, before_height: u32) -> Result<(), sled::Error> {
+        let upper: &[u8] = &before_height.to_be_bytes();
+
+        for entry in self.moho_states.range(..upper) {
+            let (key, _) = entry?;
+            self.moho_states.remove(&key)?;
+        }
+
+        Ok(())
+    }
 }
 
 impl MohoStateDb for SledMohoStateDb {
@@ -37,30 +67,18 @@ impl MohoStateDb for SledMohoStateDb {
         l1ref: L1BlockCommitment,
         state: MohoState,
     ) -> Result<(), Self::Error> {
-        self.moho_states
-            .insert(encode_moho_key(&l1ref), state.as_ssz_bytes())?;
-        Ok(())
+        self.store(l1ref, state)
     }
 
     async fn get_moho_state(
         &self,
         l1ref: L1BlockCommitment,
     ) -> Result<Option<MohoState>, Self::Error> {
-        Ok(self
-            .moho_states
-            .get(encode_moho_key(&l1ref))?
-            .map(|v| MohoState::from_ssz_bytes(&v).expect("stored state should be valid SSZ")))
+        self.get(l1ref)
     }
 
     async fn prune(&self, before_height: u32) -> Result<(), Self::Error> {
-        let upper: &[u8] = &before_height.to_be_bytes();
-
-        for entry in self.moho_states.range(..upper) {
-            let (key, _) = entry?;
-            self.moho_states.remove(&key)?;
-        }
-
-        Ok(())
+        self.prune_before(before_height)
     }
 }
 
