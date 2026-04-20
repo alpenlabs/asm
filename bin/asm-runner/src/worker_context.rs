@@ -104,7 +104,7 @@ impl AsmWorkerContext {
                 .runtime_handle
                 .block_on(moho.db.get_moho_state(parent))
                 .map_err(|_| WorkerError::DbError)?
-                .ok_or(WorkerError::DbError)?; // TODO(): Use proper error 
+                .ok_or(WorkerError::DbError)?; // TODO(STR-3124): use appropriate error types after fixing the piggybanking on ASM worker
             construct_next_moho_state(&prev_moho, asm_state)
         };
 
