@@ -49,7 +49,7 @@ pub(crate) fn compute_moho_predicate_key() -> PredicateKey {
 
 pub(crate) fn load_asm_stf_predicate_and_proof() -> (PredicateKey, StepMohoProof) {
     const ASM_PROGRAM_ID_STR: &str =
-        "0040f228996377e03af318ad050f7ac466f27e776613992336862b1c9057b2a4";
+        "0010bd9131991c632d564370bcd99415a0f24b91baf35311a7051f4a897485c1";
     let asm_program_id: [u8; 32] = hex::decode(ASM_PROGRAM_ID_STR).unwrap().try_into().unwrap();
     let asm_predicate = compute_sp1_predicate_key(asm_program_id);
 
