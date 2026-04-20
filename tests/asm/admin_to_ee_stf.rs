@@ -15,7 +15,7 @@ use harness::{
 use integration_tests::harness;
 use strata_asm_logs::EePredicateKeyUpdate;
 use strata_asm_proto_admin_txs::actions::updates::predicate::ProofType;
-use strata_identifiers::AccountSerial;
+use strata_identifiers::{AccountSerial, SYSTEM_RESERVED_ACCTS};
 use strata_predicate::PredicateKey;
 
 /// Verifies EE predicate updates emit an `EePredicateKeyUpdate` log in the
@@ -79,7 +79,7 @@ async fn test_ee_predicate_update_emits_log() {
     );
     assert_eq!(
         ee_update.account(),
-        AccountSerial::one(),
+        AccountSerial::new(SYSTEM_RESERVED_ACCTS),
         "EePredicateKeyUpdate log should target the EE account at serial one"
     );
 }

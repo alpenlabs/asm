@@ -9,7 +9,7 @@ use strata_asm_proto_admin_txs::{
 };
 use strata_asm_proto_bridge_v1_msgs::{BridgeIncomingMsg, UpdateOperatorSetPayload};
 use strata_asm_proto_checkpoint_msgs::CheckpointIncomingMsg;
-use strata_identifiers::{AccountSerial, Buf32, L1Height};
+use strata_identifiers::{AccountSerial, Buf32, L1Height, SYSTEM_RESERVED_ACCTS};
 use strata_predicate::{PredicateKey, PredicateTypeId};
 
 use crate::{
@@ -74,16 +74,19 @@ pub(crate) fn handle_pending_updates(
                         );
                     }
                     ProofType::EeStf => {
-                        // The EE predicate update targets the single EE
-                        // snark account at `AccountSerial::one()`.
-                        let account = AccountSerial::one();
-                        let log_entry =
-                            AsmLogEntry::from_log(&EePredicateKeyUpdate::new(account, key))
-                                .expect("EePredicateKeyUpdate encoding is infallible");
+                        // Alpen is the first account on the OL, so its serial is the first
+                        // non-reserved account index.
+                        const ALPEN_EE_ACCOUNT_SERIAL: AccountSerial =
+                            AccountSerial::new(SYSTEM_RESERVED_ACCTS);
+                        let log_entry = AsmLogEntry::from_log(&EePredicateKeyUpdate::new(
+                            ALPEN_EE_ACCOUNT_SERIAL,
+                            key,
+                        ))
+                        .expect("EePredicateKeyUpdate encoding is infallible");
                         relayer.emit_log(log_entry);
                         info!(
                             %update_id,
-                            %account,
+                            %ALPEN_EE_ACCOUNT_SERIAL,
                             "Emitted EE predicate key update log",
                         );
                     }
