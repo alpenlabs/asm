@@ -9,11 +9,10 @@ use asm_storage::AsmStateDb;
 use bitcoind_async_client::{Client, traits::Reader};
 use moho_recursive_proof::{MohoRecursiveInput, MohoRecursiveOutput};
 use moho_runtime_impl::RuntimeInput;
-use moho_runtime_interface::MohoProgram;
 use moho_types::{MohoState, RecursiveMohoProof, StepMohoAttestation, StepMohoProof};
 use ssz::{Decode, Encode};
-use strata_asm_proof_db::{ProofDb, SledProofDb};
-use strata_asm_proof_impl::moho_program::{input::AsmStepInput, program::AsmStfProgram};
+use strata_asm_proof_db::{MohoStateDb, ProofDb, SledMohoStateDb, SledProofDb};
+use strata_asm_proof_impl::moho_program::input::AsmStepInput;
 use strata_asm_proof_types::L1Range;
 use strata_btc_types::{BlockHashExt, L1BlockIdBitcoinExt};
 use strata_btc_verification::{self, TxidInclusionProof};
@@ -27,6 +26,7 @@ pub(crate) struct InputBuilder {
     state_db: Arc<AsmStateDb>,
     bitcoin_client: Arc<Client>,
     proof_db: SledProofDb,
+    moho_state_db: SledMohoStateDb,
     genesis: L1BlockCommitment,
     asm_predicate: PredicateKey,
     moho_predicate: PredicateKey,
@@ -42,6 +42,7 @@ impl InputBuilder {
         state_db: Arc<AsmStateDb>,
         bitcoin_client: Arc<Client>,
         proof_db: SledProofDb,
+        moho_state_db: SledMohoStateDb,
         genesis: L1BlockCommitment,
         asm_predicate: PredicateKey,
         moho_predicate: PredicateKey,
@@ -50,6 +51,7 @@ impl InputBuilder {
             state_db,
             bitcoin_client,
             proof_db,
+            moho_state_db,
             genesis,
             asm_predicate,
             moho_predicate,
@@ -74,23 +76,14 @@ impl InputBuilder {
         Ok(parent)
     }
 
-    /// Get moho state after the execution of the given block
+    /// Fetches the persisted [`MohoState`] for the given L1 block. The worker
+    /// materializes this alongside each anchor state — see `AsmWorkerContext::store_anchor_state`.
     async fn get_moho_state(&self, l1_ref: L1BlockCommitment) -> Result<MohoState> {
-        let asm_state = self
-            .state_db
-            .get(&l1_ref)
-            .context("failed to fetch anchor state")?
-            .context("anchor state not found")?;
-        let anchor_state = asm_state.state();
-
-        // TODO(STR-2958): Construct proper MohoState
-        let inner_state_commitment = AsmStfProgram::compute_state_commitment(anchor_state);
-        let moho_state = moho_types::MohoState::new(
-            inner_state_commitment,
-            self.asm_predicate.clone(),
-            moho_types::ExportState::new(vec![])?,
-        );
-        Ok(moho_state)
+        self.moho_state_db
+            .get_moho_state(l1_ref)
+            .await
+            .context("failed to fetch moho state")?
+            .context("moho state not found for block")
     }
 
     pub(crate) async fn check_moho_prerequisite(

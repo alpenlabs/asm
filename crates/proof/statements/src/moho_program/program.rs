@@ -7,7 +7,7 @@
 //! and export state entries.
 use moho_runtime_interface::MohoProgram;
 use moho_types::{ExportState, InnerStateCommitment, StateReference};
-use strata_asm_common::AnchorState;
+use strata_asm_common::{AnchorState, AsmLogEntry};
 use strata_asm_logs::{AsmStfUpdate, NewExportEntry};
 use strata_asm_spec::StrataAsmSpec;
 use strata_asm_stf::{compute_asm_transition, AsmStfOutput};
@@ -15,6 +15,31 @@ use strata_predicate::PredicateKey;
 use tree_hash::{Sha256Hasher, TreeHash};
 
 use crate::moho_program::input::AsmStepInput;
+
+/// Extracts the next [`PredicateKey`] advertised by an STF step, if any.
+///
+/// Scans `logs` for an [`AsmStfUpdate`] entry and returns the new predicate.
+/// When no update is emitted the caller should carry the previous predicate
+/// forward.
+pub fn extract_next_predicate_from_logs(logs: &[AsmLogEntry]) -> Option<PredicateKey> {
+    logs.iter().find_map(|log| {
+        log.try_into_log::<AsmStfUpdate>()
+            .ok()
+            .map(|update| update.new_predicate().clone())
+    })
+}
+
+/// Applies each [`NewExportEntry`] in `logs` to `prev`, returning the updated
+/// export state.
+pub fn advance_export_state_with_logs(mut prev: ExportState, logs: &[AsmLogEntry]) -> ExportState {
+    for log in logs {
+        if let Ok(export) = log.try_into_log::<NewExportEntry>() {
+            prev.add_entry(export.container_id(), *export.entry_data())
+                .expect("failed to add entry");
+        }
+    }
+    prev
+}
 
 /// The ASM STF program adapted for the Moho runtime.
 ///
@@ -66,24 +91,10 @@ impl MohoProgram for AsmStfProgram {
     }
 
     fn extract_next_predicate(output: &Self::StepOutput) -> Option<PredicateKey> {
-        // Iterate through each AsmLog; if we find an AsmStfUpdate, grab its vk and return it.
-        output.manifest.logs.iter().find_map(|log| {
-            log.try_into_log::<AsmStfUpdate>()
-                .ok()
-                .map(|update| update.new_predicate().clone())
-        })
+        extract_next_predicate_from_logs(&output.manifest.logs)
     }
 
     fn compute_next_export_state(prev: ExportState, output: &Self::StepOutput) -> ExportState {
-        // Iterate through each AsmLog; if we find an NewExportEntry, add it to ExportState
-        let mut new_export_state = prev;
-        for log in &output.manifest.logs {
-            if let Ok(export) = log.try_into_log::<NewExportEntry>() {
-                new_export_state
-                    .add_entry(export.container_id(), *export.entry_data())
-                    .expect("failed to add entry");
-            }
-        }
-        new_export_state
+        advance_export_state_with_logs(prev, &output.manifest.logs)
     }
 }
