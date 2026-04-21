@@ -74,8 +74,7 @@ impl AsmWorkerContext {
     /// Genesis is identified by the block commitment's height — it matches the
     /// `genesis_height` carried in the anchor state's history accumulator.
     /// For non-genesis blocks we read the parent's `MohoState` and chain
-    /// forward; the parent is whatever the state db currently reports as
-    /// latest, so this must run before the matching anchor-state put.
+    /// forward.
     fn compute_and_store_moho_state(
         &self,
         blockid: &L1BlockCommitment,
@@ -140,11 +139,17 @@ impl WorkerContext for AsmWorkerContext {
         blockid: &L1BlockCommitment,
         state: &AsmState,
     ) -> WorkerResult<()> {
+        // Write order matters: moho first, then anchor. The worker tracks progress via the anchor
+        // db (see get_latest_asm_state), so the anchor write is the effective commit point for
+        // this block. If we crash between the two writes, progress has not advanced, so on
+        // restart the worker reprocesses this block and overwrites the orphaned moho entry with
+        // the same value. Reversing the order would risk advancing progress past a block whose
+        // moho state was never persisted.
+        self.compute_and_store_moho_state(blockid, state)?;
+
         self.state_db
             .put(blockid, state)
             .map_err(|_| WorkerError::DbError)?;
-
-        self.compute_and_store_moho_state(blockid, state)?;
 
         Ok(())
     }
