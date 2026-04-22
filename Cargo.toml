@@ -3,13 +3,9 @@ resolver = "2"
 
 members = [
   "crates/common",
-  "crates/bridge-types",
   "crates/btc-verification",
-  "crates/checkpoint-types",
   "crates/logs",
   "crates/manifest-types",
-  "crates/msgs/bridge",
-  "crates/msgs/checkpoint",
   "crates/params",
   "crates/proof/db",
   "crates/proof/statements",
@@ -18,14 +14,18 @@ members = [
   "crates/spec",
   "crates/spec-debug",
   "crates/stf",
-  "crates/subprotocols/admin",
-  "crates/subprotocols/bridge-v1",
-  "crates/subprotocols/checkpoint",
-  "crates/subprotocols/debug-v1",
-  "crates/txs/admin",
-  "crates/txs/bridge-v1",
-  "crates/txs/checkpoint",
-  "crates/txs/test-utils",
+  "crates/subprotocols/admin/subprotocol",
+  "crates/subprotocols/admin/txs",
+  "crates/subprotocols/bridge-v1/subprotocol",
+  "crates/subprotocols/bridge-v1/txs",
+  "crates/subprotocols/bridge-v1/msgs",
+  "crates/subprotocols/bridge-v1/types",
+  "crates/subprotocols/checkpoint/subprotocol",
+  "crates/subprotocols/checkpoint/txs",
+  "crates/subprotocols/checkpoint/msgs",
+  "crates/subprotocols/checkpoint/types",
+  "crates/subprotocols/debug-v1/subprotocol",
+  "crates/subprotocols/txs-test-utils",
   "crates/test-utils/arb",
   "crates/test-utils/btc",
   "crates/test-utils/btcio",
@@ -57,8 +57,8 @@ rustdoc.all = "warn"
 # workspace crates
 asm-storage = { path = "crates/storage" }
 strata-ams-test-utils = { path = "crates/test-utils-btcio" }
-strata-asm-bridge-msgs = { path = "crates/msgs/bridge" }
-strata-asm-checkpoint-msgs = { path = "crates/msgs/checkpoint" }
+strata-asm-bridge-msgs = { path = "crates/subprotocols/bridge-v1/msgs" }
+strata-asm-checkpoint-msgs = { path = "crates/subprotocols/checkpoint/msgs" }
 strata-asm-common = { path = "crates/common" }
 strata-asm-logs = { path = "crates/logs" }
 strata-asm-manifest-types = { path = "crates/manifest-types" }
@@ -66,22 +66,22 @@ strata-asm-params = { path = "crates/params" }
 strata-asm-proof-db = { path = "crates/proof/db" }
 strata-asm-proof-impl = { path = "crates/proof/statements" }
 strata-asm-proof-types = { path = "crates/proof/types" }
-strata-asm-proto-administration = { path = "crates/subprotocols/admin" }
-strata-asm-proto-bridge-v1 = { path = "crates/subprotocols/bridge-v1" }
-strata-asm-proto-checkpoint = { path = "crates/subprotocols/checkpoint" }
-strata-asm-proto-debug-v1 = { path = "crates/subprotocols/debug-v1" }
+strata-asm-proto-administration = { path = "crates/subprotocols/admin/subprotocol" }
+strata-asm-proto-bridge-v1 = { path = "crates/subprotocols/bridge-v1/subprotocol" }
+strata-asm-proto-checkpoint = { path = "crates/subprotocols/checkpoint/subprotocol" }
+strata-asm-proto-debug-v1 = { path = "crates/subprotocols/debug-v1/subprotocol" }
 strata-asm-rpc = { path = "crates/rpc" }
 strata-asm-spec = { path = "crates/spec" }
 strata-asm-spec-debug = { path = "crates/spec-debug" }
 strata-asm-stf = { path = "crates/stf" }
-strata-asm-txs-admin = { path = "crates/txs/admin" }
-strata-asm-txs-bridge-v1 = { path = "crates/txs/bridge-v1" }
-strata-asm-txs-checkpoint = { path = "crates/txs/checkpoint" }
-strata-asm-txs-test-utils = { path = "crates/txs/test-utils" }
+strata-asm-txs-admin = { path = "crates/subprotocols/admin/txs" }
+strata-asm-txs-bridge-v1 = { path = "crates/subprotocols/bridge-v1/txs" }
+strata-asm-txs-checkpoint = { path = "crates/subprotocols/checkpoint/txs" }
+strata-asm-txs-test-utils = { path = "crates/subprotocols/txs-test-utils" }
 strata-asm-worker = { path = "crates/worker" }
-strata-bridge-types = { path = "crates/bridge-types" }
+strata-bridge-types = { path = "crates/subprotocols/bridge-v1/types" }
 strata-btc-verification = { path = "crates/btc-verification" }
-strata-checkpoint-types-ssz = { path = "crates/checkpoint-types" }
+strata-checkpoint-types-ssz = { path = "crates/subprotocols/checkpoint/types" }
 strata-test-utils-arb = { path = "crates/test-utils/arb" }
 strata-test-utils-btc = { path = "crates/test-utils/btc" }
 strata-test-utils-btcio = { path = "crates/test-utils/btcio" }
