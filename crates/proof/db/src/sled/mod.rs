@@ -5,16 +5,18 @@
 //! concern. Keys use big-endian height encoding so that sled's lexicographic
 //! ordering matches block-height ordering.
 
-use std::path::Path;
-
 use strata_asm_proof_types::L1Range;
 use strata_identifiers::{Buf32, L1BlockCommitment, L1BlockId};
 
+mod moho_state;
 mod proof_db;
 mod remote_mapping;
 mod remote_status;
 
-pub use self::{remote_mapping::RemoteProofMappingError, remote_status::RemoteProofStatusError};
+pub use self::{
+    moho_state::SledMohoStateDb, remote_mapping::RemoteProofMappingError,
+    remote_status::RemoteProofStatusError,
+};
 
 /// Sled-backed proof database.
 ///
@@ -37,20 +39,18 @@ pub struct SledProofDb {
 }
 
 impl SledProofDb {
-    /// Opens (or creates) the proof database at the given path.
-    pub fn open(path: impl AsRef<Path>) -> Result<Self, sled::Error> {
-        let db = sled::open(path)?;
-        let asm_proofs = db.open_tree("asm_proofs")?;
-        let moho_proofs = db.open_tree("moho_proofs")?;
-        let proof_to_remote = db.open_tree("proof_to_remote")?;
-        let remote_to_proof = db.open_tree("remote_to_proof")?;
-        let remote_proof_status = db.open_tree("remote_proof_status")?;
+    /// Opens the proof trees on an already-open sled database.
+    ///
+    /// Callers open the [`sled::Db`] themselves so multiple handles — e.g.
+    /// [`SledMohoStateDb`] — can share the same on-disk directory; sled does
+    /// not allow opening the same path twice in a process.
+    pub fn open(db: &sled::Db) -> Result<Self, sled::Error> {
         Ok(Self {
-            asm_proofs,
-            moho_proofs,
-            proof_to_remote,
-            remote_to_proof,
-            remote_proof_status,
+            asm_proofs: db.open_tree("asm_proofs")?,
+            moho_proofs: db.open_tree("moho_proofs")?,
+            proof_to_remote: db.open_tree("proof_to_remote")?,
+            remote_to_proof: db.open_tree("remote_to_proof")?,
+            remote_proof_status: db.open_tree("remote_proof_status")?,
         })
     }
 }
@@ -132,7 +132,8 @@ pub(crate) mod test_util {
     /// Creates an isolated [`SledProofDb`] backed by a temporary directory.
     pub(crate) fn temp_db() -> (SledProofDb, tempfile::TempDir) {
         let dir = tempfile::tempdir().expect("failed to create temp dir");
-        let db = SledProofDb::open(dir.path()).expect("failed to open sled db");
+        let sled_db = sled::open(dir.path()).expect("failed to open sled db");
+        let db = SledProofDb::open(&sled_db).expect("failed to open proof trees");
         (db, dir)
     }
 

@@ -7208,10 +7208,13 @@ name = "strata-asm-proof-db"
 version = "0.1.0"
 dependencies = [
  "borsh",
+ "moho-types",
  "proptest",
  "sled",
+ "ssz",
  "strata-asm-proof-types",
  "strata-identifiers",
+ "strata-predicate",
  "tempfile",
  "tokio",
  "zkaleido 0.1.0 (git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc24)",

@@ -4,15 +4,18 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+moho-types.workspace = true
 strata-asm-proof-types.workspace = true
 strata-identifiers.workspace = true
 
 borsh.workspace = true
 sled.workspace = true
+ssz.workspace = true
 zkaleido.workspace = true
 
 [dev-dependencies]
 proptest.workspace = true
+strata-predicate.workspace = true
 tempfile.workspace = true
 tokio.workspace = true
 

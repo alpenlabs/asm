@@ -13,16 +13,27 @@
 //! - [`RemoteProofStatusDb`] — tracks the execution status of in-flight remote proof jobs until
 //!   their results are retrieved and stored locally.
 //!
-//! A sled-backed implementation ([`SledProofDb`]) is provided out of the box.
+//! A fourth trait, [`MohoStateDb`], persists per-block [`moho_types::MohoState`]
+//! snapshots derived by the worker. It is deliberately kept separate from
+//! [`ProofDb`] because the underlying data is materialised state, not a proof
+//! artifact.
+//!
+//! Sled-backed implementations are provided: [`SledProofDb`] for proofs and
+//! [`SledMohoStateDb`] for Moho-state snapshots. To back both with a single
+//! sled directory, open the `sled::Db` yourself and pass it to
+//! `SledProofDb::from_db` and `SledMohoStateDb::from_db` — sled does not
+//! allow the same path to be opened twice in a process.
 
+mod moho_state;
 mod proof_db;
 mod remote_mapping;
 mod remote_status;
 mod sled;
 
 pub use self::{
+    moho_state::MohoStateDb,
     proof_db::ProofDb,
     remote_mapping::RemoteProofMappingDb,
     remote_status::RemoteProofStatusDb,
-    sled::{RemoteProofMappingError, RemoteProofStatusError, SledProofDb},
+    sled::{RemoteProofMappingError, RemoteProofStatusError, SledMohoStateDb, SledProofDb},
 };
