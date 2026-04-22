@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use ssz::{Decode as SszDecode, DecodeError, Encode as SszEncode};
 use ssz_derive::{Decode, Encode};
 use strata_asm_common::sorted_vec::SortedVec;
-use strata_bridge_types::{OperatorBitmap, OperatorIdx};
+use strata_asm_proto_bridge_v1_types::{OperatorBitmap, OperatorIdx};
 use strata_btc_types::{BitcoinScriptBuf, BitcoinXOnlyPublicKey};
 use strata_crypto::{EvenPublicKey, aggregate_schnorr_keys};
 use strata_identifiers::Buf32;

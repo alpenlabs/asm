@@ -1,5 +1,5 @@
 [package]
-name = "strata-asm-txs-bridge-v1"
+name = "strata-asm-proto-bridge-v1-txs"
 version = "0.1.0"
 edition = "2024"
 
@@ -9,7 +9,7 @@ workspace = true
 [dependencies]
 bitcoin-bosd.workspace = true
 strata-asm-common.workspace = true
-strata-bridge-types.workspace = true
+strata-asm-proto-bridge-v1-types.workspace = true
 strata-btc-types.workspace = true
 strata-codec.workspace = true
 strata-l1-txfmt.workspace = true

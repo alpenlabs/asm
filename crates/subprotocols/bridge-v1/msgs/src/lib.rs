@@ -8,8 +8,8 @@ use std::any::Any;
 
 use ssz_derive::{Decode, Encode};
 use strata_asm_common::{InterprotoMsg, SubprotocolId};
-use strata_asm_txs_bridge_v1::BRIDGE_V1_SUBPROTOCOL_ID;
-use strata_bridge_types::{OperatorIdx, OperatorSelection, WithdrawOutput};
+use strata_asm_proto_bridge_v1_txs::BRIDGE_V1_SUBPROTOCOL_ID;
+use strata_asm_proto_bridge_v1_types::{OperatorIdx, OperatorSelection, WithdrawOutput};
 use strata_crypto::EvenPublicKey;
 
 /// Incoming message types received from other subprotocols.

@@ -4,7 +4,7 @@
 //! with the Strata Anchor State Machine (ASM).
 
 use ssz_derive::{Decode, Encode};
-use strata_asm_bridge_msgs::{BridgeIncomingMsg, DispatchWithdrawalPayload};
+use strata_asm_proto_bridge_v1_msgs::{BridgeIncomingMsg, DispatchWithdrawalPayload};
 use strata_asm_common::{
     AsmError, AsmLogEntry, MsgRelayer, NullMsg, Subprotocol, SubprotocolId, TxInputRef,
     VerifiedAuxData, logging,

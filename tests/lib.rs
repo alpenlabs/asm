@@ -26,7 +26,7 @@ use strata_asm_spec as _;
 use strata_asm_stf as _;
 use strata_asm_txs_admin as _;
 use strata_asm_worker as _;
-use strata_bridge_types as _;
+use strata_asm_proto_bridge_v1_types as _;
 use strata_btc_types as _;
 use strata_checkpoint_types_ssz as _;
 use strata_codec_utils as _;

@@ -19,7 +19,7 @@ use harness::{
     test_harness::{AsmTestHarness, AsmTestHarnessBuilder},
 };
 use integration_tests::harness;
-use strata_asm_txs_bridge_v1::test_utils::create_test_operators;
+use strata_asm_proto_bridge_v1_txs::test_utils::create_test_operators;
 use strata_crypto::EvenPublicKey;
 
 const CONFIRMATION_DEPTH: u16 = 2;

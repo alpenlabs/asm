@@ -1,4 +1,4 @@
-use strata_asm_txs_bridge_v1::{
+use strata_asm_proto_bridge_v1_txs::{
     deposit::DepositInfo,
     deposit_request::{DepositRequestInfo, create_deposit_request_locking_script},
     errors::Mismatch,
@@ -54,7 +54,7 @@ pub(crate) fn validate_deposit_info(
 #[cfg(test)]
 mod tests {
     use strata_asm_common::VerifiedAuxData;
-    use strata_asm_txs_bridge_v1::{
+    use strata_asm_proto_bridge_v1_txs::{
         deposit::DepositInfo,
         deposit_request::{DepositRequestInfo, create_deposit_request_locking_script, parse_drt},
     };

@@ -23,7 +23,7 @@ pub(crate) fn validate_slash_stake_connector(
 mod tests {
     use bitcoin::ScriptBuf;
     use strata_asm_common::VerifiedAuxData;
-    use strata_asm_txs_bridge_v1::slash::SlashInfo;
+    use strata_asm_proto_bridge_v1_txs::slash::SlashInfo;
 
     use crate::{
         SlashValidationError,

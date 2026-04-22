@@ -21,7 +21,7 @@ strata-asm-proof-impl.workspace = true
 strata-asm-proof-types.workspace = true
 strata-asm-proto-bridge-v1.workspace = true
 strata-asm-spec.workspace = true
-strata-asm-txs-bridge-v1.workspace = true
+strata-asm-proto-bridge-v1-txs.workspace = true
 strata-asm-worker.workspace = true
 strata-btc-types.workspace = true
 

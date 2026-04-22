@@ -5,7 +5,7 @@
 
 use bitcoin_bosd::Descriptor;
 use strata_asm_common::TxInputRef;
-use strata_bridge_types::{OperatorSelection, WithdrawOutput};
+use strata_asm_proto_bridge_v1_types::{OperatorSelection, WithdrawOutput};
 use strata_btc_types::BitcoinAmount;
 use strata_l1_txfmt::TxType;
 use thiserror::Error;

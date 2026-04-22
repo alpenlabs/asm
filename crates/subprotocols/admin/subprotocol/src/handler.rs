@@ -1,4 +1,4 @@
-use strata_asm_bridge_msgs::{BridgeIncomingMsg, UpdateOperatorSetPayload};
+use strata_asm_proto_bridge_v1_msgs::{BridgeIncomingMsg, UpdateOperatorSetPayload};
 use strata_asm_checkpoint_msgs::CheckpointIncomingMsg;
 use strata_asm_common::{
     AsmLogEntry, MsgRelayer,

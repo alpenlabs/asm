@@ -20,8 +20,8 @@ strata-identifiers.workspace = true
 strata-l1-txfmt.workspace = true
 
 # Bridge subprotocol messages for inter-protocol messaging
-strata-asm-bridge-msgs.workspace = true
-strata-bridge-types.workspace = true
+strata-asm-proto-bridge-v1-msgs.workspace = true
+strata-asm-proto-bridge-v1-types.workspace = true
 
 [dev-dependencies]
 strata-codec.workspace = true

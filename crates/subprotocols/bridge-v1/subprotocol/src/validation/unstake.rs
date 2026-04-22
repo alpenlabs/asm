@@ -1,4 +1,4 @@
-use strata_asm_txs_bridge_v1::unstake::UnstakeInfo;
+use strata_asm_proto_bridge_v1_txs::unstake::UnstakeInfo;
 use strata_btc_types::BitcoinXOnlyPublicKey;
 
 use crate::{

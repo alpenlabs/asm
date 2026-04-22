@@ -15,13 +15,13 @@ ssz.workspace = true
 ssz_derive.workspace = true
 thiserror.workspace = true
 
-strata-asm-bridge-msgs.workspace = true
+strata-asm-proto-bridge-v1-msgs.workspace = true
 strata-asm-checkpoint-msgs.workspace = true
 strata-asm-common.workspace = true
 strata-asm-logs.workspace = true
 strata-asm-params.workspace = true
-strata-asm-txs-bridge-v1.workspace = true
-strata-bridge-types.workspace = true
+strata-asm-proto-bridge-v1-txs.workspace = true
+strata-asm-proto-bridge-v1-types.workspace = true
 strata-btc-types.workspace = true
 strata-codec.workspace = true
 strata-crypto.workspace = true
@@ -30,6 +30,6 @@ strata-identifiers.workspace = true
 [dev-dependencies]
 bitcoin-bosd.workspace = true
 strata-test-utils-arb.workspace = true
-strata-asm-txs-bridge-v1 = { workspace = true, features = ["test-utils"] }
+strata-asm-proto-bridge-v1-txs = { workspace = true, features = ["test-utils"] }
 proptest.workspace = true
 rand.workspace = true

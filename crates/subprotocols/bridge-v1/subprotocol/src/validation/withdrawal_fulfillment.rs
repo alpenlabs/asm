@@ -1,4 +1,4 @@
-use strata_asm_txs_bridge_v1::{
+use strata_asm_proto_bridge_v1_txs::{
     errors::Mismatch, withdrawal_fulfillment::WithdrawalFulfillmentInfo,
 };
 

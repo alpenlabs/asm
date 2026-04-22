@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 
 use ssz_derive::{Decode, Encode};
 use strata_asm_params::CheckpointInitConfig;
-use strata_bridge_types::WithdrawOutput;
+use strata_asm_proto_bridge_v1_types::WithdrawOutput;
 use strata_btc_types::BitcoinAmount;
 use strata_checkpoint_types_ssz::CheckpointTip;
 use strata_identifiers::L2BlockCommitment;
@@ -274,7 +274,7 @@ mod tests {
     use std::collections::BTreeMap;
 
     use bitcoin_bosd::Descriptor;
-    use strata_bridge_types::WithdrawOutput;
+    use strata_asm_proto_bridge_v1_types::WithdrawOutput;
     use strata_btc_types::BitcoinAmount;
     use strata_checkpoint_types_ssz::CheckpointTip;
     use strata_identifiers::L2BlockCommitment;

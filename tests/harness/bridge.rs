@@ -36,14 +36,14 @@ use strata_asm_common::{AnchorState, Subprotocol};
 use strata_asm_params::{BridgeV1InitConfig, CheckpointInitConfig};
 use strata_asm_proto_bridge_v1::{BridgeV1State, BridgeV1Subproto};
 use strata_asm_proto_checkpoint::{state::CheckpointState, subprotocol::CheckpointSubprotocol};
-use strata_asm_txs_bridge_v1::{
+use strata_asm_proto_bridge_v1_txs::{
     deposit::DepositTxHeaderAux,
     deposit_request::{
         build_deposit_request_spend_info, create_deposit_request_locking_script, DrtHeaderAux,
     },
     test_utils::create_test_operators,
 };
-use strata_bridge_types::BRIDGE_GATEWAY_ACCT_SERIAL;
+use strata_asm_proto_bridge_v1_types::BRIDGE_GATEWAY_ACCT_SERIAL;
 use strata_btc_types::BitcoinAmount;
 use strata_checkpoint_types_ssz::{CheckpointTip, OLLog, SimpleWithdrawalIntentLogData};
 use strata_codec::{encode_to_vec, VarVec};

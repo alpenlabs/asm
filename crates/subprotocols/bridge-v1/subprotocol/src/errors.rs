@@ -1,8 +1,8 @@
 use std::fmt::Debug;
 
 use bitcoin::ScriptBuf;
-use strata_asm_txs_bridge_v1::errors::{Mismatch, TxStructureError};
-use strata_bridge_types::OperatorBitmapError;
+use strata_asm_proto_bridge_v1_txs::errors::{Mismatch, TxStructureError};
+use strata_asm_proto_bridge_v1_types::OperatorBitmapError;
 use strata_btc_types::BitcoinAmount;
 use thiserror::Error;
 

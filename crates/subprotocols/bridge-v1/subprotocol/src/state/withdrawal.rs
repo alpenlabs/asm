@@ -1,4 +1,4 @@
-use strata_bridge_types::OperatorIdx;
+use strata_asm_proto_bridge_v1_types::OperatorIdx;
 use strata_codec::{Codec, encode_to_vec};
 use strata_crypto::hash;
 

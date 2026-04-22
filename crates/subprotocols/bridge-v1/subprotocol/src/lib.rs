@@ -30,5 +30,5 @@ mod test_utils;
 
 pub use errors::*;
 pub use state::{AssignmentEntry, BridgeV1State, DepositEntry, OperatorClaimUnlock};
-pub use strata_asm_bridge_msgs::BridgeIncomingMsg;
+pub use strata_asm_proto_bridge_v1_msgs::BridgeIncomingMsg;
 pub use subprotocol::BridgeV1Subproto;

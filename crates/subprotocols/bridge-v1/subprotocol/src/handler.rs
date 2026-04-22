@@ -4,7 +4,7 @@ use strata_asm_common::{
     logging::{error, info},
 };
 use strata_asm_logs::{DepositLog, NewExportEntry};
-use strata_asm_txs_bridge_v1::{
+use strata_asm_proto_bridge_v1_txs::{
     BRIDGE_V1_SUBPROTOCOL_ID, deposit_request::parse_drt, parser::ParsedTx,
 };
 
@@ -156,7 +156,7 @@ pub(crate) fn preprocess_parsed_tx(
 
 #[cfg(test)]
 mod tests {
-    use strata_asm_txs_bridge_v1::{
+    use strata_asm_proto_bridge_v1_txs::{
         deposit_request::DrtHeaderAux,
         parser::ParsedTx,
         test_utils::{create_test_withdrawal_fulfillment_tx, parse_sps50_tx},

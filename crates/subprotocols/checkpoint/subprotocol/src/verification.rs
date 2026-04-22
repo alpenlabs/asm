@@ -3,7 +3,7 @@ use ssz::Encode;
 use ssz_primitives::FixedBytes;
 use strata_asm_common::{VerifiedAuxData, logging};
 use strata_asm_txs_checkpoint::EnvelopeCheckpoint;
-use strata_bridge_types::{BRIDGE_GATEWAY_ACCT_SERIAL, OperatorSelection, WithdrawOutput};
+use strata_asm_proto_bridge_v1_types::{BRIDGE_GATEWAY_ACCT_SERIAL, OperatorSelection, WithdrawOutput};
 use strata_checkpoint_types_ssz::{
     CheckpointClaim, CheckpointSidecar, CheckpointTip, L2BlockRange, OLLog,
     SimpleWithdrawalIntentLogData, compute_asm_manifests_hash_from_leaves,
