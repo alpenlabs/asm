@@ -1,5 +1,5 @@
 [package]
-name = "strata-asm-proto-administration"
+name = "strata-asm-proto-admin"
 version = "0.1.0"
 edition = "2024"
 
@@ -12,7 +12,7 @@ strata-asm-proto-checkpoint-msgs.workspace = true
 strata-asm-common.workspace = true
 strata-asm-logs.workspace = true
 strata-asm-params.workspace = true
-strata-asm-txs-admin.workspace = true
+strata-asm-proto-admin-txs.workspace = true
 strata-crypto.workspace = true
 strata-identifiers.workspace = true
 strata-predicate.workspace = true
@@ -23,7 +23,7 @@ ssz_derive.workspace = true
 thiserror.workspace = true
 
 [dev-dependencies]
-strata-asm-txs-admin = { workspace = true, features = ["test-utils"] }
+strata-asm-proto-admin-txs = { workspace = true, features = ["test-utils"] }
 strata-test-utils-arb.workspace = true
 rand.workspace = true
 bitcoin.workspace = true

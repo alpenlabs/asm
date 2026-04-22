@@ -22,7 +22,7 @@ use strata_asm_proof_impl::{
 };
 use strata_asm_spec::StrataAsmSpec;
 use strata_asm_stf::compute_asm_transition;
-use strata_asm_txs_admin::actions::updates::predicate::ProofType;
+use strata_asm_proto_admin_txs::actions::updates::predicate::ProofType;
 use strata_btc_verification::TxidInclusionProof;
 use strata_predicate::PredicateKey;
 

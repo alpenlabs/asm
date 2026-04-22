@@ -5,7 +5,7 @@ use strata_asm_common::{
     logging::{error, info},
 };
 use strata_asm_logs::AsmStfUpdate;
-use strata_asm_txs_admin::{
+use strata_asm_proto_admin_txs::{
     actions::{MultisigAction, UpdateAction, updates::predicate::ProofType},
     parser::SignedPayload,
 };
@@ -210,7 +210,7 @@ mod tests {
     use strata_asm_common::{AsmLogEntry, InterprotoMsg, MsgRelayer};
     use strata_asm_logs::AsmStfUpdate;
     use strata_asm_params::{AdministrationInitConfig, Role};
-    use strata_asm_txs_admin::{
+    use strata_asm_proto_admin_txs::{
         actions::{
             CancelAction, MultisigAction, Sighash, UpdateAction,
             updates::{

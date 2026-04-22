@@ -1492,7 +1492,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "strata-asm-proto-administration"
+name = "strata-asm-proto-admin"
 version = "0.1.0"
 dependencies = [
  "arbitrary",
@@ -1501,11 +1501,29 @@ dependencies = [
  "strata-asm-common",
  "strata-asm-logs",
  "strata-asm-params",
+ "strata-asm-proto-admin-txs",
  "strata-asm-proto-bridge-v1-msgs",
  "strata-asm-proto-checkpoint-msgs",
- "strata-asm-txs-admin",
  "strata-crypto",
  "strata-identifiers",
+ "strata-predicate",
+ "thiserror 2.0.18",
+]
+
+[[package]]
+name = "strata-asm-proto-admin-txs"
+version = "0.1.0"
+dependencies = [
+ "arbitrary",
+ "hex-literal",
+ "ssz",
+ "ssz_derive",
+ "strata-asm-common",
+ "strata-asm-params",
+ "strata-crypto",
+ "strata-identifiers",
+ "strata-l1-envelope-fmt",
+ "strata-l1-txfmt",
  "strata-predicate",
  "thiserror 2.0.18",
 ]
@@ -1652,7 +1670,7 @@ version = "0.1.0"
 dependencies = [
  "strata-asm-common",
  "strata-asm-params",
- "strata-asm-proto-administration",
+ "strata-asm-proto-admin",
  "strata-asm-proto-bridge-v1",
  "strata-asm-proto-checkpoint",
  "strata-btc-verification",
@@ -1668,24 +1686,6 @@ dependencies = [
  "strata-btc-verification",
  "strata-identifiers",
  "strata-l1-txfmt",
-]
-
-[[package]]
-name = "strata-asm-txs-admin"
-version = "0.1.0"
-dependencies = [
- "arbitrary",
- "hex-literal",
- "ssz",
- "ssz_derive",
- "strata-asm-common",
- "strata-asm-params",
- "strata-crypto",
- "strata-identifiers",
- "strata-l1-envelope-fmt",
- "strata-l1-txfmt",
- "strata-predicate",
- "thiserror 2.0.18",
 ]
 
 [[package]]

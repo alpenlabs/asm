@@ -2,7 +2,7 @@ use std::{mem::take, num::NonZero};
 
 use ssz_derive::{Decode, Encode};
 use strata_asm_params::{AdministrationInitConfig, Role};
-use strata_asm_txs_admin::actions::UpdateId;
+use strata_asm_proto_admin_txs::actions::UpdateId;
 use strata_crypto::threshold_signature::ThresholdConfigUpdate;
 use strata_identifiers::L1Height;
 
@@ -184,7 +184,7 @@ mod tests {
     use bitcoin::secp256k1::{PublicKey, Secp256k1, SecretKey};
     use rand::rngs::OsRng;
     use strata_asm_params::{AdministrationInitConfig, Role};
-    use strata_asm_txs_admin::actions::UpdateAction;
+    use strata_asm_proto_admin_txs::actions::UpdateAction;
     use strata_crypto::{
         keys::compressed::CompressedPublicKey,
         threshold_signature::{ThresholdConfig, ThresholdConfigUpdate},

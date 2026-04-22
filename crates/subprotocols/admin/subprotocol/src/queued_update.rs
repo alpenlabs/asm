@@ -1,6 +1,6 @@
 use arbitrary::Arbitrary;
 use ssz_derive::{Decode, Encode};
-use strata_asm_txs_admin::actions::{UpdateAction, UpdateId};
+use strata_asm_proto_admin_txs::actions::{UpdateAction, UpdateId};
 use strata_identifiers::L1Height;
 
 #[derive(Clone, Debug, Eq, PartialEq, Arbitrary, Encode, Decode)]

@@ -3709,7 +3709,8 @@ dependencies = [
  "strata-asm-manifest-types",
  "strata-asm-params",
  "strata-asm-proof-impl",
- "strata-asm-proto-administration",
+ "strata-asm-proto-admin",
+ "strata-asm-proto-admin-txs",
  "strata-asm-proto-bridge-v1",
  "strata-asm-proto-bridge-v1-txs",
  "strata-asm-proto-bridge-v1-types",
@@ -3717,7 +3718,6 @@ dependencies = [
  "strata-asm-proto-checkpoint-types",
  "strata-asm-spec",
  "strata-asm-stf",
- "strata-asm-txs-admin",
  "strata-asm-worker",
  "strata-btc-types",
  "strata-btc-verification",
@@ -7234,7 +7234,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "strata-asm-proto-administration"
+name = "strata-asm-proto-admin"
 version = "0.1.0"
 dependencies = [
  "arbitrary",
@@ -7245,11 +7245,34 @@ dependencies = [
  "strata-asm-common",
  "strata-asm-logs",
  "strata-asm-params",
+ "strata-asm-proto-admin-txs",
  "strata-asm-proto-bridge-v1-msgs",
  "strata-asm-proto-checkpoint-msgs",
- "strata-asm-txs-admin",
  "strata-crypto",
  "strata-identifiers",
+ "strata-predicate",
+ "strata-test-utils-arb",
+ "thiserror 2.0.18",
+]
+
+[[package]]
+name = "strata-asm-proto-admin-txs"
+version = "0.1.0"
+dependencies = [
+ "arbitrary",
+ "bitcoin",
+ "hex-literal",
+ "proptest",
+ "rand 0.8.5",
+ "ssz",
+ "ssz_derive",
+ "strata-asm-common",
+ "strata-asm-params",
+ "strata-asm-txs-test-utils",
+ "strata-crypto",
+ "strata-identifiers",
+ "strata-l1-envelope-fmt",
+ "strata-l1-txfmt",
  "strata-predicate",
  "strata-test-utils-arb",
  "thiserror 2.0.18",
@@ -7528,7 +7551,7 @@ version = "0.1.0"
 dependencies = [
  "strata-asm-common",
  "strata-asm-params",
- "strata-asm-proto-administration",
+ "strata-asm-proto-admin",
  "strata-asm-proto-bridge-v1",
  "strata-asm-proto-checkpoint",
  "strata-btc-verification",
@@ -7554,29 +7577,6 @@ dependencies = [
  "strata-btc-verification",
  "strata-identifiers",
  "strata-l1-txfmt",
-]
-
-[[package]]
-name = "strata-asm-txs-admin"
-version = "0.1.0"
-dependencies = [
- "arbitrary",
- "bitcoin",
- "hex-literal",
- "proptest",
- "rand 0.8.5",
- "ssz",
- "ssz_derive",
- "strata-asm-common",
- "strata-asm-params",
- "strata-asm-txs-test-utils",
- "strata-crypto",
- "strata-identifiers",
- "strata-l1-envelope-fmt",
- "strata-l1-txfmt",
- "strata-predicate",
- "strata-test-utils-arb",
- "thiserror 2.0.18",
 ]
 
 [[package]]

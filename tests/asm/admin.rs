@@ -37,7 +37,7 @@ use integration_tests::harness;
 use rand::rngs::OsRng;
 use ssz::Encode;
 use strata_asm_params::Role;
-use strata_asm_txs_admin::{
+use strata_asm_proto_admin_txs::{
     actions::{updates::predicate::ProofType, Sighash},
     constants::ADMINISTRATION_SUBPROTOCOL_ID,
     parser::SignedPayload,
