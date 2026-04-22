@@ -20,9 +20,9 @@ use strata_asm_logs::AsmStfUpdate;
 use strata_asm_proof_impl::{
     moho_program::input::AsmStepInput, program::AsmStfProofProgram, test_utils::create_moho_state,
 };
+use strata_asm_proto_admin_txs::actions::updates::predicate::ProofType;
 use strata_asm_spec::StrataAsmSpec;
 use strata_asm_stf::compute_asm_transition;
-use strata_asm_proto_admin_txs::actions::updates::predicate::ProofType;
 use strata_btc_verification::TxidInclusionProof;
 use strata_predicate::PredicateKey;
 

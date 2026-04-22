@@ -1,7 +1,9 @@
 use ssz_derive::{Decode, Encode};
 use strata_asm_params::BridgeV1InitConfig;
 use strata_asm_proto_bridge_v1_txs::{deposit::DepositInfo, errors::Mismatch};
-use strata_asm_proto_bridge_v1_types::{OperatorIdx, OperatorSelection, WithdrawOutput, WithdrawalCommand};
+use strata_asm_proto_bridge_v1_types::{
+    OperatorIdx, OperatorSelection, WithdrawOutput, WithdrawalCommand,
+};
 use strata_btc_types::BitcoinAmount;
 use strata_identifiers::L1BlockCommitment;
 

@@ -7,12 +7,12 @@ edition = "2024"
 workspace = true
 
 [dependencies]
-strata-asm-proto-bridge-v1-msgs.workspace = true
-strata-asm-proto-checkpoint-msgs.workspace = true
 strata-asm-common.workspace = true
 strata-asm-logs.workspace = true
 strata-asm-params.workspace = true
 strata-asm-proto-admin-txs.workspace = true
+strata-asm-proto-bridge-v1-msgs.workspace = true
+strata-asm-proto-checkpoint-msgs.workspace = true
 strata-crypto.workspace = true
 strata-identifiers.workspace = true
 strata-predicate.workspace = true

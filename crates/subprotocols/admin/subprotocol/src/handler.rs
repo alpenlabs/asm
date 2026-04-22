@@ -1,5 +1,3 @@
-use strata_asm_proto_bridge_v1_msgs::{BridgeIncomingMsg, UpdateOperatorSetPayload};
-use strata_asm_proto_checkpoint_msgs::CheckpointIncomingMsg;
 use strata_asm_common::{
     AsmLogEntry, MsgRelayer,
     logging::{error, info},
@@ -9,6 +7,8 @@ use strata_asm_proto_admin_txs::{
     actions::{MultisigAction, UpdateAction, updates::predicate::ProofType},
     parser::SignedPayload,
 };
+use strata_asm_proto_bridge_v1_msgs::{BridgeIncomingMsg, UpdateOperatorSetPayload};
+use strata_asm_proto_checkpoint_msgs::CheckpointIncomingMsg;
 use strata_identifiers::{Buf32, L1Height};
 use strata_predicate::{PredicateKey, PredicateTypeId};
 
@@ -206,7 +206,6 @@ mod tests {
 
     use bitcoin::secp256k1::{PublicKey, Secp256k1, SecretKey};
     use rand::{rngs::OsRng, seq::SliceRandom, thread_rng};
-    use strata_asm_proto_checkpoint_msgs::CheckpointIncomingMsg;
     use strata_asm_common::{AsmLogEntry, InterprotoMsg, MsgRelayer};
     use strata_asm_logs::AsmStfUpdate;
     use strata_asm_params::{AdministrationInitConfig, Role};
@@ -221,6 +220,7 @@ mod tests {
         parser::SignedPayload,
         test_utils::create_signature_set,
     };
+    use strata_asm_proto_checkpoint_msgs::CheckpointIncomingMsg;
     use strata_crypto::{
         keys::compressed::CompressedPublicKey,
         threshold_signature::{SignatureSet, ThresholdConfig},

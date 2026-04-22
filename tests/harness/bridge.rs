@@ -35,7 +35,6 @@ use rand::RngCore;
 use strata_asm_common::{AnchorState, Subprotocol};
 use strata_asm_params::{BridgeV1InitConfig, CheckpointInitConfig};
 use strata_asm_proto_bridge_v1::{BridgeV1State, BridgeV1Subproto};
-use strata_asm_proto_checkpoint::{state::CheckpointState, subprotocol::CheckpointSubprotocol};
 use strata_asm_proto_bridge_v1_txs::{
     deposit::DepositTxHeaderAux,
     deposit_request::{
@@ -44,8 +43,9 @@ use strata_asm_proto_bridge_v1_txs::{
     test_utils::create_test_operators,
 };
 use strata_asm_proto_bridge_v1_types::BRIDGE_GATEWAY_ACCT_SERIAL;
-use strata_btc_types::BitcoinAmount;
+use strata_asm_proto_checkpoint::{state::CheckpointState, subprotocol::CheckpointSubprotocol};
 use strata_asm_proto_checkpoint_types::{CheckpointTip, OLLog, SimpleWithdrawalIntentLogData};
+use strata_btc_types::BitcoinAmount;
 use strata_codec::{encode_to_vec, VarVec};
 use strata_codec_utils::CodecSsz;
 use strata_crypto::{test_utils::schnorr::Musig2Tweak, EvenPublicKey, EvenSecretKey};

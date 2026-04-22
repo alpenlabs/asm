@@ -1,4 +1,3 @@
-use strata_asm_proto_checkpoint_msgs::CheckpointIncomingMsg;
 use strata_asm_common::{
     AsmLogEntry, AuxRequestCollector, MsgRelayer, VerifiedAuxData,
     logging::{error, info},
@@ -7,6 +6,7 @@ use strata_asm_logs::{DepositLog, NewExportEntry};
 use strata_asm_proto_bridge_v1_txs::{
     BRIDGE_V1_SUBPROTOCOL_ID, deposit_request::parse_drt, parser::ParsedTx,
 };
+use strata_asm_proto_checkpoint_msgs::CheckpointIncomingMsg;
 
 use crate::{
     errors::{BridgeSubprotocolError, DepositValidationError},

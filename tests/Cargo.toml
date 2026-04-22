@@ -16,17 +16,17 @@ strata-asm-manifest-types.workspace = true
 strata-asm-params = { workspace = true, features = ["arbitrary"] }
 strata-asm-proof-impl = { workspace = true, features = ["test-utils"] }
 strata-asm-proto-admin.workspace = true
+strata-asm-proto-admin-txs = { workspace = true, features = ["test-utils"] }
 strata-asm-proto-bridge-v1.workspace = true
+strata-asm-proto-bridge-v1-txs = { workspace = true, features = ["test-utils"] }
+strata-asm-proto-bridge-v1-types.workspace = true
 strata-asm-proto-checkpoint.workspace = true
+strata-asm-proto-checkpoint-types.workspace = true
 strata-asm-spec.workspace = true
 strata-asm-stf.workspace = true
-strata-asm-proto-admin-txs = { workspace = true, features = ["test-utils"] }
-strata-asm-proto-bridge-v1-txs = { workspace = true, features = ["test-utils"] }
 strata-asm-worker.workspace = true
-strata-asm-proto-bridge-v1-types.workspace = true
 strata-btc-types.workspace = true
 strata-btc-verification.workspace = true
-strata-asm-proto-checkpoint-types.workspace = true
 strata-codec.workspace = true
 strata-codec-utils.workspace = true
 strata-crypto.workspace = true
