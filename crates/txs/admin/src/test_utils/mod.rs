@@ -2,14 +2,13 @@ use bitcoin::{
     Transaction,
     secp256k1::{Message, SECP256K1, SecretKey},
 };
-use ssz::Encode;
 use strata_asm_txs_test_utils::create_reveal_transaction_stub;
 use strata_crypto::threshold_signature::{IndexedSignature, SignatureSet};
 use strata_identifiers::Buf32;
 
 use crate::{
     actions::{MultisigAction, Sighash},
-    parser::SignedPayload,
+    signed_action::SignedAction,
 };
 
 /// Creates an ECDSA signature with recoverable public key for a message hash.
@@ -61,7 +60,7 @@ pub fn create_signature_set(
 /// The reveal transaction uses the envelope script format to embed the administration payload
 /// in a way that's compatible with SPS-50.
 ///
-/// The signed payload (action + signatures) is embedded in the witness envelope, while only
+/// The signed action (action + signatures) is embedded in the witness envelope, while only
 /// the minimal SPS-50 tag (magic bytes, subprotocol ID, tx type) is placed in the OP_RETURN.
 ///
 /// # Arguments
@@ -83,14 +82,14 @@ pub fn create_test_admin_tx(
     let sighash = action.compute_sighash(seqno);
     let signature_set = create_signature_set(privkeys, signer_indices, sighash);
 
-    // Create the signed payload (action + signatures) for the envelope
-    let signed_payload = SignedPayload::new(seqno, action.clone(), signature_set);
-    let envelope_payload = signed_payload.as_ssz_bytes();
+    // Create the signed action (action + signatures) for the envelope
+    let signed_action = SignedAction::new(seqno, action.clone(), signature_set);
+    let envelope_payload = signed_action.payload_bytes();
 
     // Create a minimal reveal transaction structure
     // This is a simplified version - in practice, this would be created as part of
     // a proper commit-reveal transaction pair using the btcio writer infrastructure
-    create_reveal_transaction_stub(envelope_payload, &action.tag())
+    create_reveal_transaction_stub(envelope_payload, &signed_action.tag())
 }
 
 #[cfg(test)]

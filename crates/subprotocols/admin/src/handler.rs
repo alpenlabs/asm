@@ -7,7 +7,7 @@ use strata_asm_common::{
 use strata_asm_logs::AsmStfUpdate;
 use strata_asm_txs_admin::{
     actions::{MultisigAction, UpdateAction, updates::predicate::ProofType},
-    parser::SignedPayload,
+    signed_action::SignedAction,
 };
 use strata_identifiers::{Buf32, L1Height};
 use strata_predicate::{PredicateKey, PredicateTypeId};
@@ -112,7 +112,7 @@ pub(crate) fn handle_pending_updates(
 /// * `Err(AdministrationError)` if validation failed or the action could not be processed
 pub(crate) fn handle_action(
     state: &mut AdministrationSubprotoState,
-    payload: SignedPayload,
+    payload: SignedAction,
     current_height: L1Height,
     relayer: &mut impl MsgRelayer,
 ) -> Result<(), AdministrationError> {
@@ -218,7 +218,7 @@ mod tests {
                 seq::SequencerUpdate,
             },
         },
-        parser::SignedPayload,
+        signed_action::SignedAction,
         test_utils::create_signature_set,
     };
     use strata_crypto::{
@@ -344,7 +344,7 @@ mod tests {
             let action = MultisigAction::Update(update.clone());
             let sighash = action.compute_sighash(seqno);
             let sig_set = create_signature_set(&admin_sks, &signer_indices, sighash);
-            let payload = SignedPayload::new(seqno, action, sig_set);
+            let payload = SignedAction::new(seqno, action, sig_set);
             handle_action(&mut state, payload, current_height, &mut relayer).unwrap();
 
             // Verify state changes after processing
@@ -397,7 +397,7 @@ mod tests {
         let action = MultisigAction::Update(update.clone());
         let sighash = action.compute_sighash(valid_seqno);
         let sig_set = create_signature_set(&admin_sks, &signer_indices, sighash);
-        let payload = SignedPayload::new(valid_seqno, action, sig_set);
+        let payload = SignedAction::new(valid_seqno, action, sig_set);
         let res = handle_action(&mut state, payload, current_height, &mut relayer);
         assert!(res.is_ok());
 
@@ -406,7 +406,7 @@ mod tests {
         let sighash = action.compute_sighash(1);
         let sig_set = create_signature_set(&admin_sks, &signer_indices, sighash);
 
-        let payload = SignedPayload::new(1, action, sig_set);
+        let payload = SignedAction::new(1, action, sig_set);
         let res = handle_action(&mut state, payload, current_height, &mut relayer);
 
         assert!(res.is_err());
@@ -423,7 +423,7 @@ mod tests {
         let action = MultisigAction::Update(update.clone());
         let sighash = action.compute_sighash(0);
         let sig_set = create_signature_set(&admin_sks, &signer_indices, sighash);
-        let payload = SignedPayload::new(0, action, sig_set);
+        let payload = SignedAction::new(0, action, sig_set);
         let res = handle_action(&mut state, payload, current_height, &mut relayer);
         assert!(matches!(res, Err(AdministrationError::InvalidSeqno { .. })));
     }
@@ -464,7 +464,7 @@ mod tests {
             let sighash = action.compute_sighash(payload_seqno);
             let sig_set = create_signature_set(&seq_manager_sks, &signer_indices, sighash);
 
-            let payload = SignedPayload::new(payload_seqno, action, sig_set);
+            let payload = SignedAction::new(payload_seqno, action, sig_set);
             handle_action(&mut state, payload, current_height, &mut relayer).unwrap();
 
             // Verify state changes after processing
@@ -589,7 +589,7 @@ mod tests {
             let sighash = update_action.compute_sighash(payload_seqno);
             let sig_set = create_signature_set(&admin_sks, &signer_indices, sighash);
 
-            let payload = SignedPayload::new(payload_seqno, update_action, sig_set);
+            let payload = SignedAction::new(payload_seqno, update_action, sig_set);
             handle_action(&mut state, payload, current_height, &mut relayer).unwrap();
         }
 
@@ -610,7 +610,7 @@ mod tests {
             let sighash = cancel_action.compute_sighash(payload_seqno);
             let sig_set = create_signature_set(&admin_sks, &signer_indices, sighash);
 
-            let payload = SignedPayload::new(payload_seqno, cancel_action, sig_set);
+            let payload = SignedAction::new(payload_seqno, cancel_action, sig_set);
             handle_action(&mut state, payload, current_height, &mut relayer).unwrap();
 
             // Verify state changes after cancellation
@@ -645,7 +645,7 @@ mod tests {
         let cancel_action: CancelAction = arb.generate();
         let cancel_action = MultisigAction::Cancel(cancel_action);
 
-        let payload = SignedPayload::new(arb.generate(), cancel_action, sig_set);
+        let payload = SignedAction::new(arb.generate(), cancel_action, sig_set);
         let res = handle_action(&mut state, payload, current_height, &mut relayer);
 
         assert!(matches!(res, Err(AdministrationError::UnknownAction(_))));
@@ -679,7 +679,7 @@ mod tests {
         let sighash = update_action.compute_sighash(update_seqno);
         let sig_set = create_signature_set(&admin_sks, &signer_indices, sighash);
 
-        let payload = SignedPayload::new(update_seqno, update_action, sig_set);
+        let payload = SignedAction::new(update_seqno, update_action, sig_set);
         handle_action(&mut state, payload, current_height, &mut relayer).unwrap();
 
         // Cancel the update action (authority seqno is now 1, use seqno 2)
@@ -688,7 +688,7 @@ mod tests {
         let sighash = cancel_action.compute_sighash(cancel_seqno);
         let sig_set = create_signature_set(&admin_sks, &signer_indices, sighash);
 
-        let payload = SignedPayload::new(cancel_seqno, cancel_action, sig_set);
+        let payload = SignedAction::new(cancel_seqno, cancel_action, sig_set);
         let res = handle_action(&mut state, payload, current_height, &mut relayer);
 
         assert!(res.is_ok());
@@ -698,7 +698,7 @@ mod tests {
         let retry_seqno = last_seqno + 3;
         let sighash = cancel_action.compute_sighash(retry_seqno);
         let sig_set = create_signature_set(&admin_sks, &signer_indices, sighash);
-        let payload = SignedPayload::new(retry_seqno, cancel_action, sig_set);
+        let payload = SignedAction::new(retry_seqno, cancel_action, sig_set);
         let res = handle_action(&mut state, payload, current_height, &mut relayer);
         assert!(res.is_err());
         assert!(matches!(res, Err(AdministrationError::UnknownAction(_))));
@@ -720,7 +720,7 @@ mod tests {
         let action = MultisigAction::Update(updates[0].clone());
         let sighash = action.compute_sighash(1);
         let sig_set = create_signature_set(&admin_sks, &signer_indices, sighash);
-        let payload = SignedPayload::new(1, action, sig_set);
+        let payload = SignedAction::new(1, action, sig_set);
         handle_action(&mut state, payload, current_height, &mut relayer).unwrap();
 
         // Second action at seqno 11 (last_seqno is 1, gap = 10 = max_seqno_gap)
@@ -728,7 +728,7 @@ mod tests {
         let action = MultisigAction::Update(updates[1].clone());
         let sighash = action.compute_sighash(gap_seqno);
         let sig_set = create_signature_set(&admin_sks, &signer_indices, sighash);
-        let payload = SignedPayload::new(gap_seqno, action, sig_set);
+        let payload = SignedAction::new(gap_seqno, action, sig_set);
         let res = handle_action(&mut state, payload, current_height, &mut relayer);
 
         assert!(
@@ -753,7 +753,7 @@ mod tests {
         let action = MultisigAction::Update(update);
         let sighash = action.compute_sighash(too_far_seqno);
         let sig_set = create_signature_set(&admin_sks, &signer_indices, sighash);
-        let payload = SignedPayload::new(too_far_seqno, action, sig_set);
+        let payload = SignedAction::new(too_far_seqno, action, sig_set);
         let res = handle_action(&mut state, payload, current_height, &mut relayer);
 
         assert!(res.is_err());

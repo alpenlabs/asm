@@ -2,7 +2,7 @@ use std::num::NonZero;
 
 use ssz_derive::{Decode, Encode};
 use strata_asm_params::Role;
-use strata_asm_txs_admin::{actions::Sighash, parser::SignedPayload};
+use strata_asm_txs_admin::{actions::Sighash, signed_action::SignedAction};
 use strata_crypto::threshold_signature::{ThresholdConfig, verify_threshold_signatures};
 
 use crate::error::AdministrationError;
@@ -65,7 +65,7 @@ impl MultisigAuthority {
     // could be added in the future if multiple signature schemes are needed.
     pub fn verify_action_signature(
         &self,
-        payload: &SignedPayload,
+        payload: &SignedAction,
         max_seqno_gap: NonZero<u8>,
     ) -> Result<SeqNoToken, AdministrationError> {
         if payload.seqno <= self.last_seqno {

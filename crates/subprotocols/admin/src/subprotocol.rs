@@ -4,7 +4,7 @@
 //! with the Strata Anchor State Machine (ASM) for managing protocol governance and updates.
 
 use strata_asm_common::{
-    MsgRelayer, NullMsg, Subprotocol, SubprotocolId, TxInputRef, VerifiedAuxData,
+    MsgRelayer, NullMsg, Subprotocol, SubprotocolId, TxInputRef, VerifiedAuxData, logging::warn,
 };
 use strata_asm_params::AdministrationInitConfig;
 use strata_asm_txs_admin::{constants::ADMINISTRATION_SUBPROTOCOL_ID, parser::parse_tx};
@@ -55,10 +55,26 @@ impl Subprotocol for AdministrationSubprotocol {
 
         // Phase 2: Process incoming administration transactions
         for tx in txs {
-            if let Ok(signed_payload) = parse_tx(tx) {
-                let _ = handle_action(state, signed_payload, current_height, relayer);
+            match parse_tx(tx) {
+                Ok(signed_action) => {
+                    if let Err(error) = handle_action(state, signed_action, current_height, relayer)
+                    {
+                        warn!(
+                            tx_id = %tx.tx().compute_txid(),
+                            error = %error,
+                            "Failed to process admin tx; skipping",
+                        );
+                    }
+                }
+                Err(error) => {
+                    warn!(
+                        tx_id = %tx.tx().compute_txid(),
+                        raw_tx_type = tx.tag().tx_type(),
+                        error = %error,
+                        "Failed to parse admin tx; skipping",
+                    );
+                }
             }
-            // Transaction parsing failures are silently ignored to maintain system resilience
         }
     }
 
