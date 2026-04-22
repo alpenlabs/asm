@@ -3,7 +3,7 @@ use bitcoin::{
     secp256k1::{Message, SECP256K1, SecretKey},
 };
 use ssz::Encode;
-use strata_asm_txs_test_utils::create_reveal_transaction_stub;
+use strata_asm_proto_txs_test_utils::create_reveal_transaction_stub;
 use strata_crypto::threshold_signature::{IndexedSignature, SignatureSet};
 use strata_identifiers::Buf32;
 
@@ -100,7 +100,7 @@ mod tests {
     use bitcoin::secp256k1::PublicKey;
     use rand::rngs::OsRng;
     use strata_asm_common::TxInputRef;
-    use strata_asm_txs_test_utils::TEST_MAGIC_BYTES;
+    use strata_asm_proto_txs_test_utils::TEST_MAGIC_BYTES;
     use strata_crypto::{
         keys::compressed::CompressedPublicKey,
         threshold_signature::{ThresholdConfig, verify_threshold_signatures},

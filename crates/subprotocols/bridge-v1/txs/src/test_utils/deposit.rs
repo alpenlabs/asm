@@ -3,7 +3,7 @@
 use std::collections::HashMap;
 
 use bitcoin::{Address, Amount, OutPoint, Transaction, hashes::Hash};
-use strata_asm_txs_test_utils::{TEST_MAGIC_BYTES, create_dummy_tx};
+use strata_asm_proto_txs_test_utils::{TEST_MAGIC_BYTES, create_dummy_tx};
 use strata_crypto::{EvenSecretKey, test_utils::schnorr::Musig2Tweak};
 use strata_l1_txfmt::ParseConfig;
 use strata_test_utils_btcio::{BtcioTestHarness, address::derive_musig2_p2tr_address};

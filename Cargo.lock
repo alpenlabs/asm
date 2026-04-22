@@ -7268,7 +7268,7 @@ dependencies = [
  "ssz_derive",
  "strata-asm-common",
  "strata-asm-params",
- "strata-asm-txs-test-utils",
+ "strata-asm-proto-txs-test-utils",
  "strata-crypto",
  "strata-identifiers",
  "strata-l1-envelope-fmt",
@@ -7329,7 +7329,7 @@ dependencies = [
  "rand 0.8.5",
  "strata-asm-common",
  "strata-asm-proto-bridge-v1-types",
- "strata-asm-txs-test-utils",
+ "strata-asm-proto-txs-test-utils",
  "strata-btc-types",
  "strata-codec",
  "strata-crypto",
@@ -7446,6 +7446,17 @@ dependencies = [
  "strata-identifiers",
  "strata-l1-txfmt",
  "thiserror 2.0.18",
+]
+
+[[package]]
+name = "strata-asm-proto-txs-test-utils"
+version = "0.1.0"
+dependencies = [
+ "bitcoin",
+ "rand 0.8.5",
+ "strata-asm-common",
+ "strata-l1-envelope-fmt",
+ "strata-l1-txfmt",
 ]
 
 [[package]]
@@ -7576,17 +7587,6 @@ dependencies = [
  "strata-asm-common",
  "strata-btc-verification",
  "strata-identifiers",
- "strata-l1-txfmt",
-]
-
-[[package]]
-name = "strata-asm-txs-test-utils"
-version = "0.1.0"
-dependencies = [
- "bitcoin",
- "rand 0.8.5",
- "strata-asm-common",
- "strata-l1-envelope-fmt",
  "strata-l1-txfmt",
 ]
 

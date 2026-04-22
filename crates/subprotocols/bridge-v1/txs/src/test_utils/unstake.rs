@@ -4,7 +4,7 @@ use bitcoin::{
     secp256k1::Secp256k1,
     taproot::{LeafVersion, TaprootBuilder, TaprootSpendInfo},
 };
-use strata_asm_txs_test_utils::{TEST_MAGIC_BYTES, create_dummy_tx};
+use strata_asm_proto_txs_test_utils::{TEST_MAGIC_BYTES, create_dummy_tx};
 use strata_crypto::{EvenSecretKey, keys::constants::UNSPENDABLE_PUBLIC_KEY};
 use strata_l1_txfmt::ParseConfig;
 use strata_test_utils_btcio::{

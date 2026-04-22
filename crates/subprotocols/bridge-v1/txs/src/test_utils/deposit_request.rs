@@ -1,5 +1,5 @@
 use bitcoin::{Amount, Transaction, XOnlyPublicKey};
-use strata_asm_txs_test_utils::{TEST_MAGIC_BYTES, create_dummy_tx};
+use strata_asm_proto_txs_test_utils::{TEST_MAGIC_BYTES, create_dummy_tx};
 use strata_l1_txfmt::ParseConfig;
 
 use crate::deposit_request::{DrtHeaderAux, create_deposit_request_locking_script};
