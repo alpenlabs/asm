@@ -17,7 +17,7 @@ use harness::{
     test_harness::AsmTestHarnessBuilder,
 };
 use integration_tests::harness;
-use strata_asm_txs_admin::actions::updates::predicate::ProofType;
+use strata_asm_proto_admin_txs::actions::updates::predicate::ProofType;
 use strata_predicate::{PredicateKey, PredicateTypeId};
 
 // ============================================================================

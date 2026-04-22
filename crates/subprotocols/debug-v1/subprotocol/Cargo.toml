@@ -1,0 +1,27 @@
+[package]
+name = "strata-asm-proto-debug-v1"
+version = "0.1.0"
+edition = "2024"
+
+[lints]
+workspace = true
+
+[dependencies]
+serde.workspace = true
+ssz.workspace = true
+ssz_derive.workspace = true
+thiserror.workspace = true
+
+bitcoin-bosd.workspace = true
+strata-asm-common.workspace = true
+strata-asm-logs.workspace = true
+strata-btc-types.workspace = true
+strata-identifiers.workspace = true
+strata-l1-txfmt.workspace = true
+
+# Bridge subprotocol messages for inter-protocol messaging
+strata-asm-proto-bridge-v1-msgs.workspace = true
+strata-asm-proto-bridge-v1-types.workspace = true
+
+[dev-dependencies]
+strata-codec.workspace = true

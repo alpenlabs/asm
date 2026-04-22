@@ -1,0 +1,36 @@
+[package]
+name = "strata-asm-proto-checkpoint-types"
+version = "0.1.0"
+edition = "2024"
+
+[lints]
+workspace = true
+
+[dependencies]
+strata-asm-manifest-types.workspace = true
+strata-codec.workspace = true
+strata-identifiers.workspace = true
+
+ssz.workspace = true
+ssz_derive.workspace = true
+ssz_primitives.workspace = true
+ssz_types.workspace = true
+tree_hash.workspace = true
+tree_hash_derive.workspace = true
+
+borsh.workspace = true
+proptest = { optional = true, workspace = true }
+serde.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true
+
+strata-identifiers = { workspace = true, features = ["test-utils"] }
+strata-ssz-tests.workspace = true
+
+[build-dependencies]
+ssz_codegen.workspace = true
+
+[features]
+test-utils = ["dep:proptest", "strata-identifiers/test-utils"]

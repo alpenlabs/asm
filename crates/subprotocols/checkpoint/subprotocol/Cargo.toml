@@ -1,0 +1,32 @@
+[package]
+name = "strata-asm-proto-checkpoint"
+version = "0.1.0"
+edition = "2024"
+
+[lints]
+workspace = true
+
+[dependencies]
+bitcoin-bosd.workspace = true
+ssz.workspace = true
+ssz_derive.workspace = true
+ssz_primitives.workspace = true
+strata-asm-common.workspace = true
+strata-asm-logs.workspace = true
+strata-asm-params.workspace = true
+strata-asm-proto-bridge-v1-msgs.workspace = true
+strata-asm-proto-bridge-v1-types.workspace = true
+strata-asm-proto-checkpoint-msgs.workspace = true
+strata-asm-proto-checkpoint-txs.workspace = true
+strata-asm-proto-checkpoint-types.workspace = true
+strata-btc-types.workspace = true
+strata-codec.workspace = true
+strata-crypto.workspace = true
+strata-identifiers.workspace = true
+strata-predicate = { workspace = true, features = ["all"] }
+
+thiserror.workspace = true
+
+[dev-dependencies]
+ssz_types.workspace = true
+strata-test-utils-checkpoint.workspace = true

@@ -2,7 +2,7 @@
 
 use strata_asm_common::{AnchorState, AsmSpec, Stage};
 use strata_asm_params::AsmParams;
-use strata_asm_proto_administration::AdministrationSubprotocol;
+use strata_asm_proto_admin::AdministrationSubprotocol;
 use strata_asm_proto_bridge_v1::BridgeV1Subproto;
 use strata_asm_proto_checkpoint::subprotocol::CheckpointSubprotocol;
 

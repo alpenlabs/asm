@@ -26,8 +26,8 @@ use bitcoin::{
 use ssz::Encode;
 use strata_asm_common::{AnchorState, Subprotocol};
 use strata_asm_params::{AdministrationInitConfig, Role};
-use strata_asm_proto_administration::{AdministrationSubprotoState, AdministrationSubprotocol};
-use strata_asm_txs_admin::{
+use strata_asm_proto_admin::{AdministrationSubprotoState, AdministrationSubprotocol};
+use strata_asm_proto_admin_txs::{
     actions::{
         updates::{
             multisig::MultisigUpdate,

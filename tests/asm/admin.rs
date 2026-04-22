@@ -37,13 +37,13 @@ use integration_tests::harness;
 use rand::rngs::OsRng;
 use ssz::Encode;
 use strata_asm_params::Role;
-use strata_asm_txs_admin::{
+use strata_asm_proto_admin_txs::{
     actions::{updates::predicate::ProofType, Sighash},
     constants::ADMINISTRATION_SUBPROTOCOL_ID,
     parser::SignedPayload,
     test_utils::create_signature_set,
 };
-use strata_asm_txs_bridge_v1::test_utils::create_test_operators;
+use strata_asm_proto_bridge_v1_txs::test_utils::create_test_operators;
 use strata_crypto::{
     keys::compressed::CompressedPublicKey,
     threshold_signature::{IndexedSignature, SignatureSet, ThresholdConfig},
