@@ -1,4 +1,4 @@
-use strata_asm_checkpoint_msgs::CheckpointIncomingMsg;
+use strata_asm_proto_checkpoint_msgs::CheckpointIncomingMsg;
 use strata_asm_common::{
     AsmLogEntry, AuxRequestCollector, MsgRelayer, VerifiedAuxData,
     logging::{error, info},

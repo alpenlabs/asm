@@ -1,6 +1,6 @@
 use bitcoin::ScriptBuf;
 use strata_asm_common::TxInputRef;
-use strata_checkpoint_types_ssz::CheckpointPayload;
+use strata_asm_proto_checkpoint_types::CheckpointPayload;
 use strata_codec::decode_buf_exact;
 use strata_codec_utils::CodecSsz;
 use strata_l1_envelope_fmt::parser::parse_envelope_container;

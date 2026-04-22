@@ -1,5 +1,5 @@
 [package]
-name = "strata-asm-txs-checkpoint"
+name = "strata-asm-proto-checkpoint-txs"
 version = "0.1.0"
 edition = "2024"
 
@@ -8,7 +8,7 @@ workspace = true
 
 [dependencies]
 strata-asm-common.workspace = true
-strata-checkpoint-types-ssz.workspace = true
+strata-asm-proto-checkpoint-types.workspace = true
 strata-codec.workspace = true
 strata-codec-utils.workspace = true
 strata-l1-envelope-fmt.workspace = true

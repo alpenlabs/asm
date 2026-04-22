@@ -8,7 +8,7 @@ use std::any::Any;
 
 use ssz_derive::{Decode, Encode};
 use strata_asm_common::{InterprotoMsg, SubprotocolId};
-use strata_asm_txs_checkpoint::CHECKPOINT_SUBPROTOCOL_ID;
+use strata_asm_proto_checkpoint_txs::CHECKPOINT_SUBPROTOCOL_ID;
 use strata_btc_types::BitcoinAmount;
 use strata_predicate::PredicateKey;
 

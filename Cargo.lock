@@ -3714,13 +3714,13 @@ dependencies = [
  "strata-asm-proto-bridge-v1-txs",
  "strata-asm-proto-bridge-v1-types",
  "strata-asm-proto-checkpoint",
+ "strata-asm-proto-checkpoint-types",
  "strata-asm-spec",
  "strata-asm-stf",
  "strata-asm-txs-admin",
  "strata-asm-worker",
  "strata-btc-types",
  "strata-btc-verification",
- "strata-checkpoint-types-ssz",
  "strata-codec",
  "strata-codec-utils",
  "strata-crypto",
@@ -7098,18 +7098,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f"
 
 [[package]]
-name = "strata-asm-checkpoint-msgs"
-version = "0.1.0"
-dependencies = [
- "ssz",
- "ssz_derive",
- "strata-asm-common",
- "strata-asm-txs-checkpoint",
- "strata-btc-types",
- "strata-predicate",
-]
-
-[[package]]
 name = "strata-asm-common"
 version = "0.1.0"
 dependencies = [
@@ -7141,7 +7129,7 @@ name = "strata-asm-logs"
 version = "0.1.0"
 dependencies = [
  "strata-asm-common",
- "strata-checkpoint-types-ssz",
+ "strata-asm-proto-checkpoint-types",
  "strata-codec",
  "strata-codec-utils",
  "strata-identifiers",
@@ -7254,11 +7242,11 @@ dependencies = [
  "rand 0.8.5",
  "ssz",
  "ssz_derive",
- "strata-asm-checkpoint-msgs",
  "strata-asm-common",
  "strata-asm-logs",
  "strata-asm-params",
  "strata-asm-proto-bridge-v1-msgs",
+ "strata-asm-proto-checkpoint-msgs",
  "strata-asm-txs-admin",
  "strata-crypto",
  "strata-identifiers",
@@ -7280,13 +7268,13 @@ dependencies = [
  "serde",
  "ssz",
  "ssz_derive",
- "strata-asm-checkpoint-msgs",
  "strata-asm-common",
  "strata-asm-logs",
  "strata-asm-params",
  "strata-asm-proto-bridge-v1-msgs",
  "strata-asm-proto-bridge-v1-txs",
  "strata-asm-proto-bridge-v1-types",
+ "strata-asm-proto-checkpoint-msgs",
  "strata-btc-types",
  "strata-codec",
  "strata-crypto",
@@ -7354,21 +7342,68 @@ dependencies = [
  "ssz_derive",
  "ssz_primitives",
  "ssz_types",
- "strata-asm-checkpoint-msgs",
  "strata-asm-common",
  "strata-asm-logs",
  "strata-asm-params",
  "strata-asm-proto-bridge-v1-msgs",
  "strata-asm-proto-bridge-v1-types",
- "strata-asm-txs-checkpoint",
+ "strata-asm-proto-checkpoint-msgs",
+ "strata-asm-proto-checkpoint-txs",
+ "strata-asm-proto-checkpoint-types",
  "strata-btc-types",
- "strata-checkpoint-types-ssz",
  "strata-codec",
  "strata-crypto",
  "strata-identifiers",
  "strata-predicate",
  "strata-test-utils-checkpoint",
  "thiserror 2.0.18",
+]
+
+[[package]]
+name = "strata-asm-proto-checkpoint-msgs"
+version = "0.1.0"
+dependencies = [
+ "ssz",
+ "ssz_derive",
+ "strata-asm-common",
+ "strata-asm-proto-checkpoint-txs",
+ "strata-btc-types",
+ "strata-predicate",
+]
+
+[[package]]
+name = "strata-asm-proto-checkpoint-txs"
+version = "0.1.0"
+dependencies = [
+ "bitcoin",
+ "strata-asm-common",
+ "strata-asm-proto-checkpoint-types",
+ "strata-codec",
+ "strata-codec-utils",
+ "strata-l1-envelope-fmt",
+ "strata-l1-txfmt",
+ "thiserror 2.0.18",
+]
+
+[[package]]
+name = "strata-asm-proto-checkpoint-types"
+version = "0.1.0"
+dependencies = [
+ "borsh",
+ "proptest",
+ "serde",
+ "ssz",
+ "ssz_codegen",
+ "ssz_derive",
+ "ssz_primitives",
+ "ssz_types",
+ "strata-asm-manifest-types",
+ "strata-codec",
+ "strata-identifiers",
+ "strata-ssz-tests",
+ "thiserror 2.0.18",
+ "tree_hash",
+ "tree_hash_derive",
 ]
 
 [[package]]
@@ -7545,20 +7580,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "strata-asm-txs-checkpoint"
-version = "0.1.0"
-dependencies = [
- "bitcoin",
- "strata-asm-common",
- "strata-checkpoint-types-ssz",
- "strata-codec",
- "strata-codec-utils",
- "strata-l1-envelope-fmt",
- "strata-l1-txfmt",
- "thiserror 2.0.18",
-]
-
-[[package]]
 name = "strata-asm-txs-test-utils"
 version = "0.1.0"
 dependencies = [
@@ -7634,27 +7655,6 @@ dependencies = [
  "strata-identifiers",
  "strata-test-utils-btc",
  "thiserror 2.0.18",
-]
-
-[[package]]
-name = "strata-checkpoint-types-ssz"
-version = "0.1.0"
-dependencies = [
- "borsh",
- "proptest",
- "serde",
- "ssz",
- "ssz_codegen",
- "ssz_derive",
- "ssz_primitives",
- "ssz_types",
- "strata-asm-manifest-types",
- "strata-codec",
- "strata-identifiers",
- "strata-ssz-tests",
- "thiserror 2.0.18",
- "tree_hash",
- "tree_hash_derive",
 ]
 
 [[package]]
@@ -7877,8 +7877,8 @@ dependencies = [
  "rand 0.8.5",
  "ssz",
  "strata-asm-common",
- "strata-asm-txs-checkpoint",
- "strata-checkpoint-types-ssz",
+ "strata-asm-proto-checkpoint-txs",
+ "strata-asm-proto-checkpoint-types",
  "strata-crypto",
  "strata-identifiers",
  "strata-merkle",

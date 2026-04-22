@@ -2,9 +2,9 @@ use bitcoin_bosd::Descriptor;
 use ssz::Encode;
 use ssz_primitives::FixedBytes;
 use strata_asm_common::{VerifiedAuxData, logging};
-use strata_asm_txs_checkpoint::EnvelopeCheckpoint;
+use strata_asm_proto_checkpoint_txs::EnvelopeCheckpoint;
 use strata_asm_proto_bridge_v1_types::{BRIDGE_GATEWAY_ACCT_SERIAL, OperatorSelection, WithdrawOutput};
-use strata_checkpoint_types_ssz::{
+use strata_asm_proto_checkpoint_types::{
     CheckpointClaim, CheckpointSidecar, CheckpointTip, L2BlockRange, OLLog,
     SimpleWithdrawalIntentLogData, compute_asm_manifests_hash_from_leaves,
 };
@@ -263,8 +263,8 @@ fn extract_and_validate_withdrawal_intents(
 mod tests {
     use ssz_types::VariableList;
     use strata_asm_common::{AsmHistoryAccumulatorState, AuxData, VerifiedAuxData};
-    use strata_asm_txs_checkpoint::EnvelopeCheckpoint;
-    use strata_checkpoint_types_ssz::{OLLog, TerminalHeaderComplement};
+    use strata_asm_proto_checkpoint_txs::EnvelopeCheckpoint;
+    use strata_asm_proto_checkpoint_types::{OLLog, TerminalHeaderComplement};
     use strata_identifiers::AccountSerial;
     use strata_predicate::PredicateKey;
     use strata_test_utils_checkpoint::CheckpointTestHarness;

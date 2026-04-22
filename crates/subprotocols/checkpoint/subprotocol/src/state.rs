@@ -4,7 +4,7 @@ use ssz_derive::{Decode, Encode};
 use strata_asm_params::CheckpointInitConfig;
 use strata_asm_proto_bridge_v1_types::WithdrawOutput;
 use strata_btc_types::BitcoinAmount;
-use strata_checkpoint_types_ssz::CheckpointTip;
+use strata_asm_proto_checkpoint_types::CheckpointTip;
 use strata_identifiers::L2BlockCommitment;
 use strata_predicate::PredicateKey;
 
@@ -276,7 +276,7 @@ mod tests {
     use bitcoin_bosd::Descriptor;
     use strata_asm_proto_bridge_v1_types::WithdrawOutput;
     use strata_btc_types::BitcoinAmount;
-    use strata_checkpoint_types_ssz::CheckpointTip;
+    use strata_asm_proto_checkpoint_types::CheckpointTip;
     use strata_identifiers::L2BlockCommitment;
     use strata_predicate::{PredicateKey, PredicateTypeId};
 

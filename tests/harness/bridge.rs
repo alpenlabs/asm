@@ -45,7 +45,7 @@ use strata_asm_proto_bridge_v1_txs::{
 };
 use strata_asm_proto_bridge_v1_types::BRIDGE_GATEWAY_ACCT_SERIAL;
 use strata_btc_types::BitcoinAmount;
-use strata_checkpoint_types_ssz::{CheckpointTip, OLLog, SimpleWithdrawalIntentLogData};
+use strata_asm_proto_checkpoint_types::{CheckpointTip, OLLog, SimpleWithdrawalIntentLogData};
 use strata_codec::{encode_to_vec, VarVec};
 use strata_codec_utils::CodecSsz;
 use strata_crypto::{test_utils::schnorr::Musig2Tweak, EvenPublicKey, EvenSecretKey};

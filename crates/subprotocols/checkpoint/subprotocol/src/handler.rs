@@ -1,7 +1,7 @@
 use strata_asm_proto_bridge_v1_msgs::{BridgeIncomingMsg, DispatchWithdrawalPayload};
 use strata_asm_common::{AsmLogEntry, MsgRelayer, TxInputRef, VerifiedAuxData, logging};
 use strata_asm_logs::CheckpointTipUpdate;
-use strata_asm_txs_checkpoint::extract_checkpoint_from_envelope;
+use strata_asm_proto_checkpoint_txs::extract_checkpoint_from_envelope;
 use strata_identifiers::L1Height;
 
 use crate::{
