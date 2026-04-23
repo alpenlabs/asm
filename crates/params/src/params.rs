@@ -151,7 +151,8 @@ mod tests {
         "denomination": 0,
         "assignment_duration": 0,
         "operator_fee": 0,
-        "recovery_delay": 0
+        "recovery_delay": 0,
+        "safe_harbour_address": "03671041727b982843f7e3db4669c2f542e05096fb"
       }
     }
   ]
