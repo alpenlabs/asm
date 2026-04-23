@@ -4,6 +4,7 @@ pub mod ee_stf_vk;
 pub mod ol_stf_vk;
 pub mod operator_set;
 pub mod strata_admin_multisig;
+pub mod strata_security_council_multisig;
 pub mod strata_seq_manager_multisig;
 pub mod strata_sequencer;
 
@@ -18,6 +19,7 @@ pub use operator_set::OperatorSetUpdate;
 use ssz_derive::{Decode, Encode};
 pub use strata_admin_multisig::StrataAdminMultisigUpdate;
 use strata_asm_params::{AdminTxType, Role, UpdateTxType};
+pub use strata_security_council_multisig::StrataSecurityCouncilMultisigUpdate;
 pub use strata_seq_manager_multisig::StrataSeqManagerMultisigUpdate;
 pub use strata_sequencer::SequencerUpdate;
 
@@ -34,6 +36,7 @@ pub enum UpdateAction {
     StrataAdminMultisig(StrataAdminMultisigUpdate),
     StrataSeqManagerMultisig(StrataSeqManagerMultisigUpdate),
     AlpenAdminMultisig(AlpenAdminMultisigUpdate),
+    StrataSecurityCouncilMultisig(StrataSecurityCouncilMultisigUpdate),
     OperatorSet(OperatorSetUpdate),
     Sequencer(SequencerUpdate),
     OlStfVk(OlStfVkUpdate),
@@ -50,6 +53,9 @@ impl UpdateAction {
                 UpdateTxType::StrataSeqManagerMultisigUpdate
             }
             UpdateAction::AlpenAdminMultisig(_) => UpdateTxType::AlpenAdminMultisigUpdate,
+            UpdateAction::StrataSecurityCouncilMultisig(_) => {
+                UpdateTxType::StrataSecurityCouncilMultisigUpdate
+            }
             UpdateAction::OperatorSet(_) => UpdateTxType::OperatorUpdate,
             UpdateAction::Sequencer(_) => UpdateTxType::SequencerUpdate,
             UpdateAction::OlStfVk(_) => UpdateTxType::OlStfVkUpdate,
@@ -70,6 +76,7 @@ impl RenderSigningMessage for UpdateAction {
             UpdateAction::StrataAdminMultisig(u) => u.tx_type(),
             UpdateAction::StrataSeqManagerMultisig(u) => u.tx_type(),
             UpdateAction::AlpenAdminMultisig(u) => u.tx_type(),
+            UpdateAction::StrataSecurityCouncilMultisig(u) => u.tx_type(),
             UpdateAction::OperatorSet(u) => u.tx_type(),
             UpdateAction::Sequencer(u) => u.tx_type(),
             UpdateAction::OlStfVk(u) => u.tx_type(),
@@ -83,6 +90,7 @@ impl RenderSigningMessage for UpdateAction {
             UpdateAction::StrataAdminMultisig(u) => u.render_details(details),
             UpdateAction::StrataSeqManagerMultisig(u) => u.render_details(details),
             UpdateAction::AlpenAdminMultisig(u) => u.render_details(details),
+            UpdateAction::StrataSecurityCouncilMultisig(u) => u.render_details(details),
             UpdateAction::OperatorSet(u) => u.render_details(details),
             UpdateAction::Sequencer(u) => u.render_details(details),
             UpdateAction::OlStfVk(u) => u.render_details(details),

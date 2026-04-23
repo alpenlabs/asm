@@ -141,6 +141,9 @@ fn handle_update(
         UpdateAction::AlpenAdminMultisig(update) => {
             apply_multisig(state, Role::AlpenAdministrator, update.config());
         }
+        UpdateAction::StrataSecurityCouncilMultisig(update) => {
+            apply_multisig(state, Role::StrataSecurityCouncil, update.config());
+        }
         UpdateAction::OperatorSet(update) => {
             let (add_members, remove_members) = update.into_inner();
             relay_bridge_operator_set_update(relayer, add_members, remove_members);
@@ -281,7 +284,12 @@ mod tests {
         }
     }
 
-    fn create_test_params() -> (AdministrationInitConfig, Vec<SecretKey>, Vec<SecretKey>) {
+    fn create_test_params() -> (
+        AdministrationInitConfig,
+        Vec<SecretKey>,
+        Vec<SecretKey>,
+        Vec<SecretKey>,
+    ) {
         let secp = Secp256k1::new();
 
         let strata_admin_sks: Vec<SecretKey> = (0..3).map(|_| SecretKey::new(&mut OsRng)).collect();
@@ -309,15 +317,31 @@ mod tests {
         let alpen_administrator =
             ThresholdConfig::try_new(alpen_admin_pks, NonZero::new(2).unwrap()).unwrap();
 
+        let strata_security_council_sks: Vec<SecretKey> =
+            (0..3).map(|_| SecretKey::new(&mut OsRng)).collect();
+        let strata_security_council_pks: Vec<CompressedPublicKey> = strata_security_council_sks
+            .iter()
+            .map(|sk| CompressedPublicKey::from(PublicKey::from_secret_key(&secp, sk)))
+            .collect();
+        let strata_security_council =
+            ThresholdConfig::try_new(strata_security_council_pks, NonZero::new(2).unwrap())
+                .unwrap();
+
         let config = AdministrationInitConfig {
             strata_administrator,
             strata_sequencer_manager,
             alpen_administrator,
+            strata_security_council,
             confirmation_depths: uniform_confirmation_depths(2016),
             max_seqno_gap: 10.try_into().unwrap(),
         };
 
-        (config, strata_admin_sks, strata_seq_manager_sks)
+        (
+            config,
+            strata_admin_sks,
+            strata_seq_manager_sks,
+            strata_security_council_sks,
+        )
     }
 
     fn uniform_confirmation_depths(depth: u16) -> ConfirmationDepths {
@@ -325,6 +349,7 @@ mod tests {
             strata_admin_multisig_update: depth,
             strata_seq_manager_multisig_update: depth,
             alpen_admin_multisig_update: depth,
+            strata_security_council_multisig_update: depth,
             operator_update: depth,
             // Sequencer updates are designed to apply immediately (depth 0 sentinel).
             sequencer_update: 0,
@@ -354,7 +379,7 @@ mod tests {
     /// - Queued actions can be found in state
     #[test]
     fn test_strata_administrator_update_actions() {
-        let (params, admin_sks, _) = create_test_params();
+        let (params, admin_sks, _, _) = create_test_params();
         let mut state = AdministrationSubprotoState::new(&params);
         let mut relayer = MockRelayer::<CheckpointIncomingMsg>::new();
         let current_height = 1000;
@@ -417,7 +442,7 @@ mod tests {
     /// duplicate and out-of-order sequence numbers for StrataAdministrator actions.
     #[test]
     fn test_strata_administrator_incorrect_seqno() {
-        let (params, admin_sks, _) = create_test_params();
+        let (params, admin_sks, _, _) = create_test_params();
         let mut state = AdministrationSubprotoState::new(&params);
         let mut relayer = MockRelayer::<CheckpointIncomingMsg>::new();
         let current_height = 1000;
@@ -473,7 +498,7 @@ mod tests {
     #[test]
     fn test_zero_depth_update_applies_immediately() {
         let mut arb = ArbitraryGenerator::new();
-        let (mut params, _, seq_manager_sks) = create_test_params();
+        let (mut params, _, seq_manager_sks, _) = create_test_params();
         params.confirmation_depths.sequencer_update = 0;
         let mut state = AdministrationSubprotoState::new(&params);
 
@@ -535,7 +560,7 @@ mod tests {
 
     #[test]
     fn test_rollup_verifying_key_update_forwarded_to_checkpoint() {
-        let (params, _, _) = create_test_params();
+        let (params, _, _, _) = create_test_params();
         let mut state = AdministrationSubprotoState::new(&params);
         let mut relayer = MockRelayer::<CheckpointIncomingMsg>::new();
 
@@ -564,7 +589,7 @@ mod tests {
 
     #[test]
     fn test_asm_verifying_key_update_emits_log() {
-        let (params, _, _) = create_test_params();
+        let (params, _, _, _) = create_test_params();
         let mut state = AdministrationSubprotoState::new(&params);
         let mut relayer = MockRelayer::<CheckpointIncomingMsg>::new();
 
@@ -596,7 +621,7 @@ mod tests {
     /// - Verify sequence numbers increment, queue shrinks, and updates are removed.
     #[test]
     fn test_strata_administrator_cancel_action() {
-        let (params, admin_sks, _) = create_test_params();
+        let (params, admin_sks, _, _) = create_test_params();
         let mut state = AdministrationSubprotoState::new(&params);
         let mut relayer = MockRelayer::<CheckpointIncomingMsg>::new();
         let no_of_updates = 5;
@@ -665,7 +690,7 @@ mod tests {
     /// - Verify that handle_action returns UnknownAction error
     #[test]
     fn test_strata_administrator_non_existent_cancel() {
-        let (params, admin_sks, _) = create_test_params();
+        let (params, admin_sks, _, _) = create_test_params();
         let mut state = AdministrationSubprotoState::new(&params);
         let mut relayer = MockRelayer::<CheckpointIncomingMsg>::new();
         let current_height = 1000;
@@ -692,7 +717,7 @@ mod tests {
     /// - Verify that cancelling the update action again returns an UnknownAction error.
     #[test]
     fn test_strata_administrator_duplicate_cancels() {
-        let (params, admin_sks, _) = create_test_params();
+        let (params, admin_sks, _, _) = create_test_params();
         let mut relayer = MockRelayer::<CheckpointIncomingMsg>::new();
         let mut state = AdministrationSubprotoState::new(&params);
         let last_seqno = 0;
@@ -743,7 +768,7 @@ mod tests {
     /// `max_seqno_gap` are accepted.
     #[test]
     fn test_seqno_gap_within_limit_succeeds() {
-        let (params, admin_sks, _) = create_test_params();
+        let (params, admin_sks, _, _) = create_test_params();
         let mut state = AdministrationSubprotoState::new(&params);
         let mut relayer = MockRelayer::<CheckpointIncomingMsg>::new();
         let current_height = 1000;
@@ -773,7 +798,7 @@ mod tests {
     /// Test that a sequence number gap exceeding `max_seqno_gap` is rejected.
     #[test]
     fn test_seqno_gap_exceeds_limit_fails() {
-        let (params, admin_sks, _) = create_test_params();
+        let (params, admin_sks, _, _) = create_test_params();
         let mut state = AdministrationSubprotoState::new(&params);
         let mut relayer = MockRelayer::<CheckpointIncomingMsg>::new();
         let current_height = 1000;

@@ -14,6 +14,8 @@ pub enum UpdateTxType {
     StrataSeqManagerMultisigUpdate = 11,
     /// Update the alpen admin multisignature configuration.
     AlpenAdminMultisigUpdate = 12,
+    /// Update the strata security council multisignature configuration.
+    StrataSecurityCouncilMultisigUpdate = 13,
     /// Update the set of authorized operators.
     OperatorUpdate = 20,
     /// Update the sequencer configuration.
@@ -39,6 +41,10 @@ impl UpdateTxType {
 
             Self::SequencerUpdate => Role::StrataSequencerManager,
             Self::StrataSeqManagerMultisigUpdate => Role::StrataSequencerManager,
+
+            // Security council membership is rotated by the administrator so the council
+            // cannot lock itself out via self-rotation.
+            Self::StrataSecurityCouncilMultisigUpdate => Role::StrataAdministrator,
         }
     }
 
@@ -51,6 +57,7 @@ impl UpdateTxType {
             Self::StrataAdminMultisigUpdate => "Strata Administrator Multisig Update",
             Self::StrataSeqManagerMultisigUpdate => "Strata Sequencer Manager Multisig Update",
             Self::AlpenAdminMultisigUpdate => "Alpen Administrator Multisig Update",
+            Self::StrataSecurityCouncilMultisigUpdate => "Strata Security Council Multisig Update",
             Self::OperatorUpdate => "Bridge Operator Set Update",
             Self::SequencerUpdate => "Sequencer Update",
             Self::OlStfVkUpdate => "OL STF VK Update",
@@ -68,6 +75,7 @@ impl TryFrom<u8> for UpdateTxType {
             10 => Ok(UpdateTxType::StrataAdminMultisigUpdate),
             11 => Ok(UpdateTxType::StrataSeqManagerMultisigUpdate),
             12 => Ok(UpdateTxType::AlpenAdminMultisigUpdate),
+            13 => Ok(UpdateTxType::StrataSecurityCouncilMultisigUpdate),
             20 => Ok(UpdateTxType::OperatorUpdate),
             21 => Ok(UpdateTxType::SequencerUpdate),
             30 => Ok(UpdateTxType::OlStfVkUpdate),
@@ -99,6 +107,7 @@ mod tests {
                 Just(UpdateTxType::StrataAdminMultisigUpdate),
                 Just(UpdateTxType::StrataSeqManagerMultisigUpdate),
                 Just(UpdateTxType::AlpenAdminMultisigUpdate),
+                Just(UpdateTxType::StrataSecurityCouncilMultisigUpdate),
                 Just(UpdateTxType::OperatorUpdate),
                 Just(UpdateTxType::SequencerUpdate),
                 Just(UpdateTxType::OlStfVkUpdate),
@@ -121,7 +130,7 @@ mod tests {
         #[test]
         fn test_update_tx_type_invalid_values(
             value in (0u8..=255u8).prop_filter("must not be a valid variant", |v| {
-                !matches!(*v, 10 | 11 | 12 | 20 | 21 | 30 | 31 | 32)
+                !matches!(*v, 10 | 11 | 12 | 13 | 20 | 21 | 30 | 31 | 32)
             })
         ) {
             prop_assert!(UpdateTxType::try_from(value).is_err());

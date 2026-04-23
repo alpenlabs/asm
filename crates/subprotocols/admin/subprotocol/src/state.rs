@@ -236,10 +236,20 @@ mod tests {
         let alpen_administrator =
             ThresholdConfig::try_new(alpen_pks, NonZero::new(2).unwrap()).unwrap();
 
+        // Create security council keys
+        let council_sks: Vec<SecretKey> = (0..3).map(|_| SecretKey::new(&mut OsRng)).collect();
+        let council_pks: Vec<CompressedPublicKey> = council_sks
+            .iter()
+            .map(|sk| CompressedPublicKey::from(PublicKey::from_secret_key(&secp, sk)))
+            .collect();
+        let strata_security_council =
+            ThresholdConfig::try_new(council_pks, NonZero::new(2).unwrap()).unwrap();
+
         AdministrationInitConfig {
             strata_administrator,
             strata_sequencer_manager,
             alpen_administrator,
+            strata_security_council,
             confirmation_depths: uniform_confirmation_depths(2016),
             max_seqno_gap: NonZero::new(10).unwrap(),
         }
@@ -250,6 +260,7 @@ mod tests {
             strata_admin_multisig_update: depth,
             strata_seq_manager_multisig_update: depth,
             alpen_admin_multisig_update: depth,
+            strata_security_council_multisig_update: depth,
             operator_update: depth,
             sequencer_update: depth,
             ol_stf_vk_update: depth,

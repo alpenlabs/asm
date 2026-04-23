@@ -131,10 +131,17 @@ mod tests {
           ],
           "threshold": 1
         },
+        "strata_security_council": {
+          "keys": [
+            "02bedfa2fa42d906565519bee43875608a09e06640203a6c7a43569150c7cbe7c5"
+          ],
+          "threshold": 1
+        },
         "confirmation_depths": {
           "strata_admin_multisig_update": 144,
           "strata_seq_manager_multisig_update": 144,
           "alpen_admin_multisig_update": 144,
+          "strata_security_council_multisig_update": 144,
           "operator_update": 144,
           "sequencer_update": 144,
           "ol_stf_vk_update": 144,

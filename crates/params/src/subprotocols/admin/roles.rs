@@ -31,6 +31,11 @@ pub enum Role {
     /// (predicate key) of EE snark accounts, emitting an `EePredicateKeyUpdate`
     /// log that the OL STF applies during manifest processing.
     AlpenAdministrator,
+
+    /// The multisig authority intended to act only during urgent security incidents.
+    /// Its own membership is rotated by the [`Role::StrataAdministrator`], not itself,
+    /// so the council cannot lock itself out via self-rotation.
+    StrataSecurityCouncil,
 }
 
 impl Role {
@@ -43,6 +48,7 @@ impl Role {
             Role::StrataAdministrator => "Strata Administrator",
             Role::StrataSequencerManager => "Strata Sequencer Manager",
             Role::AlpenAdministrator => "Alpen Administrator",
+            Role::StrataSecurityCouncil => "Strata Security Council",
         }
     }
 }

@@ -22,6 +22,7 @@ pub struct ConfirmationDepths {
     pub strata_admin_multisig_update: u16,
     pub strata_seq_manager_multisig_update: u16,
     pub alpen_admin_multisig_update: u16,
+    pub strata_security_council_multisig_update: u16,
     pub operator_update: u16,
     pub sequencer_update: u16,
     pub ol_stf_vk_update: u16,
@@ -37,6 +38,9 @@ impl ConfirmationDepths {
             UpdateTxType::StrataAdminMultisigUpdate => self.strata_admin_multisig_update,
             UpdateTxType::StrataSeqManagerMultisigUpdate => self.strata_seq_manager_multisig_update,
             UpdateTxType::AlpenAdminMultisigUpdate => self.alpen_admin_multisig_update,
+            UpdateTxType::StrataSecurityCouncilMultisigUpdate => {
+                self.strata_security_council_multisig_update
+            }
             UpdateTxType::OperatorUpdate => self.operator_update,
             UpdateTxType::SequencerUpdate => self.sequencer_update,
             UpdateTxType::OlStfVkUpdate => self.ol_stf_vk_update,

@@ -27,6 +27,9 @@ pub struct AdministrationInitConfig {
     /// ThresholdConfig for [AlpenAdministrator](Role::AlpenAdministrator).
     pub alpen_administrator: ThresholdConfig,
 
+    /// ThresholdConfig for [StrataSecurityCouncil](Role::StrataSecurityCouncil).
+    pub strata_security_council: ThresholdConfig,
+
     /// Per-variant confirmation depths (CD) for queued admin updates.
     pub confirmation_depths: ConfirmationDepths,
 
@@ -43,6 +46,7 @@ impl AdministrationInitConfig {
         strata_administrator: ThresholdConfig,
         strata_sequencer_manager: ThresholdConfig,
         alpen_administrator: ThresholdConfig,
+        strata_security_council: ThresholdConfig,
         confirmation_depths: ConfirmationDepths,
         max_seqno_gap: NonZero<u8>,
     ) -> Self {
@@ -50,6 +54,7 @@ impl AdministrationInitConfig {
             strata_administrator,
             strata_sequencer_manager,
             alpen_administrator,
+            strata_security_council,
             confirmation_depths,
             max_seqno_gap,
         }
@@ -60,6 +65,7 @@ impl AdministrationInitConfig {
             Role::StrataAdministrator => &self.strata_administrator,
             Role::StrataSequencerManager => &self.strata_sequencer_manager,
             Role::AlpenAdministrator => &self.alpen_administrator,
+            Role::StrataSecurityCouncil => &self.strata_security_council,
         }
     }
 
@@ -68,6 +74,7 @@ impl AdministrationInitConfig {
             (Role::StrataAdministrator, self.strata_administrator),
             (Role::StrataSequencerManager, self.strata_sequencer_manager),
             (Role::AlpenAdministrator, self.alpen_administrator),
+            (Role::StrataSecurityCouncil, self.strata_security_council),
         ]
     }
 }
@@ -78,6 +85,7 @@ impl<'a> Arbitrary<'a> for AdministrationInitConfig {
         let strata_administrator = u.arbitrary()?;
         let strata_sequencer_manager = u.arbitrary()?;
         let alpen_administrator = u.arbitrary()?;
+        let strata_security_council = u.arbitrary()?;
         let confirmation_depths = u.arbitrary()?;
         // Generate a valid NonZero<u8> by mapping [0, 255) to [1, 256) via saturating add.
         let raw: u8 = u.arbitrary()?;
@@ -88,6 +96,7 @@ impl<'a> Arbitrary<'a> for AdministrationInitConfig {
             strata_administrator,
             strata_sequencer_manager,
             alpen_administrator,
+            strata_security_council,
             confirmation_depths,
             max_seqno_gap,
         })
