@@ -1537,7 +1537,6 @@ version = "0.1.0"
 dependencies = [
  "arbitrary",
  "bitcoin",
- "bitcoin-bosd 0.10.0",
  "rand_chacha 0.9.0",
  "serde",
  "ssz",
