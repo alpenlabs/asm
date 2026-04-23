@@ -32,7 +32,13 @@ impl UpdateAction {
     /// The role authorized to enact this update.
     pub fn required_role(&self) -> Role {
         match self {
-            UpdateAction::Multisig(m) => m.role(),
+            // Multisig updates are self-custodied: each role rotates its own keys.
+            // Exception: the security council cannot rotate its own membership;
+            // only the administrator can change the council multisig.
+            UpdateAction::Multisig(m) => match m.role() {
+                Role::StrataSecurityCouncil => Role::StrataAdministrator,
+                other => other,
+            },
             UpdateAction::OperatorSet(_) => Role::StrataAdministrator,
             UpdateAction::VerifyingKey(_) => Role::StrataAdministrator,
             UpdateAction::Sequencer(_) => Role::StrataSequencerManager,

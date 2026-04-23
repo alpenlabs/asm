@@ -22,6 +22,9 @@ pub struct AdministrationInitConfig {
     /// ThresholdConfig for [StrataSequencerManager](Role::StrataSequencerManager).
     pub strata_sequencer_manager: ThresholdConfig,
 
+    /// ThresholdConfig for [StrataSecurityCouncil](Role::StrataSecurityCouncil).
+    pub strata_security_council: ThresholdConfig,
+
     /// The confirmation depth (CD) setting, in Bitcoin blocks: after an update transaction
     /// receives this many confirmations, the update is enacted automatically. During this
     /// confirmation period, the update can still be cancelled by submitting a cancel transaction.
@@ -56,18 +59,23 @@ pub enum Role {
     /// The multisig authority that has exclusive ability to change the canonical
     /// public key of the default orchestration layer sequencer.
     StrataSequencerManager,
+
+    /// The multisig authority intended to act only during urgent security incidents.
+    StrataSecurityCouncil,
 }
 
 impl AdministrationInitConfig {
     pub fn new(
         strata_administrator: ThresholdConfig,
         strata_sequencer_manager: ThresholdConfig,
+        strata_security_council: ThresholdConfig,
         confirmation_depth: u16,
         max_seqno_gap: NonZero<u8>,
     ) -> Self {
         Self {
             strata_administrator,
             strata_sequencer_manager,
+            strata_security_council,
             confirmation_depth,
             max_seqno_gap,
         }
@@ -77,6 +85,7 @@ impl AdministrationInitConfig {
         match role {
             Role::StrataAdministrator => &self.strata_administrator,
             Role::StrataSequencerManager => &self.strata_sequencer_manager,
+            Role::StrataSecurityCouncil => &self.strata_security_council,
         }
     }
 
@@ -84,6 +93,7 @@ impl AdministrationInitConfig {
         vec![
             (Role::StrataAdministrator, self.strata_administrator),
             (Role::StrataSequencerManager, self.strata_sequencer_manager),
+            (Role::StrataSecurityCouncil, self.strata_security_council),
         ]
     }
 }
@@ -138,6 +148,7 @@ impl<'a> Arbitrary<'a> for AdministrationInitConfig {
     fn arbitrary(u: &mut arbitrary::Unstructured<'a>) -> arbitrary::Result<Self> {
         let strata_administrator = u.arbitrary()?;
         let strata_sequencer_manager = u.arbitrary()?;
+        let strata_security_council = u.arbitrary()?;
         let confirmation_depth = u.arbitrary()?;
         // Generate a valid NonZero<u8> by mapping [0, 255) to [1, 256) via saturating add.
         let raw: u8 = u.arbitrary()?;
@@ -147,6 +158,7 @@ impl<'a> Arbitrary<'a> for AdministrationInitConfig {
         Ok(Self {
             strata_administrator,
             strata_sequencer_manager,
+            strata_security_council,
             confirmation_depth,
             max_seqno_gap,
         })

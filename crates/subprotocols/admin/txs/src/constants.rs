@@ -19,6 +19,8 @@ pub enum AdminTxType {
     StrataAdminMultisigUpdate = 10,
     /// Update the strata seq manager multisignature configuration.
     StrataSeqManagerMultisigUpdate = 11,
+    /// Update the strata security council multisignature configuration.
+    StrataSecurityCouncilMultisigUpdate = 12,
     /// Update the set of authorized operators.
     OperatorUpdate = 20,
     /// Update the sequencer configuration.
@@ -43,6 +45,7 @@ impl TryFrom<u8> for AdminTxType {
             0 => Ok(AdminTxType::Cancel),
             10 => Ok(AdminTxType::StrataAdminMultisigUpdate),
             11 => Ok(AdminTxType::StrataSeqManagerMultisigUpdate),
+            12 => Ok(AdminTxType::StrataSecurityCouncilMultisigUpdate),
             20 => Ok(AdminTxType::OperatorUpdate),
             21 => Ok(AdminTxType::SequencerUpdate),
             30 => Ok(AdminTxType::OlStfVkUpdate),
@@ -68,6 +71,10 @@ impl AdminTxType {
             // SHA256("strata/admin/strata_seq_manager_multisig_update")
             Self::StrataSeqManagerMultisigUpdate => {
                 &hex!("0134b3ef6be62aa4d34cc93aa5f2e89ffdc3dec7f615c147c2d5e45667a500a9")
+            }
+            // SHA256("strata/admin/strata_security_council_multisig_update")
+            Self::StrataSecurityCouncilMultisigUpdate => {
+                &hex!("be4aa090e766c1105a66214fb0108f916752d2a8a23c5b3eb765f93f4b531c85")
             }
             // SHA256("strata/admin/operator_update")
             Self::OperatorUpdate => {
@@ -97,6 +104,9 @@ impl fmt::Display for AdminTxType {
             AdminTxType::StrataSeqManagerMultisigUpdate => {
                 write!(f, "StrataSeqManagerMultisigUpdate")
             }
+            AdminTxType::StrataSecurityCouncilMultisigUpdate => {
+                write!(f, "StrataSecurityCouncilMultisigUpdate")
+            }
             AdminTxType::OperatorUpdate => write!(f, "OperatorUpdate"),
             AdminTxType::SequencerUpdate => write!(f, "SequencerUpdate"),
             AdminTxType::OlStfVkUpdate => write!(f, "OlStfVkUpdate"),
@@ -121,6 +131,7 @@ mod tests {
                 Just(AdminTxType::Cancel),
                 Just(AdminTxType::StrataAdminMultisigUpdate),
                 Just(AdminTxType::StrataSeqManagerMultisigUpdate),
+                Just(AdminTxType::StrataSecurityCouncilMultisigUpdate),
                 Just(AdminTxType::OperatorUpdate),
                 Just(AdminTxType::SequencerUpdate),
                 Just(AdminTxType::OlStfVkUpdate),
@@ -135,6 +146,7 @@ mod tests {
         assert_eq!(AdminTxType::Cancel as u8, 0);
         assert_eq!(AdminTxType::StrataAdminMultisigUpdate as u8, 10);
         assert_eq!(AdminTxType::StrataSeqManagerMultisigUpdate as u8, 11);
+        assert_eq!(AdminTxType::StrataSecurityCouncilMultisigUpdate as u8, 12);
         assert_eq!(AdminTxType::OperatorUpdate as u8, 20);
         assert_eq!(AdminTxType::SequencerUpdate as u8, 21);
         assert_eq!(AdminTxType::OlStfVkUpdate as u8, 30);
@@ -154,6 +166,10 @@ mod tests {
             (
                 AdminTxType::StrataSeqManagerMultisigUpdate,
                 "strata/admin/strata_seq_manager_multisig_update",
+            ),
+            (
+                AdminTxType::StrataSecurityCouncilMultisigUpdate,
+                "strata/admin/strata_security_council_multisig_update",
             ),
             (AdminTxType::OperatorUpdate, "strata/admin/operator_update"),
             (
@@ -189,7 +205,7 @@ mod tests {
         #[test]
         fn test_admin_tx_type_invalid_values(
             value in (0u8..=255u8).prop_filter("must not be a valid variant", |v| {
-                !matches!(*v, 0 | 10 | 11 | 20 | 21 | 30 | 31)
+                !matches!(*v, 0 | 10 | 11 | 12 | 20 | 21 | 30 | 31)
             })
         ) {
             prop_assert!(AdminTxType::try_from(value).is_err());
