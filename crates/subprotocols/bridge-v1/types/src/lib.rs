@@ -30,11 +30,13 @@
 use strata_identifiers::{AccountId, AccountSerial};
 
 mod operator;
+mod safe_harbour;
 mod withdrawal;
 
 pub use operator::{
     OperatorBitmap, OperatorBitmapError, OperatorIdx, OperatorSelection, filter_eligible_operators,
 };
+pub use safe_harbour::SafeHarbour;
 pub use withdrawal::{WithdrawOutput, WithdrawalCommand};
 
 const BRIDGE_GATEWAY_REF: u8 = 0x10;
