@@ -35,7 +35,7 @@ use strata_asm_proto_admin_txs::{
             predicate::{PredicateUpdate, ProofType},
             seq::SequencerUpdate,
         },
-        CancelAction, MultisigAction, Sighash, UpdateAction,
+        CancelAction, MultisigAction, UpdateAction,
     },
     parser::SignedPayload,
     test_utils::create_signature_set,
@@ -104,7 +104,7 @@ impl AdminContext {
     pub fn sign(&mut self, action: &MultisigAction) -> Vec<u8> {
         let role = Self::role_for_action(action);
         let seqno = *self.seqnos.entry(role).or_insert(1);
-        let result = self.sign_impl(action, seqno);
+        let result = self.sign_impl(action, role, seqno);
         *self.seqnos.get_mut(&role).unwrap() += 1;
         result
     }
@@ -113,7 +113,25 @@ impl AdminContext {
     ///
     /// Does NOT auto-increment the internal sequence number.
     pub fn sign_with_seqno(&self, action: &MultisigAction, seqno: u64) -> Vec<u8> {
-        self.sign_impl(action, seqno)
+        self.sign_impl(action, Self::role_for_action(action), seqno)
+    }
+
+    /// Sign an action with an explicitly resolved role.
+    pub fn sign_for_role(&mut self, action: &MultisigAction, role: Role) -> Vec<u8> {
+        let seqno = *self.seqnos.entry(role).or_insert(1);
+        let result = self.sign_impl(action, role, seqno);
+        *self.seqnos.get_mut(&role).unwrap() += 1;
+        result
+    }
+
+    /// Sign an action with a specific sequence number and explicitly resolved role.
+    pub fn sign_with_seqno_for_role(
+        &self,
+        action: &MultisigAction,
+        role: Role,
+        seqno: u64,
+    ) -> Vec<u8> {
+        self.sign_impl(action, role, seqno)
     }
 
     /// Get the private keys (for manual signature construction in tests).
@@ -129,14 +147,15 @@ impl AdminContext {
     fn role_for_action(action: &MultisigAction) -> Role {
         match action {
             MultisigAction::Update(update) => update.required_role(),
-            // Cancel targets StrataAdministrator (sequencer updates are never queued).
-            MultisigAction::Cancel(_) => Role::StrataAdministrator,
+            MultisigAction::Cancel(_) => {
+                panic!("cancel actions require an explicitly resolved signing role")
+            }
         }
     }
 
-    fn sign_impl(&self, action: &MultisigAction, seqno: u64) -> Vec<u8> {
-        let sighash = action.compute_sighash(seqno);
-        let sig_set = create_signature_set(&self.privkeys, &self.signer_indices, sighash);
+    fn sign_impl(&self, action: &MultisigAction, role: Role, seqno: u64) -> Vec<u8> {
+        let sig_set =
+            create_signature_set(&self.privkeys, &self.signer_indices, action, role, seqno);
         SignedPayload::new(seqno, action.clone(), sig_set).as_ssz_bytes()
     }
 }
@@ -243,7 +262,16 @@ impl AdminExt for AsmTestHarness {
         ctx: &mut AdminContext,
         action: MultisigAction,
     ) -> anyhow::Result<BlockHash> {
-        let payload = ctx.sign(&action);
+        let role = match &action {
+            MultisigAction::Update(update) => update.required_role(),
+            MultisigAction::Cancel(cancel) => self
+                .admin_state()?
+                .find_queued(cancel.target_id())
+                .ok_or_else(|| anyhow::anyhow!("queued cancel target not found"))?
+                .action()
+                .required_role(),
+        };
+        let payload = ctx.sign_for_role(&action, role);
         let tx = self.build_envelope_tx(action.tag(), payload).await?;
         self.submit_and_mine_tx(&tx).await
     }
@@ -255,7 +283,16 @@ impl AdminExt for AsmTestHarness {
         seqno: u64,
     ) -> anyhow::Result<BlockHash> {
         let tag = action.tag();
-        let payload = ctx.sign_with_seqno(&action, seqno);
+        let role = match &action {
+            MultisigAction::Update(update) => update.required_role(),
+            MultisigAction::Cancel(cancel) => self
+                .admin_state()?
+                .find_queued(cancel.target_id())
+                .ok_or_else(|| anyhow::anyhow!("queued cancel target not found"))?
+                .action()
+                .required_role(),
+        };
+        let payload = ctx.sign_with_seqno_for_role(&action, role, seqno);
         let tx = self.build_envelope_tx(tag, payload).await?;
         self.submit_and_mine_tx(&tx).await
     }

@@ -2,7 +2,9 @@ use std::num::NonZero;
 
 use ssz_derive::{Decode, Encode};
 use strata_asm_params::Role;
-use strata_asm_proto_admin_txs::{actions::Sighash, parser::SignedPayload};
+use strata_asm_proto_admin_txs::{
+    parser::SignedPayload, signing_message::compute_signing_message_hash,
+};
 use strata_crypto::threshold_signature::{ThresholdConfig, verify_threshold_signatures};
 
 use crate::error::AdministrationError;
@@ -58,11 +60,7 @@ impl MultisigAuthority {
         &mut self.config
     }
 
-    /// Verifies a set of ECDSA signatures against a threshold configuration.
-    //
-    // This function is intentionally ECDSA-specific as part of the hardware wallet
-    // compatibility design (BIP-137 format support). A trait-based abstraction
-    // could be added in the future if multiple signature schemes are needed.
+    /// Verifies a set of ECDSA signatures against the canonical admin signing message.
     pub fn verify_action_signature(
         &self,
         payload: &SignedPayload,
@@ -84,13 +82,12 @@ impl MultisigAuthority {
                 max_gap: max_seqno_gap,
             });
         }
-        // Compute the msg to sign by combining UpdateAction with sequence no
-        let sig_hash = payload.action.compute_sighash(payload.seqno);
+        let message_hash = compute_signing_message_hash(&payload.action, payload.seqno, self.role);
 
         verify_threshold_signatures(
             &self.config,
             payload.signatures.signatures(),
-            &sig_hash.into(),
+            &message_hash.into(),
         )?;
 
         Ok(SeqNoToken(payload.seqno))

@@ -1,15 +1,18 @@
 use bitcoin::{
     Transaction,
+    sign_message::MessageSignature,
     secp256k1::{Message, SECP256K1, SecretKey},
 };
 use ssz::Encode;
 use strata_asm_proto_txs_test_utils::create_reveal_transaction_stub;
+use strata_asm_params::Role;
+use strata_asm_params::Role;
 use strata_crypto::threshold_signature::{IndexedSignature, SignatureSet};
-use strata_identifiers::Buf32;
 
 use crate::{
-    actions::{MultisigAction, Sighash},
+    actions::MultisigAction,
     parser::SignedPayload,
+    signing_message::compute_signing_message_hash,
 };
 
 /// Creates an ECDSA signature with recoverable public key for a message hash.
@@ -26,28 +29,40 @@ pub fn sign_ecdsa_recoverable(message_hash: &[u8; 32], secret_key: &SecretKey) -
     result
 }
 
+/// Creates a BIP-137-style recoverable signature for a Bitcoin `signMessage` digest.
+pub fn sign_ecdsa_bip137(message_hash: &[u8; 32], secret_key: &SecretKey) -> [u8; 65] {
+    let message = Message::from_digest_slice(message_hash).expect("32 bytes");
+    let signature = SECP256K1.sign_ecdsa_recoverable(&message, secret_key);
+    MessageSignature::new(signature, true).serialize()
+}
+
 /// Creates a SignatureSet for any MultisigAction.
 ///
 /// This function generates the required signatures for any administration action
-/// (Update or Cancel) by computing the sighash from the action and sequence number,
-/// then creating individual ECDSA signatures using the provided private keys.
+/// (Update or Cancel) by computing the canonical admin `signMessage` digest for
+/// the action and sequence number, then creating individual ECDSA signatures
+/// using the provided private keys.
 ///
 /// # Arguments
 /// * `privkeys` - Private keys of all signers in the threshold config
 /// * `signer_indices` - Indices of signers participating in this signature
-/// * `sighash` - The message hash to sign
+/// * `action` - The action being signed
+/// * `seqno` - The sequence number bound to the action
 ///
 /// # Returns
 /// A SignatureSet that can be used to authorize this action
 pub fn create_signature_set(
     privkeys: &[SecretKey],
     signer_indices: &[u8],
-    sighash: Buf32,
+    action: &MultisigAction,
+    role: Role,
+    seqno: u64,
 ) -> SignatureSet {
+    let message_hash = compute_signing_message_hash(action, seqno, role);
     let signatures: Vec<IndexedSignature> = signer_indices
         .iter()
         .map(|&index| {
-            let sig = sign_ecdsa_recoverable(&sighash.0, &privkeys[index as usize]);
+            let sig = sign_ecdsa_bip137(&message_hash.0, &privkeys[index as usize]);
             IndexedSignature::new(index, sig)
         })
         .collect();
@@ -77,11 +92,10 @@ pub fn create_test_admin_tx(
     privkeys: &[SecretKey],
     signer_indices: &[u8],
     action: &MultisigAction,
+    role: Role,
     seqno: u64,
 ) -> Transaction {
-    // Compute the signature hash and create the signature set
-    let sighash = action.compute_sighash(seqno);
-    let signature_set = create_signature_set(privkeys, signer_indices, sighash);
+    let signature_set = create_signature_set(privkeys, signer_indices, action, role, seqno);
 
     // Create the signed payload (action + signatures) for the envelope
     let signed_payload = SignedPayload::new(seqno, action.clone(), signature_set);
@@ -130,9 +144,13 @@ mod tests {
 
         // Create a test multisig action
         let action: MultisigAction = arb.generate();
-        let sighash = action.compute_sighash(seqno);
-
-        let signature_set = create_signature_set(&privkeys, &signer_indices, sighash);
+        let signature_set = create_signature_set(
+            &privkeys,
+            &signer_indices,
+            &action,
+            action.required_role(),
+            seqno,
+        );
 
         // Verify the signature set has the expected structure
         assert_eq!(signature_set.len(), 2);
@@ -140,7 +158,12 @@ mod tests {
         assert_eq!(indices, vec![0, 2]);
 
         // Verify the signatures
-        let res = verify_threshold_signatures(&config, signature_set.signatures(), &sighash.0);
+        let sign_message_hash = compute_signing_message_hash(&action, seqno, action.required_role());
+        let res = verify_threshold_signatures(
+            &config,
+            signature_set.signatures(),
+            &sign_message_hash.0,
+        );
         assert!(res.is_ok());
     }
 
@@ -162,7 +185,13 @@ mod tests {
         let signer_indices = [0u8, 2u8];
 
         let action: MultisigAction = arb.generate();
-        let tx = create_test_admin_tx(&privkeys, &signer_indices, &action, seqno);
+        let tx = create_test_admin_tx(
+            &privkeys,
+            &signer_indices,
+            &action,
+            action.required_role(),
+            seqno,
+        );
         let tag_data_ref = ParseConfig::new(TEST_MAGIC_BYTES)
             .try_parse_tx(&tx)
             .unwrap();
@@ -172,11 +201,9 @@ mod tests {
         assert_eq!(action, parsed.action);
 
         // Verify the signatures
-        let res = verify_threshold_signatures(
-            &config,
-            parsed.signatures.signatures(),
-            &action.compute_sighash(seqno).0,
-        );
+        let sign_message_hash = compute_signing_message_hash(&action, seqno, action.required_role());
+        let res =
+            verify_threshold_signatures(&config, parsed.signatures.signatures(), &sign_message_hash.0);
         assert!(res.is_ok());
     }
 }

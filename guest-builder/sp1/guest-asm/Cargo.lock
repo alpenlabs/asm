@@ -1515,6 +1515,8 @@ name = "strata-asm-proto-admin-txs"
 version = "0.1.0"
 dependencies = [
  "arbitrary",
+ "bitcoin",
+ "hex",
  "hex-literal",
  "ssz",
  "ssz_derive",

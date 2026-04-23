@@ -38,7 +38,7 @@ use rand::rngs::OsRng;
 use ssz::Encode;
 use strata_asm_params::Role;
 use strata_asm_proto_admin_txs::{
-    actions::{updates::predicate::ProofType, Sighash},
+    actions::updates::predicate::ProofType,
     constants::ADMINISTRATION_SUBPROTOCOL_ID,
     parser::SignedPayload,
     test_utils::create_signature_set,
@@ -352,8 +352,13 @@ async fn test_wrong_key_rejected() {
     // Sign with wrong key
     let action = sequencer_update([2u8; 32]);
     let seqno = 1;
-    let sighash = action.compute_sighash(seqno);
-    let sig_set = create_signature_set(&[wrong_privkey], &[0u8], sighash);
+    let sig_set = create_signature_set(
+        &[wrong_privkey],
+        &[0u8],
+        &action,
+        Role::StrataSequencerManager,
+        seqno,
+    );
     let signed = SignedPayload::new(seqno, action.clone(), sig_set);
     let payload = signed.as_ssz_bytes();
 
@@ -389,8 +394,13 @@ async fn test_corrupted_signature_rejected() {
 
     let action = sequencer_update([88u8; 32]);
     let seqno = 1;
-    let sighash = action.compute_sighash(seqno);
-    let sig_set = create_signature_set(ctx.privkeys(), ctx.signer_indices(), sighash);
+    let sig_set = create_signature_set(
+        ctx.privkeys(),
+        ctx.signer_indices(),
+        &action,
+        Role::StrataSequencerManager,
+        seqno,
+    );
 
     // Corrupt the signature
     let mut indexed_sigs = sig_set.into_inner();
