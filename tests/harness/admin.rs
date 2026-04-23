@@ -210,7 +210,8 @@ pub fn create_test_admin_setup(
 
     let params = AdministrationInitConfig {
         strata_administrator: config.clone(),
-        strata_sequencer_manager: config,
+        strata_sequencer_manager: config.clone(),
+        strata_security_council: config,
         confirmation_depth,
         max_seqno_gap: DEFAULT_MAX_SEQNO_GAP,
     };

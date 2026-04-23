@@ -215,9 +215,19 @@ mod tests {
         let strata_sequencer_manager =
             ThresholdConfig::try_new(seq_pks, NonZero::new(2).unwrap()).unwrap();
 
+        // Create security council keys
+        let council_sks: Vec<SecretKey> = (0..3).map(|_| SecretKey::new(&mut OsRng)).collect();
+        let council_pks: Vec<CompressedPublicKey> = council_sks
+            .iter()
+            .map(|sk| CompressedPublicKey::from(PublicKey::from_secret_key(&secp, sk)))
+            .collect();
+        let strata_security_council =
+            ThresholdConfig::try_new(council_pks, NonZero::new(2).unwrap()).unwrap();
+
         AdministrationInitConfig {
             strata_administrator,
             strata_sequencer_manager,
+            strata_security_council,
             confirmation_depth: 2016,
             max_seqno_gap: NonZero::new(10).unwrap(),
         }
