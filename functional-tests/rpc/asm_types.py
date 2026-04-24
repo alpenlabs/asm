@@ -29,3 +29,28 @@ class AsmWorkerStatus:
             cur_block=cur_block,
             cur_state=data.get("cur_state"),
         )
+
+
+@dataclass
+class OLBlockCommitment:
+    slot: int
+    blkid: str
+
+    @classmethod
+    def from_dict(cls, data: dict) -> OLBlockCommitment:
+        return cls(slot=data["slot"], blkid=data["blkid"])
+
+
+@dataclass
+class CheckpointTip:
+    epoch: int
+    l1_height: int
+    l2_commitment: OLBlockCommitment
+
+    @classmethod
+    def from_dict(cls, data: dict) -> CheckpointTip:
+        return cls(
+            epoch=data["epoch"],
+            l1_height=data["l1_height"],
+            l2_commitment=OLBlockCommitment.from_dict(data["l2_commitment"]),
+        )
