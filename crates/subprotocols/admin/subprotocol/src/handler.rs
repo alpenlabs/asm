@@ -2,14 +2,14 @@ use strata_asm_common::{
     AsmLogEntry, MsgRelayer,
     logging::{error, info},
 };
-use strata_asm_logs::AsmStfUpdate;
+use strata_asm_logs::{AsmStfUpdate, EePredicateKeyUpdate};
 use strata_asm_proto_admin_txs::{
     actions::{MultisigAction, UpdateAction, updates::predicate::ProofType},
     parser::SignedPayload,
 };
 use strata_asm_proto_bridge_v1_msgs::{BridgeIncomingMsg, UpdateOperatorSetPayload};
 use strata_asm_proto_checkpoint_msgs::CheckpointIncomingMsg;
-use strata_identifiers::{Buf32, L1Height};
+use strata_identifiers::{AccountSerial, Buf32, L1Height, SYSTEM_RESERVED_ACCTS};
 use strata_predicate::{PredicateKey, PredicateTypeId};
 
 use crate::{
@@ -71,6 +71,23 @@ pub(crate) fn handle_pending_updates(
                         info!(
                             %update_id,
                             "Forwarded rollup verifying key update to checkpoint subprotocol",
+                        );
+                    }
+                    ProofType::EeStf => {
+                        // Alpen is the first account on the OL, so its serial is the first
+                        // non-reserved account index.
+                        const ALPEN_EE_ACCOUNT_SERIAL: AccountSerial =
+                            AccountSerial::new(SYSTEM_RESERVED_ACCTS);
+                        let log_entry = AsmLogEntry::from_log(&EePredicateKeyUpdate::new(
+                            ALPEN_EE_ACCOUNT_SERIAL,
+                            key,
+                        ))
+                        .expect("EePredicateKeyUpdate encoding is infallible");
+                        relayer.emit_log(log_entry);
+                        info!(
+                            %update_id,
+                            %ALPEN_EE_ACCOUNT_SERIAL,
+                            "Emitted EE predicate key update log",
                         );
                     }
                 }
@@ -290,9 +307,18 @@ mod tests {
         let strata_sequencer_manager =
             ThresholdConfig::try_new(strata_seq_manager_pks, NonZero::new(2).unwrap()).unwrap();
 
+        let alpen_admin_sks: Vec<SecretKey> = (0..3).map(|_| SecretKey::new(&mut OsRng)).collect();
+        let alpen_admin_pks: Vec<CompressedPublicKey> = alpen_admin_sks
+            .iter()
+            .map(|sk| CompressedPublicKey::from(PublicKey::from_secret_key(&secp, sk)))
+            .collect();
+        let alpen_administrator =
+            ThresholdConfig::try_new(alpen_admin_pks, NonZero::new(2).unwrap()).unwrap();
+
         let config = AdministrationInitConfig {
             strata_administrator,
             strata_sequencer_manager,
+            alpen_administrator,
             confirmation_depth: 2016,
             max_seqno_gap: 10.try_into().unwrap(),
         };

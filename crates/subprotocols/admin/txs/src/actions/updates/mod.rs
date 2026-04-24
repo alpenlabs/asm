@@ -11,7 +11,9 @@ use crate::{
     actions::{
         Sighash,
         updates::{
-            multisig::MultisigUpdate, operator::OperatorSetUpdate, predicate::PredicateUpdate,
+            multisig::MultisigUpdate,
+            operator::OperatorSetUpdate,
+            predicate::{PredicateUpdate, ProofType},
             seq::SequencerUpdate,
         },
     },
@@ -34,7 +36,10 @@ impl UpdateAction {
         match self {
             UpdateAction::Multisig(m) => m.role(),
             UpdateAction::OperatorSet(_) => Role::StrataAdministrator,
-            UpdateAction::VerifyingKey(_) => Role::StrataAdministrator,
+            UpdateAction::VerifyingKey(v) => match v.kind() {
+                ProofType::Asm | ProofType::OLStf => Role::StrataAdministrator,
+                ProofType::EeStf => Role::AlpenAdministrator,
+            },
             UpdateAction::Sequencer(_) => Role::StrataSequencerManager,
         }
     }

@@ -38,6 +38,7 @@ impl Sighash for PredicateUpdate {
         match self.kind {
             ProofType::Asm => AdminTxType::AsmStfVkUpdate,
             ProofType::OLStf => AdminTxType::OlStfVkUpdate,
+            ProofType::EeStf => AdminTxType::EeStfVkUpdate,
         }
     }
 
@@ -55,4 +56,5 @@ impl Sighash for PredicateUpdate {
 pub enum ProofType {
     Asm,
     OLStf,
+    EeStf,
 }

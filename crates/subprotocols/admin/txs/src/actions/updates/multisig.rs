@@ -42,6 +42,7 @@ impl Sighash for MultisigUpdate {
         match self.role {
             Role::StrataAdministrator => AdminTxType::StrataAdminMultisigUpdate,
             Role::StrataSequencerManager => AdminTxType::StrataSeqManagerMultisigUpdate,
+            Role::AlpenAdministrator => AdminTxType::AlpenAdminMultisigUpdate,
         }
     }
 

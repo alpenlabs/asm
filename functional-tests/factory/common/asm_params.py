@@ -30,6 +30,7 @@ class ThresholdConfig:
 
 @dataclass
 class AdminSubprotocol:
+    alpen_administrator: ThresholdConfig
     strata_administrator: ThresholdConfig
     strata_sequencer_manager: ThresholdConfig
     confirmation_depth: int
@@ -103,6 +104,7 @@ def build_subprotocols(
     admin = {
         "Admin": asdict(
             AdminSubprotocol(
+                alpen_administrator=ThresholdConfig(keys=compressed_keys, threshold=1),
                 strata_administrator=ThresholdConfig(keys=compressed_keys, threshold=1),
                 strata_sequencer_manager=ThresholdConfig(keys=compressed_keys, threshold=1),
                 confirmation_depth=144,

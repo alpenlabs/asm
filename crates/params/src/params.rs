@@ -125,6 +125,12 @@ mod tests {
           ],
           "threshold": 1
         },
+        "alpen_administrator": {
+          "keys": [
+            "02bedfa2fa42d906565519bee43875608a09e06640203a6c7a43569150c7cbe7c5"
+          ],
+          "threshold": 1
+        },
         "confirmation_depth": 144,
         "max_seqno_gap": 10
       }
