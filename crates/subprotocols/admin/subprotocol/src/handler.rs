@@ -133,18 +133,8 @@ pub(crate) fn handle_action(
     current_height: L1Height,
     relayer: &mut impl MsgRelayer,
 ) -> Result<(), AdministrationError> {
-    // Determine the required role based on the action type
-    let role = match &payload.action {
-        MultisigAction::Update(update) => update.required_role(),
-        MultisigAction::Cancel(cancel) => {
-            // For cancel actions, we need to find the target action to determine its required role
-            let target_action_id = cancel.target_id();
-            let queued = state
-                .find_queued(target_action_id)
-                .ok_or(AdministrationError::UnknownAction(*target_action_id))?;
-            queued.action().required_role()
-        }
-    };
+    // Determine the required role based on the action type and current queue state.
+    let role = state.resolve_action_role(&payload.action)?;
 
     // Get the authority for this role and validate the action with the aggregated signature
     let authority = state

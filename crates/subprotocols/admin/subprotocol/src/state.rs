@@ -2,7 +2,7 @@ use std::{mem::take, num::NonZero};
 
 use ssz_derive::{Decode, Encode};
 use strata_asm_params::{AdministrationInitConfig, Role};
-use strata_asm_proto_admin_txs::actions::UpdateId;
+use strata_asm_proto_admin_txs::actions::{MultisigAction, UpdateId};
 use strata_crypto::threshold_signature::ThresholdConfigUpdate;
 use strata_identifiers::L1Height;
 
@@ -63,6 +63,23 @@ impl AdministrationSubprotoState {
 
     pub fn max_seqno_gap(&self) -> NonZero<u8> {
         self.max_seqno_gap
+    }
+
+    /// Resolves which role must authorize the provided action.
+    ///
+    /// Updates are self-describing. Cancels require queue context because the target role is
+    /// determined by the queued action being cancelled.
+    pub fn resolve_action_role(
+        &self,
+        action: &MultisigAction,
+    ) -> Result<Role, AdministrationError> {
+        match action {
+            MultisigAction::Update(update) => Ok(update.required_role()),
+            MultisigAction::Cancel(cancel) => self
+                .find_queued(cancel.target_id())
+                .map(|queued| queued.action().required_role())
+                .ok_or(AdministrationError::UnknownAction(*cancel.target_id())),
+        }
     }
 
     /// Get a reference to the authority for the given role.

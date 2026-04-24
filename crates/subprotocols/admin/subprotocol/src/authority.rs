@@ -106,3 +106,82 @@ impl MultisigAuthority {
         self.last_seqno
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::num::NonZero;
+
+    use bitcoin::secp256k1::{PublicKey, Secp256k1, SecretKey};
+    use rand::rngs::OsRng;
+    use strata_asm_params::Role;
+    use strata_asm_proto_admin_txs::{
+        actions::{MultisigAction, UpdateAction, updates::seq::SequencerUpdate},
+        parser::SignedPayload,
+        test_utils::create_signature_set,
+    };
+    use strata_crypto::{
+        keys::compressed::CompressedPublicKey, threshold_signature::ThresholdConfig,
+    };
+    use strata_identifiers::Buf32;
+
+    use super::*;
+
+    fn create_test_authority(role: Role) -> (MultisigAuthority, SecretKey) {
+        let secp = Secp256k1::new();
+        let secret_key = SecretKey::new(&mut OsRng);
+        let public_key = CompressedPublicKey::from(PublicKey::from_secret_key(&secp, &secret_key));
+        let config = ThresholdConfig::try_new(vec![public_key], NonZero::new(1).expect("non-zero"))
+            .expect("valid config");
+
+        (MultisigAuthority::new(role, config), secret_key)
+    }
+
+    fn sample_action() -> MultisigAction {
+        MultisigAction::Update(UpdateAction::Sequencer(SequencerUpdate::new(Buf32::from(
+            [7u8; 32],
+        ))))
+    }
+
+    #[test]
+    fn verify_action_signature_accepts_payload_signed_over_rendered_message() {
+        let (authority, secret_key) = create_test_authority(Role::StrataSequencerManager);
+        let action = sample_action();
+        let seqno = 1;
+        let signatures = create_signature_set(
+            &[secret_key],
+            &[0],
+            &action,
+            Role::StrataSequencerManager,
+            seqno,
+        );
+        let payload = SignedPayload::new(seqno, action, signatures);
+
+        let result =
+            authority.verify_action_signature(&payload, NonZero::new(10).expect("non-zero"));
+
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn verify_action_signature_rejects_payload_signed_for_wrong_role() {
+        let (authority, secret_key) = create_test_authority(Role::StrataAdministrator);
+        let action = sample_action();
+        let seqno = 1;
+        let signatures = create_signature_set(
+            &[secret_key],
+            &[0],
+            &action,
+            Role::StrataSequencerManager,
+            seqno,
+        );
+        let payload = SignedPayload::new(seqno, action, signatures);
+
+        let result =
+            authority.verify_action_signature(&payload, NonZero::new(10).expect("non-zero"));
+
+        assert!(matches!(
+            result,
+            Err(AdministrationError::ThresholdSignature(_))
+        ));
+    }
+}

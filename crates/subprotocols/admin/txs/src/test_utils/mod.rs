@@ -1,25 +1,22 @@
 use bitcoin::{
     Transaction,
-    sign_message::MessageSignature,
     secp256k1::{Message, SECP256K1, SecretKey},
+    sign_message::MessageSignature,
 };
 use ssz::Encode;
+use strata_asm_params::Role;
 use strata_asm_proto_txs_test_utils::create_reveal_transaction_stub;
-use strata_asm_params::Role;
-use strata_asm_params::Role;
 use strata_crypto::threshold_signature::{IndexedSignature, SignatureSet};
 
 use crate::{
-    actions::MultisigAction,
-    parser::SignedPayload,
-    signing_message::compute_signing_message_hash,
+    actions::MultisigAction, parser::SignedPayload, signing_message::compute_signing_message_hash,
 };
 
 /// Creates an ECDSA signature with recoverable public key for a message hash.
 ///
 /// Returns a 65-byte signature in the format: recovery_id || r || s
 pub fn sign_ecdsa_recoverable(message_hash: &[u8; 32], secret_key: &SecretKey) -> [u8; 65] {
-    let message = Message::from_digest_slice(message_hash).expect("32 bytes");
+    let message = Message::from_digest(*message_hash);
     let sig = SECP256K1.sign_ecdsa_recoverable(&message, secret_key);
     let (recovery_id, compact) = sig.serialize_compact();
 
@@ -31,7 +28,7 @@ pub fn sign_ecdsa_recoverable(message_hash: &[u8; 32], secret_key: &SecretKey) -
 
 /// Creates a BIP-137-style recoverable signature for a Bitcoin `signMessage` digest.
 pub fn sign_ecdsa_bip137(message_hash: &[u8; 32], secret_key: &SecretKey) -> [u8; 65] {
-    let message = Message::from_digest_slice(message_hash).expect("32 bytes");
+    let message = Message::from_digest(*message_hash);
     let signature = SECP256K1.sign_ecdsa_recoverable(&message, secret_key);
     MessageSignature::new(signature, true).serialize()
 }
@@ -114,6 +111,7 @@ mod tests {
     use bitcoin::secp256k1::PublicKey;
     use rand::rngs::OsRng;
     use strata_asm_common::TxInputRef;
+    use strata_asm_params::Role;
     use strata_asm_proto_txs_test_utils::TEST_MAGIC_BYTES;
     use strata_crypto::{
         keys::compressed::CompressedPublicKey,
@@ -123,11 +121,19 @@ mod tests {
     use strata_test_utils_arb::ArbitraryGenerator;
 
     use super::*;
-    use crate::parser::parse_tx;
+    use crate::{
+        actions::{MultisigAction, UpdateAction, updates::seq::SequencerUpdate},
+        parser::parse_tx,
+    };
+
+    fn sample_update_action() -> MultisigAction {
+        let mut arb = ArbitraryGenerator::new();
+        let update: SequencerUpdate = arb.generate();
+        MultisigAction::Update(UpdateAction::Sequencer(update))
+    }
 
     #[test]
     fn test_create_signature_set() {
-        let mut arb = ArbitraryGenerator::new();
         let seqno = 1;
         let threshold = NonZero::new(2).unwrap();
 
@@ -142,13 +148,13 @@ mod tests {
         // Create signer indices (signers 0 and 2)
         let signer_indices = [0u8, 2u8];
 
-        // Create a test multisig action
-        let action: MultisigAction = arb.generate();
+        // Create a test multisig action with a self-describing role.
+        let action = sample_update_action();
         let signature_set = create_signature_set(
             &privkeys,
             &signer_indices,
             &action,
-            action.required_role(),
+            Role::StrataSequencerManager,
             seqno,
         );
 
@@ -158,18 +164,15 @@ mod tests {
         assert_eq!(indices, vec![0, 2]);
 
         // Verify the signatures
-        let sign_message_hash = compute_signing_message_hash(&action, seqno, action.required_role());
-        let res = verify_threshold_signatures(
-            &config,
-            signature_set.signatures(),
-            &sign_message_hash.0,
-        );
+        let sign_message_hash =
+            compute_signing_message_hash(&action, seqno, Role::StrataSequencerManager);
+        let res =
+            verify_threshold_signatures(&config, signature_set.signatures(), &sign_message_hash.0);
         assert!(res.is_ok());
     }
 
     #[test]
     fn test_admin_tx() {
-        let mut arb = ArbitraryGenerator::new();
         let seqno = 1;
         let threshold = NonZero::new(2).unwrap();
 
@@ -184,12 +187,12 @@ mod tests {
         // Create signer indices (signers 0 and 2)
         let signer_indices = [0u8, 2u8];
 
-        let action: MultisigAction = arb.generate();
+        let action = sample_update_action();
         let tx = create_test_admin_tx(
             &privkeys,
             &signer_indices,
             &action,
-            action.required_role(),
+            Role::StrataSequencerManager,
             seqno,
         );
         let tag_data_ref = ParseConfig::new(TEST_MAGIC_BYTES)
@@ -201,9 +204,13 @@ mod tests {
         assert_eq!(action, parsed.action);
 
         // Verify the signatures
-        let sign_message_hash = compute_signing_message_hash(&action, seqno, action.required_role());
-        let res =
-            verify_threshold_signatures(&config, parsed.signatures.signatures(), &sign_message_hash.0);
+        let sign_message_hash =
+            compute_signing_message_hash(&action, seqno, Role::StrataSequencerManager);
+        let res = verify_threshold_signatures(
+            &config,
+            parsed.signatures.signatures(),
+            &sign_message_hash.0,
+        );
         assert!(res.is_ok());
     }
 }

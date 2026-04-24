@@ -41,14 +41,6 @@ impl Sighash for MultisigAction {
 }
 
 impl MultisigAction {
-    /// The role authorized to approve this action.
-    pub fn required_role(&self) -> strata_asm_params::Role {
-        match self {
-            MultisigAction::Cancel(_) => strata_asm_params::Role::StrataAdministrator,
-            MultisigAction::Update(update) => update.required_role(),
-        }
-    }
-
     /// Constructs the SPS-50 [`TagData`] for this action.
     ///
     /// The tag is built from the administration subprotocol ID and the

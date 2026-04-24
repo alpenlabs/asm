@@ -101,19 +101,19 @@ impl AdminContext {
     /// Sign an action and return the serialized payload.
     ///
     /// Auto-increments the appropriate role's sequence number after signing.
-    pub fn sign(&mut self, action: &MultisigAction) -> Vec<u8> {
-        let role = Self::role_for_action(action);
+    pub fn sign(&mut self, action: &MultisigAction) -> anyhow::Result<Vec<u8>> {
+        let role = Self::role_for_action(action)?;
         let seqno = *self.seqnos.entry(role).or_insert(1);
         let result = self.sign_impl(action, role, seqno);
         *self.seqnos.get_mut(&role).unwrap() += 1;
-        result
+        Ok(result)
     }
 
     /// Sign an action with a specific sequence number (for replay attack testing).
     ///
     /// Does NOT auto-increment the internal sequence number.
-    pub fn sign_with_seqno(&self, action: &MultisigAction, seqno: u64) -> Vec<u8> {
-        self.sign_impl(action, Self::role_for_action(action), seqno)
+    pub fn sign_with_seqno(&self, action: &MultisigAction, seqno: u64) -> anyhow::Result<Vec<u8>> {
+        Ok(self.sign_impl(action, Self::role_for_action(action)?, seqno))
     }
 
     /// Sign an action with an explicitly resolved role.
@@ -144,12 +144,12 @@ impl AdminContext {
         &self.signer_indices
     }
 
-    fn role_for_action(action: &MultisigAction) -> Role {
+    fn role_for_action(action: &MultisigAction) -> anyhow::Result<Role> {
         match action {
-            MultisigAction::Update(update) => update.required_role(),
-            MultisigAction::Cancel(_) => {
-                panic!("cancel actions require an explicitly resolved signing role")
-            }
+            MultisigAction::Update(update) => Ok(update.required_role()),
+            MultisigAction::Cancel(_) => Err(anyhow::anyhow!(
+                "cancel actions require explicit role resolution from queue state"
+            )),
         }
     }
 
@@ -262,15 +262,7 @@ impl AdminExt for AsmTestHarness {
         ctx: &mut AdminContext,
         action: MultisigAction,
     ) -> anyhow::Result<BlockHash> {
-        let role = match &action {
-            MultisigAction::Update(update) => update.required_role(),
-            MultisigAction::Cancel(cancel) => self
-                .admin_state()?
-                .find_queued(cancel.target_id())
-                .ok_or_else(|| anyhow::anyhow!("queued cancel target not found"))?
-                .action()
-                .required_role(),
-        };
+        let role = self.admin_state()?.resolve_action_role(&action)?;
         let payload = ctx.sign_for_role(&action, role);
         let tx = self.build_envelope_tx(action.tag(), payload).await?;
         self.submit_and_mine_tx(&tx).await
@@ -283,15 +275,7 @@ impl AdminExt for AsmTestHarness {
         seqno: u64,
     ) -> anyhow::Result<BlockHash> {
         let tag = action.tag();
-        let role = match &action {
-            MultisigAction::Update(update) => update.required_role(),
-            MultisigAction::Cancel(cancel) => self
-                .admin_state()?
-                .find_queued(cancel.target_id())
-                .ok_or_else(|| anyhow::anyhow!("queued cancel target not found"))?
-                .action()
-                .required_role(),
-        };
+        let role = self.admin_state()?.resolve_action_role(&action)?;
         let payload = ctx.sign_with_seqno_for_role(&action, role, seqno);
         let tx = self.build_envelope_tx(tag, payload).await?;
         self.submit_and_mine_tx(&tx).await
