@@ -7494,6 +7494,7 @@ dependencies = [
  "jsonrpsee",
  "strata-asm-proof-types",
  "strata-asm-proto-bridge-v1",
+ "strata-asm-proto-checkpoint-types",
  "strata-asm-worker",
 ]
 
@@ -7528,6 +7529,9 @@ dependencies = [
  "strata-asm-proof-types",
  "strata-asm-proto-bridge-v1",
  "strata-asm-proto-bridge-v1-txs",
+ "strata-asm-proto-checkpoint",
+ "strata-asm-proto-checkpoint-txs",
+ "strata-asm-proto-checkpoint-types",
  "strata-asm-rpc",
  "strata-asm-sp1-guest-builder",
  "strata-asm-spec",

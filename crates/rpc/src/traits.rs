@@ -4,6 +4,7 @@ use bitcoin::BlockHash;
 use jsonrpsee::{core::RpcResult, proc_macros::rpc};
 use strata_asm_proof_types::{AsmProof, MohoProof};
 use strata_asm_proto_bridge_v1::{AssignmentEntry, DepositEntry};
+use strata_asm_proto_checkpoint_types::CheckpointTip;
 use strata_asm_worker::AsmWorkerStatus;
 
 /// RPCs for retrieving ASM-derived outputs keyed by Bitcoin block hashes.
@@ -29,4 +30,8 @@ pub trait AssignmentsApi {
     /// Return the Moho recursive proof for the given block, if one exists.
     #[method(name = "getMohoProof")]
     async fn get_moho_proof(&self, block_hash: BlockHash) -> RpcResult<Option<MohoProof>>;
+
+    /// Return the verified checkpoint tip for the provided Bitcoin block hash.
+    #[method(name = "getCheckpointTip")]
+    async fn get_checkpoint_tip(&self, block_hash: BlockHash) -> RpcResult<Option<CheckpointTip>>;
 }
