@@ -17,6 +17,9 @@ use strata_asm_proof_db::{ProofDb, SledProofDb};
 use strata_asm_proof_types::{AsmProof, L1Range, MohoProof};
 use strata_asm_proto_bridge_v1::{AssignmentEntry, BridgeV1State, DepositEntry};
 use strata_asm_proto_bridge_v1_txs::BRIDGE_V1_SUBPROTOCOL_ID;
+use strata_asm_proto_checkpoint::state::CheckpointState;
+use strata_asm_proto_checkpoint_txs::CHECKPOINT_SUBPROTOCOL_ID;
+use strata_asm_proto_checkpoint_types::CheckpointTip;
 use strata_asm_rpc::traits::AssignmentsApiServer;
 use strata_asm_worker::{AsmWorkerHandle, AsmWorkerStatus};
 use strata_btc_types::BlockHashExt;
@@ -85,6 +88,31 @@ impl AsmRpcServer {
             None => Ok(None),
         }
     }
+
+    async fn get_checkpoint_state(
+        &self,
+        block_hash: BlockHash,
+    ) -> RpcResult<Option<CheckpointState>> {
+        let commitment = self
+            .to_block_commitment(block_hash)
+            .await
+            .map_err(to_rpc_error)?;
+        let state = self.state_db.get(&commitment).map_err(to_rpc_error)?;
+        match state {
+            Some(state) => {
+                let checkpoint_state = state
+                    .state()
+                    .find_section(CHECKPOINT_SUBPROTOCOL_ID)
+                    .expect("checkpoint subprotocol should be enabled");
+
+                let checkpoint_state = CheckpointState::from_ssz_bytes(&checkpoint_state.data)
+                    .expect("checkpoint state deserialization should be infallible");
+
+                Ok(Some(checkpoint_state))
+            }
+            None => Ok(None),
+        }
+    }
 }
 
 #[async_trait]
@@ -132,6 +160,13 @@ impl AssignmentsApiServer for AsmRpcServer {
             .map_err(to_rpc_error)?;
 
         db.get_moho_proof(commitment).await.map_err(to_rpc_error)
+    }
+
+    async fn get_checkpoint_tip(&self, block_hash: BlockHash) -> RpcResult<Option<CheckpointTip>> {
+        match self.get_checkpoint_state(block_hash).await? {
+            Some(checkpoint_state) => Ok(Some(*checkpoint_state.verified_tip())),
+            None => Ok(None),
+        }
     }
 }
 

@@ -9,6 +9,7 @@ workspace = true
 [dependencies]
 strata-asm-proof-types.workspace = true
 strata-asm-proto-bridge-v1.workspace = true
+strata-asm-proto-checkpoint-types.workspace = true
 strata-asm-worker.workspace = true
 
 bitcoin.workspace = true
