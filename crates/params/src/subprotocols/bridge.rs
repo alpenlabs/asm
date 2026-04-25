@@ -18,7 +18,8 @@ pub struct BridgeV1InitConfig {
     /// Number of Bitcoin blocks after Deposit Request Transaction that the depositor can reclaim
     /// funds if operators fail to process the deposit.
     pub recovery_delay: u16,
-    /// Predefined safe harbour address. Deactivated at init; the admin multisig toggles activation.
+    /// Predefined safe harbour address. Deactivated at init; the admin multisig toggles
+    /// activation.
     pub safe_harbour_address: Descriptor,
 }
 
