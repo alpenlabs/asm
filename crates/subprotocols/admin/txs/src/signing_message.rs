@@ -20,6 +20,7 @@ fn role_label(role: Role) -> &'static str {
     match role {
         Role::StrataAdministrator => "StrataAdministrator",
         Role::StrataSequencerManager => "StrataSequencerManager",
+        Role::AlpenAdministrator => "AlpenAdministrator",
     }
 }
 
@@ -32,6 +33,7 @@ fn proof_type_label(proof_type: ProofType) -> &'static str {
     match proof_type {
         ProofType::Asm => "Asm",
         ProofType::OLStf => "OLStf",
+        ProofType::EeStf => "EeStf",
     }
 }
 
