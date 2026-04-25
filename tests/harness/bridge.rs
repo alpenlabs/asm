@@ -473,6 +473,7 @@ pub fn create_test_bridge_setup(num_operators: usize) -> (BridgeV1InitConfig, Br
     let denomination = BitcoinAmount::from_sat(1_000_000);
     let recovery_delay = 1008;
     let operator_fee = BitcoinAmount::from_sat(100_000);
+    let safe_harbour_address: Descriptor = ArbitraryGenerator::new().generate();
 
     let config = BridgeV1InitConfig {
         operators: pubkeys.clone(),
@@ -480,6 +481,7 @@ pub fn create_test_bridge_setup(num_operators: usize) -> (BridgeV1InitConfig, Br
         assignment_duration: 144,
         operator_fee,
         recovery_delay,
+        safe_harbour_address,
     };
 
     // Use a deterministic recovery key for test reproducibility
