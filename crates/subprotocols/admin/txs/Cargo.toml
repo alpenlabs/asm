@@ -25,10 +25,7 @@ ssz_derive.workspace = true
 thiserror.workspace = true
 
 [features]
-test-utils = [
-  "strata-crypto/test-utils",
-  "dep:strata-asm-proto-txs-test-utils",
-]
+test-utils = ["strata-crypto/test-utils", "dep:strata-asm-proto-txs-test-utils"]
 
 [dev-dependencies]
 bitcoin.workspace = true
