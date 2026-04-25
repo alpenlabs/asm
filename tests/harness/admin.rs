@@ -35,7 +35,7 @@ use strata_asm_proto_admin_txs::{
             predicate::{PredicateUpdate, ProofType},
             seq::SequencerUpdate,
         },
-        CancelAction, MultisigAction, Sighash, UpdateAction,
+        CancelAction, MultisigAction, UpdateAction,
     },
     parser::SignedPayload,
     test_utils::create_signature_set,
@@ -101,19 +101,37 @@ impl AdminContext {
     /// Sign an action and return the serialized payload.
     ///
     /// Auto-increments the appropriate role's sequence number after signing.
-    pub fn sign(&mut self, action: &MultisigAction) -> Vec<u8> {
-        let role = Self::role_for_action(action);
+    pub fn sign(&mut self, action: &MultisigAction) -> anyhow::Result<Vec<u8>> {
+        let role = Self::role_for_action(action)?;
         let seqno = *self.seqnos.entry(role).or_insert(1);
-        let result = self.sign_impl(action, seqno);
+        let result = self.sign_impl(action, role, seqno);
         *self.seqnos.get_mut(&role).unwrap() += 1;
-        result
+        Ok(result)
     }
 
     /// Sign an action with a specific sequence number (for replay attack testing).
     ///
     /// Does NOT auto-increment the internal sequence number.
-    pub fn sign_with_seqno(&self, action: &MultisigAction, seqno: u64) -> Vec<u8> {
-        self.sign_impl(action, seqno)
+    pub fn sign_with_seqno(&self, action: &MultisigAction, seqno: u64) -> anyhow::Result<Vec<u8>> {
+        Ok(self.sign_impl(action, Self::role_for_action(action)?, seqno))
+    }
+
+    /// Sign an action with an explicitly resolved role.
+    pub fn sign_for_role(&mut self, action: &MultisigAction, role: Role) -> Vec<u8> {
+        let seqno = *self.seqnos.entry(role).or_insert(1);
+        let result = self.sign_impl(action, role, seqno);
+        *self.seqnos.get_mut(&role).unwrap() += 1;
+        result
+    }
+
+    /// Sign an action with a specific sequence number and explicitly resolved role.
+    pub fn sign_with_seqno_for_role(
+        &self,
+        action: &MultisigAction,
+        role: Role,
+        seqno: u64,
+    ) -> Vec<u8> {
+        self.sign_impl(action, role, seqno)
     }
 
     /// Get the private keys (for manual signature construction in tests).
@@ -126,17 +144,18 @@ impl AdminContext {
         &self.signer_indices
     }
 
-    fn role_for_action(action: &MultisigAction) -> Role {
+    fn role_for_action(action: &MultisigAction) -> anyhow::Result<Role> {
         match action {
-            MultisigAction::Update(update) => update.required_role(),
-            // Cancel targets StrataAdministrator (sequencer updates are never queued).
-            MultisigAction::Cancel(_) => Role::StrataAdministrator,
+            MultisigAction::Update(update) => Ok(update.required_role()),
+            MultisigAction::Cancel(_) => Err(anyhow::anyhow!(
+                "cancel actions require explicit role resolution from queue state"
+            )),
         }
     }
 
-    fn sign_impl(&self, action: &MultisigAction, seqno: u64) -> Vec<u8> {
-        let sighash = action.compute_sighash(seqno);
-        let sig_set = create_signature_set(&self.privkeys, &self.signer_indices, sighash);
+    fn sign_impl(&self, action: &MultisigAction, role: Role, seqno: u64) -> Vec<u8> {
+        let sig_set =
+            create_signature_set(&self.privkeys, &self.signer_indices, action, role, seqno);
         SignedPayload::new(seqno, action.clone(), sig_set).as_ssz_bytes()
     }
 }
@@ -243,7 +262,8 @@ impl AdminExt for AsmTestHarness {
         ctx: &mut AdminContext,
         action: MultisigAction,
     ) -> anyhow::Result<BlockHash> {
-        let payload = ctx.sign(&action);
+        let role = self.admin_state()?.resolve_action_role(&action)?;
+        let payload = ctx.sign_for_role(&action, role);
         let tx = self.build_envelope_tx(action.tag(), payload).await?;
         self.submit_and_mine_tx(&tx).await
     }
@@ -255,7 +275,8 @@ impl AdminExt for AsmTestHarness {
         seqno: u64,
     ) -> anyhow::Result<BlockHash> {
         let tag = action.tag();
-        let payload = ctx.sign_with_seqno(&action, seqno);
+        let role = self.admin_state()?.resolve_action_role(&action)?;
+        let payload = ctx.sign_with_seqno_for_role(&action, role, seqno);
         let tx = self.build_envelope_tx(tag, payload).await?;
         self.submit_and_mine_tx(&tx).await
     }

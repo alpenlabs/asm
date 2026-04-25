@@ -2,7 +2,9 @@ use std::num::NonZero;
 
 use ssz_derive::{Decode, Encode};
 use strata_asm_params::Role;
-use strata_asm_proto_admin_txs::{actions::Sighash, parser::SignedPayload};
+use strata_asm_proto_admin_txs::{
+    parser::SignedPayload, signing_message::compute_signing_message_hash,
+};
 use strata_crypto::threshold_signature::{ThresholdConfig, verify_threshold_signatures};
 
 use crate::error::AdministrationError;
@@ -58,11 +60,7 @@ impl MultisigAuthority {
         &mut self.config
     }
 
-    /// Verifies a set of ECDSA signatures against a threshold configuration.
-    //
-    // This function is intentionally ECDSA-specific as part of the hardware wallet
-    // compatibility design (BIP-137 format support). A trait-based abstraction
-    // could be added in the future if multiple signature schemes are needed.
+    /// Verifies a set of ECDSA signatures against the canonical admin signing message.
     pub fn verify_action_signature(
         &self,
         payload: &SignedPayload,
@@ -84,13 +82,12 @@ impl MultisigAuthority {
                 max_gap: max_seqno_gap,
             });
         }
-        // Compute the msg to sign by combining UpdateAction with sequence no
-        let sig_hash = payload.action.compute_sighash(payload.seqno);
+        let message_hash = compute_signing_message_hash(&payload.action, payload.seqno, self.role);
 
         verify_threshold_signatures(
             &self.config,
             payload.signatures.signatures(),
-            &sig_hash.into(),
+            &message_hash.into(),
         )?;
 
         Ok(SeqNoToken(payload.seqno))
@@ -107,5 +104,84 @@ impl MultisigAuthority {
     /// Returns the last successfully executed sequence number.
     pub fn last_seqno(&self) -> u64 {
         self.last_seqno
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::num::NonZero;
+
+    use bitcoin::secp256k1::{PublicKey, Secp256k1, SecretKey};
+    use rand::rngs::OsRng;
+    use strata_asm_params::Role;
+    use strata_asm_proto_admin_txs::{
+        actions::{MultisigAction, UpdateAction, updates::seq::SequencerUpdate},
+        parser::SignedPayload,
+        test_utils::create_signature_set,
+    };
+    use strata_crypto::{
+        keys::compressed::CompressedPublicKey, threshold_signature::ThresholdConfig,
+    };
+    use strata_identifiers::Buf32;
+
+    use super::*;
+
+    fn create_test_authority(role: Role) -> (MultisigAuthority, SecretKey) {
+        let secp = Secp256k1::new();
+        let secret_key = SecretKey::new(&mut OsRng);
+        let public_key = CompressedPublicKey::from(PublicKey::from_secret_key(&secp, &secret_key));
+        let config = ThresholdConfig::try_new(vec![public_key], NonZero::new(1).expect("non-zero"))
+            .expect("valid config");
+
+        (MultisigAuthority::new(role, config), secret_key)
+    }
+
+    fn sample_action() -> MultisigAction {
+        MultisigAction::Update(UpdateAction::Sequencer(SequencerUpdate::new(Buf32::from(
+            [7u8; 32],
+        ))))
+    }
+
+    #[test]
+    fn verify_action_signature_accepts_payload_signed_over_rendered_message() {
+        let (authority, secret_key) = create_test_authority(Role::StrataSequencerManager);
+        let action = sample_action();
+        let seqno = 1;
+        let signatures = create_signature_set(
+            &[secret_key],
+            &[0],
+            &action,
+            Role::StrataSequencerManager,
+            seqno,
+        );
+        let payload = SignedPayload::new(seqno, action, signatures);
+
+        let result =
+            authority.verify_action_signature(&payload, NonZero::new(10).expect("non-zero"));
+
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn verify_action_signature_rejects_payload_signed_for_wrong_role() {
+        let (authority, secret_key) = create_test_authority(Role::StrataAdministrator);
+        let action = sample_action();
+        let seqno = 1;
+        let signatures = create_signature_set(
+            &[secret_key],
+            &[0],
+            &action,
+            Role::StrataSequencerManager,
+            seqno,
+        );
+        let payload = SignedPayload::new(seqno, action, signatures);
+
+        let result =
+            authority.verify_action_signature(&payload, NonZero::new(10).expect("non-zero"));
+
+        assert!(matches!(
+            result,
+            Err(AdministrationError::ThresholdSignature(_))
+        ));
     }
 }

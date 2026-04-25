@@ -17,18 +17,15 @@ strata-l1-txfmt.workspace = true
 strata-predicate = { workspace = true, features = ["arbitrary"] }
 
 arbitrary.workspace = true
-bitcoin = { workspace = true, optional = true }
+bitcoin.workspace = true
+hex.workspace = true
 hex-literal.workspace = true
 ssz.workspace = true
 ssz_derive.workspace = true
 thiserror.workspace = true
 
 [features]
-test-utils = [
-  "dep:bitcoin",
-  "strata-crypto/test-utils",
-  "dep:strata-asm-proto-txs-test-utils",
-]
+test-utils = ["strata-crypto/test-utils", "dep:strata-asm-proto-txs-test-utils"]
 
 [dev-dependencies]
 bitcoin.workspace = true
