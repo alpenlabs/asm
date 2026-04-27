@@ -10,8 +10,8 @@ use tree_hash::{Sha256Hasher, TreeHash};
 
 use crate::{
     CheckpointPayload, CheckpointPayloadError, CheckpointSidecar, CheckpointTip,
-    MAX_OL_LOGS_PER_CHECKPOINT, MAX_PROOF_LEN, MAX_TOTAL_LOG_PAYLOAD_BYTES, OLLog,
-    OL_DA_DIFF_MAX_SIZE, TerminalHeaderComplement,
+    MAX_OL_LOGS_PER_CHECKPOINT, MAX_PROOF_LEN, MAX_TOTAL_LOG_PAYLOAD_BYTES, OL_DA_DIFF_MAX_SIZE,
+    OLLog, TerminalHeaderComplement,
 };
 
 impl CheckpointTip {
