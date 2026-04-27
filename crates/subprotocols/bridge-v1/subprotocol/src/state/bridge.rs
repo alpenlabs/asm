@@ -41,7 +41,7 @@ pub struct BridgeV1State {
     /// funds if operators fail to process the deposit.
     recovery_delay: u16,
 
-    /// Predefined safe harbour address, activated by the admin multisig.
+    /// Safe harbour
     safe_harbour: SafeHarbour,
 }
 
@@ -98,12 +98,12 @@ impl BridgeV1State {
         self.recovery_delay
     }
 
-    /// Returns the safe harbour address if it is currently activated.
+    /// Returns a reference to the safe harbour.
     pub fn safe_harbour(&self) -> &SafeHarbour {
         &self.safe_harbour
     }
 
-    /// Sets the safe harbour activation flag. Invoked by the admin multisig.
+    /// Sets the safe harbour activation flag.
     pub fn set_safe_harbour_activated(&mut self, activated: bool) {
         self.safe_harbour.set_activated(activated);
     }

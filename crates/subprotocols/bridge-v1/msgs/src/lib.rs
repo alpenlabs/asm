@@ -27,7 +27,8 @@ pub enum BridgeIncomingMsg {
     /// Adds new operators by public key and removes existing operators by index.
     UpdateOperatorSet(UpdateOperatorSetPayload),
 
-    /// Emergency signal from the admin subprotocol that activates the safe harbour address.
+    /// Defcon1 signal raised by the admin subprotocol. The bridge responds by
+    /// activating the safe harbour.
     Defcon1(Defcon1Payload),
 }
 
