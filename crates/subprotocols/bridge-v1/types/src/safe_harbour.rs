@@ -1,19 +1,15 @@
-//! Safe harbour address management.
+//! Safe harbour address.
 //!
-//! A safe harbour is a predefined Bitcoin output script descriptor that can be
-//! activated by the security council (admin multisig) to redirect flows under
-//! emergency conditions. The address is fixed at bridge initialization; only the
-//! activation flag changes at runtime.
+//! A safe harbour is a Bitcoin output script descriptor used to redirect flows
+//! under emergency conditions. Activation is restricted to the strata security
+//! council; the address itself can be changed by the strata administrator.
 
 use arbitrary::Arbitrary;
 use bitcoin_bosd::Descriptor;
 use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 
-/// A predefined safe harbour address with an activation flag.
-///
-/// The [`Descriptor`] is set once (via the bridge init config) and cannot be
-/// changed at runtime. Activation is toggled by the admin multisig.
+/// A safe harbour address with an activation flag.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, Arbitrary, Encode, Decode)]
 pub struct SafeHarbour {
     address: Descriptor,
@@ -47,5 +43,10 @@ impl SafeHarbour {
     /// Sets the activation flag.
     pub fn set_activated(&mut self, activated: bool) {
         self.activated = activated;
+    }
+
+    /// Updates the address
+    pub fn update_address(&mut self, address: Descriptor) {
+        self.address = address
     }
 }
