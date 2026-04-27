@@ -12,11 +12,10 @@ use strata_asm_proto_checkpoint_txs::CHECKPOINT_SUBPROTOCOL_ID;
 use strata_btc_types::BitcoinAmount;
 use strata_predicate::PredicateKey;
 
-/// Incoming messages for checkpoint subprotocols.
+/// Incoming messages for the checkpoint subprotocol.
 ///
-/// Messages are routed to both the checkpoint-v0 and the new checkpoint.
-/// Admin configuration updates target both, while deposit notifications
-/// target the new checkpoint subprotocol.
+/// Carries admin configuration updates and deposit notifications from
+/// other subprotocols.
 #[derive(Clone, Debug, Encode, Decode)]
 #[ssz(enum_behaviour = "union")]
 pub enum CheckpointIncomingMsg {

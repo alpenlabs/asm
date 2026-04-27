@@ -6,7 +6,8 @@ OL_DA_DIFF_MAX_SIZE = 1 << 18
 ### Maximum number of OLLog that can be part of the checkpoint payload
 MAX_OL_LOGS_PER_CHECKPOINT = 1 << 14
 
-MAX_LOG_PAYLOAD_LEN = 1 << 12
+### Maximum size for a single OLLog.payload (512 B).
+MAX_LOG_PAYLOAD_LEN = 1 << 9
 
 ### ZK proof max size (4 KiB)
 ###
