@@ -10,8 +10,8 @@ use tree_hash::{Sha256Hasher, TreeHash};
 
 use crate::{
     CheckpointPayload, CheckpointPayloadError, CheckpointSidecar, CheckpointTip,
-    MAX_LOG_PAYLOAD_BYTES, MAX_OL_LOGS_PER_CHECKPOINT, MAX_PROOF_LEN, MAX_TOTAL_LOG_PAYLOAD_BYTES,
-    OL_DA_DIFF_MAX_SIZE, OLLog, TerminalHeaderComplement,
+    MAX_OL_LOGS_PER_CHECKPOINT, MAX_PROOF_LEN, MAX_TOTAL_LOG_PAYLOAD_BYTES, OLLog,
+    OL_DA_DIFF_MAX_SIZE, TerminalHeaderComplement,
 };
 
 impl CheckpointTip {
@@ -156,12 +156,6 @@ fn validate_ol_logs_payloads(ol_logs: &[OLLog]) -> Result<(), CheckpointPayloadE
     let mut total_payload = 0u64;
     for log in ol_logs {
         let payload_len = log.payload().len() as u64;
-        if payload_len > MAX_LOG_PAYLOAD_BYTES as u64 {
-            return Err(CheckpointPayloadError::OLLogPayloadTooLarge {
-                provided: payload_len,
-                max: MAX_LOG_PAYLOAD_BYTES as u64,
-            });
-        }
         total_payload = total_payload.checked_add(payload_len).ok_or(
             CheckpointPayloadError::OLLogsTotalPayloadTooLarge {
                 provided: u64::MAX,
@@ -217,31 +211,18 @@ mod tests {
     use strata_identifiers::{AccountSerial, Buf32, OLBlockId};
 
     use super::*;
+    use crate::MAX_LOG_PAYLOAD_LEN;
 
     fn default_terminal_header_complement() -> TerminalHeaderComplement {
         TerminalHeaderComplement::new(0, OLBlockId::null(), Buf32::zero(), Buf32::zero())
     }
 
     #[test]
-    fn test_checkpoint_sidecar_rejects_oversize_log_payload() {
-        let log = OLLog::new(AccountSerial::one(), vec![0u8; MAX_LOG_PAYLOAD_BYTES + 1]);
-        let result =
-            CheckpointSidecar::new(vec![], vec![log], default_terminal_header_complement());
-
-        assert!(matches!(
-            result,
-            Err(CheckpointPayloadError::OLLogPayloadTooLarge { .. })
-        ));
-    }
-
-    #[test]
     fn test_checkpoint_sidecar_rejects_total_log_payload() {
         let mut logs = Vec::new();
-        for _ in 0..(MAX_TOTAL_LOG_PAYLOAD_BYTES / MAX_LOG_PAYLOAD_BYTES + 1) {
-            logs.push(OLLog::new(
-                AccountSerial::one(),
-                vec![0u8; MAX_LOG_PAYLOAD_BYTES],
-            ));
+        let max_log_payload = MAX_LOG_PAYLOAD_LEN as usize;
+        for _ in 0..(MAX_TOTAL_LOG_PAYLOAD_BYTES / max_log_payload + 1) {
+            logs.push(OLLog::new(AccountSerial::one(), vec![0u8; max_log_payload]));
         }
 
         let result = CheckpointSidecar::new(vec![], logs, default_terminal_header_complement());
