@@ -4,11 +4,14 @@
 //! original 32-byte leaves can't be recovered from it. We mirror them here
 //! so the RPC can rebuild inclusion proofs on demand.
 
+use std::mem::size_of;
+
 use anyhow::{Context, Result, bail};
+use strata_identifiers::L1Height;
 use strata_merkle::{MerkleProofB32, Mmr, Mmr64B32, MmrState, Sha256Hasher};
 
 /// Stored value layout: big-endian `height` followed by `entry_hash`.
-const HEIGHT_BYTES: usize = 4;
+const HEIGHT_BYTES: usize = size_of::<L1Height>();
 const HASH_BYTES: usize = 32;
 const VALUE_LEN: usize = HEIGHT_BYTES + HASH_BYTES;
 
