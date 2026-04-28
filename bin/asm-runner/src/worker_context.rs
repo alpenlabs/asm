@@ -13,12 +13,13 @@
 
 use std::sync::Arc;
 
-use asm_storage::{AsmStateDb, MmrDb};
+use asm_storage::{AsmStateDb, ExportEntriesDb, MmrDb};
 use bitcoin::{Block, BlockHash, Network};
 use bitcoind_async_client::{Client, traits::Reader};
 use moho_runtime_interface::MohoProgram;
 use moho_types::{ExportState, MohoState};
 use strata_asm_common::{AnchorState, AsmManifest, AuxData};
+use strata_asm_logs::NewExportEntry;
 use strata_asm_proof_db::SledMohoStateDb;
 use strata_asm_proof_impl::moho_program::program::{
     AsmStfProgram, advance_export_state_with_logs, extract_next_predicate_from_logs,
@@ -48,6 +49,7 @@ pub(crate) struct AsmWorkerContext {
     bitcoin_client: Arc<Client>,
     state_db: Arc<AsmStateDb>,
     mmr_db: Arc<MmrDb>,
+    export_entries_db: Option<ExportEntriesDb>,
     moho_storage: Option<MohoStorage>,
 }
 
@@ -57,6 +59,7 @@ impl AsmWorkerContext {
         bitcoin_client: Arc<Client>,
         state_db: Arc<AsmStateDb>,
         mmr_db: Arc<MmrDb>,
+        export_entries_db: Option<ExportEntriesDb>,
         moho_storage: Option<MohoStorage>,
     ) -> Self {
         Self {
@@ -64,6 +67,7 @@ impl AsmWorkerContext {
             bitcoin_client,
             state_db,
             mmr_db,
+            export_entries_db,
             moho_storage,
         }
     }
@@ -150,6 +154,22 @@ impl WorkerContext for AsmWorkerContext {
         self.state_db
             .put(blockid, state)
             .map_err(|_| WorkerError::DbError)?;
+
+        // Index each `NewExportEntry` alongside the MohoState's compact MMR so
+        // the RPC can regenerate inclusion proofs later.
+        if let Some(ref export_entries_db) = self.export_entries_db {
+            for log in state.logs() {
+                if let Ok(export) = log.try_into_log::<NewExportEntry>() {
+                    export_entries_db
+                        .append(
+                            export.container_id(),
+                            blockid.height(),
+                            *export.entry_data(),
+                        )
+                        .map_err(|_| WorkerError::DbError)?;
+                }
+            }
+        }
 
         Ok(())
     }

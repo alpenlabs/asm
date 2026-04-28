@@ -27,7 +27,7 @@ pub(crate) async fn bootstrap(
     executor: TaskExecutor,
 ) -> Result<()> {
     // 1. Create storage
-    let (state_db, mmr_db) = create_storage(&config.database)?;
+    let (state_db, mmr_db, export_entries_db) = create_storage(&config.database)?;
 
     // 2. Connect to Bitcoin node
     let bitcoin_client = Arc::new(connect_bitcoin(&config.bitcoin).await?);
@@ -51,11 +51,13 @@ pub(crate) async fn bootstrap(
         db: db.clone(),
         asm_predicate: backend.asm_predicate.clone(),
     });
+    let export_entries_for_worker = orch_prep.as_ref().map(|_| export_entries_db.clone());
     let worker_context = AsmWorkerContext::new(
         runtime_handle.clone(),
         bitcoin_client.clone(),
         state_db.clone(),
         mmr_db.clone(),
+        export_entries_for_worker,
         moho_storage,
     );
 
@@ -74,10 +76,12 @@ pub(crate) async fn bootstrap(
     let asm_worker = Arc::new(asm_worker);
 
     // 7. Finish orchestrator wiring if it was configured.
-    let (proof_tx, proof_db_for_rpc) =
+    let (proof_tx, proof_db_for_rpc, moho_state_db_for_rpc, export_entries_db_for_rpc) =
         if let Some((orch_config, proof_db, moho_state_db, backend)) = orch_prep {
             let (tx, rx) = mpsc::unbounded_channel();
             let proof_db_clone = proof_db.clone();
+            let moho_state_db_clone = moho_state_db.clone();
+            let export_entries_db_clone = export_entries_db.clone();
 
             let ProofBackend {
                 asm_host,
@@ -121,9 +125,14 @@ pub(crate) async fn bootstrap(
                 },
             );
 
-            (Some(tx), Some(proof_db_clone))
+            (
+                Some(tx),
+                Some(proof_db_clone),
+                Some(moho_state_db_clone),
+                Some(export_entries_db_clone),
+            )
         } else {
-            (None, None)
+            (None, None, None, None)
         };
 
     // 8. Spawn block watcher as a critical task.
@@ -150,6 +159,8 @@ pub(crate) async fn bootstrap(
             asm_worker,
             bitcoin_client,
             proof_db_for_rpc,
+            moho_state_db_for_rpc,
+            export_entries_db_for_rpc,
             rpc_host,
             rpc_port,
             shutdown,

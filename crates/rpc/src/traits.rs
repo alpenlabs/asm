@@ -34,4 +34,13 @@ pub trait AssignmentsApi {
     /// Return the verified checkpoint tip for the provided Bitcoin block hash.
     #[method(name = "getCheckpointTip")]
     async fn get_checkpoint_tip(&self, block_hash: BlockHash) -> RpcResult<Option<CheckpointTip>>;
+
+    /// Return the MMR inclusion proof for `leaf` in the export container at `container_id`.
+    #[method(name = "getExportEntryMMRProof")]
+    async fn get_export_entry_mmr_proof(
+        &self,
+        block_hash: BlockHash,
+        container_id: u8,
+        leaf: Vec<u8>,
+    ) -> RpcResult<Option<Vec<u8>>>;
 }

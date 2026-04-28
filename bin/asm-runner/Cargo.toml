@@ -15,6 +15,7 @@ strata-asm-rpc.workspace = true
 strata-btc-verification.workspace = true
 
 strata-asm-common.workspace = true
+strata-asm-logs.workspace = true
 strata-asm-params.workspace = true
 strata-asm-proof-db.workspace = true
 strata-asm-proof-impl.workspace = true
@@ -62,6 +63,9 @@ zkaleido-sp1-groth16-verifier = { workspace = true, optional = true }
 zkaleido-sp1-host = { workspace = true, optional = true, features = [
   "remote-prover",
 ] }
+
+[dev-dependencies]
+tempfile.workspace = true
 
 [features]
 default = []
