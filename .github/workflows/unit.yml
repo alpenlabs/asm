@@ -69,6 +69,7 @@ jobs:
           cargo llvm-cov --locked --workspace nextest --all-features --lcov --output-path lcov.unit.info
         env:
           RUST_BACKTRACE: 1
+          SP1_SKIP_PROGRAM_BUILD: "true"
 
       - name: Upload coverage lcov artifact
         uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
@@ -102,6 +103,8 @@ jobs:
 
       - name: Run doctests
         run: cargo test --doc --all-features
+        env:
+          SP1_SKIP_PROGRAM_BUILD: "true"
 
   unit-success:
     name: Check that unit tests pass
