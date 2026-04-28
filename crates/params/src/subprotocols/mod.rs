@@ -4,7 +4,7 @@ mod admin;
 mod bridge;
 mod checkpoint;
 
-pub use admin::{AdminTxType, AdministrationInitConfig, Role, UpdateTxType};
+pub use admin::{AdminTxType, AdministrationInitConfig, ConfirmationDepths, Role, UpdateTxType};
 pub use bridge::BridgeV1InitConfig;
 pub use checkpoint::CheckpointInitConfig;
 

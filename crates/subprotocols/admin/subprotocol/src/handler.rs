@@ -3,8 +3,9 @@ use strata_asm_common::{
     logging::{error, info},
 };
 use strata_asm_logs::{AsmStfUpdate, EePredicateKeyUpdate};
+use strata_asm_params::AdminTxType;
 use strata_asm_proto_admin_txs::{
-    actions::{MultisigAction, UpdateAction, updates::predicate::ProofType},
+    actions::{MultisigAction, Sighash, UpdateAction, updates::predicate::ProofType},
     parser::SignedPayload,
 };
 use strata_asm_proto_bridge_v1_msgs::{BridgeIncomingMsg, UpdateOperatorSetPayload};
@@ -159,7 +160,14 @@ pub(crate) fn handle_action(
                 }
                 action => {
                     // For all other update types, add to the queue with a future activation height
-                    let activation_height = current_height + state.confirmation_depth() as u32;
+                    let tx_type = match action.tx_type() {
+                        AdminTxType::Update(t) => t,
+                        AdminTxType::Cancel => unreachable!(
+                            "UpdateAction::tx_type() always returns AdminTxType::Update(_)"
+                        ),
+                    };
+                    let depth = state.confirmation_depths().get(tx_type);
+                    let activation_height = current_height + depth as u32;
                     let queued_update = QueuedUpdate::new(id, action, activation_height);
                     state.enqueue(queued_update);
                 }
@@ -215,10 +223,10 @@ mod tests {
     use rand::{rngs::OsRng, seq::SliceRandom, thread_rng};
     use strata_asm_common::{AsmLogEntry, InterprotoMsg, MsgRelayer};
     use strata_asm_logs::AsmStfUpdate;
-    use strata_asm_params::{AdministrationInitConfig, Role};
+    use strata_asm_params::{AdminTxType, AdministrationInitConfig, ConfirmationDepths, Role};
     use strata_asm_proto_admin_txs::{
         actions::{
-            CancelAction, MultisigAction, UpdateAction,
+            CancelAction, MultisigAction, Sighash, UpdateAction,
             updates::{
                 predicate::{PredicateUpdate, ProofType},
                 seq::SequencerUpdate,
@@ -309,11 +317,24 @@ mod tests {
             strata_administrator,
             strata_sequencer_manager,
             alpen_administrator,
-            confirmation_depth: 2016,
+            confirmation_depths: uniform_confirmation_depths(2016),
             max_seqno_gap: 10.try_into().unwrap(),
         };
 
         (config, strata_admin_sks, strata_seq_manager_sks)
+    }
+
+    fn uniform_confirmation_depths(depth: u16) -> ConfirmationDepths {
+        ConfirmationDepths {
+            strata_admin_multisig_update: depth,
+            strata_seq_manager_multisig_update: depth,
+            alpen_admin_multisig_update: depth,
+            operator_update: depth,
+            sequencer_update: depth,
+            ol_stf_vk_update: depth,
+            asm_stf_vk_update: depth,
+            ee_stf_vk_update: depth,
+        }
     }
 
     fn get_strata_administrator_update_actions(count: usize) -> Vec<UpdateAction> {
@@ -388,9 +409,13 @@ mod tests {
                 .find_queued(&initial_next_id)
                 .expect("queued action must be found");
 
+            let tx_type = match update.tx_type() {
+                AdminTxType::Update(t) => t,
+                AdminTxType::Cancel => unreachable!(),
+            };
             assert_eq!(
                 queued_update.activation_height(),
-                current_height + params.confirmation_depth as u32
+                current_height + params.confirmation_depths.get(tx_type) as u32
             );
         }
     }

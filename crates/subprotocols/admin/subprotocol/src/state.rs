@@ -1,7 +1,7 @@
 use std::{mem::take, num::NonZero};
 
 use ssz_derive::{Decode, Encode};
-use strata_asm_params::{AdministrationInitConfig, Role};
+use strata_asm_params::{AdministrationInitConfig, ConfirmationDepths, Role};
 use strata_asm_proto_admin_txs::actions::{MultisigAction, UpdateId};
 use strata_crypto::threshold_signature::ThresholdConfigUpdate;
 use strata_identifiers::L1Height;
@@ -27,10 +27,8 @@ pub struct AdministrationSubprotoState {
     /// UpdateId for the next update.
     next_update_id: UpdateId,
 
-    /// The confirmation depth (CD) setting, in Bitcoin blocks: after an update transaction
-    /// receives this many confirmations, the update is enacted automatically. During this
-    /// confirmation period, the update can still be cancelled by submitting a cancel transaction.
-    confirmation_depth: u16,
+    /// Per-variant confirmation depths (CD) for queued admin updates.
+    confirmation_depths: ConfirmationDepths,
 
     /// Maximum allowed gap between consecutive sequence numbers for a given authority.
     ///
@@ -52,13 +50,13 @@ impl AdministrationSubprotoState {
             authorities,
             queued: Vec::new(),
             next_update_id: 0,
-            confirmation_depth: config.confirmation_depth,
+            confirmation_depths: config.confirmation_depths.clone(),
             max_seqno_gap: config.max_seqno_gap,
         }
     }
 
-    pub fn confirmation_depth(&self) -> u16 {
-        self.confirmation_depth
+    pub fn confirmation_depths(&self) -> &ConfirmationDepths {
+        &self.confirmation_depths
     }
 
     pub fn max_seqno_gap(&self) -> NonZero<u8> {
@@ -200,7 +198,7 @@ mod tests {
 
     use bitcoin::secp256k1::{PublicKey, Secp256k1, SecretKey};
     use rand::rngs::OsRng;
-    use strata_asm_params::{AdministrationInitConfig, Role};
+    use strata_asm_params::{AdministrationInitConfig, ConfirmationDepths, Role};
     use strata_asm_proto_admin_txs::actions::UpdateAction;
     use strata_crypto::{
         keys::compressed::CompressedPublicKey,
@@ -245,8 +243,21 @@ mod tests {
             strata_administrator,
             strata_sequencer_manager,
             alpen_administrator,
-            confirmation_depth: 2016,
+            confirmation_depths: uniform_confirmation_depths(2016),
             max_seqno_gap: NonZero::new(10).unwrap(),
+        }
+    }
+
+    fn uniform_confirmation_depths(depth: u16) -> ConfirmationDepths {
+        ConfirmationDepths {
+            strata_admin_multisig_update: depth,
+            strata_seq_manager_multisig_update: depth,
+            alpen_admin_multisig_update: depth,
+            operator_update: depth,
+            sequencer_update: depth,
+            ol_stf_vk_update: depth,
+            asm_stf_vk_update: depth,
+            ee_stf_vk_update: depth,
         }
     }
 

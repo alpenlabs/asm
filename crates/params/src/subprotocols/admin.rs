@@ -25,10 +25,8 @@ pub struct AdministrationInitConfig {
     /// ThresholdConfig for [AlpenAdministrator](Role::AlpenAdministrator).
     pub alpen_administrator: ThresholdConfig,
 
-    /// The confirmation depth (CD) setting, in Bitcoin blocks: after an update transaction
-    /// receives this many confirmations, the update is enacted automatically. During this
-    /// confirmation period, the update can still be cancelled by submitting a cancel transaction.
-    pub confirmation_depth: u16,
+    /// Per-variant confirmation depths (CD) for queued admin updates.
+    pub confirmation_depths: ConfirmationDepths,
 
     /// Maximum allowed gap between consecutive sequence numbers for a given authority.
     ///
@@ -36,6 +34,61 @@ pub struct AdministrationInitConfig {
     /// excessively large jumps in sequence numbers while still allowing non-sequential usage.
     #[ssz(with = "non_zero_u8")]
     pub max_seqno_gap: NonZero<u8>,
+}
+
+/// Per-variant confirmation depths (CD) for admin updates, in Bitcoin blocks.
+///
+/// After an update transaction receives this many confirmations, the update is enacted
+/// automatically. During this confirmation period, the update can still be cancelled by
+/// submitting a cancel transaction.
+///
+/// Design choice: individual named fields rather than a `HashMap<UpdateTxType, u16>` give
+/// compile-time completeness — adding a new [`UpdateTxType`] variant forces a matching
+/// field here.
+///
+/// Note: `sequencer_update` exists for parity with the enum but is not read at runtime,
+/// since [`UpdateTxType::SequencerUpdate`] is applied immediately and never queued.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, Encode, Decode)]
+pub struct ConfirmationDepths {
+    pub strata_admin_multisig_update: u16,
+    pub strata_seq_manager_multisig_update: u16,
+    pub alpen_admin_multisig_update: u16,
+    pub operator_update: u16,
+    pub sequencer_update: u16,
+    pub ol_stf_vk_update: u16,
+    pub asm_stf_vk_update: u16,
+    pub ee_stf_vk_update: u16,
+}
+
+impl ConfirmationDepths {
+    pub fn get(&self, tx_type: UpdateTxType) -> u16 {
+        match tx_type {
+            UpdateTxType::StrataAdminMultisigUpdate => self.strata_admin_multisig_update,
+            UpdateTxType::StrataSeqManagerMultisigUpdate => self.strata_seq_manager_multisig_update,
+            UpdateTxType::AlpenAdminMultisigUpdate => self.alpen_admin_multisig_update,
+            UpdateTxType::OperatorUpdate => self.operator_update,
+            UpdateTxType::SequencerUpdate => self.sequencer_update,
+            UpdateTxType::OlStfVkUpdate => self.ol_stf_vk_update,
+            UpdateTxType::AsmStfVkUpdate => self.asm_stf_vk_update,
+            UpdateTxType::EeStfVkUpdate => self.ee_stf_vk_update,
+        }
+    }
+}
+
+#[cfg(feature = "arbitrary")]
+impl<'a> Arbitrary<'a> for ConfirmationDepths {
+    fn arbitrary(u: &mut arbitrary::Unstructured<'a>) -> arbitrary::Result<Self> {
+        Ok(Self {
+            strata_admin_multisig_update: u.arbitrary()?,
+            strata_seq_manager_multisig_update: u.arbitrary()?,
+            alpen_admin_multisig_update: u.arbitrary()?,
+            operator_update: u.arbitrary()?,
+            sequencer_update: u.arbitrary()?,
+            ol_stf_vk_update: u.arbitrary()?,
+            asm_stf_vk_update: u.arbitrary()?,
+            ee_stf_vk_update: u.arbitrary()?,
+        })
+    }
 }
 
 /// Roles with authority in the administration subprotocol.
@@ -178,14 +231,14 @@ impl AdministrationInitConfig {
         strata_administrator: ThresholdConfig,
         strata_sequencer_manager: ThresholdConfig,
         alpen_administrator: ThresholdConfig,
-        confirmation_depth: u16,
+        confirmation_depths: ConfirmationDepths,
         max_seqno_gap: NonZero<u8>,
     ) -> Self {
         Self {
             strata_administrator,
             strata_sequencer_manager,
             alpen_administrator,
-            confirmation_depth,
+            confirmation_depths,
             max_seqno_gap,
         }
     }
@@ -258,7 +311,7 @@ impl<'a> Arbitrary<'a> for AdministrationInitConfig {
         let strata_administrator = u.arbitrary()?;
         let strata_sequencer_manager = u.arbitrary()?;
         let alpen_administrator = u.arbitrary()?;
-        let confirmation_depth = u.arbitrary()?;
+        let confirmation_depths = u.arbitrary()?;
         // Generate a valid NonZero<u8> by mapping [0, 255) to [1, 256) via saturating add.
         let raw: u8 = u.arbitrary()?;
         let max_seqno_gap = NonZero::new(raw.saturating_add(1))
@@ -268,7 +321,7 @@ impl<'a> Arbitrary<'a> for AdministrationInitConfig {
             strata_administrator,
             strata_sequencer_manager,
             alpen_administrator,
-            confirmation_depth,
+            confirmation_depths,
             max_seqno_gap,
         })
     }
