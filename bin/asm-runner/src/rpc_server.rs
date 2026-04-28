@@ -20,7 +20,7 @@ use strata_asm_proto_bridge_v1_txs::BRIDGE_V1_SUBPROTOCOL_ID;
 use strata_asm_proto_checkpoint::state::CheckpointState;
 use strata_asm_proto_checkpoint_txs::CHECKPOINT_SUBPROTOCOL_ID;
 use strata_asm_proto_checkpoint_types::CheckpointTip;
-use strata_asm_rpc::traits::AssignmentsApiServer;
+use strata_asm_rpc::traits::{AssignmentsApiServer, AsmProofApiServer};
 use strata_asm_worker::{AsmWorkerHandle, AsmWorkerStatus};
 use strata_btc_types::BlockHashExt;
 use strata_identifiers::L1BlockCommitment;
@@ -32,50 +32,37 @@ fn to_rpc_error(e: impl Display) -> ErrorObjectOwned {
     ErrorObject::owned(-32000, e.to_string(), None::<()>)
 }
 
-/// ASM RPC server implementation
+async fn to_block_commitment(
+    bitcoin_client: &Client,
+    block_hash: BlockHash,
+) -> anyhow::Result<L1BlockCommitment> {
+    let block_id = block_hash.to_l1_block_id();
+    let height = bitcoin_client.get_block_height(&block_hash).await? as u32;
+    Ok(L1BlockCommitment::new(height, block_id))
+}
+
+/// Always-on ASM RPC handlers backed by the ASM state DB and worker status.
 pub(crate) struct AsmRpcServer {
     state_db: Arc<AsmStateDb>,
     asm_worker: Arc<AsmWorkerHandle>,
     bitcoin_client: Arc<Client>,
-    proof_db: Option<SledProofDb>,
-    moho_state_db: Option<SledMohoStateDb>,
-    export_entries_db: Option<ExportEntriesDb>,
 }
 
 impl AsmRpcServer {
-    /// Create a new ASM RPC server
     pub(crate) fn new(
         state_db: Arc<AsmStateDb>,
         asm_worker: Arc<AsmWorkerHandle>,
         bitcoin_client: Arc<Client>,
-        proof_db: Option<SledProofDb>,
-        moho_state_db: Option<SledMohoStateDb>,
-        export_entries_db: Option<ExportEntriesDb>,
     ) -> Self {
         Self {
             state_db,
             asm_worker,
             bitcoin_client,
-            proof_db,
-            moho_state_db,
-            export_entries_db,
         }
-    }
-}
-
-impl AsmRpcServer {
-    async fn to_block_commitment(
-        &self,
-        block_hash: BlockHash,
-    ) -> anyhow::Result<L1BlockCommitment> {
-        let block_id = block_hash.to_l1_block_id();
-        let height = self.bitcoin_client.get_block_height(&block_hash).await? as u32;
-        Ok(L1BlockCommitment::new(height, block_id))
     }
 
     async fn get_bridge_state(&self, block_hash: BlockHash) -> RpcResult<Option<BridgeV1State>> {
-        let commitment = self
-            .to_block_commitment(block_hash)
+        let commitment = to_block_commitment(&self.bitcoin_client, block_hash)
             .await
             .map_err(to_rpc_error)?;
         let state = self.state_db.get(&commitment).map_err(to_rpc_error)?;
@@ -99,8 +86,7 @@ impl AsmRpcServer {
         &self,
         block_hash: BlockHash,
     ) -> RpcResult<Option<CheckpointState>> {
-        let commitment = self
-            .to_block_commitment(block_hash)
+        let commitment = to_block_commitment(&self.bitcoin_client, block_hash)
             .await
             .map_err(to_rpc_error)?;
         let state = self.state_db.get(&commitment).map_err(to_rpc_error)?;
@@ -141,38 +127,76 @@ impl AssignmentsApiServer for AsmRpcServer {
         Ok(self.asm_worker.monitor().get_current())
     }
 
-    async fn get_asm_proof(&self, block_hash: BlockHash) -> RpcResult<Option<AsmProof>> {
-        let Some(ref db) = self.proof_db else {
-            return Ok(None);
-        };
-
-        let commitment = self
-            .to_block_commitment(block_hash)
-            .await
-            .map_err(to_rpc_error)?;
-        let range = L1Range::single(commitment);
-
-        db.get_asm_proof(range).await.map_err(to_rpc_error)
-    }
-
-    async fn get_moho_proof(&self, block_hash: BlockHash) -> RpcResult<Option<MohoProof>> {
-        let Some(ref db) = self.proof_db else {
-            return Ok(None);
-        };
-
-        let commitment = self
-            .to_block_commitment(block_hash)
-            .await
-            .map_err(to_rpc_error)?;
-
-        db.get_moho_proof(commitment).await.map_err(to_rpc_error)
-    }
-
     async fn get_checkpoint_tip(&self, block_hash: BlockHash) -> RpcResult<Option<CheckpointTip>> {
         match self.get_checkpoint_state(block_hash).await? {
             Some(checkpoint_state) => Ok(Some(*checkpoint_state.verified_tip())),
             None => Ok(None),
         }
+    }
+}
+
+/// DB handles required by [`AsmProofRpcServer`] — populated only when proof generation
+/// is configured.
+pub(crate) struct AsmProofRpcDeps {
+    pub proof_db: SledProofDb,
+    pub moho_state_db: SledMohoStateDb,
+    pub export_entries_db: ExportEntriesDb,
+}
+
+/// RPC handlers serving ASM and Moho proofs plus the per-block Moho state they're built on.
+pub(crate) struct AsmProofRpcServer {
+    bitcoin_client: Arc<Client>,
+    proof_db: SledProofDb,
+    moho_state_db: SledMohoStateDb,
+    export_entries_db: ExportEntriesDb,
+}
+
+impl AsmProofRpcServer {
+    pub(crate) fn new(bitcoin_client: Arc<Client>, deps: AsmProofRpcDeps) -> Self {
+        Self {
+            bitcoin_client,
+            proof_db: deps.proof_db,
+            moho_state_db: deps.moho_state_db,
+            export_entries_db: deps.export_entries_db,
+        }
+    }
+}
+
+#[async_trait]
+impl AsmProofApiServer for AsmProofRpcServer {
+    async fn get_asm_proof(&self, block_hash: BlockHash) -> RpcResult<Option<AsmProof>> {
+        let commitment = to_block_commitment(&self.bitcoin_client, block_hash)
+            .await
+            .map_err(to_rpc_error)?;
+        let range = L1Range::single(commitment);
+
+        self.proof_db
+            .get_asm_proof(range)
+            .await
+            .map_err(to_rpc_error)
+    }
+
+    async fn get_moho_proof(&self, block_hash: BlockHash) -> RpcResult<Option<MohoProof>> {
+        let commitment = to_block_commitment(&self.bitcoin_client, block_hash)
+            .await
+            .map_err(to_rpc_error)?;
+
+        self.proof_db
+            .get_moho_proof(commitment)
+            .await
+            .map_err(to_rpc_error)
+    }
+
+    async fn get_moho_state(&self, block_hash: BlockHash) -> RpcResult<Option<Vec<u8>>> {
+        let commitment = to_block_commitment(&self.bitcoin_client, block_hash)
+            .await
+            .map_err(to_rpc_error)?;
+
+        let Some(state) = self.moho_state_db.get(commitment).map_err(to_rpc_error)? else {
+            return Ok(None);
+        };
+
+        Ok(Some(state.as_ssz_bytes()))
     }
 
     async fn get_export_entry_mmr_proof(
@@ -181,43 +205,18 @@ impl AssignmentsApiServer for AsmRpcServer {
         container_id: u8,
         leaf: Vec<u8>,
     ) -> RpcResult<Option<Vec<u8>>> {
-        let Some(ref moho_state_db) = self.moho_state_db else {
-            return Ok(None);
-        };
-        let Some(ref export_entries_db) = self.export_entries_db else {
-            return Ok(None);
-        };
-
-        let commitment = self
-            .to_block_commitment(block_hash)
+        let commitment = to_block_commitment(&self.bitcoin_client, block_hash)
             .await
             .map_err(to_rpc_error)?;
 
         build_export_entry_mmr_proof(
-            moho_state_db,
-            export_entries_db,
+            &self.moho_state_db,
+            &self.export_entries_db,
             commitment,
             container_id,
             &leaf,
         )
         .map_err(to_rpc_error)
-    }
-
-    async fn get_moho_state(&self, block_hash: BlockHash) -> RpcResult<Option<Vec<u8>>> {
-        let Some(ref moho_state_db) = self.moho_state_db else {
-            return Ok(None);
-        };
-
-        let commitment = self
-            .to_block_commitment(block_hash)
-            .await
-            .map_err(to_rpc_error)?;
-
-        let Some(state) = moho_state_db.get(commitment).map_err(to_rpc_error)? else {
-            return Ok(None);
-        };
-
-        Ok(Some(state.as_ssz_bytes()))
     }
 }
 
@@ -276,36 +275,29 @@ fn build_export_entry_mmr_proof(
     Ok(Some(proof.as_ssz_bytes()))
 }
 
-/// Run the RPC server
-#[expect(
-    clippy::too_many_arguments,
-    reason = "bootstrap-only plumbing; grouping into a struct adds noise without benefit"
-)]
+/// Run the RPC server.
 pub(crate) async fn run_rpc_server(
     state_db: Arc<AsmStateDb>,
     asm_worker: Arc<AsmWorkerHandle>,
     bitcoin_client: Arc<Client>,
-    proof_db: Option<SledProofDb>,
-    moho_state_db: Option<SledMohoStateDb>,
-    export_entries_db: Option<ExportEntriesDb>,
+    proof_deps: Option<AsmProofRpcDeps>,
     rpc_host: String,
     rpc_port: u16,
     shutdown: ShutdownGuard,
 ) -> Result<()> {
-    let rpc_server = AsmRpcServer::new(
-        state_db,
-        asm_worker,
-        bitcoin_client,
-        proof_db,
-        moho_state_db,
-        export_entries_db,
-    );
+    let mut module =
+        AsmRpcServer::new(state_db, asm_worker, bitcoin_client.clone()).into_rpc();
+
+    if let Some(deps) = proof_deps {
+        let proof_module = AsmProofRpcServer::new(bitcoin_client, deps).into_rpc();
+        module.merge(proof_module)?;
+    }
 
     let server = ServerBuilder::default()
         .build(format!("{}:{}", rpc_host, rpc_port))
         .await?;
 
-    let rpc_handle = server.start(rpc_server.into_rpc());
+    let rpc_handle = server.start(module);
     let rpc_handle_for_shutdown = rpc_handle.clone();
     let rpc_handle_for_stop = rpc_handle.clone();
 

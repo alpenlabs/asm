@@ -7,7 +7,7 @@ use strata_asm_proto_bridge_v1::{AssignmentEntry, DepositEntry};
 use strata_asm_proto_checkpoint_types::CheckpointTip;
 use strata_asm_worker::AsmWorkerStatus;
 
-/// RPCs for retrieving ASM-derived outputs keyed by Bitcoin block hashes.
+/// Always-on ASM RPCs: derived purely from the ASM state DB and worker status.
 #[cfg_attr(not(feature = "client"), rpc(server, namespace = "strata_asm"))]
 #[cfg_attr(feature = "client", rpc(server, client, namespace = "strata_asm"))]
 pub trait AssignmentsApi {
@@ -23,6 +23,15 @@ pub trait AssignmentsApi {
     #[method(name = "getStatus")]
     async fn get_status(&self) -> RpcResult<AsmWorkerStatus>;
 
+    /// Return the verified checkpoint tip for the provided Bitcoin block hash.
+    #[method(name = "getCheckpointTip")]
+    async fn get_checkpoint_tip(&self, block_hash: BlockHash) -> RpcResult<Option<CheckpointTip>>;
+}
+
+/// Proof-related ASM RPCs: registered only when the proof orchestrator is configured.
+#[cfg_attr(not(feature = "client"), rpc(server, namespace = "strata_asm"))]
+#[cfg_attr(feature = "client", rpc(server, client, namespace = "strata_asm"))]
+pub trait AsmProofApi {
     /// Return the ASM step proof for the given block, if one exists.
     #[method(name = "getAsmProof")]
     async fn get_asm_proof(&self, block_hash: BlockHash) -> RpcResult<Option<AsmProof>>;
@@ -31,9 +40,9 @@ pub trait AssignmentsApi {
     #[method(name = "getMohoProof")]
     async fn get_moho_proof(&self, block_hash: BlockHash) -> RpcResult<Option<MohoProof>>;
 
-    /// Return the verified checkpoint tip for the provided Bitcoin block hash.
-    #[method(name = "getCheckpointTip")]
-    async fn get_checkpoint_tip(&self, block_hash: BlockHash) -> RpcResult<Option<CheckpointTip>>;
+    /// Return the SSZ-encoded `MohoState` for the provided Bitcoin block hash.
+    #[method(name = "getMohoState")]
+    async fn get_moho_state(&self, block_hash: BlockHash) -> RpcResult<Option<Vec<u8>>>;
 
     /// Return the MMR inclusion proof for `leaf` in the export container at `container_id`.
     #[method(name = "getExportEntryMMRProof")]
@@ -43,8 +52,4 @@ pub trait AssignmentsApi {
         container_id: u8,
         leaf: Vec<u8>,
     ) -> RpcResult<Option<Vec<u8>>>;
-
-    /// Return the SSZ-encoded `MohoState` for the provided Bitcoin block hash.
-    #[method(name = "getMohoState")]
-    async fn get_moho_state(&self, block_hash: BlockHash) -> RpcResult<Option<Vec<u8>>>;
 }
