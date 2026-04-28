@@ -1,17 +1,12 @@
 use bitcoin::{hashes::Hash as _, sign_message::signed_msg_hash};
 use strata_asm_params::Role;
-use strata_crypto::hash;
+use strata_crypto::{hash, threshold_signature::ThresholdConfigUpdate};
 use strata_identifiers::Buf32;
-use strata_predicate::PredicateTypeId;
+use strata_predicate::{PredicateKey, PredicateTypeId};
 
 use crate::actions::{
     CancelAction, MultisigAction, Sighash, UpdateAction,
-    updates::{
-        multisig::MultisigUpdate,
-        operator::OperatorSetUpdate,
-        predicate::{PredicateUpdate, ProofType},
-        seq::SequencerUpdate,
-    },
+    updates::{operator::OperatorSetUpdate, seq::SequencerUpdate},
 };
 
 const SIGNING_MESSAGE_VERSION: u8 = 1;
@@ -27,14 +22,6 @@ fn role_label(role: Role) -> &'static str {
 /// Returns the hash of the canonical action payload bytes shown to signers.
 pub fn payload_hash(action: &MultisigAction) -> Buf32 {
     hash::raw(&action.sighash_payload())
-}
-
-fn proof_type_label(proof_type: ProofType) -> &'static str {
-    match proof_type {
-        ProofType::Asm => "Asm",
-        ProofType::OLStf => "OLStf",
-        ProofType::EeStf => "EeStf",
-    }
 }
 
 fn append_indexed_fields(
@@ -53,9 +40,12 @@ fn render_cancel_details(cancel: &CancelAction, lines: &mut Vec<String>) {
     lines.push(format!("target_id: {}", cancel.target_id()));
 }
 
-fn render_multisig_update_details(update: &MultisigUpdate, lines: &mut Vec<String>) {
-    let config = update.config();
-    lines.push(format!("target_role: {}", role_label(update.role())));
+fn render_multisig_update_details(
+    role: Role,
+    config: &ThresholdConfigUpdate,
+    lines: &mut Vec<String>,
+) {
+    lines.push(format!("target_role: {}", role_label(role)));
     lines.push(format!("new_threshold: {}", config.new_threshold()));
     append_indexed_fields(
         lines,
@@ -96,11 +86,15 @@ fn render_sequencer_update_details(update: &SequencerUpdate, lines: &mut Vec<Str
     lines.push(format!("new_sequencer_key: {:x}", update.pub_key()));
 }
 
-fn render_predicate_update_details(update: &PredicateUpdate, lines: &mut Vec<String>) {
-    let predicate_type = PredicateTypeId::try_from(update.key().id())
+fn render_predicate_update_details(
+    proof_type_label: &str,
+    key: &PredicateKey,
+    lines: &mut Vec<String>,
+) {
+    let predicate_type = PredicateTypeId::try_from(key.id())
         .expect("predicate type should be validated at construction");
-    let condition = update.key().condition();
-    lines.push(format!("proof_type: {}", proof_type_label(update.kind())));
+    let condition = key.condition();
+    lines.push(format!("proof_type: {proof_type_label}"));
     lines.push(format!("predicate_type: {predicate_type}"));
     lines.push(format!("condition_len: {}", condition.len()));
     if condition.len() <= 32 {
@@ -114,10 +108,20 @@ fn render_action_details(action: &MultisigAction, lines: &mut Vec<String>) {
     match action {
         MultisigAction::Cancel(cancel) => render_cancel_details(cancel, lines),
         MultisigAction::Update(update) => match update {
-            UpdateAction::Multisig(update) => render_multisig_update_details(update, lines),
+            UpdateAction::StrataAdminMultisig(config) => {
+                render_multisig_update_details(Role::StrataAdministrator, config, lines)
+            }
+            UpdateAction::StrataSeqManagerMultisig(config) => {
+                render_multisig_update_details(Role::StrataSequencerManager, config, lines)
+            }
+            UpdateAction::AlpenAdminMultisig(config) => {
+                render_multisig_update_details(Role::AlpenAdministrator, config, lines)
+            }
             UpdateAction::OperatorSet(update) => render_operator_update_details(update, lines),
             UpdateAction::Sequencer(update) => render_sequencer_update_details(update, lines),
-            UpdateAction::VerifyingKey(update) => render_predicate_update_details(update, lines),
+            UpdateAction::OlStfVk(key) => render_predicate_update_details("OLStf", key, lines),
+            UpdateAction::AsmStfVk(key) => render_predicate_update_details("Asm", key, lines),
+            UpdateAction::EeStfVk(key) => render_predicate_update_details("EeStf", key, lines),
         },
     }
 }
@@ -152,12 +156,7 @@ mod tests {
 
     use super::*;
     use crate::actions::{
-        CancelAction, MultisigAction, UpdateAction,
-        updates::{
-            multisig::MultisigUpdate,
-            predicate::{PredicateUpdate, ProofType},
-            seq::SequencerUpdate,
-        },
+        CancelAction, MultisigAction, UpdateAction, updates::seq::SequencerUpdate,
     };
 
     #[test]
@@ -187,10 +186,9 @@ mod tests {
     #[test]
     fn test_multisig_message_includes_decoded_fields() {
         let member = CompressedPublicKey::from_slice(&[2u8; 33]).expect("valid compressed key");
-        let action = MultisigAction::Update(UpdateAction::Multisig(MultisigUpdate::new(
+        let action = MultisigAction::Update(UpdateAction::StrataAdminMultisig(
             ThresholdConfigUpdate::new(vec![member], vec![], NonZero::new(2).expect("non-zero")),
-            Role::StrataAdministrator,
-        )));
+        ));
 
         let message = render_signing_message(&action, 4, Role::StrataAdministrator);
         assert!(message.contains("target_role: StrataAdministrator"));
@@ -204,9 +202,9 @@ mod tests {
 
     #[test]
     fn test_predicate_message_renders_small_condition_hex() {
-        let action = MultisigAction::Update(UpdateAction::VerifyingKey(PredicateUpdate::new(
-            PredicateKey::new(PredicateTypeId::Sp1Groth16, vec![0xde, 0xad, 0xbe, 0xef]),
-            ProofType::Asm,
+        let action = MultisigAction::Update(UpdateAction::AsmStfVk(PredicateKey::new(
+            PredicateTypeId::Sp1Groth16,
+            vec![0xde, 0xad, 0xbe, 0xef],
         )));
 
         let message = render_signing_message(&action, 5, Role::StrataAdministrator);

@@ -1,9 +1,6 @@
 use arbitrary::Arbitrary;
 use ssz_derive::{Decode, Encode};
-use strata_asm_params::{AdminTxType, UpdateTxType};
 use strata_identifiers::Buf32;
-
-use crate::actions::Sighash;
 
 /// An update to the public key of the sequencer.
 #[derive(Clone, Debug, Eq, PartialEq, Arbitrary, Encode, Decode)]
@@ -26,14 +23,9 @@ impl SequencerUpdate {
     pub fn into_inner(self) -> Buf32 {
         self.pub_key
     }
-}
 
-impl Sighash for SequencerUpdate {
-    fn tx_type(&self) -> AdminTxType {
-        AdminTxType::Update(UpdateTxType::SequencerUpdate)
-    }
-
-    fn sighash_payload(&self) -> Vec<u8> {
+    /// Returns the raw 32-byte sequencer public key.
+    pub fn sighash_payload(&self) -> Vec<u8> {
         self.pub_key.0.to_vec()
     }
 }

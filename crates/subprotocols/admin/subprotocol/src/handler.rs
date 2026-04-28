@@ -3,12 +3,14 @@ use strata_asm_common::{
     logging::{debug, error, info},
 };
 use strata_asm_logs::{AsmStfUpdate, EePredicateKeyUpdate};
+use strata_asm_params::Role;
 use strata_asm_proto_admin_txs::{
-    actions::{MultisigAction, Sighash, UpdateAction, updates::predicate::ProofType},
+    actions::{MultisigAction, UpdateAction},
     parser::SignedPayload,
 };
 use strata_asm_proto_bridge_v1_msgs::{BridgeIncomingMsg, UpdateOperatorSetPayload};
 use strata_asm_proto_checkpoint_msgs::CheckpointIncomingMsg;
+use strata_crypto::threshold_signature::ThresholdConfigUpdate;
 use strata_identifiers::{AccountSerial, Buf32, L1Height, SYSTEM_RESERVED_ACCTS};
 use strata_predicate::{PredicateKey, PredicateTypeId};
 
@@ -78,11 +80,7 @@ pub(crate) fn handle_action(
             // Updates with a non-zero confirmation depth are queued and enacted only after
             // `delay` more L1 blocks; until then they remain cancellable. A depth of zero
             // (surfaced as `None`) means "apply immediately" and bypasses the queue.
-            let tx_type = update
-                .tx_type()
-                .try_into()
-                .expect("UpdateAction::tx_type() always returns AdminTxType::Update(_)");
-            match state.confirmation_depth(tx_type) {
+            match state.confirmation_depth(update.tx_type()) {
                 Some(delay) => {
                     let activation_height = current_height + delay as u32;
                     let queued_update = QueuedUpdate::new(id, update, activation_height);
@@ -124,30 +122,14 @@ fn handle_update(
     update: UpdateAction,
 ) {
     match update {
-        UpdateAction::Multisig(update) => {
-            if let Err(e) = state.apply_multisig_update(update.role(), update.config()) {
-                error!(
-                    "Failed to apply multisig update to role {:?}: {}",
-                    update.role(),
-                    e,
-                );
-            }
+        UpdateAction::StrataAdminMultisig(config) => {
+            apply_multisig(state, Role::StrataAdministrator, &config);
         }
-        UpdateAction::VerifyingKey(update) => {
-            let (key, kind) = update.into_inner();
-            match kind {
-                ProofType::Asm => {
-                    let log_entry = AsmLogEntry::from_log(&AsmStfUpdate::new(key))
-                        .expect("AsmStfUpdate encoding is infallible");
-                    relayer.emit_log(log_entry);
-                }
-                ProofType::OLStf => {
-                    relay_checkpoint_predicate(relayer, key);
-                }
-                ProofType::EeStf => {
-                    relay_alpen_predicate_update(relayer, key);
-                }
-            }
+        UpdateAction::StrataSeqManagerMultisig(config) => {
+            apply_multisig(state, Role::StrataSequencerManager, &config);
+        }
+        UpdateAction::AlpenAdminMultisig(config) => {
+            apply_multisig(state, Role::AlpenAdministrator, &config);
         }
         UpdateAction::OperatorSet(update) => {
             let (add_members, remove_members) = update.into_inner();
@@ -157,6 +139,27 @@ fn handle_update(
             let new_key = update.into_inner();
             relay_checkpoint_sequencer_update(relayer, new_key);
         }
+        UpdateAction::OlStfVk(key) => {
+            relay_checkpoint_predicate(relayer, key);
+        }
+        UpdateAction::AsmStfVk(key) => {
+            let log_entry = AsmLogEntry::from_log(&AsmStfUpdate::new(key))
+                .expect("AsmStfUpdate encoding is infallible");
+            relayer.emit_log(log_entry);
+        }
+        UpdateAction::EeStfVk(key) => {
+            relay_alpen_predicate_update(relayer, key);
+        }
+    }
+}
+
+fn apply_multisig(
+    state: &mut AdministrationSubprotoState,
+    role: Role,
+    config: &ThresholdConfigUpdate,
+) {
+    if let Err(e) = state.apply_multisig_update(role, config) {
+        error!("Failed to apply multisig update to role {:?}: {}", role, e);
     }
 }
 
@@ -210,14 +213,10 @@ mod tests {
     use rand::{rngs::OsRng, seq::SliceRandom, thread_rng};
     use strata_asm_common::{AsmLogEntry, InterprotoMsg, MsgRelayer};
     use strata_asm_logs::AsmStfUpdate;
-    use strata_asm_params::{AdminTxType, AdministrationInitConfig, ConfirmationDepths, Role};
+    use strata_asm_params::{AdministrationInitConfig, ConfirmationDepths, Role};
     use strata_asm_proto_admin_txs::{
         actions::{
-            CancelAction, MultisigAction, Sighash, UpdateAction,
-            updates::{
-                predicate::{PredicateUpdate, ProofType},
-                seq::SequencerUpdate,
-            },
+            CancelAction, MultisigAction, UpdateAction, updates::seq::SequencerUpdate,
         },
         parser::SignedPayload,
         test_utils::create_signature_set,
@@ -317,7 +316,8 @@ mod tests {
             strata_seq_manager_multisig_update: depth,
             alpen_admin_multisig_update: depth,
             operator_update: depth,
-            sequencer_update: depth,
+            // Sequencer updates are designed to apply immediately (depth 0 sentinel).
+            sequencer_update: 0,
             ol_stf_vk_update: depth,
             asm_stf_vk_update: depth,
             ee_stf_vk_update: depth,
@@ -396,13 +396,9 @@ mod tests {
                 .find_queued(&initial_next_id)
                 .expect("queued action must be found");
 
-            let tx_type = match update.tx_type() {
-                AdminTxType::Update(t) => t,
-                AdminTxType::Cancel => unreachable!(),
-            };
             let depth = params
                 .confirmation_depths
-                .get(tx_type)
+                .get(update.tx_type())
                 .expect("test config uses non-zero depths");
             assert_eq!(
                 queued_update.activation_height(),
@@ -564,14 +560,10 @@ mod tests {
 
         let predicate = PredicateKey::always_accept();
 
-        let update = PredicateUpdate::new(predicate.clone(), ProofType::OLStf);
+        let update = UpdateAction::OlStfVk(predicate.clone());
         let update_id = state.next_update_id();
         let activation_height = 42;
-        state.enqueue(QueuedUpdate::new(
-            update_id,
-            update.into(),
-            activation_height,
-        ));
+        state.enqueue(QueuedUpdate::new(update_id, update, activation_height));
 
         handle_pending_updates(&mut state, &mut relayer, activation_height);
 
@@ -597,14 +589,10 @@ mod tests {
 
         let predicate = PredicateKey::always_accept();
 
-        let update = PredicateUpdate::new(predicate.clone(), ProofType::Asm);
+        let update = UpdateAction::AsmStfVk(predicate.clone());
         let update_id = state.next_update_id();
         let activation_height = 42;
-        state.enqueue(QueuedUpdate::new(
-            update_id,
-            update.into(),
-            activation_height,
-        ));
+        state.enqueue(QueuedUpdate::new(update_id, update, activation_height));
 
         handle_pending_updates(&mut state, &mut relayer, activation_height);
 

@@ -28,8 +28,8 @@ use bitcoin::secp256k1::{PublicKey, Secp256k1, SecretKey};
 use bitcoind_async_client::traits::Reader;
 use harness::{
     admin::{
-        cancel_update, create_test_admin_setup, multisig_config_update, operator_set_update,
-        predicate_update, sequencer_update, AdminExt,
+        cancel_update, create_test_admin_setup, multisig_config_update, ol_stf_vk_update,
+        operator_set_update, sequencer_update, AdminExt,
     },
     test_harness::AsmTestHarnessBuilder,
 };
@@ -38,8 +38,8 @@ use rand::rngs::OsRng;
 use ssz::Encode;
 use strata_asm_params::Role;
 use strata_asm_proto_admin_txs::{
-    actions::updates::predicate::ProofType, constants::ADMINISTRATION_SUBPROTOCOL_ID,
-    parser::SignedPayload, test_utils::create_signature_set,
+    constants::ADMINISTRATION_SUBPROTOCOL_ID, parser::SignedPayload,
+    test_utils::create_signature_set,
 };
 use strata_asm_proto_bridge_v1_txs::test_utils::create_test_operators;
 use strata_crypto::{
@@ -193,7 +193,7 @@ async fn test_predicate_update_is_queued() {
 
     let new_predicate = PredicateKey::always_accept();
     harness
-        .submit_admin_action(&mut ctx, predicate_update(new_predicate, ProofType::OLStf))
+        .submit_admin_action(&mut ctx, ol_stf_vk_update(new_predicate))
         .await
         .unwrap();
 

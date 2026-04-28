@@ -9,12 +9,11 @@
 )]
 
 use harness::{
-    admin::{create_test_admin_setup, predicate_update, AdminExt},
+    admin::{create_test_admin_setup, ee_stf_vk_update, AdminExt},
     test_harness::AsmTestHarnessBuilder,
 };
 use integration_tests::harness;
 use strata_asm_logs::EePredicateKeyUpdate;
-use strata_asm_proto_admin_txs::actions::updates::predicate::ProofType;
 use strata_identifiers::{AccountSerial, SYSTEM_RESERVED_ACCTS};
 use strata_predicate::PredicateKey;
 
@@ -22,7 +21,7 @@ use strata_predicate::PredicateKey;
 /// manifest after activation, authorized via the `AlpenAdministrator` role.
 ///
 /// Flow:
-/// 1. Submit predicate update with `ProofType::EeStf` (gets queued under `AlpenAdministrator`)
+/// 1. Submit EE STF verifying-key update (gets queued under `AlpenAdministrator`)
 /// 2. Mine blocks to trigger activation (confirmation_depth=2)
 /// 3. Verify the manifest contains an `EePredicateKeyUpdate` log with the correct predicate and
 ///    account serial
@@ -43,7 +42,7 @@ async fn test_ee_predicate_update_emits_log() {
     harness
         .submit_admin_action(
             &mut ctx,
-            predicate_update(new_predicate.clone(), ProofType::EeStf),
+            ee_stf_vk_update(new_predicate.clone()),
         )
         .await
         .unwrap();
