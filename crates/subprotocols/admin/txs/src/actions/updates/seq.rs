@@ -1,6 +1,6 @@
 use arbitrary::Arbitrary;
 use ssz_derive::{Decode, Encode};
-use strata_asm_params::AdminTxType;
+use strata_asm_params::{AdminTxType, UpdateTxType};
 use strata_identifiers::Buf32;
 
 use crate::actions::Sighash;
@@ -30,7 +30,7 @@ impl SequencerUpdate {
 
 impl Sighash for SequencerUpdate {
     fn tx_type(&self) -> AdminTxType {
-        AdminTxType::SequencerUpdate
+        AdminTxType::Update(UpdateTxType::SequencerUpdate)
     }
 
     fn sighash_payload(&self) -> Vec<u8> {

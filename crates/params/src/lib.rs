@@ -10,5 +10,5 @@ mod subprotocols;
 pub use params::AsmParams;
 pub use subprotocols::{
     AdminTxType, AdministrationInitConfig, BridgeV1InitConfig, CheckpointInitConfig, Role,
-    SubprotocolInstance,
+    SubprotocolInstance, UpdateTxType,
 };

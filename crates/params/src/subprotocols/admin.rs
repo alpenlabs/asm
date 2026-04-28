@@ -67,14 +67,21 @@ pub enum Role {
 }
 
 /// Administration subprotocol transaction types.
-///
-/// This enum represents all valid transaction types for the Administration subprotocol.
-/// Each variant corresponds to a specific transaction type with its associated u8 value.
+/// by [`UpdateTxType`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-#[repr(u8)]
 pub enum AdminTxType {
     /// Cancel a previously queued update.
-    Cancel = 0,
+    Cancel,
+    /// Propose an update of the kind described by [`UpdateTxType`].
+    Update(UpdateTxType),
+}
+
+/// The set of update transaction types within the Administration subprotocol.
+///
+/// Discriminants are the on-the-wire SPS-50 byte values.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[repr(u8)]
+pub enum UpdateTxType {
     /// Update the strata admin multisignature configuration.
     StrataAdminMultisigUpdate = 10,
     /// Update the strata seq manager multisignature configuration.
@@ -93,9 +100,39 @@ pub enum AdminTxType {
     EeStfVkUpdate = 32,
 }
 
+/// On-the-wire SPS-50 byte value for [`AdminTxType::Cancel`].
+const CANCEL_TX_TYPE: u8 = 0;
+
+impl From<UpdateTxType> for u8 {
+    fn from(tx_type: UpdateTxType) -> Self {
+        tx_type as u8
+    }
+}
+
 impl From<AdminTxType> for u8 {
     fn from(tx_type: AdminTxType) -> Self {
-        tx_type as u8
+        match tx_type {
+            AdminTxType::Cancel => CANCEL_TX_TYPE,
+            AdminTxType::Update(u) => u.into(),
+        }
+    }
+}
+
+impl TryFrom<u8> for UpdateTxType {
+    type Error = u8;
+
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        match value {
+            10 => Ok(UpdateTxType::StrataAdminMultisigUpdate),
+            11 => Ok(UpdateTxType::StrataSeqManagerMultisigUpdate),
+            12 => Ok(UpdateTxType::AlpenAdminMultisigUpdate),
+            20 => Ok(UpdateTxType::OperatorUpdate),
+            21 => Ok(UpdateTxType::SequencerUpdate),
+            30 => Ok(UpdateTxType::OlStfVkUpdate),
+            31 => Ok(UpdateTxType::AsmStfVkUpdate),
+            32 => Ok(UpdateTxType::EeStfVkUpdate),
+            invalid => Err(invalid),
+        }
     }
 }
 
@@ -104,16 +141,25 @@ impl TryFrom<u8> for AdminTxType {
 
     fn try_from(value: u8) -> Result<Self, Self::Error> {
         match value {
-            0 => Ok(AdminTxType::Cancel),
-            10 => Ok(AdminTxType::StrataAdminMultisigUpdate),
-            11 => Ok(AdminTxType::StrataSeqManagerMultisigUpdate),
-            12 => Ok(AdminTxType::AlpenAdminMultisigUpdate),
-            20 => Ok(AdminTxType::OperatorUpdate),
-            21 => Ok(AdminTxType::SequencerUpdate),
-            30 => Ok(AdminTxType::OlStfVkUpdate),
-            31 => Ok(AdminTxType::AsmStfVkUpdate),
-            32 => Ok(AdminTxType::EeStfVkUpdate),
-            invalid => Err(invalid),
+            CANCEL_TX_TYPE => Ok(AdminTxType::Cancel),
+            other => UpdateTxType::try_from(other).map(AdminTxType::Update),
+        }
+    }
+}
+
+impl fmt::Display for UpdateTxType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            UpdateTxType::StrataAdminMultisigUpdate => write!(f, "StrataAdminMultisigUpdate"),
+            UpdateTxType::StrataSeqManagerMultisigUpdate => {
+                write!(f, "StrataSeqManagerMultisigUpdate")
+            }
+            UpdateTxType::AlpenAdminMultisigUpdate => write!(f, "AlpenAdminMultisigUpdate"),
+            UpdateTxType::OperatorUpdate => write!(f, "OperatorUpdate"),
+            UpdateTxType::SequencerUpdate => write!(f, "SequencerUpdate"),
+            UpdateTxType::OlStfVkUpdate => write!(f, "OlStfVkUpdate"),
+            UpdateTxType::AsmStfVkUpdate => write!(f, "AsmStfVkUpdate"),
+            UpdateTxType::EeStfVkUpdate => write!(f, "EeStfVkUpdate"),
         }
     }
 }
@@ -122,16 +168,7 @@ impl fmt::Display for AdminTxType {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             AdminTxType::Cancel => write!(f, "Cancel"),
-            AdminTxType::StrataAdminMultisigUpdate => write!(f, "StrataAdminMultisigUpdate"),
-            AdminTxType::StrataSeqManagerMultisigUpdate => {
-                write!(f, "StrataSeqManagerMultisigUpdate")
-            }
-            AdminTxType::AlpenAdminMultisigUpdate => write!(f, "AlpenAdminMultisigUpdate"),
-            AdminTxType::OperatorUpdate => write!(f, "OperatorUpdate"),
-            AdminTxType::SequencerUpdate => write!(f, "SequencerUpdate"),
-            AdminTxType::OlStfVkUpdate => write!(f, "OlStfVkUpdate"),
-            AdminTxType::AsmStfVkUpdate => write!(f, "AsmStfVkUpdate"),
-            AdminTxType::EeStfVkUpdate => write!(f, "EeStfVkUpdate"),
+            AdminTxType::Update(u) => u.fmt(f),
         }
     }
 }
@@ -241,7 +278,26 @@ impl<'a> Arbitrary<'a> for AdministrationInitConfig {
 mod tests {
     use proptest::prelude::*;
 
-    use super::AdminTxType;
+    use super::{AdminTxType, UpdateTxType};
+
+    impl Arbitrary for UpdateTxType {
+        type Parameters = ();
+        type Strategy = BoxedStrategy<Self>;
+
+        fn arbitrary_with(_args: Self::Parameters) -> Self::Strategy {
+            prop_oneof![
+                Just(UpdateTxType::StrataAdminMultisigUpdate),
+                Just(UpdateTxType::StrataSeqManagerMultisigUpdate),
+                Just(UpdateTxType::AlpenAdminMultisigUpdate),
+                Just(UpdateTxType::OperatorUpdate),
+                Just(UpdateTxType::SequencerUpdate),
+                Just(UpdateTxType::OlStfVkUpdate),
+                Just(UpdateTxType::AsmStfVkUpdate),
+                Just(UpdateTxType::EeStfVkUpdate),
+            ]
+            .boxed()
+        }
+    }
 
     impl Arbitrary for AdminTxType {
         type Parameters = ();
@@ -250,20 +306,30 @@ mod tests {
         fn arbitrary_with(_args: Self::Parameters) -> Self::Strategy {
             prop_oneof![
                 Just(AdminTxType::Cancel),
-                Just(AdminTxType::StrataAdminMultisigUpdate),
-                Just(AdminTxType::StrataSeqManagerMultisigUpdate),
-                Just(AdminTxType::AlpenAdminMultisigUpdate),
-                Just(AdminTxType::OperatorUpdate),
-                Just(AdminTxType::SequencerUpdate),
-                Just(AdminTxType::OlStfVkUpdate),
-                Just(AdminTxType::AsmStfVkUpdate),
-                Just(AdminTxType::EeStfVkUpdate),
+                any::<UpdateTxType>().prop_map(AdminTxType::Update),
             ]
             .boxed()
         }
     }
 
     proptest! {
+        #[test]
+        fn test_update_tx_type_roundtrip(tx_type: UpdateTxType) {
+            let as_u8: u8 = tx_type.into();
+            let back_to_enum = UpdateTxType::try_from(as_u8)
+                .expect("roundtrip conversion should succeed");
+            prop_assert_eq!(tx_type, back_to_enum);
+        }
+
+        #[test]
+        fn test_update_tx_type_invalid_values(
+            value in (0u8..=255u8).prop_filter("must not be a valid variant", |v| {
+                !matches!(*v, 10 | 11 | 12 | 20 | 21 | 30 | 31 | 32)
+            })
+        ) {
+            prop_assert!(UpdateTxType::try_from(value).is_err());
+        }
+
         #[test]
         fn test_admin_tx_type_roundtrip(tx_type: AdminTxType) {
             let as_u8: u8 = tx_type.into();

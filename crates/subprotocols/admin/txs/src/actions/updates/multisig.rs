@@ -1,6 +1,6 @@
 use arbitrary::Arbitrary;
 use ssz_derive::{Decode, Encode};
-use strata_asm_params::{AdminTxType, Role};
+use strata_asm_params::{AdminTxType, Role, UpdateTxType};
 use strata_crypto::threshold_signature::ThresholdConfigUpdate;
 
 use crate::actions::Sighash;
@@ -39,11 +39,12 @@ impl MultisigUpdate {
 
 impl Sighash for MultisigUpdate {
     fn tx_type(&self) -> AdminTxType {
-        match self.role {
-            Role::StrataAdministrator => AdminTxType::StrataAdminMultisigUpdate,
-            Role::StrataSequencerManager => AdminTxType::StrataSeqManagerMultisigUpdate,
-            Role::AlpenAdministrator => AdminTxType::AlpenAdminMultisigUpdate,
-        }
+        let update = match self.role {
+            Role::StrataAdministrator => UpdateTxType::StrataAdminMultisigUpdate,
+            Role::StrataSequencerManager => UpdateTxType::StrataSeqManagerMultisigUpdate,
+            Role::AlpenAdministrator => UpdateTxType::AlpenAdminMultisigUpdate,
+        };
+        AdminTxType::Update(update)
     }
 
     /// Returns `len(add) ‖ add[0] ‖ … ‖ add[n] ‖ len(rem) ‖ rem[0] ‖ … ‖ rem[m] ‖ threshold`
