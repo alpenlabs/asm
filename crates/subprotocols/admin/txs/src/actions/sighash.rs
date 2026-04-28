@@ -1,5 +1,4 @@
-use crate::constants::AdminTxType;
-
+use strata_asm_params::AdminTxType;
 /// Defines the sighash payload contributions for a multisig action.
 ///
 /// Each multisig action type implements this trait to provide the data used in

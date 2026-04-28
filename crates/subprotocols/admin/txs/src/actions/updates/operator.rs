@@ -1,8 +1,9 @@
 use arbitrary::Arbitrary;
 use ssz_derive::{Decode, Encode};
+use strata_asm_params::AdminTxType;
 use strata_crypto::EvenPublicKey;
 
-use crate::{actions::Sighash, constants::AdminTxType};
+use crate::actions::Sighash;
 
 /// An update to the Bridge Operator Set:
 /// - removes the specified `remove_members` (by operator index)

@@ -5,19 +5,16 @@ pub mod seq;
 
 use arbitrary::Arbitrary;
 use ssz_derive::{Decode, Encode};
-use strata_asm_params::Role;
+use strata_asm_params::{AdminTxType, Role};
 
-use crate::{
-    actions::{
-        Sighash,
-        updates::{
-            multisig::MultisigUpdate,
-            operator::OperatorSetUpdate,
-            predicate::{PredicateUpdate, ProofType},
-            seq::SequencerUpdate,
-        },
+use crate::actions::{
+    Sighash,
+    updates::{
+        multisig::MultisigUpdate,
+        operator::OperatorSetUpdate,
+        predicate::{PredicateUpdate, ProofType},
+        seq::SequencerUpdate,
     },
-    constants::AdminTxType,
 };
 
 /// An action that updates some part of the ASM.

@@ -7256,7 +7256,6 @@ dependencies = [
  "arbitrary",
  "bitcoin",
  "hex",
- "proptest",
  "rand 0.8.5",
  "ssz",
  "ssz_derive",

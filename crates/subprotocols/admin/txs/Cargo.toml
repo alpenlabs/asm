@@ -28,7 +28,6 @@ test-utils = ["strata-crypto/test-utils", "dep:strata-asm-proto-txs-test-utils"]
 
 [dev-dependencies]
 bitcoin.workspace = true
-proptest.workspace = true
 rand.workspace = true
 
 strata-asm-proto-txs-test-utils.workspace = true

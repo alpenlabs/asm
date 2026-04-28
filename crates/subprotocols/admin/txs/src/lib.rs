@@ -6,7 +6,7 @@
 //!
 //! ## Transaction Types
 //!
-//! See [`constants::AdminTxType`] for the full list of supported transaction types.
+//! See [`strata_asm_params::AdminTxType`] for the full list of supported transaction types.
 //!
 //! ## Core Structures
 //!

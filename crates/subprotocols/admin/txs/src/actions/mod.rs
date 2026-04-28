@@ -1,5 +1,6 @@
 use arbitrary::Arbitrary;
 use ssz_derive::{Decode, Encode};
+use strata_asm_params::AdminTxType;
 use strata_l1_txfmt::TagData;
 
 mod cancel;
@@ -10,7 +11,7 @@ pub use cancel::CancelAction;
 pub use sighash::Sighash;
 pub use updates::UpdateAction;
 
-use crate::constants::{ADMINISTRATION_SUBPROTOCOL_ID, AdminTxType};
+use crate::constants::ADMINISTRATION_SUBPROTOCOL_ID;
 
 pub type UpdateId = u32;
 

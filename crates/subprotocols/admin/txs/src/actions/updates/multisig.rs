@@ -1,9 +1,9 @@
 use arbitrary::Arbitrary;
 use ssz_derive::{Decode, Encode};
-use strata_asm_params::Role;
+use strata_asm_params::{AdminTxType, Role};
 use strata_crypto::threshold_signature::ThresholdConfigUpdate;
 
-use crate::{actions::Sighash, constants::AdminTxType};
+use crate::actions::Sighash;
 
 /// An update to a threshold configuration for a specific role:
 /// - adds new members

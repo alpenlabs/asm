@@ -1,8 +1,9 @@
 use arbitrary::Arbitrary;
 use ssz_derive::{Decode, Encode};
+use strata_asm_params::AdminTxType;
 use strata_predicate::PredicateKey;
 
-use crate::{actions::Sighash, constants::AdminTxType};
+use crate::actions::Sighash;
 
 /// An update to the verifying key for a given Strata proof layer.
 #[derive(Clone, Debug, Eq, PartialEq, Arbitrary, Encode, Decode)]
