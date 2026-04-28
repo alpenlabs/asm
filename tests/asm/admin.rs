@@ -50,13 +50,14 @@ use strata_l1_txfmt::ParseConfig;
 use strata_predicate::PredicateKey;
 
 // ============================================================================
-// Sequencer Updates (StrataSequencerManager role - applied immediately)
+// Zero-Depth Updates (apply immediately, bypass the queue)
 // ============================================================================
 
-/// Verifies sequencer updates are applied immediately (not queued).
+/// Verifies updates configured with confirmation depth zero apply immediately.
 #[tokio::test(flavor = "multi_thread")]
-async fn test_sequencer_update_applies_immediately() {
-    let (admin_config, mut ctx) = create_test_admin_setup(2);
+async fn test_zero_depth_update_applies_immediately() {
+    let (mut admin_config, mut ctx) = create_test_admin_setup(2);
+    admin_config.confirmation_depths.sequencer_update = 0;
     let harness = AsmTestHarnessBuilder::default()
         .with_admin_config(admin_config)
         .build()
@@ -73,7 +74,7 @@ async fn test_sequencer_update_applies_immediately() {
     assert_eq!(
         state.queued().len(),
         0,
-        "Sequencer update should apply immediately, not be queued"
+        "Zero-depth update should apply immediately, not be queued"
     );
     assert_eq!(
         state.next_update_id(),
@@ -83,10 +84,10 @@ async fn test_sequencer_update_applies_immediately() {
 }
 
 // ============================================================================
-// Queued Updates (StrataAdministrator role - require confirmation depth)
+// Queued Updates (non-zero confirmation depth)
 // ============================================================================
 
-/// Verifies operator set updates are queued (not applied immediately).
+/// Verifies operator set updates are queued when their confirmation depth is non-zero.
 #[tokio::test(flavor = "multi_thread")]
 async fn test_operator_update_is_queued() {
     let (admin_config, mut ctx) = create_test_admin_setup(2);
@@ -121,7 +122,7 @@ async fn test_operator_update_is_queued() {
     assert_eq!(*queued.id(), 0, "First queued update should have ID 0");
 }
 
-/// Verifies multisig config updates are queued (not applied immediately).
+/// Verifies multisig config updates are queued when their confirmation depth is non-zero.
 #[tokio::test(flavor = "multi_thread")]
 async fn test_multisig_update_is_queued() {
     let (admin_config, mut ctx) = create_test_admin_setup(2);
@@ -438,7 +439,10 @@ async fn test_corrupted_signature_rejected() {
 /// Verifies replay attacks (reused sequence numbers) are rejected.
 #[tokio::test(flavor = "multi_thread")]
 async fn test_replay_attack_rejected() {
-    let (admin_config, mut ctx) = create_test_admin_setup(2);
+    let (mut admin_config, mut ctx) = create_test_admin_setup(2);
+    // Apply sequencer updates immediately so the queue stays empty and we can assert
+    // purely on replay rejection without reasoning about activation height.
+    admin_config.confirmation_depths.sequencer_update = 0;
     let harness = AsmTestHarnessBuilder::default()
         .with_admin_config(admin_config)
         .build()
@@ -471,10 +475,15 @@ async fn test_replay_attack_rejected() {
 // Multiple Operations
 // ============================================================================
 
-/// Verifies multiple admin transactions can be processed in a single block.
+/// Verifies multiple zero-depth admin transactions can be processed in a single block.
+///
+/// Sets `sequencer_update` to confirmation depth 0 so each tx applies on inclusion;
+/// non-zero depths would be queued instead, which is exercised by the queued-update tests.
 #[tokio::test(flavor = "multi_thread")]
-async fn test_multiple_updates_same_block() {
-    let (admin_config, mut ctx) = create_test_admin_setup(2);
+async fn test_multiple_zero_depth_updates_same_block() {
+    let (mut admin_config, mut ctx) = create_test_admin_setup(2);
+    admin_config.confirmation_depths.sequencer_update = 0;
+
     let harness = AsmTestHarnessBuilder::default()
         .with_admin_config(admin_config)
         .build()
@@ -534,7 +543,7 @@ async fn test_multiple_updates_same_block() {
     assert_eq!(
         state.queued().len(),
         0,
-        "Sequencer updates apply immediately"
+        "Updates with confirmation_depth=0 apply immediately"
     );
 
     // Note: Due to mempool reordering, not all may process successfully

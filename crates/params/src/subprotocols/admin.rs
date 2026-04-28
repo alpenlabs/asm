@@ -47,9 +47,6 @@ pub struct AdministrationInitConfig {
 /// Design choice: individual named fields rather than a `HashMap<UpdateTxType, u16>` give
 /// compile-time completeness — adding a new [`UpdateTxType`] variant forces a matching
 /// field here.
-///
-/// Note: `sequencer_update` exists for parity with the enum but is not read at runtime,
-/// since [`UpdateTxType::SequencerUpdate`] is applied immediately and never queued.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, Encode, Decode)]
 pub struct ConfirmationDepths {
     pub strata_admin_multisig_update: u16,

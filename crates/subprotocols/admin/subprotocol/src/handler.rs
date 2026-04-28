@@ -46,8 +46,8 @@ pub(crate) fn handle_pending_updates(
 /// 1. Determines the required role based on the action type
 /// 2. Validates that the signature set meets the threshold requirements for that role
 /// 3. Processes the action based on its type:
-///    - `Update`: Queues the action for later execution (except sequencer updates which apply
-///      immediately)
+///    - `Update`: Queues the action for later execution, or applies it immediately if the
+///      configured confirmation depth for that update variant is zero
 ///    - `Cancel`: Removes a previously queued action from the queue
 /// 4. Increments the authority's sequence number to prevent replay attacks
 ///
@@ -480,15 +480,19 @@ mod tests {
         assert!(matches!(res, Err(AdministrationError::InvalidSeqno { .. })));
     }
 
-    /// Test that Sequencer update actions are handled differently from other updates:
+    /// Test that updates whose configured confirmation depth is zero apply immediately:
     /// - Authority sequence number is incremented
     /// - Update ID is incremented
     /// - Actions are NOT queued (applied immediately)
     /// - No queued actions can be found in state
+    ///
+    /// Uses sequencer updates as the depth-zero variant; the immediate-apply branch is the
+    /// same regardless of which update type carries the zero depth.
     #[test]
-    fn test_strata_seq_manager_update_actions() {
+    fn test_zero_depth_update_applies_immediately() {
         let mut arb = ArbitraryGenerator::new();
-        let (params, _, seq_manager_sks) = create_test_params();
+        let (mut params, _, seq_manager_sks) = create_test_params();
+        params.confirmation_depths.sequencer_update = 0;
         let mut state = AdministrationSubprotoState::new(&params);
 
         let mut relayer = MockRelayer::<CheckpointIncomingMsg>::new();
@@ -536,7 +540,7 @@ mod tests {
             assert_eq!(new_last_seqno, last_seqno + 1);
             // Next update ID should increment by 1
             assert_eq!(new_next_id, initial_next_id + 1);
-            // Queue length should remain the same (sequencer updates not queued)
+            // Queue length should remain the same (zero-depth updates bypass the queue)
             assert_eq!(new_queued_len, initial_queued_len);
 
             // Verify the update was not queued (applied immediately)
