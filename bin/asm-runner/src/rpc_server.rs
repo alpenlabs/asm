@@ -221,18 +221,30 @@ impl AssignmentsApiServer for AsmRpcServer {
     }
 }
 
-/// SSZ-encoded inclusion proof for `leaf` against `container_id`'s MMR at `commitment`.
-/// `None` if the leaf was added after `commitment`, or any of the pieces is missing.
+#[derive(Debug, thiserror::Error)]
+enum MmrProofError {
+    #[error("leaf must be 32 bytes, got {0}")]
+    InvalidLeafLength(usize),
+    #[error(transparent)]
+    Sled(#[from] sled::Error),
+    #[error(transparent)]
+    Storage(#[from] anyhow::Error),
+}
+
+/// SSZ-encoded MMR inclusion proof for `leaf` in `container_id` at `commitment`.
+///
+/// `Ok(None)` if the leaf or container isn't in this snapshot yet. `Err` only
+/// for bad input or storage failures.
 fn build_export_entry_mmr_proof(
     moho_state_db: &SledMohoStateDb,
     export_entries_db: &ExportEntriesDb,
     commitment: L1BlockCommitment,
     container_id: u8,
     leaf: &[u8],
-) -> anyhow::Result<Option<Vec<u8>>> {
-    let Ok(leaf_hash): Result<[u8; 32], _> = leaf.try_into() else {
-        return Ok(None);
-    };
+) -> Result<Option<Vec<u8>>, MmrProofError> {
+    let leaf_hash: [u8; 32] = leaf
+        .try_into()
+        .map_err(|_| MmrProofError::InvalidLeafLength(leaf.len()))?;
 
     let Some(moho_state) = moho_state_db.get(commitment)? else {
         return Ok(None);
@@ -541,7 +553,8 @@ mod tests {
             &[(BRIDGE_V1_CONTAINER_ID, entry_hash(0xa0))],
         );
 
-        // Query a container_id that was never populated.
+        // Query a container_id that was never populated. Indistinguishable from
+        // a container that hasn't been created yet — both are legitimate absence.
         let out = build_export_entry_mmr_proof(&moho, &idx, b1, 99, &entry_hash(0xa0)).unwrap();
         assert!(out.is_none());
     }
@@ -562,7 +575,7 @@ mod tests {
     }
 
     #[test]
-    fn none_on_wrong_sized_leaf() {
+    fn err_on_wrong_sized_leaf() {
         let (_db, moho, idx, _tmp) = temp_dbs();
         let b1 = commitment(100, 1);
         apply_block(
@@ -573,14 +586,14 @@ mod tests {
             &[(BRIDGE_V1_CONTAINER_ID, entry_hash(0xa0))],
         );
 
-        let out =
+        let err =
             build_export_entry_mmr_proof(&moho, &idx, b1, BRIDGE_V1_CONTAINER_ID, &[0xa0; 31])
-                .unwrap();
-        assert!(out.is_none());
-        let out =
+                .unwrap_err();
+        assert!(matches!(err, MmrProofError::InvalidLeafLength(31)));
+        let err =
             build_export_entry_mmr_proof(&moho, &idx, b1, BRIDGE_V1_CONTAINER_ID, &[0xa0; 33])
-                .unwrap();
-        assert!(out.is_none());
+                .unwrap_err();
+        assert!(matches!(err, MmrProofError::InvalidLeafLength(33)));
     }
 
     #[test]

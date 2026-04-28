@@ -53,50 +53,27 @@ class AsmExportEntryMmrProofTest(flexitest.Test):
 
         block_hash = bitcoin_rpc.proxy.getblockhash(target_height)
 
-        # Each case must produce `None`.
-        cases: list[tuple[str, tuple[object, int, list[int]]]] = [
-            (
-                "unknown leaf on bridge container (chain never fulfilled a withdrawal)",
-                (block_hash, BRIDGE_V1_CONTAINER_ID, UNKNOWN_LEAF_HASH),
-            ),
-            (
-                "unknown container_id",
-                (block_hash, 0x99, UNKNOWN_LEAF_HASH),
-            ),
-            (
-                "wrong-sized leaf (31 bytes)",
-                (block_hash, BRIDGE_V1_CONTAINER_ID, [0xAB] * 31),
-            ),
-            (
-                "wrong-sized leaf (33 bytes)",
-                (block_hash, BRIDGE_V1_CONTAINER_ID, [0xAB] * 33),
-            ),
-            (
-                "empty leaf",
-                (block_hash, BRIDGE_V1_CONTAINER_ID, []),
-            ),
-        ]
+        # An unobserved leaf is legitimate absence — the handler returns None
+        # rather than erroring, since the chain may simply not have produced
+        # that entry yet.
+        result = asm_rpc.strata_asm_getExportEntryMMRProof(
+            block_hash, BRIDGE_V1_CONTAINER_ID, UNKNOWN_LEAF_HASH
+        )
+        assert result is None, f"unknown leaf at tip should return None, got {result!r}"
+        logging.info("unknown leaf at tip returned None as expected")
 
-        for description, args in cases:
-            result = asm_rpc.strata_asm_getExportEntryMMRProof(*args)
-            assert result is None, (
-                f"strata_asm_getExportEntryMMRProof should return None for "
-                f"case '{description}', got {result!r}"
-            )
-            logging.info("  %s: returned None as expected", description)
-
-        # Also call against an earlier processed block — ensures the handler
-        # is consistent across the block history, not just the tip.
+        # Same query against an earlier processed block — the handler stays
+        # consistent across history, not just the tip.
         earlier_height = initial_btc_height + 1
         earlier_block_hash = bitcoin_rpc.proxy.getblockhash(earlier_height)
         result = asm_rpc.strata_asm_getExportEntryMMRProof(
             earlier_block_hash, BRIDGE_V1_CONTAINER_ID, UNKNOWN_LEAF_HASH
         )
         assert result is None, (
-            f"handler should return None for an earlier block too, got {result!r}"
+            f"unknown leaf at height {earlier_height} should return None, got {result!r}"
         )
         logging.info(
-            "earlier block at height %s also returned None as expected",
+            "unknown leaf at earlier height %s returned None as expected",
             earlier_height,
         )
 
