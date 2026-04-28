@@ -40,11 +40,11 @@ functional-lint:
 
 # Rust unit tests with `cargo-nextest`
 unit-test:
-  cargo --locked nextest run --all-features
+  SP1_SKIP_PROGRAM_BUILD=true cargo --locked nextest run --all-features
 
 # Rust documentation tests
 doctest:
-  cargo test --doc --all-features
+  SP1_SKIP_PROGRAM_BUILD=true cargo test --doc --all-features
 
 # Run functional tests
 functional-test:
