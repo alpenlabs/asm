@@ -202,6 +202,23 @@ impl AssignmentsApiServer for AsmRpcServer {
         )
         .map_err(to_rpc_error)
     }
+
+    async fn get_moho_state(&self, block_hash: BlockHash) -> RpcResult<Option<Vec<u8>>> {
+        let Some(ref moho_state_db) = self.moho_state_db else {
+            return Ok(None);
+        };
+
+        let commitment = self
+            .to_block_commitment(block_hash)
+            .await
+            .map_err(to_rpc_error)?;
+
+        let Some(state) = moho_state_db.get(commitment).map_err(to_rpc_error)? else {
+            return Ok(None);
+        };
+
+        Ok(Some(state.as_ssz_bytes()))
+    }
 }
 
 /// SSZ-encoded inclusion proof for `leaf` against `container_id`'s MMR at `commitment`.
@@ -564,5 +581,23 @@ mod tests {
             build_export_entry_mmr_proof(&moho, &idx, b1, BRIDGE_V1_CONTAINER_ID, &[0xa0; 33])
                 .unwrap();
         assert!(out.is_none());
+    }
+
+    #[test]
+    fn moho_state_round_trips_via_ssz() {
+        let (_db, moho, _idx, _tmp) = temp_dbs();
+        let at = commitment(100, 1);
+        let state = genesis_moho();
+        moho.store(at, state.clone()).unwrap();
+
+        let bytes = moho.get(at).unwrap().unwrap().as_ssz_bytes();
+        let decoded = MohoState::from_ssz_bytes(&bytes).unwrap();
+        assert_eq!(decoded, state);
+    }
+
+    #[test]
+    fn moho_state_missing_returns_none() {
+        let (_db, moho, _idx, _tmp) = temp_dbs();
+        assert!(moho.get(commitment(999, 9)).unwrap().is_none());
     }
 }

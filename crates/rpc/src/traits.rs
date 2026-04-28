@@ -43,4 +43,8 @@ pub trait AssignmentsApi {
         container_id: u8,
         leaf: Vec<u8>,
     ) -> RpcResult<Option<Vec<u8>>>;
+
+    /// Return the SSZ-encoded `MohoState` for the provided Bitcoin block hash.
+    #[method(name = "getMohoState")]
+    async fn get_moho_state(&self, block_hash: BlockHash) -> RpcResult<Option<Vec<u8>>>;
 }
