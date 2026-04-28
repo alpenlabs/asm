@@ -20,7 +20,7 @@ use strata_asm_proto_bridge_v1_txs::BRIDGE_V1_SUBPROTOCOL_ID;
 use strata_asm_proto_checkpoint::state::CheckpointState;
 use strata_asm_proto_checkpoint_txs::CHECKPOINT_SUBPROTOCOL_ID;
 use strata_asm_proto_checkpoint_types::CheckpointTip;
-use strata_asm_rpc::traits::{AssignmentsApiServer, AsmProofApiServer};
+use strata_asm_rpc::traits::{AsmProofApiServer, AssignmentsApiServer};
 use strata_asm_worker::{AsmWorkerHandle, AsmWorkerStatus};
 use strata_btc_types::BlockHashExt;
 use strata_identifiers::L1BlockCommitment;
@@ -285,8 +285,7 @@ pub(crate) async fn run_rpc_server(
     rpc_port: u16,
     shutdown: ShutdownGuard,
 ) -> Result<()> {
-    let mut module =
-        AsmRpcServer::new(state_db, asm_worker, bitcoin_client.clone()).into_rpc();
+    let mut module = AsmRpcServer::new(state_db, asm_worker, bitcoin_client.clone()).into_rpc();
 
     if let Some(deps) = proof_deps {
         let proof_module = AsmProofRpcServer::new(bitcoin_client, deps).into_rpc();

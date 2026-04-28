@@ -76,7 +76,9 @@ pub(crate) async fn bootstrap(
     let asm_worker = Arc::new(asm_worker);
 
     // 7. Finish orchestrator wiring if it was configured.
-    let (proof_tx, proof_rpc_deps) = if let Some((orch_config, proof_db, moho_state_db, backend)) = orch_prep {
+    let (proof_tx, proof_rpc_deps) = if let Some((orch_config, proof_db, moho_state_db, backend)) =
+        orch_prep
+    {
         let (tx, rx) = mpsc::unbounded_channel();
         let rpc_deps = AsmProofRpcDeps {
             proof_db: proof_db.clone(),
