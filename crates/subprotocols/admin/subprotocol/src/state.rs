@@ -1,7 +1,7 @@
 use std::{mem::take, num::NonZero};
 
 use ssz_derive::{Decode, Encode};
-use strata_asm_params::{AdministrationInitConfig, ConfirmationDepths, Role};
+use strata_asm_params::{AdministrationInitConfig, ConfirmationDepths, Role, UpdateTxType};
 use strata_asm_proto_admin_txs::actions::{MultisigAction, UpdateId};
 use strata_crypto::threshold_signature::ThresholdConfigUpdate;
 use strata_identifiers::L1Height;
@@ -55,8 +55,11 @@ impl AdministrationSubprotoState {
         }
     }
 
-    pub fn confirmation_depths(&self) -> &ConfirmationDepths {
-        &self.confirmation_depths
+    /// Returns the confirmation depth (in L1 blocks) configured for the given update
+    /// transaction type, or `None` if the update is configured to bypass the queue and
+    /// apply immediately. See [`ConfirmationDepths::get`].
+    pub fn confirmation_depth(&self, tx_type: UpdateTxType) -> Option<u16> {
+        self.confirmation_depths.get(tx_type)
     }
 
     pub fn max_seqno_gap(&self) -> NonZero<u8> {
