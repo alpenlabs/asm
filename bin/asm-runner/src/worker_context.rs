@@ -143,17 +143,13 @@ impl WorkerContext for AsmWorkerContext {
         blockid: &L1BlockCommitment,
         state: &AsmState,
     ) -> WorkerResult<()> {
-        // Write order matters: moho first, then anchor. The worker tracks progress via the anchor
-        // db (see get_latest_asm_state), so the anchor write is the effective commit point for
-        // this block. If we crash between the two writes, progress has not advanced, so on
-        // restart the worker reprocesses this block and overwrites the orphaned moho entry with
-        // the same value. Reversing the order would risk advancing progress past a block whose
-        // moho state was never persisted.
+        // Write order matters: moho and export_entries first, then anchor. The worker tracks
+        // progress via the anchor db (see get_latest_asm_state), so the anchor write is the
+        // effective commit point for this block. If we crash before it, progress has not
+        // advanced, so on restart the worker reprocesses this block and overwrites the
+        // orphaned entries with the same values. Reversing the order would risk advancing
+        // progress past a block whose moho or export_entries state was never persisted.
         self.compute_and_store_moho_state(blockid, state)?;
-
-        self.state_db
-            .put(blockid, state)
-            .map_err(|_| WorkerError::DbError)?;
 
         // Index each `NewExportEntry` alongside the MohoState's compact MMR so
         // the RPC can regenerate inclusion proofs later.
@@ -170,6 +166,10 @@ impl WorkerContext for AsmWorkerContext {
                 }
             }
         }
+
+        self.state_db
+            .put(blockid, state)
+            .map_err(|_| WorkerError::DbError)?;
 
         Ok(())
     }
