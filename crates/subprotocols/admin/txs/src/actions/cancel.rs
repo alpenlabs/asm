@@ -2,7 +2,7 @@ use arbitrary::Arbitrary;
 use ssz_derive::{Decode, Encode};
 use strata_asm_params::AdminTxType;
 
-use super::Sighash;
+use super::SigningMessage;
 use crate::actions::UpdateId;
 
 #[derive(Clone, Debug, Eq, PartialEq, Arbitrary, Encode, Decode)]
@@ -21,12 +21,12 @@ impl CancelAction {
     }
 }
 
-impl Sighash for CancelAction {
+impl SigningMessage for CancelAction {
     fn tx_type(&self) -> AdminTxType {
         AdminTxType::Cancel
     }
 
-    fn sighash_payload(&self) -> Vec<u8> {
-        self.target_id.to_be_bytes().to_vec()
+    fn render_details(&self, lines: &mut Vec<String>) {
+        lines.push(format!("target_id: {}", self.target_id));
     }
 }

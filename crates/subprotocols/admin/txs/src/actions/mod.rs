@@ -8,7 +8,7 @@ mod sighash;
 pub mod updates;
 
 pub use cancel::CancelAction;
-pub use sighash::Sighash;
+pub use sighash::SigningMessage;
 pub use updates::UpdateAction;
 
 use crate::constants::ADMINISTRATION_SUBPROTOCOL_ID;
@@ -25,7 +25,7 @@ pub enum MultisigAction {
     Update(UpdateAction),
 }
 
-impl Sighash for MultisigAction {
+impl SigningMessage for MultisigAction {
     fn tx_type(&self) -> AdminTxType {
         match self {
             MultisigAction::Cancel(c) => c.tx_type(),
@@ -33,10 +33,10 @@ impl Sighash for MultisigAction {
         }
     }
 
-    fn sighash_payload(&self) -> Vec<u8> {
+    fn render_details(&self, lines: &mut Vec<String>) {
         match self {
-            MultisigAction::Cancel(c) => c.sighash_payload(),
-            MultisigAction::Update(u) => u.sighash_payload(),
+            MultisigAction::Cancel(c) => c.render_details(lines),
+            MultisigAction::Update(u) => u.render_details(lines),
         }
     }
 }

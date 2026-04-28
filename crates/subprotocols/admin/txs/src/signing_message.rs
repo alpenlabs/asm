@@ -1,17 +1,12 @@
 use bitcoin::{hashes::Hash as _, sign_message::signed_msg_hash};
 use strata_asm_params::Role;
-use strata_crypto::{hash, threshold_signature::ThresholdConfigUpdate};
 use strata_identifiers::Buf32;
-use strata_predicate::{PredicateKey, PredicateTypeId};
 
-use crate::actions::{
-    CancelAction, MultisigAction, Sighash, UpdateAction,
-    updates::{operator::OperatorSetUpdate, seq::SequencerUpdate},
-};
+use crate::actions::{MultisigAction, SigningMessage};
 
 const SIGNING_MESSAGE_VERSION: u8 = 1;
 
-fn role_label(role: Role) -> &'static str {
+pub(crate) fn role_label(role: Role) -> &'static str {
     match role {
         Role::StrataAdministrator => "StrataAdministrator",
         Role::StrataSequencerManager => "StrataSequencerManager",
@@ -19,12 +14,7 @@ fn role_label(role: Role) -> &'static str {
     }
 }
 
-/// Returns the hash of the canonical action payload bytes shown to signers.
-pub fn payload_hash(action: &MultisigAction) -> Buf32 {
-    hash::raw(&action.sighash_payload())
-}
-
-fn append_indexed_fields(
+pub(crate) fn append_indexed_fields(
     lines: &mut Vec<String>,
     prefix: &str,
     values: impl IntoIterator<Item = String>,
@@ -33,96 +23,6 @@ fn append_indexed_fields(
     lines.push(format!("{prefix}_count: {}", values.len()));
     for (idx, value) in values.into_iter().enumerate() {
         lines.push(format!("{prefix}_{}: {value}", idx + 1));
-    }
-}
-
-fn render_cancel_details(cancel: &CancelAction, lines: &mut Vec<String>) {
-    lines.push(format!("target_id: {}", cancel.target_id()));
-}
-
-fn render_multisig_update_details(
-    role: Role,
-    config: &ThresholdConfigUpdate,
-    lines: &mut Vec<String>,
-) {
-    lines.push(format!("target_role: {}", role_label(role)));
-    lines.push(format!("new_threshold: {}", config.new_threshold()));
-    append_indexed_fields(
-        lines,
-        "add_member",
-        config
-            .add_members()
-            .iter()
-            .map(|member| hex::encode(member.serialize())),
-    );
-    append_indexed_fields(
-        lines,
-        "remove_member",
-        config
-            .remove_members()
-            .iter()
-            .map(|member| hex::encode(member.serialize())),
-    );
-}
-
-fn render_operator_update_details(update: &OperatorSetUpdate, lines: &mut Vec<String>) {
-    append_indexed_fields(
-        lines,
-        "add_member",
-        update
-            .add_members()
-            .iter()
-            .cloned()
-            .map(|member| format!("{:x}", Buf32::from(member))),
-    );
-    append_indexed_fields(
-        lines,
-        "remove_member",
-        update.remove_members().iter().map(u32::to_string),
-    );
-}
-
-fn render_sequencer_update_details(update: &SequencerUpdate, lines: &mut Vec<String>) {
-    lines.push(format!("new_sequencer_key: {:x}", update.pub_key()));
-}
-
-fn render_predicate_update_details(
-    proof_type_label: &str,
-    key: &PredicateKey,
-    lines: &mut Vec<String>,
-) {
-    let predicate_type = PredicateTypeId::try_from(key.id())
-        .expect("predicate type should be validated at construction");
-    let condition = key.condition();
-    lines.push(format!("proof_type: {proof_type_label}"));
-    lines.push(format!("predicate_type: {predicate_type}"));
-    lines.push(format!("condition_len: {}", condition.len()));
-    if condition.len() <= 32 {
-        lines.push(format!("condition_hex: {}", hex::encode(condition)));
-    } else {
-        lines.push(format!("condition_hash: {:x}", hash::raw(condition)));
-    }
-}
-
-fn render_action_details(action: &MultisigAction, lines: &mut Vec<String>) {
-    match action {
-        MultisigAction::Cancel(cancel) => render_cancel_details(cancel, lines),
-        MultisigAction::Update(update) => match update {
-            UpdateAction::StrataAdminMultisig(config) => {
-                render_multisig_update_details(Role::StrataAdministrator, config, lines)
-            }
-            UpdateAction::StrataSeqManagerMultisig(config) => {
-                render_multisig_update_details(Role::StrataSequencerManager, config, lines)
-            }
-            UpdateAction::AlpenAdminMultisig(config) => {
-                render_multisig_update_details(Role::AlpenAdministrator, config, lines)
-            }
-            UpdateAction::OperatorSet(update) => render_operator_update_details(update, lines),
-            UpdateAction::Sequencer(update) => render_sequencer_update_details(update, lines),
-            UpdateAction::OlStfVk(key) => render_predicate_update_details("OLStf", key, lines),
-            UpdateAction::AsmStfVk(key) => render_predicate_update_details("Asm", key, lines),
-            UpdateAction::EeStfVk(key) => render_predicate_update_details("EeStf", key, lines),
-        },
     }
 }
 
@@ -135,8 +35,7 @@ pub fn render_signing_message(action: &MultisigAction, seqno: u64, role: Role) -
         format!("sequence: {seqno}"),
         format!("action_type: {}", action.tx_type()),
     ];
-    render_action_details(action, &mut lines);
-    lines.push(format!("payload_hash: {:x}", payload_hash(action)));
+    action.render_details(&mut lines);
     lines.join("\n")
 }
 
@@ -168,7 +67,7 @@ mod tests {
         let message = render_signing_message(&action, 42, Role::StrataSequencerManager);
         assert_eq!(
             message,
-            "Alpen Admin Action\nversion: 1\nrole: StrataSequencerManager\nsequence: 42\naction_type: SequencerUpdate\nnew_sequencer_key: 0707070707070707070707070707070707070707070707070707070707070707\npayload_hash: 4bb06f8e4e3a7715d201d573d0aa423762e55dabd61a2c02278fa56cc6d294e0"
+            "Alpen Admin Action\nversion: 1\nrole: StrataSequencerManager\nsequence: 42\naction_type: SequencerUpdate\nnew_sequencer_key: 0707070707070707070707070707070707070707070707070707070707070707"
         );
     }
 
@@ -179,7 +78,7 @@ mod tests {
         let message = render_signing_message(&action, 9, Role::StrataSequencerManager);
         assert_eq!(
             message,
-            "Alpen Admin Action\nversion: 1\nrole: StrataSequencerManager\nsequence: 9\naction_type: Cancel\ntarget_id: 7\npayload_hash: 1561ade0621c5acf44b780521f95a1e0b19b4e5032945b860c4032fc28a3a23b"
+            "Alpen Admin Action\nversion: 1\nrole: StrataSequencerManager\nsequence: 9\naction_type: Cancel\ntarget_id: 7"
         );
     }
 

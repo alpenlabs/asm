@@ -23,9 +23,4 @@ impl SequencerUpdate {
     pub fn into_inner(self) -> Buf32 {
         self.pub_key
     }
-
-    /// Returns the raw 32-byte sequencer public key.
-    pub fn sighash_payload(&self) -> Vec<u8> {
-        self.pub_key.0.to_vec()
-    }
 }

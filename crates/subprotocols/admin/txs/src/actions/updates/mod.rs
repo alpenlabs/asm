@@ -4,16 +4,20 @@ pub mod seq;
 use arbitrary::Arbitrary;
 use ssz_derive::{Decode, Encode};
 use strata_asm_params::{Role, UpdateTxType};
-use strata_crypto::threshold_signature::ThresholdConfigUpdate;
-use strata_predicate::PredicateKey;
+use strata_crypto::{hash, threshold_signature::ThresholdConfigUpdate};
+use strata_identifiers::Buf32;
+use strata_predicate::{PredicateKey, PredicateTypeId};
 
-use crate::actions::updates::{operator::OperatorSetUpdate, seq::SequencerUpdate};
+use crate::{
+    actions::updates::{operator::OperatorSetUpdate, seq::SequencerUpdate},
+    signing_message::{append_indexed_fields, role_label},
+};
 
 /// An action that updates some part of the ASM.
 ///
 /// One variant per [`UpdateTxType`]: the wire-format tx type, the variant identity,
-/// and the [`crate::actions::sighash::Sighash`] are all in lockstep, so adding a new
-/// admin update kind forces matching arms across all dispatch sites.
+/// and the [`crate::actions::sighash::SigningMessage`] are all in lockstep, so adding a
+/// new admin update kind forces matching arms across all dispatch sites.
 #[derive(Clone, Debug, Eq, PartialEq, Arbitrary, Encode, Decode)]
 #[ssz(enum_behaviour = "union")]
 pub enum UpdateAction {
@@ -57,40 +61,89 @@ impl UpdateAction {
         }
     }
 
-    /// The action-specific bytes contributed to the sighash.
-    ///
-    /// The variant identity is conveyed by the surrounding [`crate::actions::sighash::Sighash`]
-    /// `tx_type` so it is not repeated in the payload.
-    pub fn sighash_payload(&self) -> Vec<u8> {
+    /// Pushes the action-specific signing message lines for this update.
+    pub fn render_details(&self, lines: &mut Vec<String>) {
         match self {
-            UpdateAction::StrataAdminMultisig(config)
-            | UpdateAction::StrataSeqManagerMultisig(config)
-            | UpdateAction::AlpenAdminMultisig(config) => threshold_config_update_payload(config),
-            UpdateAction::OperatorSet(o) => o.sighash_payload(),
-            UpdateAction::Sequencer(s) => s.sighash_payload(),
-            UpdateAction::OlStfVk(k) | UpdateAction::AsmStfVk(k) | UpdateAction::EeStfVk(k) => {
-                k.as_buf_ref().to_bytes()
+            UpdateAction::StrataAdminMultisig(config) => {
+                render_multisig_update_details(Role::StrataAdministrator, config, lines)
             }
+            UpdateAction::StrataSeqManagerMultisig(config) => {
+                render_multisig_update_details(Role::StrataSequencerManager, config, lines)
+            }
+            UpdateAction::AlpenAdminMultisig(config) => {
+                render_multisig_update_details(Role::AlpenAdministrator, config, lines)
+            }
+            UpdateAction::OperatorSet(update) => render_operator_update_details(update, lines),
+            UpdateAction::Sequencer(update) => render_sequencer_update_details(update, lines),
+            UpdateAction::OlStfVk(key) => render_predicate_update_details("OLStf", key, lines),
+            UpdateAction::AsmStfVk(key) => render_predicate_update_details("Asm", key, lines),
+            UpdateAction::EeStfVk(key) => render_predicate_update_details("EeStf", key, lines),
         }
     }
 }
 
-/// Returns `len(add) ‖ add[0] ‖ … ‖ add[n] ‖ len(rem) ‖ rem[0] ‖ … ‖ rem[m] ‖ threshold`,
-/// where lengths are big-endian `u32` and members are 33-byte compressed public keys.
-fn threshold_config_update_payload(config: &ThresholdConfigUpdate) -> Vec<u8> {
-    let add = config.add_members();
-    let rem = config.remove_members();
-    let mut buf = Vec::with_capacity(4 + add.len() * 33 + 4 + rem.len() * 33 + 1);
-    buf.extend_from_slice(&(add.len() as u32).to_be_bytes());
-    for member in add {
-        buf.extend_from_slice(&member.serialize());
+fn render_multisig_update_details(
+    role: Role,
+    config: &ThresholdConfigUpdate,
+    lines: &mut Vec<String>,
+) {
+    lines.push(format!("target_role: {}", role_label(role)));
+    lines.push(format!("new_threshold: {}", config.new_threshold()));
+    append_indexed_fields(
+        lines,
+        "add_member",
+        config
+            .add_members()
+            .iter()
+            .map(|member| hex::encode(member.serialize())),
+    );
+    append_indexed_fields(
+        lines,
+        "remove_member",
+        config
+            .remove_members()
+            .iter()
+            .map(|member| hex::encode(member.serialize())),
+    );
+}
+
+fn render_operator_update_details(update: &OperatorSetUpdate, lines: &mut Vec<String>) {
+    append_indexed_fields(
+        lines,
+        "add_member",
+        update
+            .add_members()
+            .iter()
+            .cloned()
+            .map(|member| format!("{:x}", Buf32::from(member))),
+    );
+    append_indexed_fields(
+        lines,
+        "remove_member",
+        update.remove_members().iter().map(u32::to_string),
+    );
+}
+
+fn render_sequencer_update_details(update: &SequencerUpdate, lines: &mut Vec<String>) {
+    lines.push(format!("new_sequencer_key: {:x}", update.pub_key()));
+}
+
+fn render_predicate_update_details(
+    proof_type_label: &str,
+    key: &PredicateKey,
+    lines: &mut Vec<String>,
+) {
+    let predicate_type = PredicateTypeId::try_from(key.id())
+        .expect("predicate type should be validated at construction");
+    let condition = key.condition();
+    lines.push(format!("proof_type: {proof_type_label}"));
+    lines.push(format!("predicate_type: {predicate_type}"));
+    lines.push(format!("condition_len: {}", condition.len()));
+    if condition.len() <= 32 {
+        lines.push(format!("condition_hex: {}", hex::encode(condition)));
+    } else {
+        lines.push(format!("condition_hash: {:x}", hash::raw(condition)));
     }
-    buf.extend_from_slice(&(rem.len() as u32).to_be_bytes());
-    for member in rem {
-        buf.extend_from_slice(&member.serialize());
-    }
-    buf.push(config.new_threshold().get());
-    buf
 }
 
 impl From<OperatorSetUpdate> for UpdateAction {
