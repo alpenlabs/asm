@@ -241,6 +241,11 @@ mod tests {
             let mmr = MmrDb::open(&db).unwrap();
             mmr.append_leaf(make_leaf(0x42)).unwrap();
             mmr.append_leaf(make_leaf(0x43)).unwrap();
+            // Drop tree handles before the db so its file lock is released
+            // synchronously (sled 0.34 can otherwise race on reopen on Linux).
+            drop(mmr);
+            db.flush().unwrap();
+            drop(db);
         }
 
         {

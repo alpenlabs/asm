@@ -251,6 +251,11 @@ mod tests {
             let store = ExportEntriesDb::open(&db).unwrap();
             store.append(2, 5, hash(0x42)).unwrap();
             store.append(2, 6, hash(0x43)).unwrap();
+            // Drop tree handles before the db so its file lock is released
+            // synchronously (sled 0.34 can otherwise race on reopen on Linux).
+            drop(store);
+            db.flush().unwrap();
+            drop(db);
         }
 
         {
