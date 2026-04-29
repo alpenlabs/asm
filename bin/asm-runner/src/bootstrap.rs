@@ -17,7 +17,7 @@ use crate::{
     block_watcher::drive_asm_from_bitcoin,
     config::{AsmRpcConfig, BitcoinConfig},
     prover::{InputBuilder, ProofBackend, ProofOrchestrator},
-    rpc_server::run_rpc_server,
+    rpc_server::{AsmProofRpcDeps, run_rpc_server},
     storage::create_storage,
     worker_context::{AsmWorkerContext, MohoStorage},
 };
@@ -27,7 +27,7 @@ pub(crate) async fn bootstrap(
     executor: TaskExecutor,
 ) -> Result<()> {
     // 1. Create storage
-    let (state_db, mmr_db) = create_storage(&config.database)?;
+    let (state_db, mmr_db, export_entries_db) = create_storage(&config.database)?;
 
     // 2. Connect to Bitcoin node
     let bitcoin_client = Arc::new(connect_bitcoin(&config.bitcoin).await?);
@@ -51,11 +51,13 @@ pub(crate) async fn bootstrap(
         db: db.clone(),
         asm_predicate: backend.asm_predicate.clone(),
     });
+    let export_entries_for_worker = orch_prep.as_ref().map(|_| export_entries_db.clone());
     let worker_context = AsmWorkerContext::new(
         runtime_handle.clone(),
         bitcoin_client.clone(),
         state_db.clone(),
         mmr_db.clone(),
+        export_entries_for_worker,
         moho_storage,
     );
 
@@ -74,57 +76,60 @@ pub(crate) async fn bootstrap(
     let asm_worker = Arc::new(asm_worker);
 
     // 7. Finish orchestrator wiring if it was configured.
-    let (proof_tx, proof_db_for_rpc) =
-        if let Some((orch_config, proof_db, moho_state_db, backend)) = orch_prep {
-            let (tx, rx) = mpsc::unbounded_channel();
-            let proof_db_clone = proof_db.clone();
-
-            let ProofBackend {
-                asm_host,
-                moho_host,
-                asm_predicate,
-                moho_predicate,
-            } = backend;
-
-            let input_builder = InputBuilder::new(
-                state_db.clone(),
-                bitcoin_client.clone(),
-                proof_db.clone(),
-                moho_state_db,
-                params.anchor.block,
-                asm_predicate,
-                moho_predicate,
-            );
-            let mut orchestrator = ProofOrchestrator::new(
-                proof_db,
-                asm_host,
-                moho_host,
-                orch_config,
-                input_builder,
-                rx,
-            );
-
-            // ZkVmRemoteProver is !Send (#[async_trait(?Send)]), so the orchestrator
-            // future cannot be spawned on a multi-threaded runtime directly. We run it
-            // on a dedicated thread with a single-threaded runtime + LocalSet.
-            executor.spawn_critical_async_with_shutdown(
-                "proof_orchestrator",
-                move |shutdown| async move {
-                    task::spawn_blocking(move || {
-                        let rt = RuntimeBuilder::new_current_thread().enable_all().build()?;
-                        let local = LocalSet::new();
-                        rt.block_on(
-                            local.run_until(async move { orchestrator.run(shutdown).await }),
-                        )
-                    })
-                    .await?
-                },
-            );
-
-            (Some(tx), Some(proof_db_clone))
-        } else {
-            (None, None)
+    let (proof_tx, proof_rpc_deps) = if let Some((orch_config, proof_db, moho_state_db, backend)) =
+        orch_prep
+    {
+        let (tx, rx) = mpsc::unbounded_channel();
+        let rpc_deps = AsmProofRpcDeps {
+            proof_db: proof_db.clone(),
+            moho_state_db: moho_state_db.clone(),
+            export_entries_db: export_entries_db.clone(),
         };
+
+        let ProofBackend {
+            asm_host,
+            moho_host,
+            asm_predicate,
+            moho_predicate,
+        } = backend;
+
+        let input_builder = InputBuilder::new(
+            state_db.clone(),
+            bitcoin_client.clone(),
+            proof_db.clone(),
+            moho_state_db,
+            params.anchor.block,
+            asm_predicate,
+            moho_predicate,
+        );
+        let mut orchestrator = ProofOrchestrator::new(
+            proof_db,
+            asm_host,
+            moho_host,
+            orch_config,
+            input_builder,
+            rx,
+        );
+
+        // ZkVmRemoteProver is !Send (#[async_trait(?Send)]), so the orchestrator
+        // future cannot be spawned on a multi-threaded runtime directly. We run it
+        // on a dedicated thread with a single-threaded runtime + LocalSet.
+        executor.spawn_critical_async_with_shutdown(
+            "proof_orchestrator",
+            move |shutdown| async move {
+                task::spawn_blocking(move || {
+                    let rt = RuntimeBuilder::new_current_thread().enable_all().build()?;
+                    let local = LocalSet::new();
+                    rt.block_on(local.run_until(async move { orchestrator.run(shutdown).await }))
+                })
+                .await?
+            },
+        );
+
+        (Some(tx), Some(rpc_deps))
+    } else {
+        (None, None)
+    };
 
     // 8. Spawn block watcher as a critical task.
     let asm_worker_for_driver = asm_worker.clone();
@@ -149,7 +154,7 @@ pub(crate) async fn bootstrap(
             state_db,
             asm_worker,
             bitcoin_client,
-            proof_db_for_rpc,
+            proof_rpc_deps,
             rpc_host,
             rpc_port,
             shutdown,

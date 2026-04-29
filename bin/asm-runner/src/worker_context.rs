@@ -13,12 +13,13 @@
 
 use std::sync::Arc;
 
-use asm_storage::{AsmStateDb, MmrDb};
+use asm_storage::{AsmStateDb, ExportEntriesDb, MmrDb};
 use bitcoin::{Block, BlockHash, Network};
 use bitcoind_async_client::{Client, traits::Reader};
 use moho_runtime_interface::MohoProgram;
 use moho_types::{ExportState, MohoState};
 use strata_asm_common::{AnchorState, AsmManifest, AuxData};
+use strata_asm_logs::NewExportEntry;
 use strata_asm_proof_db::SledMohoStateDb;
 use strata_asm_proof_impl::moho_program::program::{
     AsmStfProgram, advance_export_state_with_logs, extract_next_predicate_from_logs,
@@ -48,6 +49,7 @@ pub(crate) struct AsmWorkerContext {
     bitcoin_client: Arc<Client>,
     state_db: Arc<AsmStateDb>,
     mmr_db: Arc<MmrDb>,
+    export_entries_db: Option<ExportEntriesDb>,
     moho_storage: Option<MohoStorage>,
 }
 
@@ -57,6 +59,7 @@ impl AsmWorkerContext {
         bitcoin_client: Arc<Client>,
         state_db: Arc<AsmStateDb>,
         mmr_db: Arc<MmrDb>,
+        export_entries_db: Option<ExportEntriesDb>,
         moho_storage: Option<MohoStorage>,
     ) -> Self {
         Self {
@@ -64,6 +67,7 @@ impl AsmWorkerContext {
             bitcoin_client,
             state_db,
             mmr_db,
+            export_entries_db,
             moho_storage,
         }
     }
@@ -139,13 +143,29 @@ impl WorkerContext for AsmWorkerContext {
         blockid: &L1BlockCommitment,
         state: &AsmState,
     ) -> WorkerResult<()> {
-        // Write order matters: moho first, then anchor. The worker tracks progress via the anchor
-        // db (see get_latest_asm_state), so the anchor write is the effective commit point for
-        // this block. If we crash between the two writes, progress has not advanced, so on
-        // restart the worker reprocesses this block and overwrites the orphaned moho entry with
-        // the same value. Reversing the order would risk advancing progress past a block whose
-        // moho state was never persisted.
+        // Write order matters: moho and export_entries first, then anchor. The worker tracks
+        // progress via the anchor db (see get_latest_asm_state), so the anchor write is the
+        // effective commit point for this block. If we crash before it, progress has not
+        // advanced, so on restart the worker reprocesses this block and overwrites the
+        // orphaned entries with the same values. Reversing the order would risk advancing
+        // progress past a block whose moho or export_entries state was never persisted.
         self.compute_and_store_moho_state(blockid, state)?;
+
+        // Index each `NewExportEntry` alongside the MohoState's compact MMR so
+        // the RPC can regenerate inclusion proofs later.
+        if let Some(ref export_entries_db) = self.export_entries_db {
+            for log in state.logs() {
+                if let Ok(export) = log.try_into_log::<NewExportEntry>() {
+                    export_entries_db
+                        .append(
+                            export.container_id(),
+                            blockid.height(),
+                            *export.entry_data(),
+                        )
+                        .map_err(|_| WorkerError::DbError)?;
+                }
+            }
+        }
 
         self.state_db
             .put(blockid, state)
