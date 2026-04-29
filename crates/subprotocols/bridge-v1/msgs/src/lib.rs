@@ -26,6 +26,10 @@ pub enum BridgeIncomingMsg {
     /// Emitted by the admin subprotocol when the operator set is updated.
     /// Adds new operators by public key and removes existing operators by index.
     UpdateOperatorSet(UpdateOperatorSetPayload),
+
+    /// Defcon1 signal raised by the admin subprotocol. The bridge responds by
+    /// activating the safe harbour.
+    Defcon1(Defcon1Payload),
 }
 
 /// Payload for [`BridgeIncomingMsg::DispatchWithdrawal`].
@@ -45,6 +49,10 @@ pub struct UpdateOperatorSetPayload {
     /// Operator indices to remove from the bridge multisig.
     pub remove_members: Vec<OperatorIdx>,
 }
+
+/// Empty marker payload for [`BridgeIncomingMsg::Defcon1`]; the signal itself carries no data.
+#[derive(Clone, Debug, Eq, PartialEq, Default, Encode, Decode)]
+pub struct Defcon1Payload {}
 
 impl InterprotoMsg for BridgeIncomingMsg {
     fn id(&self) -> SubprotocolId {

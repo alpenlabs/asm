@@ -160,6 +160,12 @@ impl Subprotocol for BridgeV1Subproto {
                     );
                     state.apply_operator_set_update(add_members, remove_members);
                 }
+                BridgeIncomingMsg::Defcon1(_) => {
+                    info!(
+                        "Activating safe harbour address on Defcon1 signal from admin subprotocol"
+                    );
+                    state.set_safe_harbour_activated(true);
+                }
             }
         }
     }

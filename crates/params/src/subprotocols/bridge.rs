@@ -1,3 +1,4 @@
+use bitcoin_bosd::Descriptor;
 use serde::{Deserialize, Serialize};
 use strata_btc_types::BitcoinAmount;
 use strata_crypto::EvenPublicKey;
@@ -17,6 +18,9 @@ pub struct BridgeV1InitConfig {
     /// Number of Bitcoin blocks after Deposit Request Transaction that the depositor can reclaim
     /// funds if operators fail to process the deposit.
     pub recovery_delay: u16,
+    /// Predefined safe harbour address. Deactivated at init; the admin multisig toggles
+    /// activation.
+    pub safe_harbour_address: Descriptor,
 }
 
 #[cfg(feature = "arbitrary")]
@@ -34,6 +38,7 @@ impl<'a> arbitrary::Arbitrary<'a> for BridgeV1InitConfig {
             assignment_duration: u.arbitrary()?,
             operator_fee: u.arbitrary()?,
             recovery_delay: u.arbitrary()?,
+            safe_harbour_address: u.arbitrary()?,
         })
     }
 }
