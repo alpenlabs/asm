@@ -30,4 +30,12 @@ ignore = [
   # Pulled in via sp1-prover -> sp1-sdk.
   # TODO(STR-2626): update sp1 to v6
   "RUSTSEC-2026-0002",
+
+  # rustls-webpki 0.101.7 pulled by bitreq (via bitcoind-async-client).
+  # bitreq still depends on rustls 0.21 which requires 0.101.x; fix needs >=0.103.12.
+  # Low risk: only used for bitcoind RPC connections to known/trusted endpoints.
+  # Upstream fix: https://github.com/rust-bitcoin/corepc/pull/536
+  "RUSTSEC-2026-0098",
+  "RUSTSEC-2026-0099",
+  "RUSTSEC-2026-0104",
 ]
