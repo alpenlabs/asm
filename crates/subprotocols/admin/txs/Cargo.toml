@@ -19,7 +19,6 @@ strata-predicate = { workspace = true, features = ["arbitrary"] }
 arbitrary.workspace = true
 bitcoin.workspace = true
 hex.workspace = true
-hex-literal.workspace = true
 ssz.workspace = true
 ssz_derive.workspace = true
 thiserror.workspace = true
@@ -29,7 +28,6 @@ test-utils = ["strata-crypto/test-utils", "dep:strata-asm-proto-txs-test-utils"]
 
 [dev-dependencies]
 bitcoin.workspace = true
-proptest.workspace = true
 rand.workspace = true
 
 strata-asm-proto-txs-test-utils.workspace = true

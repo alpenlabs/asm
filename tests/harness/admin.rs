@@ -25,7 +25,7 @@ use bitcoin::{
 };
 use ssz::Encode;
 use strata_asm_common::{AnchorState, Subprotocol};
-use strata_asm_params::{AdministrationInitConfig, Role};
+use strata_asm_params::{AdministrationInitConfig, ConfirmationDepths, Role};
 use strata_asm_proto_admin::{AdministrationSubprotoState, AdministrationSubprotocol};
 use strata_asm_proto_admin_txs::{
     actions::{
@@ -227,11 +227,21 @@ pub fn create_test_admin_setup(
     let config =
         ThresholdConfig::try_new(vec![pk], NonZero::new(1).unwrap()).expect("valid config");
 
+    let confirmation_depths = ConfirmationDepths {
+        strata_admin_multisig_update: confirmation_depth,
+        strata_seq_manager_multisig_update: confirmation_depth,
+        alpen_admin_multisig_update: confirmation_depth,
+        operator_update: confirmation_depth,
+        sequencer_update: confirmation_depth,
+        ol_stf_vk_update: confirmation_depth,
+        asm_stf_vk_update: confirmation_depth,
+        ee_stf_vk_update: confirmation_depth,
+    };
     let params = AdministrationInitConfig {
         strata_administrator: config.clone(),
         strata_sequencer_manager: config.clone(),
         alpen_administrator: config,
-        confirmation_depth,
+        confirmation_depths,
         max_seqno_gap: DEFAULT_MAX_SEQNO_GAP,
     };
     let ctx = AdminContext::new(vec![sk], vec![0]);

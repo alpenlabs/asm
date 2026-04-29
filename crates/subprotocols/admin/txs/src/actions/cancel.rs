@@ -1,8 +1,9 @@
 use arbitrary::Arbitrary;
 use ssz_derive::{Decode, Encode};
+use strata_asm_params::AdminTxType;
 
 use super::Sighash;
-use crate::{actions::UpdateId, constants::AdminTxType};
+use crate::actions::UpdateId;
 
 #[derive(Clone, Debug, Eq, PartialEq, Arbitrary, Encode, Decode)]
 pub struct CancelAction {

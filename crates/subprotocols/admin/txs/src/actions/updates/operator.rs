@@ -1,8 +1,9 @@
 use arbitrary::Arbitrary;
 use ssz_derive::{Decode, Encode};
+use strata_asm_params::{AdminTxType, UpdateTxType};
 use strata_crypto::EvenPublicKey;
 
-use crate::{actions::Sighash, constants::AdminTxType};
+use crate::actions::Sighash;
 
 /// An update to the Bridge Operator Set:
 /// - removes the specified `remove_members` (by operator index)
@@ -40,7 +41,7 @@ impl OperatorSetUpdate {
 
 impl Sighash for OperatorSetUpdate {
     fn tx_type(&self) -> AdminTxType {
-        AdminTxType::OperatorUpdate
+        AdminTxType::Update(UpdateTxType::OperatorUpdate)
     }
 
     /// Returns `len(add) ‖ add[0] ‖ … ‖ add[n] ‖ len(rem) ‖ rem[0] ‖ … ‖ rem[m]`

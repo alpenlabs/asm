@@ -1,8 +1,9 @@
 use arbitrary::Arbitrary;
 use ssz_derive::{Decode, Encode};
+use strata_asm_params::{AdminTxType, UpdateTxType};
 use strata_predicate::PredicateKey;
 
-use crate::{actions::Sighash, constants::AdminTxType};
+use crate::actions::Sighash;
 
 /// An update to the verifying key for a given Strata proof layer.
 #[derive(Clone, Debug, Eq, PartialEq, Arbitrary, Encode, Decode)]
@@ -35,11 +36,12 @@ impl PredicateUpdate {
 
 impl Sighash for PredicateUpdate {
     fn tx_type(&self) -> AdminTxType {
-        match self.kind {
-            ProofType::Asm => AdminTxType::AsmStfVkUpdate,
-            ProofType::OLStf => AdminTxType::OlStfVkUpdate,
-            ProofType::EeStf => AdminTxType::EeStfVkUpdate,
-        }
+        let update = match self.kind {
+            ProofType::Asm => UpdateTxType::AsmStfVkUpdate,
+            ProofType::OLStf => UpdateTxType::OlStfVkUpdate,
+            ProofType::EeStf => UpdateTxType::EeStfVkUpdate,
+        };
+        AdminTxType::Update(update)
     }
 
     /// Returns the raw bytes of the [`PredicateKey`].

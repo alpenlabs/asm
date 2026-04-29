@@ -25,9 +25,13 @@ use strata_predicate::{PredicateKey, PredicateTypeId};
 // ============================================================================
 
 /// Verifies sequencer key updates propagate to checkpoint subprotocol.
+///
+/// Uses confirmation depth 0 for sequencer updates so the propagation can be observed
+/// without mining additional blocks for activation.
 #[tokio::test(flavor = "multi_thread")]
 async fn test_sequencer_update_propagates_to_checkpoint() {
-    let (admin_config, mut ctx) = create_test_admin_setup(2);
+    let (mut admin_config, mut ctx) = create_test_admin_setup(2);
+    admin_config.confirmation_depths.sequencer_update = 0;
     let harness = AsmTestHarnessBuilder::default()
         .with_admin_config(admin_config)
         .build()
@@ -63,9 +67,12 @@ async fn test_sequencer_update_propagates_to_checkpoint() {
 }
 
 /// Verifies multiple sequential sequencer key updates result in checkpoint having the latest key.
+///
+/// Uses confirmation depth 0 for sequencer updates so each update is applied on inclusion.
 #[tokio::test(flavor = "multi_thread")]
 async fn test_multiple_sequencer_updates_checkpoint_has_latest() {
-    let (admin_config, mut ctx) = create_test_admin_setup(2);
+    let (mut admin_config, mut ctx) = create_test_admin_setup(2);
+    admin_config.confirmation_depths.sequencer_update = 0;
     let harness = AsmTestHarnessBuilder::default()
         .with_admin_config(admin_config)
         .build()
@@ -182,10 +189,12 @@ async fn test_predicate_update_propagates_to_checkpoint() {
 
 /// Verifies sequencer key update followed by predicate update both affect checkpoint.
 ///
-/// Tests the interaction between immediate updates (sequencer) and queued updates (predicate).
+/// Tests the interaction between a zero-depth update (sequencer, applied immediately) and a
+/// non-zero-depth update (predicate, queued until activation).
 #[tokio::test(flavor = "multi_thread")]
-async fn test_sequencer_and_predicate_updates_both_apply() {
-    let (admin_config, mut ctx) = create_test_admin_setup(2);
+async fn test_zero_and_nonzero_depth_updates_both_apply() {
+    let (mut admin_config, mut ctx) = create_test_admin_setup(2);
+    admin_config.confirmation_depths.sequencer_update = 0;
     let harness = AsmTestHarnessBuilder::default()
         .with_admin_config(admin_config)
         .build()
@@ -197,7 +206,7 @@ async fn test_sequencer_and_predicate_updates_both_apply() {
 
     let initial_checkpoint_state = harness.checkpoint_state().unwrap();
 
-    // Submit sequencer update (applies immediately)
+    // Submit sequencer update (zero depth, applies immediately)
     let new_sequencer_key = [99u8; 32];
     harness
         .submit_admin_action(&mut ctx, sequencer_update(new_sequencer_key))
@@ -210,7 +219,7 @@ async fn test_sequencer_and_predicate_updates_both_apply() {
     let mid_checkpoint_state = harness.checkpoint_state().unwrap();
     assert_eq!(
         mid_checkpoint_state.sequencer_predicate, expected_seq_predicate,
-        "Sequencer predicate should be updated immediately"
+        "Sequencer predicate should be updated immediately at confirmation depth 0"
     );
 
     // Submit predicate update (gets queued with activation_height = current + confirmation_depth)

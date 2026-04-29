@@ -1,10 +1,10 @@
 use strata_asm_common::{
     AsmLogEntry, MsgRelayer,
-    logging::{error, info},
+    logging::{debug, error, info},
 };
 use strata_asm_logs::{AsmStfUpdate, EePredicateKeyUpdate};
 use strata_asm_proto_admin_txs::{
-    actions::{MultisigAction, UpdateAction, updates::predicate::ProofType},
+    actions::{MultisigAction, Sighash, UpdateAction, updates::predicate::ProofType},
     parser::SignedPayload,
 };
 use strata_asm_proto_bridge_v1_msgs::{BridgeIncomingMsg, UpdateOperatorSetPayload};
@@ -33,82 +33,9 @@ pub(crate) fn handle_pending_updates(
     let queued_updates = state.process_queued(current_height);
     for queued in queued_updates {
         let (update_id, action) = queued.into_id_and_action();
-
-        match action {
-            UpdateAction::Multisig(update) => {
-                match state.apply_multisig_update(update.role(), update.config()) {
-                    Ok(_) => {
-                        info!(
-                            update_id = update_id,
-                            "Successfully applied multisig update to role {:?}",
-                            update.role(),
-                        );
-                    }
-                    Err(e) => {
-                        error!(
-                            update_id = update_id,
-                            "Failed to apply multisig update to role {:?}: {}",
-                            update.role(),
-                            e,
-                        );
-                    }
-                }
-            }
-            UpdateAction::VerifyingKey(update) => {
-                let (key, kind) = update.into_inner();
-                match kind {
-                    ProofType::Asm => {
-                        let log_entry = AsmLogEntry::from_log(&AsmStfUpdate::new(key))
-                            .expect("AsmStfUpdate encoding is infallible");
-                        relayer.emit_log(log_entry);
-                        info!(
-                            %update_id,
-                            "Emitted ASM STF verifying key update log",
-                        );
-                    }
-                    ProofType::OLStf => {
-                        relay_checkpoint_predicate(relayer, key);
-                        info!(
-                            %update_id,
-                            "Forwarded rollup verifying key update to checkpoint subprotocol",
-                        );
-                    }
-                    ProofType::EeStf => {
-                        // Alpen is the first account on the OL, so its serial is the first
-                        // non-reserved account index.
-                        const ALPEN_EE_ACCOUNT_SERIAL: AccountSerial =
-                            AccountSerial::new(SYSTEM_RESERVED_ACCTS);
-                        let log_entry = AsmLogEntry::from_log(&EePredicateKeyUpdate::new(
-                            ALPEN_EE_ACCOUNT_SERIAL,
-                            key,
-                        ))
-                        .expect("EePredicateKeyUpdate encoding is infallible");
-                        relayer.emit_log(log_entry);
-                        info!(
-                            %update_id,
-                            %ALPEN_EE_ACCOUNT_SERIAL,
-                            "Emitted EE predicate key update log",
-                        );
-                    }
-                }
-            }
-            UpdateAction::OperatorSet(update) => {
-                let (add_members, remove_members) = update.into_inner();
-                relay_bridge_operator_set_update(relayer, add_members, remove_members);
-                info!(
-                    update_id = update_id,
-                    "Forwarded operator set update to bridge subprotocol",
-                );
-            }
-            UpdateAction::Sequencer(update) => {
-                let new_key = update.into_inner();
-                relay_checkpoint_sequencer_update(relayer, new_key);
-                info!(
-                    update_id = update_id,
-                    "Forwarded queued sequencer key update to checkpoint subprotocol",
-                );
-            }
-        }
+        let tx_type = action.tx_type();
+        handle_update(state, relayer, action);
+        info!(%update_id, %tx_type, "handled queued update");
     }
 }
 
@@ -119,8 +46,8 @@ pub(crate) fn handle_pending_updates(
 /// 1. Determines the required role based on the action type
 /// 2. Validates that the signature set meets the threshold requirements for that role
 /// 3. Processes the action based on its type:
-///    - `Update`: Queues the action for later execution (except sequencer updates which apply
-///      immediately)
+///    - `Update`: Queues the action for later execution, or applies it immediately if the
+///      configured confirmation depth for that update variant is zero
 ///    - `Cancel`: Removes a previously queued action from the queue
 /// 4. Increments the authority's sequence number to prevent replay attacks
 ///
@@ -147,23 +74,25 @@ pub(crate) fn handle_action(
         MultisigAction::Update(update) => {
             // Generate a unique ID for this update
             let id = state.next_update_id();
-            match update {
-                // Directly apply it without queuing
-                UpdateAction::Sequencer(update) => {
-                    let new_key = update.into_inner();
-                    relay_checkpoint_sequencer_update(relayer, new_key);
-                    info!(
-                        update_id = id,
-                        "Forwarded sequencer key update immediately to checkpoint subprotocol",
-                    );
-                }
-                action => {
-                    // For all other update types, add to the queue with a future activation height
-                    let activation_height = current_height + state.confirmation_depth() as u32;
-                    let queued_update = QueuedUpdate::new(id, action, activation_height);
+
+            // Updates with a non-zero confirmation depth are queued and enacted only after
+            // `delay` more L1 blocks; until then they remain cancellable. A depth of zero
+            // (surfaced as `None`) means "apply immediately" and bypasses the queue.
+            let tx_type = update
+                .tx_type()
+                .try_into()
+                .expect("UpdateAction::tx_type() always returns AdminTxType::Update(_)");
+            match state.confirmation_depth(tx_type) {
+                Some(delay) => {
+                    let activation_height = current_height + delay as u32;
+                    let queued_update = QueuedUpdate::new(id, update, activation_height);
                     state.enqueue(queued_update);
                 }
+                None => {
+                    handle_update(state, relayer, update);
+                }
             }
+
             // Increment the update ID counter for the next action
             state.increment_next_update_id();
         }
@@ -182,17 +111,81 @@ pub(crate) fn handle_action(
     Ok(())
 }
 
+/// Applies a single update action by performing its side effects on `state` and `relayer`.
+///
+/// Shared by both apply paths: the queue-drain in [`handle_pending_updates`] and the
+/// immediate-apply branch in [`handle_action`] for updates whose confirmation depth is
+/// zero. Errors are logged here with per-variant context (e.g. the affected role) and
+/// then swallowed; the caller does not need to handle them and continues processing the
+/// next update.
+fn handle_update(
+    state: &mut AdministrationSubprotoState,
+    relayer: &mut impl MsgRelayer,
+    update: UpdateAction,
+) {
+    match update {
+        UpdateAction::Multisig(update) => {
+            if let Err(e) = state.apply_multisig_update(update.role(), update.config()) {
+                error!(
+                    "Failed to apply multisig update to role {:?}: {}",
+                    update.role(),
+                    e,
+                );
+            }
+        }
+        UpdateAction::VerifyingKey(update) => {
+            let (key, kind) = update.into_inner();
+            match kind {
+                ProofType::Asm => {
+                    let log_entry = AsmLogEntry::from_log(&AsmStfUpdate::new(key))
+                        .expect("AsmStfUpdate encoding is infallible");
+                    relayer.emit_log(log_entry);
+                }
+                ProofType::OLStf => {
+                    relay_checkpoint_predicate(relayer, key);
+                }
+                ProofType::EeStf => {
+                    relay_alpen_predicate_update(relayer, key);
+                }
+            }
+        }
+        UpdateAction::OperatorSet(update) => {
+            let (add_members, remove_members) = update.into_inner();
+            relay_bridge_operator_set_update(relayer, add_members, remove_members);
+        }
+        UpdateAction::Sequencer(update) => {
+            let new_key = update.into_inner();
+            relay_checkpoint_sequencer_update(relayer, new_key);
+        }
+    }
+}
+
+fn relay_alpen_predicate_update(relayer: &mut impl MsgRelayer, key: PredicateKey) {
+    // Alpen is the first account on the OL, so its serial is the first
+    // non-reserved account index.
+    const ALPEN_EE_ACCOUNT_SERIAL: AccountSerial = AccountSerial::new(SYSTEM_RESERVED_ACCTS);
+    debug!(?key, "New EE predicate key");
+    let log_entry = AsmLogEntry::from_log(&EePredicateKeyUpdate::new(ALPEN_EE_ACCOUNT_SERIAL, key))
+        .expect("EePredicateKeyUpdate encoding is infallible");
+    relayer.emit_log(log_entry);
+    info!(%ALPEN_EE_ACCOUNT_SERIAL, "Emitted EE predicate key update log");
+}
+
 fn relay_checkpoint_sequencer_update(relayer: &mut impl MsgRelayer, new_key: Buf32) {
     let msg = CheckpointIncomingMsg::UpdateSequencerKey(PredicateKey::new(
         PredicateTypeId::Bip340Schnorr,
         new_key.0.to_vec(),
     ));
     relayer.relay_msg(&msg);
+    info!("Forwarded sequencer key update to checkpoint subprotocol");
+    debug!(?new_key, "New sequencer key");
 }
 
 fn relay_checkpoint_predicate(relayer: &mut impl MsgRelayer, key: PredicateKey) {
+    debug!(?key, "New checkpoint predicate");
     let msg = CheckpointIncomingMsg::UpdateCheckpointPredicate(key);
     relayer.relay_msg(&msg);
+    info!("Forwarded rollup verifying key update to checkpoint subprotocol");
 }
 
 fn relay_bridge_operator_set_update(
@@ -200,11 +193,13 @@ fn relay_bridge_operator_set_update(
     add_members: Vec<strata_crypto::EvenPublicKey>,
     remove_members: Vec<u32>,
 ) {
+    debug!(?add_members, ?remove_members, "Bridge operator set update");
     let msg = BridgeIncomingMsg::UpdateOperatorSet(UpdateOperatorSetPayload {
         add_members,
         remove_members,
     });
     relayer.relay_msg(&msg);
+    info!("Forwarded operator set update to bridge subprotocol");
 }
 
 #[cfg(test)]
@@ -215,10 +210,10 @@ mod tests {
     use rand::{rngs::OsRng, seq::SliceRandom, thread_rng};
     use strata_asm_common::{AsmLogEntry, InterprotoMsg, MsgRelayer};
     use strata_asm_logs::AsmStfUpdate;
-    use strata_asm_params::{AdministrationInitConfig, Role};
+    use strata_asm_params::{AdminTxType, AdministrationInitConfig, ConfirmationDepths, Role};
     use strata_asm_proto_admin_txs::{
         actions::{
-            CancelAction, MultisigAction, UpdateAction,
+            CancelAction, MultisigAction, Sighash, UpdateAction,
             updates::{
                 predicate::{PredicateUpdate, ProofType},
                 seq::SequencerUpdate,
@@ -309,11 +304,24 @@ mod tests {
             strata_administrator,
             strata_sequencer_manager,
             alpen_administrator,
-            confirmation_depth: 2016,
+            confirmation_depths: uniform_confirmation_depths(2016),
             max_seqno_gap: 10.try_into().unwrap(),
         };
 
         (config, strata_admin_sks, strata_seq_manager_sks)
+    }
+
+    fn uniform_confirmation_depths(depth: u16) -> ConfirmationDepths {
+        ConfirmationDepths {
+            strata_admin_multisig_update: depth,
+            strata_seq_manager_multisig_update: depth,
+            alpen_admin_multisig_update: depth,
+            operator_update: depth,
+            sequencer_update: depth,
+            ol_stf_vk_update: depth,
+            asm_stf_vk_update: depth,
+            ee_stf_vk_update: depth,
+        }
     }
 
     fn get_strata_administrator_update_actions(count: usize) -> Vec<UpdateAction> {
@@ -388,9 +396,17 @@ mod tests {
                 .find_queued(&initial_next_id)
                 .expect("queued action must be found");
 
+            let tx_type = match update.tx_type() {
+                AdminTxType::Update(t) => t,
+                AdminTxType::Cancel => unreachable!(),
+            };
+            let depth = params
+                .confirmation_depths
+                .get(tx_type)
+                .expect("test config uses non-zero depths");
             assert_eq!(
                 queued_update.activation_height(),
-                current_height + params.confirmation_depth as u32
+                current_height + depth as u32
             );
         }
     }
@@ -464,15 +480,19 @@ mod tests {
         assert!(matches!(res, Err(AdministrationError::InvalidSeqno { .. })));
     }
 
-    /// Test that Sequencer update actions are handled differently from other updates:
+    /// Test that updates whose configured confirmation depth is zero apply immediately:
     /// - Authority sequence number is incremented
     /// - Update ID is incremented
     /// - Actions are NOT queued (applied immediately)
     /// - No queued actions can be found in state
+    ///
+    /// Uses sequencer updates as the depth-zero variant; the immediate-apply branch is the
+    /// same regardless of which update type carries the zero depth.
     #[test]
-    fn test_strata_seq_manager_update_actions() {
+    fn test_zero_depth_update_applies_immediately() {
         let mut arb = ArbitraryGenerator::new();
-        let (params, _, seq_manager_sks) = create_test_params();
+        let (mut params, _, seq_manager_sks) = create_test_params();
+        params.confirmation_depths.sequencer_update = 0;
         let mut state = AdministrationSubprotoState::new(&params);
 
         let mut relayer = MockRelayer::<CheckpointIncomingMsg>::new();
@@ -520,7 +540,7 @@ mod tests {
             assert_eq!(new_last_seqno, last_seqno + 1);
             // Next update ID should increment by 1
             assert_eq!(new_next_id, initial_next_id + 1);
-            // Queue length should remain the same (sequencer updates not queued)
+            // Queue length should remain the same (zero-depth updates bypass the queue)
             assert_eq!(new_queued_len, initial_queued_len);
 
             // Verify the update was not queued (applied immediately)
