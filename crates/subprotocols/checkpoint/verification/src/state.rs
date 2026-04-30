@@ -103,22 +103,22 @@ impl CheckpointState {
     }
 
     /// Update the sequencer predicate with a new Schnorr public key.
-    pub(crate) fn update_sequencer_predicate(&mut self, new_predicate: PredicateKey) {
+    pub fn update_sequencer_predicate(&mut self, new_predicate: PredicateKey) {
         self.sequencer_predicate = new_predicate
     }
 
     /// Update the checkpoint predicate.
-    pub(crate) fn update_checkpoint_predicate(&mut self, new_predicate: PredicateKey) {
+    pub fn update_checkpoint_predicate(&mut self, new_predicate: PredicateKey) {
         self.checkpoint_predicate = new_predicate;
     }
 
     /// Updates the verified checkpoint tip after successful verification.
-    pub(crate) fn update_verified_tip(&mut self, new_tip: CheckpointTip) {
+    pub fn update_verified_tip(&mut self, new_tip: CheckpointTip) {
         self.verified_tip = new_tip
     }
 
     /// Records a processed deposit, incrementing the UTXO count for this denomination.
-    pub(crate) fn record_deposit(&mut self, amount: BitcoinAmount) {
+    pub fn record_deposit(&mut self, amount: BitcoinAmount) {
         *self.available_funds.entry(amount).or_insert(0) += 1;
     }
 
@@ -152,7 +152,7 @@ impl CheckpointState {
     ///
     /// Requires a [`VerifiedWithdrawals`] token, which can only be obtained from
     /// [`verify_can_honor_withdrawals`](Self::verify_can_honor_withdrawals).
-    pub(crate) fn deduct_withdrawals(&mut self, token: VerifiedWithdrawals) {
+    pub fn deduct_withdrawals(&mut self, token: VerifiedWithdrawals) {
         self.available_funds = token.0;
     }
 }

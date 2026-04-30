@@ -4,7 +4,7 @@ use strata_asm_proto_bridge_v1_msgs::{BridgeIncomingMsg, DispatchWithdrawalPaylo
 use strata_asm_proto_checkpoint_txs::extract_checkpoint_from_envelope;
 use strata_identifiers::L1Height;
 
-use crate::{
+use strata_checkpoint_verification::{
     errors::CheckpointValidationError,
     state::CheckpointState,
     verification::{

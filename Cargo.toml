@@ -24,6 +24,7 @@ members = [
   "crates/subprotocols/checkpoint/txs",
   "crates/subprotocols/checkpoint/msgs",
   "crates/subprotocols/checkpoint/types",
+  "crates/subprotocols/checkpoint/verification",
   "crates/subprotocols/debug-v1/subprotocol",
   "crates/subprotocols/txs-test-utils",
   "crates/test-utils/arb",
@@ -74,6 +75,7 @@ strata-asm-proto-checkpoint = { path = "crates/subprotocols/checkpoint/subprotoc
 strata-asm-proto-checkpoint-msgs = { path = "crates/subprotocols/checkpoint/msgs" }
 strata-asm-proto-checkpoint-txs = { path = "crates/subprotocols/checkpoint/txs" }
 strata-asm-proto-checkpoint-types = { path = "crates/subprotocols/checkpoint/types" }
+strata-checkpoint-verification = { path = "crates/subprotocols/checkpoint/verification" }
 strata-asm-proto-debug-v1 = { path = "crates/subprotocols/debug-v1/subprotocol" }
 strata-asm-proto-txs-test-utils = { path = "crates/subprotocols/txs-test-utils" }
 strata-asm-rpc = { path = "crates/rpc" }

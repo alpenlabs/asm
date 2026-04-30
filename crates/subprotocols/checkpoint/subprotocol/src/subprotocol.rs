@@ -11,7 +11,9 @@ use strata_asm_proto_checkpoint_txs::{
 };
 use strata_identifiers::L1BlockCommitment;
 
-use crate::{handler::handle_checkpoint_tx, state::CheckpointState};
+use strata_checkpoint_verification::state::CheckpointState;
+
+use crate::handler::handle_checkpoint_tx;
 
 /// Checkpoint subprotocol implementation.
 ///
