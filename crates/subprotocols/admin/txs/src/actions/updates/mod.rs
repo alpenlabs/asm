@@ -50,15 +50,7 @@ impl UpdateAction {
 
     /// The role authorized to enact this update.
     pub fn required_role(&self) -> Role {
-        match self {
-            UpdateAction::StrataAdminMultisig(_) => Role::StrataAdministrator,
-            UpdateAction::StrataSeqManagerMultisig(_) => Role::StrataSequencerManager,
-            UpdateAction::AlpenAdminMultisig(_) => Role::AlpenAdministrator,
-            UpdateAction::OperatorSet(_) => Role::StrataAdministrator,
-            UpdateAction::Sequencer(_) => Role::StrataSequencerManager,
-            UpdateAction::OlStfVk(_) | UpdateAction::AsmStfVk(_) => Role::StrataAdministrator,
-            UpdateAction::EeStfVk(_) => Role::AlpenAdministrator,
-        }
+        self.tx_type().authorized_role()
     }
 
     /// Pushes the action-specific signing message lines for this update.
