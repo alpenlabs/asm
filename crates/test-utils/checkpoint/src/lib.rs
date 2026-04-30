@@ -7,6 +7,7 @@ use k256::{
 };
 use rand::{thread_rng, Rng};
 use ssz::Encode;
+use ssz_primitives::FixedBytes;
 use strata_asm_common::{
     AsmHistoryAccumulatorState, AuxData, VerifiableManifestHash, VerifiedAuxData,
 };
@@ -170,6 +171,13 @@ impl CheckpointTestHarness {
                 hash::raw(seed.as_bytes()).0
             })
             .collect()
+    }
+
+    /// Computes the ASM manifests hash that the verification function expects, derived from
+    /// the same deterministic leaves used by [`Self::build_payload_with_tip`].
+    pub fn gen_asm_manifests_hash(&self, new_tip: &CheckpointTip) -> FixedBytes<32> {
+        let leaves = self.gen_manifest_leaves(new_tip);
+        compute_asm_manifests_hash_from_leaves(&leaves)
     }
 
     /// Generates verified auxiliary data containing ASM manifest hashes with MMR proofs.

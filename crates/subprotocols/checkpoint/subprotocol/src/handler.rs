@@ -2,15 +2,15 @@ use strata_asm_common::{AsmLogEntry, MsgRelayer, TxInputRef, VerifiedAuxData, lo
 use strata_asm_logs::CheckpointTipUpdate;
 use strata_asm_proto_bridge_v1_msgs::{BridgeIncomingMsg, DispatchWithdrawalPayload};
 use strata_asm_proto_checkpoint_txs::extract_checkpoint_from_envelope;
-use strata_identifiers::L1Height;
-
+use strata_asm_proto_checkpoint_types::compute_asm_manifests_hash_from_leaves;
 use strata_checkpoint_verification::{
-    errors::CheckpointValidationError,
     state::CheckpointState,
     verification::{
-        ValidatedCheckpointWithdrawals, validate_checkpoint_and_extract_withdrawal_intents,
+        ValidatedCheckpointWithdrawals, verify_progression,
+        verify_proof_and_extract_withdrawal_intents,
     },
 };
+use strata_identifiers::L1Height;
 
 /// Processes a checkpoint transaction from L1.
 ///
@@ -38,58 +38,67 @@ pub(crate) fn handle_checkpoint_tx(
 
     logging::debug!(epoch, "processing checkpoint transaction");
 
-    match validate_checkpoint_and_extract_withdrawal_intents(
-        state,
-        current_l1_height,
-        &envelope,
-        verified_aux_data,
-    ) {
-        Ok(ValidatedCheckpointWithdrawals {
-            withdrawal_intents,
-            verified_withdrawals,
-        }) => {
-            logging::info!(epoch, "checkpoint validated successfully");
-
-            state.deduct_withdrawals(verified_withdrawals);
-
-            let new_tip = envelope.payload.new_tip;
-            state.update_verified_tip(new_tip);
-
-            let checkpoint_tip_update = CheckpointTipUpdate::new(new_tip);
-            let log_entry = AsmLogEntry::from_log(&checkpoint_tip_update)
-                .expect("CheckpointTipUpdate encoding is infallible for fixed-size SSZ");
-            relayer.emit_log(log_entry);
-
-            for (output, selected_operator) in withdrawal_intents {
-                let bridge_msg = BridgeIncomingMsg::DispatchWithdrawal(DispatchWithdrawalPayload {
-                    output,
-                    selected_operator,
-                });
-                relayer.relay_msg(&bridge_msg);
-            }
+    // Phase 1: validate epoch / L1 / L2 progression. Yields the L1 range whose ASM
+    // manifests we must hash for phase 2.
+    let validated_range = match verify_progression(state, current_l1_height, &envelope) {
+        Ok(r) => r,
+        Err(e) => {
+            logging::warn!(epoch, error = %e, "checkpoint progression verification failed");
+            return;
         }
-        Err(e) => match e {
-            CheckpointValidationError::InvalidAux(e) => {
-                // CRITICAL: We must panic here rather than ignore the error.
-                //
-                // The checkpoint payload itself specifies which L1 heights it covers, and we verify
-                // that:
-                // 1. The L1 range doesn't go backwards
-                // 2. The L1 range doesn't exceed the current L1 tip
-                //
-                // Since we only request auxiliary data that MUST be valid and available,
-                // invalid aux data indicates aux data was not provided. If we silently ignored this
-                // error instead of panicking, valid checkpoints could be ignored as
-                // being invalid.
-                logging::error!(epoch, error = %e, "invalid aux data");
-                panic!("invalid aux");
-            }
-            CheckpointValidationError::InvalidSequencerPredicate(e) => {
-                logging::warn!(epoch, error = %e, "sequencer predicate verification failed");
-            }
-            CheckpointValidationError::InvalidPayload(e) => {
-                logging::warn!(epoch, error = %e, "invalid checkpoint payload");
-            }
-        },
+    };
+
+    // Resolve the validated range to manifest hashes. Aux data MUST be available for any
+    // range produced by phase 1 — failure here means the runtime did not honor the request
+    // issued in `pre_process_txs`, not a checkpoint-level rejection.
+    let manifest_hashes = verified_aux_data
+        .get_manifest_hashes(
+            validated_range.start_height() as u64,
+            validated_range.end_height() as u64,
+        )
+        .unwrap_or_else(|e| {
+            logging::error!(epoch, error = %e, "invalid aux data");
+            panic!("invalid aux");
+        });
+    let asm_manifests_hash = compute_asm_manifests_hash_from_leaves(&manifest_hashes);
+
+    // Phase 2: authenticate the envelope, verify the ZK proof against the precomputed
+    // hash, and extract withdrawal intents.
+    let validated = match verify_proof_and_extract_withdrawal_intents(
+        state,
+        &envelope,
+        validated_range,
+        asm_manifests_hash,
+    ) {
+        Ok(v) => v,
+        Err(e) => {
+            logging::warn!(epoch, error = %e, "checkpoint proof verification failed");
+            return;
+        }
+    };
+
+    let ValidatedCheckpointWithdrawals {
+        withdrawal_intents,
+        verified_withdrawals,
+    } = validated;
+
+    logging::info!(epoch, "checkpoint validated successfully");
+
+    state.deduct_withdrawals(verified_withdrawals);
+
+    let new_tip = envelope.payload.new_tip;
+    state.update_verified_tip(new_tip);
+
+    let checkpoint_tip_update = CheckpointTipUpdate::new(new_tip);
+    let log_entry = AsmLogEntry::from_log(&checkpoint_tip_update)
+        .expect("CheckpointTipUpdate encoding is infallible for fixed-size SSZ");
+    relayer.emit_log(log_entry);
+
+    for (output, selected_operator) in withdrawal_intents {
+        let bridge_msg = BridgeIncomingMsg::DispatchWithdrawal(DispatchWithdrawalPayload {
+            output,
+            selected_operator,
+        });
+        relayer.relay_msg(&bridge_msg);
     }
 }

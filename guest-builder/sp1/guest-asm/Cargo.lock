@@ -2277,6 +2277,7 @@ dependencies = [
  "strata-asm-proto-bridge-v1-msgs",
  "strata-asm-proto-checkpoint-msgs",
  "strata-asm-proto-checkpoint-txs",
+ "strata-asm-proto-checkpoint-types",
  "strata-checkpoint-verification",
  "strata-identifiers",
 ]
@@ -2394,7 +2395,6 @@ dependencies = [
  "ssz",
  "ssz_derive",
  "ssz_primitives",
- "strata-asm-common",
  "strata-asm-params",
  "strata-asm-proto-bridge-v1-types",
  "strata-asm-proto-checkpoint-txs",
@@ -2405,6 +2405,7 @@ dependencies = [
  "strata-identifiers",
  "strata-predicate",
  "thiserror 2.0.18",
+ "zkaleido-logging",
 ]
 
 [[package]]

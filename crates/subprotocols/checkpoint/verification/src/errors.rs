@@ -1,4 +1,3 @@
-use strata_asm_common::AuxError;
 use strata_identifiers::Epoch;
 use strata_predicate::{PredicateError, PredicateTypeId};
 use thiserror::Error;
@@ -14,10 +13,6 @@ pub enum CheckpointValidationError {
     /// The sequencer predicate is invalid or does not match the envelope.
     #[error("invalid sequencer predicate: {0}")]
     InvalidSequencerPredicate(#[from] InvalidSequencerPredicate),
-
-    /// Failed to retrieve manifest hashes from auxiliary data.
-    #[error("invalid auxiliary data: {0}")]
-    InvalidAux(#[from] AuxError),
 }
 
 /// Sequencer predicate verification failed.
@@ -97,10 +92,6 @@ pub enum InvalidCheckpointPayload {
     /// Epoch counter overflow.
     #[error("epoch overflow: verified tip epoch is at maximum value")]
     EpochOverflow,
-
-    /// L1 height counter overflow.
-    #[error("L1 height overflow: verified tip L1 height is at maximum value")]
-    L1HeightOverflow,
 
     /// Withdrawal intents cannot be matched to available deposit UTXOs.
     ///
