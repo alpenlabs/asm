@@ -5,7 +5,7 @@ use jsonrpsee::{core::RpcResult, proc_macros::rpc};
 use strata_asm_proof_types::{AsmProof, MohoProof};
 use strata_asm_proto_bridge_v1::{AssignmentEntry, DepositEntry};
 use strata_asm_proto_checkpoint_types::CheckpointTip;
-use strata_asm_worker::AsmWorkerStatus;
+use strata_asm_worker::{AsmState, AsmWorkerStatus};
 
 /// Always-on ASM RPCs: derived purely from the ASM state DB and worker status.
 #[cfg_attr(not(feature = "client"), rpc(server, namespace = "strata_asm"))]
@@ -26,6 +26,10 @@ pub trait AssignmentsApi {
     /// Return the verified checkpoint tip for the provided Bitcoin block hash.
     #[method(name = "getCheckpointTip")]
     async fn get_checkpoint_tip(&self, block_hash: BlockHash) -> RpcResult<Option<CheckpointTip>>;
+
+    /// Return the `AsmState` for the provided Bitcoin block hash.
+    #[method(name = "getAsmState")]
+    async fn get_asm_state(&self, block_hash: BlockHash) -> RpcResult<Option<AsmState>>;
 }
 
 /// Proof-related ASM RPCs: registered only when the proof orchestrator is configured.

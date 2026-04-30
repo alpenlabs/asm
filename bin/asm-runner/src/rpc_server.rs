@@ -21,7 +21,7 @@ use strata_asm_proto_checkpoint::state::CheckpointState;
 use strata_asm_proto_checkpoint_txs::CHECKPOINT_SUBPROTOCOL_ID;
 use strata_asm_proto_checkpoint_types::CheckpointTip;
 use strata_asm_rpc::traits::{AsmProofApiServer, AssignmentsApiServer};
-use strata_asm_worker::{AsmWorkerHandle, AsmWorkerStatus};
+use strata_asm_worker::{AsmState, AsmWorkerHandle, AsmWorkerStatus};
 use strata_btc_types::BlockHashExt;
 use strata_identifiers::L1BlockCommitment;
 use strata_tasks::ShutdownGuard;
@@ -132,6 +132,14 @@ impl AssignmentsApiServer for AsmRpcServer {
             Some(checkpoint_state) => Ok(Some(*checkpoint_state.verified_tip())),
             None => Ok(None),
         }
+    }
+
+    async fn get_asm_state(&self, block_hash: BlockHash) -> RpcResult<Option<AsmState>> {
+        let commitment = to_block_commitment(&self.bitcoin_client, block_hash)
+            .await
+            .map_err(to_rpc_error)?;
+
+        self.state_db.get(&commitment).map_err(to_rpc_error)
     }
 }
 
