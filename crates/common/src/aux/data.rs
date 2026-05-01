@@ -9,7 +9,7 @@ use bitcoin::{
     hashes::Hash,
 };
 use ssz_derive::{Decode, Encode};
-use strata_asm_manifest_types::Hash32;
+use strata_asm_manifest_types::AsmManifestHash;
 
 use crate::AsmMerkleProof;
 
@@ -134,14 +134,14 @@ impl ManifestHashRange {
 #[derive(Debug, Clone, PartialEq, Encode, Decode)]
 pub struct VerifiableManifestHash {
     /// The hash of an [`AsmManifest`](crate::AsmManifest)
-    hash: Hash32,
+    hash: AsmManifestHash,
     /// The MMR proof for this manifest hash
     proof: AsmMerkleProof,
 }
 
 impl VerifiableManifestHash {
     /// Creates a new verifiable manifest hash.
-    pub fn new(hash: Hash32, proof: impl IntoAsmMerkleProof) -> Self {
+    pub fn new(hash: AsmManifestHash, proof: impl IntoAsmMerkleProof) -> Self {
         Self {
             hash,
             proof: proof.into_asm_merkle_proof(),
@@ -149,7 +149,7 @@ impl VerifiableManifestHash {
     }
 
     /// Returns the manifest hash.
-    pub fn hash(&self) -> &Hash32 {
+    pub fn hash(&self) -> &AsmManifestHash {
         &self.hash
     }
 

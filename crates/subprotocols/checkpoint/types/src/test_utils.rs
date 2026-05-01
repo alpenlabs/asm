@@ -1,6 +1,7 @@
 //! Test utilities and proptest strategies for checkpoint types.
 
 use proptest::prelude::*;
+use strata_asm_manifest_types::AsmManifestRangeHash;
 use strata_identifiers::{
     AccountSerial, Buf32, OLBlockCommitment,
     test_utils::{
@@ -113,7 +114,7 @@ pub fn checkpoint_claim_strategy() -> impl Strategy<Value = CheckpointClaim> {
     (
         epoch_strategy(),
         l2_block_range_strategy(),
-        fixed_bytes_32_strategy(),
+        buf32_strategy(),
         fixed_bytes_32_strategy(),
         fixed_bytes_32_strategy(),
         fixed_bytes_32_strategy(),
@@ -122,7 +123,7 @@ pub fn checkpoint_claim_strategy() -> impl Strategy<Value = CheckpointClaim> {
             |(
                 epoch,
                 l2_range,
-                asm_manifests_hash,
+                asm_manifests_hash_buf,
                 state_diff_hash,
                 ol_logs_hash,
                 terminal_header_complement_hash,
@@ -130,7 +131,7 @@ pub fn checkpoint_claim_strategy() -> impl Strategy<Value = CheckpointClaim> {
                 CheckpointClaim::new(
                     epoch,
                     l2_range,
-                    asm_manifests_hash,
+                    AsmManifestRangeHash::from(asm_manifests_hash_buf),
                     state_diff_hash,
                     ol_logs_hash,
                     terminal_header_complement_hash,

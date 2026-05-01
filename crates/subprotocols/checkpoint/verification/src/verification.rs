@@ -1,6 +1,6 @@
 use bitcoin_bosd::Descriptor;
 use ssz::Encode;
-use ssz_primitives::FixedBytes;
+use strata_asm_manifest_types::AsmManifestRangeHash;
 use strata_asm_proto_bridge_v1_types::{
     BRIDGE_GATEWAY_ACCT_SERIAL, OperatorSelection, WithdrawOutput,
 };
@@ -147,7 +147,7 @@ pub fn verify_proof_and_extract_withdrawal_intents(
     state: &CheckpointState,
     envelope: &EnvelopeCheckpoint,
     _validated_range: ValidatedL1Range,
-    asm_manifests_hash: FixedBytes<32>,
+    asm_manifests_hash: AsmManifestRangeHash,
 ) -> CheckpointValidationResult<ValidatedCheckpointWithdrawals> {
     let payload = &envelope.payload;
 
@@ -225,7 +225,7 @@ fn construct_full_claim(
     verified_tip: &CheckpointTip,
     new_tip: &CheckpointTip,
     sidecar: &CheckpointSidecar,
-    asm_manifests_hash: FixedBytes<32>,
+    asm_manifests_hash: AsmManifestRangeHash,
 ) -> CheckpointValidationResult<CheckpointClaim> {
     let l2_range = L2BlockRange::new(*verified_tip.l2_commitment(), new_tip.l2_commitment);
 
@@ -289,8 +289,8 @@ fn extract_and_validate_withdrawal_intents(
 
 #[cfg(test)]
 mod tests {
-    use ssz_primitives::FixedBytes;
     use ssz_types::VariableList;
+    use strata_asm_manifest_types::AsmManifestRangeHash;
     use strata_asm_proto_checkpoint_txs::EnvelopeCheckpoint;
     use strata_asm_proto_checkpoint_types::{OLLog, TerminalHeaderComplement};
     use strata_identifiers::AccountSerial;
@@ -325,7 +325,7 @@ mod tests {
         state: &CheckpointState,
         current_l1_height: u32,
         envelope: &EnvelopeCheckpoint,
-        asm_manifests_hash: FixedBytes<32>,
+        asm_manifests_hash: AsmManifestRangeHash,
     ) -> CheckpointValidationResult<ValidatedCheckpointWithdrawals> {
         let range = verify_progression(state, current_l1_height, envelope)?;
         verify_proof_and_extract_withdrawal_intents(state, envelope, range, asm_manifests_hash)
@@ -342,12 +342,7 @@ mod tests {
 
         let current_l1_height = new_tip.l1_height + 1;
 
-        let res = run_validation(
-            &state,
-            current_l1_height,
-            &envelope,
-            asm_manifests_hash,
-        );
+        let res = run_validation(&state, current_l1_height, &envelope, asm_manifests_hash);
         assert!(res.is_ok());
     }
 
@@ -363,13 +358,8 @@ mod tests {
             envelope_pubkey: vec![0u8; 32], // wrong pubkey
         };
 
-        let err = run_validation(
-            &state,
-            current_l1_height,
-            &envelope,
-            asm_manifests_hash,
-        )
-        .unwrap_err();
+        let err =
+            run_validation(&state, current_l1_height, &envelope, asm_manifests_hash).unwrap_err();
         assert!(matches!(
             err,
             CheckpointValidationError::InvalidSequencerPredicate(
@@ -393,13 +383,8 @@ mod tests {
             envelope_pubkey: vec![], // empty pubkey
         };
 
-        let err = run_validation(
-            &state,
-            current_l1_height,
-            &envelope,
-            asm_manifests_hash,
-        )
-        .unwrap_err();
+        let err =
+            run_validation(&state, current_l1_height, &envelope, asm_manifests_hash).unwrap_err();
         assert!(matches!(
             err,
             CheckpointValidationError::InvalidSequencerPredicate(
@@ -426,12 +411,7 @@ mod tests {
             envelope_pubkey: vec![0xab; 32],
         };
 
-        let res = run_validation(
-            &state,
-            current_l1_height,
-            &envelope,
-            asm_manifests_hash,
-        );
+        let res = run_validation(&state, current_l1_height, &envelope, asm_manifests_hash);
         assert!(res.is_ok());
     }
 
@@ -448,13 +428,8 @@ mod tests {
         let asm_manifests_hash = harness.gen_asm_manifests_hash(payload.new_tip());
         let envelope = harness.wrap_in_envelope(payload);
 
-        let err = run_validation(
-            &state,
-            current_l1_height,
-            &envelope,
-            asm_manifests_hash,
-        )
-        .unwrap_err();
+        let err =
+            run_validation(&state, current_l1_height, &envelope, asm_manifests_hash).unwrap_err();
         assert!(matches!(
             err,
             CheckpointValidationError::InvalidSequencerPredicate(
@@ -473,13 +448,8 @@ mod tests {
 
         let current_l1_height = envelope.payload.new_tip().l1_height + 1;
 
-        let err = run_validation(
-            &state,
-            current_l1_height,
-            &envelope,
-            asm_manifests_hash,
-        )
-        .unwrap_err();
+        let err =
+            run_validation(&state, current_l1_height, &envelope, asm_manifests_hash).unwrap_err();
 
         assert!(matches!(
             err,
@@ -498,13 +468,8 @@ mod tests {
 
         let current_l1_height = envelope.payload.new_tip().l1_height - 1;
 
-        let err = run_validation(
-            &state,
-            current_l1_height,
-            &envelope,
-            asm_manifests_hash,
-        )
-        .unwrap_err();
+        let err =
+            run_validation(&state, current_l1_height, &envelope, asm_manifests_hash).unwrap_err();
         assert!(matches!(
             err,
             CheckpointValidationError::InvalidPayload(
@@ -527,12 +492,7 @@ mod tests {
 
         let current_l1_height = state.verified_tip().l1_height + 1;
 
-        let res = run_validation(
-            &state,
-            current_l1_height,
-            &envelope,
-            asm_manifests_hash,
-        );
+        let res = run_validation(&state, current_l1_height, &envelope, asm_manifests_hash);
         assert!(res.is_ok());
     }
 
@@ -546,13 +506,8 @@ mod tests {
 
         let current_l1_height = state.verified_tip().l1_height + 1;
 
-        let err = run_validation(
-            &state,
-            current_l1_height,
-            &envelope,
-            asm_manifests_hash,
-        )
-        .unwrap_err();
+        let err =
+            run_validation(&state, current_l1_height, &envelope, asm_manifests_hash).unwrap_err();
         assert!(matches!(
             err,
             CheckpointValidationError::InvalidPayload(
@@ -573,13 +528,8 @@ mod tests {
         let current_l1_height = payload.new_tip().l1_height + 1;
         let envelope = harness.wrap_in_envelope(payload);
 
-        let err = run_validation(
-            &state,
-            current_l1_height,
-            &envelope,
-            asm_manifests_hash,
-        )
-        .unwrap_err();
+        let err =
+            run_validation(&state, current_l1_height, &envelope, asm_manifests_hash).unwrap_err();
         assert!(matches!(
             err,
             CheckpointValidationError::InvalidPayload(
@@ -599,13 +549,8 @@ mod tests {
         payload.sidecar.ol_state_diff = vec![99u8; 88].try_into().unwrap();
         let envelope = harness.wrap_in_envelope(payload);
 
-        let err = run_validation(
-            &state,
-            current_l1_height,
-            &envelope,
-            asm_manifests_hash,
-        )
-        .unwrap_err();
+        let err =
+            run_validation(&state, current_l1_height, &envelope, asm_manifests_hash).unwrap_err();
         assert!(matches!(
             err,
             CheckpointValidationError::InvalidPayload(
@@ -627,13 +572,8 @@ mod tests {
 
         let envelope = harness.wrap_in_envelope(payload);
 
-        let err = run_validation(
-            &state,
-            current_l1_height,
-            &envelope,
-            asm_manifests_hash,
-        )
-        .unwrap_err();
+        let err =
+            run_validation(&state, current_l1_height, &envelope, asm_manifests_hash).unwrap_err();
         assert!(matches!(
             err,
             CheckpointValidationError::InvalidPayload(
@@ -659,13 +599,8 @@ mod tests {
 
         let envelope = harness.wrap_in_envelope(payload);
 
-        let err = run_validation(
-            &state,
-            current_l1_height,
-            &envelope,
-            asm_manifests_hash,
-        )
-        .unwrap_err();
+        let err =
+            run_validation(&state, current_l1_height, &envelope, asm_manifests_hash).unwrap_err();
         assert!(matches!(
             err,
             CheckpointValidationError::InvalidPayload(
@@ -688,13 +623,8 @@ mod tests {
 
         let envelope = harness.wrap_in_envelope(payload);
 
-        let err = run_validation(
-            &state,
-            current_l1_height,
-            &envelope,
-            asm_manifests_hash,
-        )
-        .unwrap_err();
+        let err =
+            run_validation(&state, current_l1_height, &envelope, asm_manifests_hash).unwrap_err();
         assert!(matches!(
             err,
             CheckpointValidationError::InvalidPayload(

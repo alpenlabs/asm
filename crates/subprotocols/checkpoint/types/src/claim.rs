@@ -2,6 +2,7 @@
 
 use ssz::Encode;
 use ssz_types::FixedBytes;
+use strata_asm_manifest_types::AsmManifestRangeHash;
 use strata_identifiers::{Epoch, OLBlockCommitment, impl_borsh_via_ssz, impl_borsh_via_ssz_fixed};
 
 use crate::{L2BlockRange, ssz_generated::ssz::claim::CheckpointClaim};
@@ -26,7 +27,7 @@ impl CheckpointClaim {
     pub fn new(
         epoch: Epoch,
         l2_range: L2BlockRange,
-        asm_manifests_hash: FixedBytes<32>,
+        asm_manifests_hash: AsmManifestRangeHash,
         state_diff_hash: FixedBytes<32>,
         ol_logs_hash: FixedBytes<32>,
         terminal_header_complement_hash: FixedBytes<32>,
@@ -49,7 +50,7 @@ impl CheckpointClaim {
         &self.l2_range
     }
 
-    pub fn asm_manifests_hash(&self) -> &FixedBytes<32> {
+    pub fn asm_manifests_hash(&self) -> &AsmManifestRangeHash {
         &self.asm_manifests_hash
     }
 

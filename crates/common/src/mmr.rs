@@ -1,6 +1,6 @@
 //! History accumulator for ASM.
 
-use strata_asm_manifest_types::{AsmManifest, Hash32};
+use strata_asm_manifest_types::{AsmManifest, AsmManifestHash};
 use strata_merkle::{MerkleError, Mmr, Mmr64B32, MmrState, Sha256Hasher};
 
 use crate::AsmHistoryAccumulatorState;
@@ -48,13 +48,13 @@ impl AsmHistoryAccumulatorState {
     }
 
     /// Verifies a Merkle proof for a leaf in the MMR.
-    pub fn verify_manifest_leaf(&self, proof: &AsmMerkleProof, leaf: &Hash32) -> bool {
-        self.manifest_mmr.verify(proof, leaf)
+    pub fn verify_manifest_leaf(&self, proof: &AsmMerkleProof, leaf: &AsmManifestHash) -> bool {
+        self.manifest_mmr.verify(proof, leaf.as_ref())
     }
 
     /// Adds a new leaf to the MMR.
-    pub fn add_manifest_leaf(&mut self, leaf: Hash32) -> Result<(), MerkleError> {
-        Mmr::<AsmHasher>::add_leaf(&mut self.manifest_mmr, leaf)
+    pub fn add_manifest_leaf(&mut self, leaf: AsmManifestHash) -> Result<(), MerkleError> {
+        Mmr::<AsmHasher>::add_leaf(&mut self.manifest_mmr, *leaf.as_ref())
     }
 
     pub fn verify_manifest(&mut self, proof: &AsmMerkleProof, manifest: AsmManifest) -> bool {

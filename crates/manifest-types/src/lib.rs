@@ -4,6 +4,7 @@
 //! separated from the main ASM common crate to avoid circular dependencies.
 
 mod errors;
+mod hashes;
 mod log;
 mod manifest;
 mod payloads;
@@ -21,6 +22,7 @@ mod ssz_generated {
 }
 
 pub use errors::*;
+pub use hashes::{AsmManifestHash, AsmManifestRangeHash};
 pub use log::*;
 pub use manifest::{compute_asm_manifests_hash, compute_asm_manifests_hash_from_leaves};
 pub use payloads::*;
@@ -30,7 +32,3 @@ pub use ssz_generated::ssz::{
     log::{AsmLogEntry, AsmLogEntryRef},
     manifest::{AsmManifest, AsmManifestRef},
 };
-
-/// Type alias for a 32-byte hash.
-// TODO(STR-3027): use Buf32 from identifiers or use proper newtype instead
-pub type Hash32 = [u8; 32];

@@ -246,7 +246,7 @@ async fn test_proven_and_external_mmr_index_alignment() {
             .find(|m| m.height() as u64 == block_height)
             .unwrap_or_else(|| panic!("no stored manifest for height {block_height}"));
 
-        let proven_leaf_hash: [u8; 32] = manifest.compute_hash();
+        let proven_leaf_hash: [u8; 32] = *manifest.compute_hash().as_ref();
         assert_eq!(
             *external_leaf_hash, proven_leaf_hash,
             "leaf hash mismatch at MMR index {mmr_index} (L1 height {block_height}): \
@@ -261,7 +261,7 @@ async fn test_proven_and_external_mmr_index_alignment() {
             .iter()
             .filter(|m| m.height() as u64 == genesis_height)
             .any(|genesis_mf| {
-                let genesis_hash: [u8; 32] = genesis_mf.compute_hash();
+                let genesis_hash: [u8; 32] = *genesis_mf.compute_hash().as_ref();
                 external_leaves.contains(&genesis_hash)
             }),
         "genesis manifest hash must not appear in the external MMR leaves"

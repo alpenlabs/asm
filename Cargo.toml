@@ -75,7 +75,6 @@ strata-asm-proto-checkpoint = { path = "crates/subprotocols/checkpoint/subprotoc
 strata-asm-proto-checkpoint-msgs = { path = "crates/subprotocols/checkpoint/msgs" }
 strata-asm-proto-checkpoint-txs = { path = "crates/subprotocols/checkpoint/txs" }
 strata-asm-proto-checkpoint-types = { path = "crates/subprotocols/checkpoint/types" }
-strata-checkpoint-verification = { path = "crates/subprotocols/checkpoint/verification" }
 strata-asm-proto-debug-v1 = { path = "crates/subprotocols/debug-v1/subprotocol" }
 strata-asm-proto-txs-test-utils = { path = "crates/subprotocols/txs-test-utils" }
 strata-asm-rpc = { path = "crates/rpc" }
@@ -84,6 +83,7 @@ strata-asm-spec-debug = { path = "crates/spec-debug" }
 strata-asm-stf = { path = "crates/stf" }
 strata-asm-worker = { path = "crates/worker" }
 strata-btc-verification = { path = "crates/btc-verification" }
+strata-checkpoint-verification = { path = "crates/subprotocols/checkpoint/verification" }
 strata-test-utils-arb = { path = "crates/test-utils/arb" }
 strata-test-utils-btc = { path = "crates/test-utils/btc" }
 strata-test-utils-btcio = { path = "crates/test-utils/btcio" }

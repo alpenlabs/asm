@@ -1,4 +1,5 @@
 import strata_identifiers
+import strata_asm_manifest_types
 
 ### Range of L2 (OL) blocks.
 #~# derive: std::marker::Copy, serde::Serialize, serde::Deserialize
@@ -25,7 +26,7 @@ class CheckpointClaim(Container):
 
     ### Hash of all ASM manifests consumed in order. Used to validate that all
     ### ASM logs were processed sequentially.
-    asm_manifests_hash: Bytes32
+    asm_manifests_hash: strata_asm_manifest_types.AsmManifestRangeHash
 
     ### Hash of the state diff (in CheckpointSidecar) between
     ### l2_range.start (last verified state) and l2_range.end

@@ -7,10 +7,10 @@ use k256::{
 };
 use rand::{thread_rng, Rng};
 use ssz::Encode;
-use ssz_primitives::FixedBytes;
 use strata_asm_common::{
     AsmHistoryAccumulatorState, AuxData, VerifiableManifestHash, VerifiedAuxData,
 };
+use strata_asm_manifest_types::{AsmManifestHash, AsmManifestRangeHash};
 use strata_asm_proto_checkpoint_txs::EnvelopeCheckpoint;
 use strata_asm_proto_checkpoint_types::{
     compute_asm_manifests_hash_from_leaves, CheckpointClaim, CheckpointPayload, CheckpointSidecar,
@@ -162,20 +162,20 @@ impl CheckpointTestHarness {
     /// Generates deterministic manifest leaves for L1 blocks between verified tip and new tip.
     ///
     /// Each leaf is a hash derived from the L1 block height, ensuring reproducible test data.
-    fn gen_manifest_leaves(&self, new_tip: &CheckpointTip) -> Vec<[u8; 32]> {
+    fn gen_manifest_leaves(&self, new_tip: &CheckpointTip) -> Vec<AsmManifestHash> {
         let start_height = self.verified_tip.l1_height() + 1;
         let end_height = new_tip.l1_height;
         (start_height..=end_height)
             .map(|i| {
                 let seed = format!("random_leaf_{}", i);
-                hash::raw(seed.as_bytes()).0
+                AsmManifestHash::from(hash::raw(seed.as_bytes()))
             })
             .collect()
     }
 
     /// Computes the ASM manifests hash that the verification function expects, derived from
     /// the same deterministic leaves used by [`Self::build_payload_with_tip`].
-    pub fn gen_asm_manifests_hash(&self, new_tip: &CheckpointTip) -> FixedBytes<32> {
+    pub fn gen_asm_manifests_hash(&self, new_tip: &CheckpointTip) -> AsmManifestRangeHash {
         let leaves = self.gen_manifest_leaves(new_tip);
         compute_asm_manifests_hash_from_leaves(&leaves)
     }
@@ -197,7 +197,7 @@ impl CheckpointTestHarness {
 
             let proof1 = Mmr::<Sha256Hasher>::add_leaf_updating_proof_list(
                 &mut manifest_mmr,
-                *leaf,
+                *leaf.as_ref(),
                 &mut proof_list,
             )
             .unwrap();
@@ -281,7 +281,7 @@ impl CheckpointTestHarness {
         &self,
         new_tip: CheckpointTip,
         ol_logs: Vec<OLLog>,
-        manifest_hashes: &[[u8; 32]],
+        manifest_hashes: &[AsmManifestHash],
     ) -> CheckpointPayload {
         let state_diff: Vec<u8> = ArbitraryGenerator::new().generate();
         let mut arb = ArbitraryGenerator::new();

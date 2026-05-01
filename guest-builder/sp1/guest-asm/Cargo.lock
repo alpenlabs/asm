@@ -2394,7 +2394,7 @@ dependencies = [
  "bitcoin-bosd 0.10.0",
  "ssz",
  "ssz_derive",
- "ssz_primitives",
+ "strata-asm-manifest-types",
  "strata-asm-params",
  "strata-asm-proto-bridge-v1-types",
  "strata-asm-proto-checkpoint-txs",

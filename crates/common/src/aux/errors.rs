@@ -1,7 +1,7 @@
 //! Error types for the auxiliary framework.
 
 use bitcoin::{Txid, consensus};
-use strata_asm_manifest_types::Hash32;
+use strata_asm_manifest_types::AsmManifestHash;
 use thiserror::Error;
 
 /// Result type alias for auxiliary operations.
@@ -19,7 +19,7 @@ pub enum AuxError {
         /// The index in the batch where verification failed
         index: u64,
         /// The manifest hash that failed verification
-        hash: Hash32,
+        hash: AsmManifestHash,
     },
 
     /// Failed to decode raw Bitcoin transaction during initialization.

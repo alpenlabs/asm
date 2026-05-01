@@ -168,7 +168,11 @@ impl BridgeExt for AsmTestHarness {
         let genesis_l1_height = self.genesis_height as u32;
 
         // 1. Get manifest hashes from the live ASM MMR
-        let mmr_leaves = self.get_mmr_leaves();
+        let mmr_leaves: Vec<strata_asm_manifest_types::AsmManifestHash> = self
+            .get_mmr_leaves()
+            .into_iter()
+            .map(strata_asm_manifest_types::AsmManifestHash::from)
+            .collect();
 
         // 2. Build the new checkpoint tip covering all processed L1 blocks
         let new_l1_height = genesis_l1_height + mmr_leaves.len() as u32;

@@ -8,7 +8,7 @@ fn main() {
 
     let entry_points = ["claim.ssz", "payload.ssz"];
     let base_dir = "ssz";
-    let crates = ["strata_identifiers"];
+    let crates = ["strata_identifiers", "strata_asm_manifest_types"];
 
     build_ssz_files(
         &entry_points,

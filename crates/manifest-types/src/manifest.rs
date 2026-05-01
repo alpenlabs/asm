@@ -1,12 +1,12 @@
 #[cfg(feature = "arbitrary")]
 use arbitrary::Arbitrary;
-use ssz_types::{FixedBytes, VariableList};
+use ssz_types::VariableList;
 use strata_crypto::hash;
 use strata_identifiers::{L1BlockId, L1Height, WtxidsRoot};
 use tree_hash::{Sha256Hasher, TreeHash};
 
 use crate::{
-    AsmManifestError, AsmManifestResult, Hash32,
+    AsmManifestError, AsmManifestHash, AsmManifestRangeHash, AsmManifestResult,
     ssz_generated::ssz::{log::AsmLogEntry, manifest::AsmManifest},
 };
 
@@ -55,9 +55,9 @@ impl AsmManifest {
     /// This uses SSZ to compute the root of the `AsmManifest` container, which
     /// enables creating Merkle inclusion proofs for individual fields (logs,
     /// `wtxids_root`, etc.) when needed.
-    pub fn compute_hash(&self) -> Hash32 {
+    pub fn compute_hash(&self) -> AsmManifestHash {
         let root = TreeHash::<Sha256Hasher>::tree_hash_root(self);
-        Hash32::from(root.0)
+        AsmManifestHash::from(root.0)
     }
 }
 
@@ -89,9 +89,9 @@ impl<'a> Arbitrary<'a> for AsmManifest {
 /// Hashes each manifest individually via [`AsmManifest::compute_hash`] and
 /// delegates to [`compute_asm_manifests_hash_from_leaves`].
 ///
-/// Returns [`FixedBytes::ZERO`] when `manifests` is empty.
-pub fn compute_asm_manifests_hash(manifests: &[AsmManifest]) -> FixedBytes<32> {
-    let leaves: Vec<Hash32> = manifests.iter().map(AsmManifest::compute_hash).collect();
+/// Returns the zero hash when `manifests` is empty.
+pub fn compute_asm_manifests_hash(manifests: &[AsmManifest]) -> AsmManifestRangeHash {
+    let leaves: Vec<AsmManifestHash> = manifests.iter().map(AsmManifest::compute_hash).collect();
     compute_asm_manifests_hash_from_leaves(&leaves)
 }
 
@@ -101,12 +101,13 @@ pub fn compute_asm_manifests_hash(manifests: &[AsmManifest]) -> FixedBytes<32> {
 /// callers that already have individual manifest hashes (e.g. from auxiliary
 /// data).
 ///
-/// Returns [`FixedBytes::ZERO`] when `leaves` is empty.
-pub fn compute_asm_manifests_hash_from_leaves(leaves: &[[u8; 32]]) -> FixedBytes<32> {
+/// Returns [`AsmManifestRangeHash::ZERO`] when `leaves` is empty.
+pub fn compute_asm_manifests_hash_from_leaves(leaves: &[AsmManifestHash]) -> AsmManifestRangeHash {
     if leaves.is_empty() {
-        return FixedBytes::ZERO;
+        return AsmManifestRangeHash::ZERO;
     }
-    hash::sha256_iter(leaves.iter().map(|h| h.as_slice())).into()
+    let buf = hash::sha256_iter(leaves.iter().map(|h| h.as_ref() as &[u8]));
+    AsmManifestRangeHash::from(buf)
 }
 
 #[cfg(test)]

@@ -9,7 +9,7 @@
 //! - Maps L1 block heights to MMR indices using genesis offset
 //! - Fetches manifest hashes from fast lookup storage
 //! - Generates MMR proofs using `AsmDBSled`
-//! - Converts `MerkleProofB32` (SSZ type) to `MerkleProof<Hash32>` (ASM type)
+//! - Converts `MerkleProofB32` (SSZ type) to [`AsmMerkleProof`] (ASM type)
 //!
 //! ### Bitcoin Transaction Resolution
 //!
@@ -24,7 +24,7 @@ use strata_asm_common::{
     AsmMerkleProof, AuxData, AuxRequests, BitcoinTxid, ManifestHashRange, RawBitcoinTx,
     VerifiableManifestHash,
 };
-use strata_asm_manifest_types::Hash32;
+use strata_asm_manifest_types::AsmManifestHash;
 use tracing::*;
 
 use crate::{WorkerContext, WorkerError, WorkerResult};
@@ -221,14 +221,13 @@ impl<'a> AuxDataResolver<'a> {
                     .context
                     .generate_mmr_proof_at(mmr_index, self.at_leaf_count)?;
 
-                // Convert MerkleProofB32 to MerkleProof<Hash32> (AsmMerkleProof)
-                // Both types contain the same data: index and cohashes
-                // Extract from MerkleProofB32 and reconstruct as MerkleProof<Hash32>
+                // Convert MerkleProofB32 to AsmMerkleProof.
+                // Both types contain the same data: index and cohashes.
                 let cohashes: Vec<[u8; 32]> = proof_b32.cohashes();
                 let index = proof_b32.index();
                 let asm_proof = AsmMerkleProof::from_cohashes(cohashes, index);
 
-                let hash = Hash32::from(manifest_hash);
+                let hash = AsmManifestHash::from(manifest_hash);
                 resolved.push(VerifiableManifestHash::new(hash, asm_proof));
 
                 trace!(
