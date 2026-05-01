@@ -29,7 +29,11 @@ use strata_asm_params::{AdministrationInitConfig, ConfirmationDepths, Role};
 use strata_asm_proto_admin::{AdministrationSubprotoState, AdministrationSubprotocol};
 use strata_asm_proto_admin_txs::{
     actions::{
-        updates::{operator::OperatorSetUpdate, seq::SequencerUpdate},
+        updates::{
+            AlpenAdminMultisigUpdate, AsmStfVkUpdate, EeStfVkUpdate, OlStfVkUpdate,
+            OperatorSetUpdate, SequencerUpdate, StrataAdminMultisigUpdate,
+            StrataSeqManagerMultisigUpdate,
+        },
         CancelAction, MultisigAction, UpdateAction,
     },
     parser::SignedPayload,
@@ -193,26 +197,32 @@ pub fn multisig_config_update(
         NonZero::new(new_threshold).expect("threshold must be non-zero"),
     );
     let update = match role {
-        Role::StrataAdministrator => UpdateAction::StrataAdminMultisig(config),
-        Role::StrataSequencerManager => UpdateAction::StrataSeqManagerMultisig(config),
-        Role::AlpenAdministrator => UpdateAction::AlpenAdminMultisig(config),
+        Role::StrataAdministrator => {
+            UpdateAction::StrataAdminMultisig(StrataAdminMultisigUpdate::new(config))
+        }
+        Role::StrataSequencerManager => {
+            UpdateAction::StrataSeqManagerMultisig(StrataSeqManagerMultisigUpdate::new(config))
+        }
+        Role::AlpenAdministrator => {
+            UpdateAction::AlpenAdminMultisig(AlpenAdminMultisigUpdate::new(config))
+        }
     };
     MultisigAction::Update(update)
 }
 
 /// Create an ASM STF verifying key update action.
 pub fn asm_stf_vk_update(key: PredicateKey) -> MultisigAction {
-    MultisigAction::Update(UpdateAction::AsmStfVk(key))
+    MultisigAction::Update(UpdateAction::AsmStfVk(AsmStfVkUpdate::new(key)))
 }
 
 /// Create an OL STF (rollup) verifying key update action.
 pub fn ol_stf_vk_update(key: PredicateKey) -> MultisigAction {
-    MultisigAction::Update(UpdateAction::OlStfVk(key))
+    MultisigAction::Update(UpdateAction::OlStfVk(OlStfVkUpdate::new(key)))
 }
 
 /// Create an EE STF verifying key update action.
 pub fn ee_stf_vk_update(key: PredicateKey) -> MultisigAction {
-    MultisigAction::Update(UpdateAction::EeStfVk(key))
+    MultisigAction::Update(UpdateAction::EeStfVk(EeStfVkUpdate::new(key)))
 }
 
 // ============================================================================

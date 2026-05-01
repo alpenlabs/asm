@@ -46,30 +46,8 @@ pub fn compute_signing_message_hash(action: &MultisigAction, seqno: u64, role: R
 
 #[cfg(test)]
 mod tests {
-    use std::num::NonZero;
-
-    use strata_crypto::{
-        keys::compressed::CompressedPublicKey, threshold_signature::ThresholdConfigUpdate,
-    };
-    use strata_predicate::{PredicateKey, PredicateTypeId};
-
     use super::*;
-    use crate::actions::{
-        CancelAction, MultisigAction, UpdateAction, updates::seq::SequencerUpdate,
-    };
-
-    #[test]
-    fn test_render_signing_message_is_stable() {
-        let action = MultisigAction::Update(UpdateAction::Sequencer(SequencerUpdate::new(
-            Buf32::from([7u8; 32]),
-        )));
-
-        let message = render_signing_message(&action, 42, Role::StrataSequencerManager);
-        assert_eq!(
-            message,
-            "Alpen Admin Action\nversion: 1\nrole: StrataSequencerManager\nsequence: 42\naction_type: SequencerUpdate\nnew_sequencer_key: 0707070707070707070707070707070707070707070707070707070707070707"
-        );
-    }
+    use crate::actions::CancelAction;
 
     #[test]
     fn test_cancel_message_uses_resolved_role() {
@@ -80,36 +58,5 @@ mod tests {
             message,
             "Alpen Admin Action\nversion: 1\nrole: StrataSequencerManager\nsequence: 9\naction_type: Cancel\ntarget_id: 7"
         );
-    }
-
-    #[test]
-    fn test_multisig_message_includes_decoded_fields() {
-        let member = CompressedPublicKey::from_slice(&[2u8; 33]).expect("valid compressed key");
-        let action = MultisigAction::Update(UpdateAction::StrataAdminMultisig(
-            ThresholdConfigUpdate::new(vec![member], vec![], NonZero::new(2).expect("non-zero")),
-        ));
-
-        let message = render_signing_message(&action, 4, Role::StrataAdministrator);
-        assert!(message.contains("target_role: StrataAdministrator"));
-        assert!(message.contains("new_threshold: 2"));
-        assert!(message.contains("add_member_count: 1"));
-        assert!(message.contains(
-            "add_member_1: 020202020202020202020202020202020202020202020202020202020202020202"
-        ));
-        assert!(message.contains("remove_member_count: 0"));
-    }
-
-    #[test]
-    fn test_predicate_message_renders_small_condition_hex() {
-        let action = MultisigAction::Update(UpdateAction::AsmStfVk(PredicateKey::new(
-            PredicateTypeId::Sp1Groth16,
-            vec![0xde, 0xad, 0xbe, 0xef],
-        )));
-
-        let message = render_signing_message(&action, 5, Role::StrataAdministrator);
-        assert!(message.contains("proof_type: Asm"));
-        assert!(message.contains("predicate_type: Sp1Groth16"));
-        assert!(message.contains("condition_len: 4"));
-        assert!(message.contains("condition_hex: deadbeef"));
     }
 }

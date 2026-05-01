@@ -35,7 +35,7 @@ pub(crate) fn handle_pending_updates(
     let queued_updates = state.process_queued(current_height);
     for queued in queued_updates {
         let (update_id, action) = queued.into_id_and_action();
-        let tx_type = action.tx_type();
+        let tx_type = action.update_tx_type();
         handle_update(state, relayer, action);
         info!(%update_id, %tx_type, "handled queued update");
     }
@@ -80,7 +80,7 @@ pub(crate) fn handle_action(
             // Updates with a non-zero confirmation depth are queued and enacted only after
             // `delay` more L1 blocks; until then they remain cancellable. A depth of zero
             // (surfaced as `None`) means "apply immediately" and bypasses the queue.
-            match state.confirmation_depth(update.tx_type()) {
+            match state.confirmation_depth(update.update_tx_type()) {
                 Some(delay) => {
                     let activation_height = current_height + delay as u32;
                     let queued_update = QueuedUpdate::new(id, update, activation_height);
@@ -122,14 +122,14 @@ fn handle_update(
     update: UpdateAction,
 ) {
     match update {
-        UpdateAction::StrataAdminMultisig(config) => {
-            apply_multisig(state, Role::StrataAdministrator, &config);
+        UpdateAction::StrataAdminMultisig(update) => {
+            apply_multisig(state, Role::StrataAdministrator, update.config());
         }
-        UpdateAction::StrataSeqManagerMultisig(config) => {
-            apply_multisig(state, Role::StrataSequencerManager, &config);
+        UpdateAction::StrataSeqManagerMultisig(update) => {
+            apply_multisig(state, Role::StrataSequencerManager, update.config());
         }
-        UpdateAction::AlpenAdminMultisig(config) => {
-            apply_multisig(state, Role::AlpenAdministrator, &config);
+        UpdateAction::AlpenAdminMultisig(update) => {
+            apply_multisig(state, Role::AlpenAdministrator, update.config());
         }
         UpdateAction::OperatorSet(update) => {
             let (add_members, remove_members) = update.into_inner();
@@ -139,16 +139,16 @@ fn handle_update(
             let new_key = update.into_inner();
             relay_checkpoint_sequencer_update(relayer, new_key);
         }
-        UpdateAction::OlStfVk(key) => {
-            relay_checkpoint_predicate(relayer, key);
+        UpdateAction::OlStfVk(update) => {
+            relay_checkpoint_predicate(relayer, update.into_key());
         }
-        UpdateAction::AsmStfVk(key) => {
-            let log_entry = AsmLogEntry::from_log(&AsmStfUpdate::new(key))
+        UpdateAction::AsmStfVk(update) => {
+            let log_entry = AsmLogEntry::from_log(&AsmStfUpdate::new(update.into_key()))
                 .expect("AsmStfUpdate encoding is infallible");
             relayer.emit_log(log_entry);
         }
-        UpdateAction::EeStfVk(key) => {
-            relay_alpen_predicate_update(relayer, key);
+        UpdateAction::EeStfVk(update) => {
+            relay_alpen_predicate_update(relayer, update.into_key());
         }
     }
 }
@@ -216,7 +216,8 @@ mod tests {
     use strata_asm_params::{AdministrationInitConfig, ConfirmationDepths, Role};
     use strata_asm_proto_admin_txs::{
         actions::{
-            CancelAction, MultisigAction, UpdateAction, updates::seq::SequencerUpdate,
+            CancelAction, MultisigAction, UpdateAction,
+            updates::{AsmStfVkUpdate, OlStfVkUpdate, SequencerUpdate},
         },
         parser::SignedPayload,
         test_utils::create_signature_set,
@@ -398,7 +399,7 @@ mod tests {
 
             let depth = params
                 .confirmation_depths
-                .get(update.tx_type())
+                .get(update.update_tx_type())
                 .expect("test config uses non-zero depths");
             assert_eq!(
                 queued_update.activation_height(),
@@ -560,7 +561,7 @@ mod tests {
 
         let predicate = PredicateKey::always_accept();
 
-        let update = UpdateAction::OlStfVk(predicate.clone());
+        let update = UpdateAction::OlStfVk(OlStfVkUpdate::new(predicate.clone()));
         let update_id = state.next_update_id();
         let activation_height = 42;
         state.enqueue(QueuedUpdate::new(update_id, update, activation_height));
@@ -589,7 +590,7 @@ mod tests {
 
         let predicate = PredicateKey::always_accept();
 
-        let update = UpdateAction::AsmStfVk(predicate.clone());
+        let update = UpdateAction::AsmStfVk(AsmStfVkUpdate::new(predicate.clone()));
         let update_id = state.next_update_id();
         let activation_height = 42;
         state.enqueue(QueuedUpdate::new(update_id, update, activation_height));

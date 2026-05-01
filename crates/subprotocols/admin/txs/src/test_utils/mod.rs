@@ -122,7 +122,7 @@ mod tests {
 
     use super::*;
     use crate::{
-        actions::{MultisigAction, UpdateAction, updates::seq::SequencerUpdate},
+        actions::{MultisigAction, UpdateAction, updates::SequencerUpdate},
         parser::parse_tx,
     };
 

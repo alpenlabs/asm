@@ -1,39 +1,50 @@
-pub mod operator;
-pub mod seq;
+pub mod alpen_admin_multisig;
+pub mod asm_stf_vk;
+pub mod ee_stf_vk;
+pub mod ol_stf_vk;
+pub mod operator_set;
+pub mod strata_admin_multisig;
+pub mod strata_seq_manager_multisig;
+pub mod strata_sequencer;
+
+mod render;
+
+pub use alpen_admin_multisig::AlpenAdminMultisigUpdate;
+pub use asm_stf_vk::AsmStfVkUpdate;
+pub use ee_stf_vk::EeStfVkUpdate;
+pub use ol_stf_vk::OlStfVkUpdate;
+pub use operator_set::OperatorSetUpdate;
+pub use strata_admin_multisig::StrataAdminMultisigUpdate;
+pub use strata_seq_manager_multisig::StrataSeqManagerMultisigUpdate;
+pub use strata_sequencer::SequencerUpdate;
 
 use arbitrary::Arbitrary;
 use ssz_derive::{Decode, Encode};
-use strata_asm_params::{Role, UpdateTxType};
-use strata_crypto::{hash, threshold_signature::ThresholdConfigUpdate};
-use strata_identifiers::Buf32;
-use strata_predicate::{PredicateKey, PredicateTypeId};
+use strata_asm_params::{AdminTxType, Role, UpdateTxType};
 
-use crate::{
-    actions::updates::{operator::OperatorSetUpdate, seq::SequencerUpdate},
-    signing_message::{append_indexed_fields, role_label},
-};
+use crate::actions::SigningMessage;
 
 /// An action that updates some part of the ASM.
 ///
 /// One variant per [`UpdateTxType`]: the wire-format tx type, the variant identity,
-/// and the [`crate::actions::sighash::SigningMessage`] are all in lockstep, so adding a
-/// new admin update kind forces matching arms across all dispatch sites.
+/// and the per-variant [`SigningMessage`] impl are all in lockstep, so adding a new
+/// admin update kind forces matching arms across all dispatch sites.
 #[derive(Clone, Debug, Eq, PartialEq, Arbitrary, Encode, Decode)]
 #[ssz(enum_behaviour = "union")]
 pub enum UpdateAction {
-    StrataAdminMultisig(ThresholdConfigUpdate),
-    StrataSeqManagerMultisig(ThresholdConfigUpdate),
-    AlpenAdminMultisig(ThresholdConfigUpdate),
+    StrataAdminMultisig(StrataAdminMultisigUpdate),
+    StrataSeqManagerMultisig(StrataSeqManagerMultisigUpdate),
+    AlpenAdminMultisig(AlpenAdminMultisigUpdate),
     OperatorSet(OperatorSetUpdate),
     Sequencer(SequencerUpdate),
-    OlStfVk(PredicateKey),
-    AsmStfVk(PredicateKey),
-    EeStfVk(PredicateKey),
+    OlStfVk(OlStfVkUpdate),
+    AsmStfVk(AsmStfVkUpdate),
+    EeStfVk(EeStfVkUpdate),
 }
 
 impl UpdateAction {
     /// The narrow [`UpdateTxType`] this action represents.
-    pub fn tx_type(&self) -> UpdateTxType {
+    pub fn update_tx_type(&self) -> UpdateTxType {
         match self {
             UpdateAction::StrataAdminMultisig(_) => UpdateTxType::StrataAdminMultisigUpdate,
             UpdateAction::StrataSeqManagerMultisig(_) => {
@@ -50,91 +61,35 @@ impl UpdateAction {
 
     /// The role authorized to enact this update.
     pub fn required_role(&self) -> Role {
-        self.tx_type().authorized_role()
+        self.update_tx_type().authorized_role()
     }
+}
 
-    /// Pushes the action-specific signing message lines for this update.
-    pub fn render_details(&self, lines: &mut Vec<String>) {
+impl SigningMessage for UpdateAction {
+    fn tx_type(&self) -> AdminTxType {
         match self {
-            UpdateAction::StrataAdminMultisig(config) => {
-                render_multisig_update_details(Role::StrataAdministrator, config, lines)
-            }
-            UpdateAction::StrataSeqManagerMultisig(config) => {
-                render_multisig_update_details(Role::StrataSequencerManager, config, lines)
-            }
-            UpdateAction::AlpenAdminMultisig(config) => {
-                render_multisig_update_details(Role::AlpenAdministrator, config, lines)
-            }
-            UpdateAction::OperatorSet(update) => render_operator_update_details(update, lines),
-            UpdateAction::Sequencer(update) => render_sequencer_update_details(update, lines),
-            UpdateAction::OlStfVk(key) => render_predicate_update_details("OLStf", key, lines),
-            UpdateAction::AsmStfVk(key) => render_predicate_update_details("Asm", key, lines),
-            UpdateAction::EeStfVk(key) => render_predicate_update_details("EeStf", key, lines),
+            UpdateAction::StrataAdminMultisig(u) => u.tx_type(),
+            UpdateAction::StrataSeqManagerMultisig(u) => u.tx_type(),
+            UpdateAction::AlpenAdminMultisig(u) => u.tx_type(),
+            UpdateAction::OperatorSet(u) => u.tx_type(),
+            UpdateAction::Sequencer(u) => u.tx_type(),
+            UpdateAction::OlStfVk(u) => u.tx_type(),
+            UpdateAction::AsmStfVk(u) => u.tx_type(),
+            UpdateAction::EeStfVk(u) => u.tx_type(),
         }
     }
-}
 
-fn render_multisig_update_details(
-    role: Role,
-    config: &ThresholdConfigUpdate,
-    lines: &mut Vec<String>,
-) {
-    lines.push(format!("target_role: {}", role_label(role)));
-    lines.push(format!("new_threshold: {}", config.new_threshold()));
-    append_indexed_fields(
-        lines,
-        "add_member",
-        config
-            .add_members()
-            .iter()
-            .map(|member| hex::encode(member.serialize())),
-    );
-    append_indexed_fields(
-        lines,
-        "remove_member",
-        config
-            .remove_members()
-            .iter()
-            .map(|member| hex::encode(member.serialize())),
-    );
-}
-
-fn render_operator_update_details(update: &OperatorSetUpdate, lines: &mut Vec<String>) {
-    append_indexed_fields(
-        lines,
-        "add_member",
-        update
-            .add_members()
-            .iter()
-            .cloned()
-            .map(|member| format!("{:x}", Buf32::from(member))),
-    );
-    append_indexed_fields(
-        lines,
-        "remove_member",
-        update.remove_members().iter().map(u32::to_string),
-    );
-}
-
-fn render_sequencer_update_details(update: &SequencerUpdate, lines: &mut Vec<String>) {
-    lines.push(format!("new_sequencer_key: {:x}", update.pub_key()));
-}
-
-fn render_predicate_update_details(
-    proof_type_label: &str,
-    key: &PredicateKey,
-    lines: &mut Vec<String>,
-) {
-    let predicate_type = PredicateTypeId::try_from(key.id())
-        .expect("predicate type should be validated at construction");
-    let condition = key.condition();
-    lines.push(format!("proof_type: {proof_type_label}"));
-    lines.push(format!("predicate_type: {predicate_type}"));
-    lines.push(format!("condition_len: {}", condition.len()));
-    if condition.len() <= 32 {
-        lines.push(format!("condition_hex: {}", hex::encode(condition)));
-    } else {
-        lines.push(format!("condition_hash: {:x}", hash::raw(condition)));
+    fn render_details(&self, lines: &mut Vec<String>) {
+        match self {
+            UpdateAction::StrataAdminMultisig(u) => u.render_details(lines),
+            UpdateAction::StrataSeqManagerMultisig(u) => u.render_details(lines),
+            UpdateAction::AlpenAdminMultisig(u) => u.render_details(lines),
+            UpdateAction::OperatorSet(u) => u.render_details(lines),
+            UpdateAction::Sequencer(u) => u.render_details(lines),
+            UpdateAction::OlStfVk(u) => u.render_details(lines),
+            UpdateAction::AsmStfVk(u) => u.render_details(lines),
+            UpdateAction::EeStfVk(u) => u.render_details(lines),
+        }
     }
 }
 

@@ -29,7 +29,7 @@ impl SigningMessage for MultisigAction {
     fn tx_type(&self) -> AdminTxType {
         match self {
             MultisigAction::Cancel(c) => c.tx_type(),
-            MultisigAction::Update(u) => AdminTxType::Update(u.tx_type()),
+            MultisigAction::Update(u) => u.tx_type(),
         }
     }
 

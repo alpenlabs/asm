@@ -115,7 +115,7 @@ mod tests {
     use rand::rngs::OsRng;
     use strata_asm_params::Role;
     use strata_asm_proto_admin_txs::{
-        actions::{MultisigAction, UpdateAction, updates::seq::SequencerUpdate},
+        actions::{MultisigAction, UpdateAction, updates::SequencerUpdate},
         parser::SignedPayload,
         test_utils::create_signature_set,
     };

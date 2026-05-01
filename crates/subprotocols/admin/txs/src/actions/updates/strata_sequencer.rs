@@ -1,0 +1,67 @@
+use arbitrary::Arbitrary;
+use ssz_derive::{Decode, Encode};
+use strata_asm_params::{AdminTxType, UpdateTxType};
+use strata_identifiers::Buf32;
+
+use crate::actions::SigningMessage;
+
+/// An update to the public key of the sequencer.
+#[derive(Clone, Debug, Eq, PartialEq, Arbitrary, Encode, Decode)]
+pub struct SequencerUpdate {
+    pub_key: Buf32,
+}
+
+impl SequencerUpdate {
+    /// Create a new `SequencerUpdate` from the given public key.
+    pub fn new(pub_key: Buf32) -> Self {
+        Self { pub_key }
+    }
+
+    /// Borrow the new sequencer public key.
+    pub fn pub_key(&self) -> &Buf32 {
+        &self.pub_key
+    }
+
+    /// Consume and return the inner public key.
+    pub fn into_inner(self) -> Buf32 {
+        self.pub_key
+    }
+}
+
+impl SigningMessage for SequencerUpdate {
+    fn tx_type(&self) -> AdminTxType {
+        AdminTxType::Update(UpdateTxType::SequencerUpdate)
+    }
+
+    fn render_details(&self, lines: &mut Vec<String>) {
+        lines.push(format!("new_sequencer_key: {:x}", self.pub_key));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use strata_asm_params::Role;
+
+    use super::*;
+    use crate::{
+        actions::{MultisigAction, UpdateAction},
+        signing_message::render_signing_message,
+    };
+
+    #[test]
+    fn sequencer_update_renders_signing_message() {
+        let update = SequencerUpdate::new(Buf32::from([7u8; 32]));
+        let action = MultisigAction::Update(UpdateAction::Sequencer(update));
+
+        let message = render_signing_message(&action, 42, Role::StrataSequencerManager);
+        assert_eq!(
+            message,
+            "Alpen Admin Action\n\
+             version: 1\n\
+             role: StrataSequencerManager\n\
+             sequence: 42\n\
+             action_type: SequencerUpdate\n\
+             new_sequencer_key: 0707070707070707070707070707070707070707070707070707070707070707",
+        );
+    }
+}
