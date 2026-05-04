@@ -4,14 +4,14 @@ use strata_asm_manifest_types::AsmManifestRangeHash;
 use strata_asm_proto_bridge_v1_types::{
     BRIDGE_GATEWAY_ACCT_SERIAL, OperatorSelection, WithdrawOutput,
 };
-use strata_asm_proto_checkpoint_txs::EnvelopeCheckpoint;
 use strata_asm_proto_checkpoint_types::{
-    CheckpointClaim, CheckpointSidecar, CheckpointTip, L2BlockRange, OLLog,
+    CheckpointClaim, CheckpointPayload, CheckpointSidecar, CheckpointTip, L2BlockRange, OLLog,
     SimpleWithdrawalIntentLogData,
 };
 use strata_codec::decode_buf_exact;
 use strata_crypto::hash;
-use strata_predicate::PredicateTypeId;
+use strata_identifiers::L1Height;
+use strata_predicate::{PredicateKey, PredicateTypeId};
 use zkaleido_logging as logging;
 
 use crate::{
@@ -69,28 +69,25 @@ impl ValidatedL1Range {
 ///
 /// This function is pure — it does not mutate state.
 pub fn verify_progression(
-    state: &CheckpointState,
-    current_l1_height: u32,
-    envelope: &EnvelopeCheckpoint,
+    verified_tip: &CheckpointTip,
+    new_tip: &CheckpointTip,
+    current_l1_height: L1Height,
 ) -> CheckpointValidationResult<ValidatedL1Range> {
-    let payload = &envelope.payload;
-
     // Validate epoch progression: each checkpoint must advance the epoch by exactly 1.
-    let expected_epoch = state
-        .verified_tip()
+    let expected_epoch = verified_tip
         .epoch
         .checked_add(1)
         .ok_or(InvalidCheckpointPayload::EpochOverflow)?;
-    if payload.new_tip().epoch != expected_epoch {
+    if new_tip.epoch != expected_epoch {
         return Err(InvalidCheckpointPayload::InvalidEpoch {
             expected: expected_epoch,
-            actual: payload.new_tip().epoch,
+            actual: new_tip.epoch,
         }
         .into());
     }
 
-    let l1_height_covered_in_last_checkpoint = state.verified_tip.l1_height();
-    let l1_height_covered_in_new_checkpoint = payload.new_tip().l1_height();
+    let l1_height_covered_in_last_checkpoint = verified_tip.l1_height();
+    let l1_height_covered_in_new_checkpoint = new_tip.l1_height();
 
     // Validate L1 progression: checkpoint must cover blocks strictly below the current L1
     // tip — the checkpoint transaction itself is contained in the L1 block at
@@ -114,8 +111,8 @@ pub fn verify_progression(
     }
 
     // Validate L2 progression: slot must strictly advance.
-    let prev_slot = state.verified_tip().l2_commitment().slot();
-    let new_slot = payload.new_tip().l2_commitment().slot();
+    let prev_slot = verified_tip.l2_commitment().slot();
+    let new_slot = new_tip.l2_commitment().slot();
     if new_slot <= prev_slot {
         return Err(InvalidCheckpointPayload::L2SlotDoesNotAdvance {
             prev_slot,
@@ -130,30 +127,23 @@ pub fn verify_progression(
     })
 }
 
-/// Phase 2 of checkpoint validation: authenticates the envelope against the sequencer
-/// predicate, verifies the ZK proof against the precomputed ASM manifests hash, and
-/// extracts withdrawal intents.
-///
-/// Authentication uses the SPS-51 envelope trick: the envelope's taproot pubkey is
-/// checked against the sequencer predicate. Bitcoin consensus already verified the
-/// script-spend signature, so we only need to confirm the pubkey matches.
+/// Phase 2 of checkpoint validation: verifies the ZK proof against the precomputed ASM
+/// manifests hash and extracts withdrawal intents.
 ///
 /// The [`ValidatedL1Range`] token must come from a successful [`verify_progression`] call
 /// against the same checkpoint, ensuring the range was validated before manifest hashes
 /// were resolved. The token is consumed.
 ///
+/// Envelope authentication via [`verify_sequencer_predicate`] is the caller's
+/// responsibility — typically gated before this call.
+///
 /// This function is pure — it does not mutate state.
 pub fn verify_proof_and_extract_withdrawal_intents(
     state: &CheckpointState,
-    envelope: &EnvelopeCheckpoint,
+    payload: &CheckpointPayload,
     _validated_range: ValidatedL1Range,
     asm_manifests_hash: AsmManifestRangeHash,
 ) -> CheckpointValidationResult<ValidatedCheckpointWithdrawals> {
-    let payload = &envelope.payload;
-
-    // Authenticate the envelope: the taproot pubkey must match the sequencer predicate.
-    verify_sequencer_predicate(state, &envelope.envelope_pubkey)?;
-
     // Reconstruct the full claim from the verified tip, the new tip, the sidecar, and
     // the precomputed ASM manifests hash, then verify the proof against it.
     let claim = construct_full_claim(
@@ -183,6 +173,10 @@ pub fn verify_proof_and_extract_withdrawal_intents(
 
 /// Verifies that the envelope pubkey is authorized by the sequencer predicate.
 ///
+/// Uses the SPS-51 envelope trick: the envelope's taproot pubkey is checked against the
+/// sequencer predicate. Bitcoin consensus already verified the script-spend signature,
+/// so we only need to confirm the pubkey matches.
+///
 /// Dispatches on the predicate type:
 /// - [`NeverAccept`](PredicateTypeId::NeverAccept): always rejects.
 /// - [`AlwaysAccept`](PredicateTypeId::AlwaysAccept): always accepts (useful for testing).
@@ -190,22 +184,20 @@ pub fn verify_proof_and_extract_withdrawal_intents(
 ///   predicate's condition bytes (the sequencer's x-only public key).
 /// - [`Sp1Groth16`](PredicateTypeId::Sp1Groth16): not a valid sequencer predicate type.
 /// - Unknown type IDs are rejected.
-fn verify_sequencer_predicate(
-    state: &CheckpointState,
+pub fn verify_sequencer_predicate(
+    sequencer_predicate: &PredicateKey,
     envelope_pubkey: &[u8],
 ) -> CheckpointValidationResult<()> {
-    let predicate = state.sequencer_predicate();
-
-    let type_id = PredicateTypeId::try_from(predicate.id())
-        .map_err(|_| InvalidSequencerPredicate::UnknownPredicateType(predicate.id()))?;
+    let type_id = PredicateTypeId::try_from(sequencer_predicate.id())
+        .map_err(|_| InvalidSequencerPredicate::UnknownPredicateType(sequencer_predicate.id()))?;
 
     match type_id {
         PredicateTypeId::NeverAccept => Err(InvalidSequencerPredicate::NeverAccept.into()),
         PredicateTypeId::AlwaysAccept => Ok(()),
         PredicateTypeId::Bip340Schnorr => {
-            if envelope_pubkey != predicate.condition() {
+            if envelope_pubkey != sequencer_predicate.condition() {
                 Err(InvalidSequencerPredicate::PubkeyMismatch {
-                    expected: predicate.condition().to_vec(),
+                    expected: sequencer_predicate.condition().to_vec(),
                     actual: envelope_pubkey.to_vec(),
                 }
                 .into())
@@ -291,8 +283,7 @@ fn extract_and_validate_withdrawal_intents(
 mod tests {
     use ssz_types::VariableList;
     use strata_asm_manifest_types::AsmManifestRangeHash;
-    use strata_asm_proto_checkpoint_txs::EnvelopeCheckpoint;
-    use strata_asm_proto_checkpoint_types::{OLLog, TerminalHeaderComplement};
+    use strata_asm_proto_checkpoint_types::{CheckpointPayload, OLLog, TerminalHeaderComplement};
     use strata_identifiers::AccountSerial;
     use strata_predicate::PredicateKey;
     use strata_test_utils_checkpoint::CheckpointTestHarness;
@@ -305,7 +296,7 @@ mod tests {
         state::CheckpointState,
         verification::{
             ValidatedCheckpointWithdrawals, verify_progression,
-            verify_proof_and_extract_withdrawal_intents,
+            verify_proof_and_extract_withdrawal_intents, verify_sequencer_predicate,
         },
     };
 
@@ -319,16 +310,17 @@ mod tests {
         (state, harness)
     }
 
-    /// Drives both phases sequentially with a precomputed manifest hash. Mirrors the
-    /// orchestration the subprotocol's handler does.
-    fn run_validation(
+    /// Drives progression + proof phases with a precomputed manifest hash. Used by
+    /// proof-phase tests that need a real `ValidatedL1Range` token to reach phase 2.
+    /// Skips sequencer authentication, which has its own dedicated tests.
+    fn run_proof_pipeline(
         state: &CheckpointState,
         current_l1_height: u32,
-        envelope: &EnvelopeCheckpoint,
+        payload: &CheckpointPayload,
         asm_manifests_hash: AsmManifestRangeHash,
     ) -> CheckpointValidationResult<ValidatedCheckpointWithdrawals> {
-        let range = verify_progression(state, current_l1_height, envelope)?;
-        verify_proof_and_extract_withdrawal_intents(state, envelope, range, asm_manifests_hash)
+        let range = verify_progression(state.verified_tip(), payload.new_tip(), current_l1_height)?;
+        verify_proof_and_extract_withdrawal_intents(state, payload, range, asm_manifests_hash)
     }
 
     #[test]
@@ -336,30 +328,22 @@ mod tests {
         let (state, harness) = test_setup();
         let payload = harness.build_payload();
         let new_tip = *payload.new_tip();
-
-        let envelope = harness.wrap_in_envelope(payload);
         let asm_manifests_hash = harness.gen_asm_manifests_hash(&new_tip);
-
         let current_l1_height = new_tip.l1_height + 1;
 
-        let res = run_validation(&state, current_l1_height, &envelope, asm_manifests_hash);
+        verify_sequencer_predicate(state.sequencer_predicate(), harness.sequencer_pubkey())
+            .expect("auth");
+        let res = run_proof_pipeline(&state, current_l1_height, &payload, asm_manifests_hash);
         assert!(res.is_ok());
     }
 
+    // --- Sequencer authentication ---
+
     #[test]
     fn test_wrong_envelope_pubkey() {
-        let (state, harness) = test_setup();
-        let payload = harness.build_payload();
-        let current_l1_height = payload.new_tip().l1_height + 1;
-        let asm_manifests_hash = harness.gen_asm_manifests_hash(payload.new_tip());
-
-        let envelope = EnvelopeCheckpoint {
-            payload,
-            envelope_pubkey: vec![0u8; 32], // wrong pubkey
-        };
-
+        let harness = CheckpointTestHarness::new_random();
         let err =
-            run_validation(&state, current_l1_height, &envelope, asm_manifests_hash).unwrap_err();
+            verify_sequencer_predicate(&harness.sequencer_predicate(), &[0u8; 32]).unwrap_err();
         assert!(matches!(
             err,
             CheckpointValidationError::InvalidSequencerPredicate(
@@ -373,18 +357,8 @@ mod tests {
     /// **would reject it as well**.
     #[test]
     fn test_empty_envelope_pubkey_rejected() {
-        let (state, harness) = test_setup();
-        let payload = harness.build_payload();
-        let current_l1_height = payload.new_tip().l1_height + 1;
-        let asm_manifests_hash = harness.gen_asm_manifests_hash(payload.new_tip());
-
-        let envelope = EnvelopeCheckpoint {
-            payload,
-            envelope_pubkey: vec![], // empty pubkey
-        };
-
-        let err =
-            run_validation(&state, current_l1_height, &envelope, asm_manifests_hash).unwrap_err();
+        let harness = CheckpointTestHarness::new_random();
+        let err = verify_sequencer_predicate(&harness.sequencer_predicate(), &[]).unwrap_err();
         assert!(matches!(
             err,
             CheckpointValidationError::InvalidSequencerPredicate(
@@ -395,41 +369,14 @@ mod tests {
 
     #[test]
     fn test_always_accept_predicate_skips_pubkey_check() {
-        let harness = CheckpointTestHarness::new_random();
-        let state = CheckpointState::new(
-            PredicateKey::always_accept(),
-            harness.checkpoint_predicate(),
-            *harness.verified_tip(),
-        );
-        let payload = harness.build_payload();
-        let current_l1_height = payload.new_tip().l1_height + 1;
-        let asm_manifests_hash = harness.gen_asm_manifests_hash(payload.new_tip());
-
-        // Envelope with arbitrary pubkey — should still pass.
-        let envelope = EnvelopeCheckpoint {
-            payload,
-            envelope_pubkey: vec![0xab; 32],
-        };
-
-        let res = run_validation(&state, current_l1_height, &envelope, asm_manifests_hash);
+        let res = verify_sequencer_predicate(&PredicateKey::always_accept(), &[0xab; 32]);
         assert!(res.is_ok());
     }
 
     #[test]
     fn test_never_accept_predicate_always_rejects() {
-        let harness = CheckpointTestHarness::new_random();
-        let state = CheckpointState::new(
-            PredicateKey::never_accept(),
-            harness.checkpoint_predicate(),
-            *harness.verified_tip(),
-        );
-        let payload = harness.build_payload();
-        let current_l1_height = payload.new_tip().l1_height + 1;
-        let asm_manifests_hash = harness.gen_asm_manifests_hash(payload.new_tip());
-        let envelope = harness.wrap_in_envelope(payload);
-
         let err =
-            run_validation(&state, current_l1_height, &envelope, asm_manifests_hash).unwrap_err();
+            verify_sequencer_predicate(&PredicateKey::never_accept(), &[0xab; 32]).unwrap_err();
         assert!(matches!(
             err,
             CheckpointValidationError::InvalidSequencerPredicate(
@@ -438,19 +385,17 @@ mod tests {
         ));
     }
 
+    // --- Progression (phase 1) ---
+
     #[test]
     fn test_invalid_epoch_progression() {
-        let (state, harness) = test_setup();
+        let harness = CheckpointTestHarness::new_random();
         let mut payload = harness.build_payload();
-        payload.new_tip.epoch = state.verified_tip().epoch + 2;
-        let asm_manifests_hash = harness.gen_asm_manifests_hash(payload.new_tip());
-        let envelope = harness.wrap_in_envelope(payload);
+        payload.new_tip.epoch = harness.verified_tip().epoch + 2;
+        let current_l1_height = payload.new_tip().l1_height + 1;
 
-        let current_l1_height = envelope.payload.new_tip().l1_height + 1;
-
-        let err =
-            run_validation(&state, current_l1_height, &envelope, asm_manifests_hash).unwrap_err();
-
+        let err = verify_progression(harness.verified_tip(), payload.new_tip(), current_l1_height)
+            .unwrap_err();
         assert!(matches!(
             err,
             CheckpointValidationError::InvalidPayload(
@@ -461,75 +406,62 @@ mod tests {
 
     #[test]
     fn test_new_tip_beyond_current_l1_height() {
-        let (state, harness) = test_setup();
+        let harness = CheckpointTestHarness::new_random();
         let payload = harness.build_payload();
-        let asm_manifests_hash = harness.gen_asm_manifests_hash(payload.new_tip());
-        let envelope = harness.wrap_in_envelope(payload);
+        let current_l1_height = payload.new_tip().l1_height - 1;
 
-        let current_l1_height = envelope.payload.new_tip().l1_height - 1;
-
-        let err =
-            run_validation(&state, current_l1_height, &envelope, asm_manifests_hash).unwrap_err();
+        let err = verify_progression(harness.verified_tip(), payload.new_tip(), current_l1_height)
+            .unwrap_err();
         assert!(matches!(
             err,
             CheckpointValidationError::InvalidPayload(
                 InvalidCheckpointPayload::CheckpointBeyondL1Tip { .. }
             )
-        ))
+        ));
     }
 
     #[test]
     fn test_zero_l1_progress_is_accepted() {
-        let (state, harness) = test_setup();
+        let harness = CheckpointTestHarness::new_random();
 
-        // Build a tip that keeps the same L1 height (zero progress)
+        // Build a tip that keeps the same L1 height (zero progress).
         let mut new_tip = harness.gen_new_tip();
-        new_tip.l1_height = state.verified_tip().l1_height;
+        new_tip.l1_height = harness.verified_tip().l1_height;
 
         let payload = harness.build_payload_with_tip(new_tip);
-        let asm_manifests_hash = harness.gen_asm_manifests_hash(payload.new_tip());
-        let envelope = harness.wrap_in_envelope(payload);
+        let current_l1_height = harness.verified_tip().l1_height + 1;
 
-        let current_l1_height = state.verified_tip().l1_height + 1;
-
-        let res = run_validation(&state, current_l1_height, &envelope, asm_manifests_hash);
+        let res = verify_progression(harness.verified_tip(), payload.new_tip(), current_l1_height);
         assert!(res.is_ok());
     }
 
     #[test]
     fn test_new_l1_tip_goes_backwards() {
-        let (state, harness) = test_setup();
+        let harness = CheckpointTestHarness::new_random();
         let mut payload = harness.build_payload();
-        payload.new_tip.l1_height = state.verified_tip().l1_height - 1;
-        let asm_manifests_hash = harness.gen_asm_manifests_hash(payload.new_tip());
-        let envelope = harness.wrap_in_envelope(payload);
+        payload.new_tip.l1_height = harness.verified_tip().l1_height - 1;
+        let current_l1_height = harness.verified_tip().l1_height + 1;
 
-        let current_l1_height = state.verified_tip().l1_height + 1;
-
-        let err =
-            run_validation(&state, current_l1_height, &envelope, asm_manifests_hash).unwrap_err();
+        let err = verify_progression(harness.verified_tip(), payload.new_tip(), current_l1_height)
+            .unwrap_err();
         assert!(matches!(
             err,
             CheckpointValidationError::InvalidPayload(
                 InvalidCheckpointPayload::L1HeightRegresses { .. }
             )
-        ))
+        ));
     }
 
     #[test]
     fn test_l2_slot_does_not_advance() {
-        let (state, harness) = test_setup();
+        let harness = CheckpointTestHarness::new_random();
         let mut payload = harness.build_payload();
-        let asm_manifests_hash = harness.gen_asm_manifests_hash(payload.new_tip());
-
-        // Set new L2 slot to be equal to the previous slot (no progression)
-        payload.new_tip.l2_commitment = *state.verified_tip().l2_commitment();
-
+        // Set new L2 slot to be equal to the previous slot (no progression).
+        payload.new_tip.l2_commitment = *harness.verified_tip().l2_commitment();
         let current_l1_height = payload.new_tip().l1_height + 1;
-        let envelope = harness.wrap_in_envelope(payload);
 
-        let err =
-            run_validation(&state, current_l1_height, &envelope, asm_manifests_hash).unwrap_err();
+        let err = verify_progression(harness.verified_tip(), payload.new_tip(), current_l1_height)
+            .unwrap_err();
         assert!(matches!(
             err,
             CheckpointValidationError::InvalidPayload(
@@ -537,6 +469,8 @@ mod tests {
             )
         ));
     }
+
+    // --- Proof verification + withdrawal extraction (phase 2) ---
 
     #[test]
     fn test_invalid_state_diff() {
@@ -547,10 +481,9 @@ mod tests {
 
         // Modify the payload to include invalid state diff after proof generation.
         payload.sidecar.ol_state_diff = vec![99u8; 88].try_into().unwrap();
-        let envelope = harness.wrap_in_envelope(payload);
 
-        let err =
-            run_validation(&state, current_l1_height, &envelope, asm_manifests_hash).unwrap_err();
+        let err = run_proof_pipeline(&state, current_l1_height, &payload, asm_manifests_hash)
+            .unwrap_err();
         assert!(matches!(
             err,
             CheckpointValidationError::InvalidPayload(
@@ -570,10 +503,8 @@ mod tests {
         let dummy_log = OLLog::new(AccountSerial::zero(), Vec::new());
         payload.sidecar.ol_logs = VariableList::new(vec![dummy_log]).unwrap();
 
-        let envelope = harness.wrap_in_envelope(payload);
-
-        let err =
-            run_validation(&state, current_l1_height, &envelope, asm_manifests_hash).unwrap_err();
+        let err = run_proof_pipeline(&state, current_l1_height, &payload, asm_manifests_hash)
+            .unwrap_err();
         assert!(matches!(
             err,
             CheckpointValidationError::InvalidPayload(
@@ -597,10 +528,8 @@ mod tests {
             *terminal_header_complement.logs_root(),
         );
 
-        let envelope = harness.wrap_in_envelope(payload);
-
-        let err =
-            run_validation(&state, current_l1_height, &envelope, asm_manifests_hash).unwrap_err();
+        let err = run_proof_pipeline(&state, current_l1_height, &payload, asm_manifests_hash)
+            .unwrap_err();
         assert!(matches!(
             err,
             CheckpointValidationError::InvalidPayload(
@@ -613,18 +542,14 @@ mod tests {
     fn test_invalid_ol_l1_progression() {
         let (state, harness) = test_setup();
         let mut payload = harness.build_payload();
-
         let current_l1_height = payload.new_tip().l1_height + 100;
 
         // Modify the payload to include more L1 blocks after proof generation.
         payload.new_tip.l1_height += 10;
-
         let asm_manifests_hash = harness.gen_asm_manifests_hash(payload.new_tip());
 
-        let envelope = harness.wrap_in_envelope(payload);
-
-        let err =
-            run_validation(&state, current_l1_height, &envelope, asm_manifests_hash).unwrap_err();
+        let err = run_proof_pipeline(&state, current_l1_height, &payload, asm_manifests_hash)
+            .unwrap_err();
         assert!(matches!(
             err,
             CheckpointValidationError::InvalidPayload(

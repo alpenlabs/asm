@@ -7,7 +7,7 @@ use strata_checkpoint_verification::{
     state::CheckpointState,
     verification::{
         ValidatedCheckpointWithdrawals, verify_progression,
-        verify_proof_and_extract_withdrawal_intents,
+        verify_proof_and_extract_withdrawal_intents, verify_sequencer_predicate,
     },
 };
 use strata_identifiers::L1Height;
@@ -38,9 +38,22 @@ pub(crate) fn handle_checkpoint_tx(
 
     logging::debug!(epoch, "processing checkpoint transaction");
 
+    // Authenticate the envelope against the sequencer predicate before doing any
+    // progression or proof work.
+    if let Err(e) =
+        verify_sequencer_predicate(state.sequencer_predicate(), &envelope.envelope_pubkey)
+    {
+        logging::warn!(epoch, error = %e, "checkpoint envelope authentication failed");
+        return;
+    }
+
     // Phase 1: validate epoch / L1 / L2 progression. Yields the L1 range whose ASM
     // manifests we must hash for phase 2.
-    let validated_range = match verify_progression(state, current_l1_height, &envelope) {
+    let validated_range = match verify_progression(
+        state.verified_tip(),
+        envelope.payload.new_tip(),
+        current_l1_height,
+    ) {
         Ok(r) => r,
         Err(e) => {
             logging::warn!(epoch, error = %e, "checkpoint progression verification failed");
@@ -66,7 +79,7 @@ pub(crate) fn handle_checkpoint_tx(
     // hash, and extract withdrawal intents.
     let validated = match verify_proof_and_extract_withdrawal_intents(
         state,
-        &envelope,
+        &envelope.payload,
         validated_range,
         asm_manifests_hash,
     ) {
