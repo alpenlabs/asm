@@ -62,8 +62,8 @@ pub(crate) fn handle_action(
     current_height: L1Height,
     relayer: &mut impl MsgRelayer,
 ) -> Result<(), AdministrationError> {
-    // Determine the required role based on the action type and current queue state.
-    let role = state.resolve_action_role(&payload.action)?;
+    // Determine the required role; both update and cancel actions are self-describing.
+    let role = state.resolve_action_role(&payload.action);
 
     // Get the authority for this role and validate the action with the aggregated signature
     let authority = state
@@ -95,7 +95,17 @@ pub(crate) fn handle_action(
             state.increment_next_update_id();
         }
         MultisigAction::Cancel(cancel) => {
-            // Remove the target action from the queue
+            // The signature already covers the embedded update, so this equality check is
+            // belt-and-suspenders: turn what would otherwise be a generic verification
+            // failure into a precise, actionable error.
+            let queued = state
+                .find_queued(cancel.target_id())
+                .ok_or(AdministrationError::UnknownAction(*cancel.target_id()))?;
+            if queued.action() != cancel.update() {
+                return Err(AdministrationError::CancelUpdateMismatch {
+                    target_id: *cancel.target_id(),
+                });
+            }
             state.remove_queued(cancel.target_id());
         }
     }
@@ -654,8 +664,9 @@ mod tests {
 
         // Then cancel each queued update one by one based on the random order.
         for id in cancel_order {
-            let cancel_action = MultisigAction::Cancel(CancelAction::new(id));
-            let authorized_role = state.find_queued(&id).unwrap().action().required_role();
+            let queued_action = state.find_queued(&id).unwrap().action().clone();
+            let authorized_role = queued_action.required_role();
+            let cancel_action = MultisigAction::Cancel(CancelAction::new(id, queued_action));
             // Capture initial state before cancellation
             let last_seqno = state.authority(authorized_role).unwrap().last_seqno();
             let payload_seqno = last_seqno + 1;
@@ -729,7 +740,7 @@ mod tests {
             .first()
             .unwrap()
             .clone();
-        let update_action = MultisigAction::Update(update);
+        let update_action = MultisigAction::Update(update.clone());
 
         // create signer indices (signers 0 and 2)
         let signer_indices = [0u8, 2u8];
@@ -748,7 +759,8 @@ mod tests {
         handle_action(&mut state, payload, current_height, &mut relayer).unwrap();
 
         // Cancel the update action (authority seqno is now 1, use seqno 2)
-        let cancel_action = MultisigAction::Cancel(CancelAction::new(update_id));
+        let cancel_action =
+            MultisigAction::Cancel(CancelAction::new(update_id, update.clone()));
         let cancel_seqno = last_seqno + 2;
         let sig_set = create_signature_set(
             &admin_sks,
@@ -764,7 +776,7 @@ mod tests {
         assert!(res.is_ok());
 
         // Try cancelling the update action again (authority seqno is now 2, use seqno 3)
-        let cancel_action = MultisigAction::Cancel(CancelAction::new(update_id));
+        let cancel_action = MultisigAction::Cancel(CancelAction::new(update_id, update));
         let retry_seqno = last_seqno + 3;
         let sig_set = create_signature_set(
             &admin_sks,

@@ -16,6 +16,10 @@ pub enum AdministrationError {
     #[error("no pending update found for action_id = {0:?}")]
     UnknownAction(UpdateId),
 
+    /// The cancel's embedded update does not match the queued action at the target id.
+    #[error("cancel target_id {target_id} update payload does not match queued action")]
+    CancelUpdateMismatch { target_id: UpdateId },
+
     /// The payload's sequence number is not greater than the last executed sequence number.
     #[error(
         "invalid seqno for {role:?}: payload seqno {payload_seqno} must be greater than \

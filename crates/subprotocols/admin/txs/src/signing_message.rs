@@ -47,12 +47,17 @@ pub fn compute_signing_message_hash(action: &MultisigAction, seqno: u64, role: R
 
 #[cfg(test)]
 mod tests {
+    use strata_identifiers::Buf32;
+
     use super::*;
-    use crate::actions::CancelAction;
+    use crate::actions::{
+        CancelAction, UpdateAction, updates::strata_sequencer::SequencerUpdate,
+    };
 
     #[test]
-    fn test_cancel_message_uses_resolved_role() {
-        let action = MultisigAction::Cancel(CancelAction::new(7));
+    fn test_cancel_message_renders_embedded_update() {
+        let update = UpdateAction::Sequencer(SequencerUpdate::new(Buf32::from([0x11u8; 32])));
+        let action = MultisigAction::Cancel(CancelAction::new(7, update));
 
         let message = render_signing_message(&action, 9, Role::StrataSequencerManager);
         assert_eq!(
@@ -62,7 +67,8 @@ mod tests {
              Sequence: 9\n\
              Action: Cancel\n\
              Action Details:\n  \
-             Target Id: 7"
+             Target Id: 7\n  \
+             New Sequencer Key: 1111111111111111111111111111111111111111111111111111111111111111"
         );
     }
 }

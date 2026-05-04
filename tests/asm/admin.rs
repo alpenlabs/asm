@@ -311,8 +311,9 @@ async fn test_cancel_removes_queued_update() {
     assert_eq!(*state.queued()[0].id(), 0, "Queued update should have ID 0");
 
     // Cancel the queued update
+    let cancel = cancel_update(0, &state);
     harness
-        .submit_admin_action(&mut ctx, cancel_update(0))
+        .submit_admin_action(&mut ctx, cancel)
         .await
         .unwrap();
 
@@ -586,8 +587,9 @@ async fn test_cancel_prevents_queued_update_activation() {
     assert_eq!(state.next_update_id(), 1, "Update ID should be 1");
 
     // Submit cancel in the next block (before activation)
+    let cancel = cancel_update(0, &state);
     harness
-        .submit_admin_action(&mut ctx, cancel_update(0))
+        .submit_admin_action(&mut ctx, cancel)
         .await
         .unwrap();
 

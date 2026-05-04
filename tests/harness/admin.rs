@@ -146,9 +146,7 @@ impl AdminContext {
     fn role_for_action(action: &MultisigAction) -> anyhow::Result<Role> {
         match action {
             MultisigAction::Update(update) => Ok(update.required_role()),
-            MultisigAction::Cancel(_) => Err(anyhow::anyhow!(
-                "cancel actions require explicit role resolution from queue state"
-            )),
+            MultisigAction::Cancel(cancel) => Ok(cancel.update().required_role()),
         }
     }
 
@@ -178,8 +176,16 @@ pub fn operator_set_update(add: Vec<EvenPublicKey>, remove: Vec<u32>) -> Multisi
 }
 
 /// Create a cancel action for a queued update.
-pub fn cancel_update(id: u32) -> MultisigAction {
-    MultisigAction::Cancel(CancelAction::new(id))
+///
+/// Looks up the queued action at `id` so the cancel embeds the correct `UpdateAction`
+/// payload (required for role resolution and the handler's equality check).
+pub fn cancel_update(id: u32, state: &AdministrationSubprotoState) -> MultisigAction {
+    let update = state
+        .find_queued(&id)
+        .expect("queued update must exist for cancel")
+        .action()
+        .clone();
+    MultisigAction::Cancel(CancelAction::new(id, update))
 }
 
 /// Create a multisig config update action.
@@ -288,7 +294,7 @@ impl AdminExt for AsmTestHarness {
         ctx: &mut AdminContext,
         action: MultisigAction,
     ) -> anyhow::Result<BlockHash> {
-        let role = self.admin_state()?.resolve_action_role(&action)?;
+        let role = self.admin_state()?.resolve_action_role(&action);
         let payload = ctx.sign_for_role(&action, role);
         let tx = self.build_envelope_tx(action.tag(), payload).await?;
         self.submit_and_mine_tx(&tx).await
@@ -301,7 +307,7 @@ impl AdminExt for AsmTestHarness {
         seqno: u64,
     ) -> anyhow::Result<BlockHash> {
         let tag = action.tag();
-        let role = self.admin_state()?.resolve_action_role(&action)?;
+        let role = self.admin_state()?.resolve_action_role(&action);
         let payload = ctx.sign_with_seqno_for_role(&action, role, seqno);
         let tx = self.build_envelope_tx(tag, payload).await?;
         self.submit_and_mine_tx(&tx).await

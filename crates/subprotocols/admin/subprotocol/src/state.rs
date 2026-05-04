@@ -68,18 +68,12 @@ impl AdministrationSubprotoState {
 
     /// Resolves which role must authorize the provided action.
     ///
-    /// Updates are self-describing. Cancels require queue context because the target role is
-    /// determined by the queued action being cancelled.
-    pub fn resolve_action_role(
-        &self,
-        action: &MultisigAction,
-    ) -> Result<Role, AdministrationError> {
+    /// Both action variants are self-describing: updates carry their type directly, and cancels
+    /// embed the `UpdateAction` they target so the role can be derived without queue context.
+    pub fn resolve_action_role(&self, action: &MultisigAction) -> Role {
         match action {
-            MultisigAction::Update(update) => Ok(update.required_role()),
-            MultisigAction::Cancel(cancel) => self
-                .find_queued(cancel.target_id())
-                .map(|queued| queued.action().required_role())
-                .ok_or(AdministrationError::UnknownAction(*cancel.target_id())),
+            MultisigAction::Update(update) => update.required_role(),
+            MultisigAction::Cancel(cancel) => cancel.update().required_role(),
         }
     }
 
