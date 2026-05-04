@@ -16,27 +16,15 @@ use zkaleido_logging as logging;
 
 use crate::{
     errors::{CheckpointValidationResult, InvalidCheckpointPayload, InvalidSequencerPredicate},
-    state::{CheckpointState, VerifiedWithdrawals},
+    state::CheckpointState,
 };
-
-/// Successful result of checkpoint validation.
-///
-/// Contains the extracted withdrawal intents and a [`VerifiedWithdrawals`] token that must be
-/// passed to the checkpoint state's deduction method to apply the fund update.
-#[derive(Debug)]
-pub struct ValidatedCheckpointWithdrawals {
-    /// Withdrawal intents extracted from the checkpoint's OL logs.
-    pub withdrawal_intents: Vec<(WithdrawOutput, OperatorSelection)>,
-    /// Token proving that the withdrawals have been verified against available funds.
-    pub verified_withdrawals: VerifiedWithdrawals,
-}
 
 /// Token returned by [`verify_progression`] identifying the L1 block range the checkpoint
 /// covers.
 ///
 /// The contained `start_height` and `end_height` (inclusive) are the heights of the L1
 /// blocks whose ASM manifests must be hashed and passed back to
-/// [`verify_proof_and_extract_withdrawal_intents`]. Has no public constructor: instances
+/// [`CheckpointState::verify_proof_and_apply`]. Has no public constructor: instances
 /// can only be obtained from [`verify_progression`], which enforces at the type level
 /// that the range has been validated before manifest hashes are consumed.
 #[derive(Debug)]
@@ -57,15 +45,13 @@ impl ValidatedL1Range {
     }
 }
 
-/// Phase 1 of checkpoint validation: validates the checkpoint's range against progression
-/// rules — epoch advances by exactly 1, L1 height does not regress and stays strictly
-/// below the current L1 tip, and L2 slot advances.
+/// Validates the checkpoint's range against progression rules — epoch advances by
+/// exactly 1, L1 height does not regress and stays strictly below the current L1 tip,
+/// and L2 slot advances.
 ///
 /// On success, returns a [`ValidatedL1Range`] identifying the L1 block range whose ASM
-/// manifests the caller must hash for phase 2. The caller resolves the range to manifest
-/// hashes and passes them — alongside the token — to
-/// [`verify_proof_and_extract_withdrawal_intents`], which performs sequencer
-/// authentication and proof verification.
+/// manifests the caller must hash. The caller resolves the range to manifest hashes and
+/// passes them — alongside the token — to [`CheckpointState::verify_proof_and_apply`].
 ///
 /// This function is pure — it does not mutate state.
 pub fn verify_progression(
@@ -127,25 +113,16 @@ pub fn verify_progression(
     })
 }
 
-/// Phase 2 of checkpoint validation: verifies the ZK proof against the precomputed ASM
-/// manifests hash and extracts withdrawal intents.
+/// Verifies the checkpoint ZK proof against the precomputed ASM manifests hash.
 ///
-/// The [`ValidatedL1Range`] token must come from a successful [`verify_progression`] call
-/// against the same checkpoint, ensuring the range was validated before manifest hashes
-/// were resolved. The token is consumed.
-///
-/// Envelope authentication via [`verify_sequencer_predicate`] is the caller's
-/// responsibility — typically gated before this call.
-///
-/// This function is pure — it does not mutate state.
-pub fn verify_proof_and_extract_withdrawal_intents(
+/// Reconstructs the full [`CheckpointClaim`] from the verified tip, the payload's new
+/// tip, the sidecar fields, and the precomputed manifest hash, then runs the checkpoint
+/// predicate against it.
+pub(crate) fn verify_proof(
     state: &CheckpointState,
     payload: &CheckpointPayload,
-    _validated_range: ValidatedL1Range,
     asm_manifests_hash: AsmManifestRangeHash,
-) -> CheckpointValidationResult<ValidatedCheckpointWithdrawals> {
-    // Reconstruct the full claim from the verified tip, the new tip, the sidecar, and
-    // the precomputed ASM manifests hash, then verify the proof against it.
+) -> CheckpointValidationResult<()> {
     let claim = construct_full_claim(
         &state.verified_tip,
         payload.new_tip(),
@@ -158,17 +135,7 @@ pub fn verify_proof_and_extract_withdrawal_intents(
         .verify_claim_witness(&claim.as_ssz_bytes(), payload.proof())
         .map_err(InvalidCheckpointPayload::CheckpointPredicateVerification)?;
 
-    // Extract withdrawal intents from the OL logs and verify available funds can cover
-    // them with exact-denomination UTXO matches.
-    let withdrawal_intents = extract_and_validate_withdrawal_intents(payload.sidecar().ol_logs())?;
-
-    let withdraw_outputs: Vec<_> = withdrawal_intents.iter().map(|(w, _)| w.clone()).collect();
-    let verified_withdrawals = state.verify_can_honor_withdrawals(&withdraw_outputs)?;
-
-    Ok(ValidatedCheckpointWithdrawals {
-        withdrawal_intents,
-        verified_withdrawals,
-    })
+    Ok(())
 }
 
 /// Verifies that the envelope pubkey is authorized by the sequencer predicate.
@@ -245,7 +212,7 @@ fn construct_full_claim(
 ///
 /// Filters OL logs from the bridge gateway account, validates that withdrawal intent
 /// destination descriptors can be parsed, and returns the extracted withdrawal outputs.
-fn extract_and_validate_withdrawal_intents(
+pub(crate) fn extract_and_validate_withdrawal_intents(
     logs: &[OLLog],
 ) -> CheckpointValidationResult<Vec<(WithdrawOutput, OperatorSelection)>> {
     let mut withdrawal_intents = Vec::new();
@@ -283,6 +250,7 @@ fn extract_and_validate_withdrawal_intents(
 mod tests {
     use ssz_types::VariableList;
     use strata_asm_manifest_types::AsmManifestRangeHash;
+    use strata_asm_proto_bridge_v1_types::{OperatorSelection, WithdrawOutput};
     use strata_asm_proto_checkpoint_types::{CheckpointPayload, OLLog, TerminalHeaderComplement};
     use strata_identifiers::AccountSerial;
     use strata_predicate::PredicateKey;
@@ -294,10 +262,7 @@ mod tests {
             InvalidSequencerPredicate,
         },
         state::CheckpointState,
-        verification::{
-            ValidatedCheckpointWithdrawals, verify_progression,
-            verify_proof_and_extract_withdrawal_intents, verify_sequencer_predicate,
-        },
+        verification::{verify_progression, verify_sequencer_predicate},
     };
 
     fn test_setup() -> (CheckpointState, CheckpointTestHarness) {
@@ -310,22 +275,22 @@ mod tests {
         (state, harness)
     }
 
-    /// Drives progression + proof phases with a precomputed manifest hash. Used by
-    /// proof-phase tests that need a real `ValidatedL1Range` token to reach phase 2.
+    /// Drives the full progression + proof pipeline with a precomputed manifest hash.
+    /// Used by tests that need a real `ValidatedL1Range` token to reach proof verification.
     /// Skips sequencer authentication, which has its own dedicated tests.
     fn run_proof_pipeline(
-        state: &CheckpointState,
+        state: &mut CheckpointState,
         current_l1_height: u32,
         payload: &CheckpointPayload,
         asm_manifests_hash: AsmManifestRangeHash,
-    ) -> CheckpointValidationResult<ValidatedCheckpointWithdrawals> {
+    ) -> CheckpointValidationResult<Vec<(WithdrawOutput, OperatorSelection)>> {
         let range = verify_progression(state.verified_tip(), payload.new_tip(), current_l1_height)?;
-        verify_proof_and_extract_withdrawal_intents(state, payload, range, asm_manifests_hash)
+        state.verify_proof_and_apply(payload, range, asm_manifests_hash)
     }
 
     #[test]
     fn test_validate_checkpoint_success() {
-        let (state, harness) = test_setup();
+        let (mut state, harness) = test_setup();
         let payload = harness.build_payload();
         let new_tip = *payload.new_tip();
         let asm_manifests_hash = harness.gen_asm_manifests_hash(&new_tip);
@@ -333,7 +298,7 @@ mod tests {
 
         verify_sequencer_predicate(state.sequencer_predicate(), harness.sequencer_pubkey())
             .expect("auth");
-        let res = run_proof_pipeline(&state, current_l1_height, &payload, asm_manifests_hash);
+        let res = run_proof_pipeline(&mut state, current_l1_height, &payload, asm_manifests_hash);
         assert!(res.is_ok());
     }
 
@@ -385,7 +350,7 @@ mod tests {
         ));
     }
 
-    // --- Progression (phase 1) ---
+    // --- Progression ---
 
     #[test]
     fn test_invalid_epoch_progression() {
@@ -470,11 +435,11 @@ mod tests {
         ));
     }
 
-    // --- Proof verification + withdrawal extraction (phase 2) ---
+    // --- Proof verification + withdrawal extraction ---
 
     #[test]
     fn test_invalid_state_diff() {
-        let (state, harness) = test_setup();
+        let (mut state, harness) = test_setup();
         let mut payload = harness.build_payload();
         let asm_manifests_hash = harness.gen_asm_manifests_hash(payload.new_tip());
         let current_l1_height = payload.new_tip().l1_height + 1;
@@ -482,7 +447,7 @@ mod tests {
         // Modify the payload to include invalid state diff after proof generation.
         payload.sidecar.ol_state_diff = vec![99u8; 88].try_into().unwrap();
 
-        let err = run_proof_pipeline(&state, current_l1_height, &payload, asm_manifests_hash)
+        let err = run_proof_pipeline(&mut state, current_l1_height, &payload, asm_manifests_hash)
             .unwrap_err();
         assert!(matches!(
             err,
@@ -494,7 +459,7 @@ mod tests {
 
     #[test]
     fn test_invalid_ol_logs() {
-        let (state, harness) = test_setup();
+        let (mut state, harness) = test_setup();
         let mut payload = harness.build_payload();
         let asm_manifests_hash = harness.gen_asm_manifests_hash(payload.new_tip());
         let current_l1_height = payload.new_tip().l1_height + 1;
@@ -503,7 +468,7 @@ mod tests {
         let dummy_log = OLLog::new(AccountSerial::zero(), Vec::new());
         payload.sidecar.ol_logs = VariableList::new(vec![dummy_log]).unwrap();
 
-        let err = run_proof_pipeline(&state, current_l1_height, &payload, asm_manifests_hash)
+        let err = run_proof_pipeline(&mut state, current_l1_height, &payload, asm_manifests_hash)
             .unwrap_err();
         assert!(matches!(
             err,
@@ -515,7 +480,7 @@ mod tests {
 
     #[test]
     fn test_invalid_terminal_header_complement() {
-        let (state, harness) = test_setup();
+        let (mut state, harness) = test_setup();
         let mut payload = harness.build_payload();
         let asm_manifests_hash = harness.gen_asm_manifests_hash(payload.new_tip());
         let current_l1_height = payload.new_tip().l1_height + 1;
@@ -528,7 +493,7 @@ mod tests {
             *terminal_header_complement.logs_root(),
         );
 
-        let err = run_proof_pipeline(&state, current_l1_height, &payload, asm_manifests_hash)
+        let err = run_proof_pipeline(&mut state, current_l1_height, &payload, asm_manifests_hash)
             .unwrap_err();
         assert!(matches!(
             err,
@@ -540,7 +505,7 @@ mod tests {
 
     #[test]
     fn test_invalid_ol_l1_progression() {
-        let (state, harness) = test_setup();
+        let (mut state, harness) = test_setup();
         let mut payload = harness.build_payload();
         let current_l1_height = payload.new_tip().l1_height + 100;
 
@@ -548,7 +513,7 @@ mod tests {
         payload.new_tip.l1_height += 10;
         let asm_manifests_hash = harness.gen_asm_manifests_hash(payload.new_tip());
 
-        let err = run_proof_pipeline(&state, current_l1_height, &payload, asm_manifests_hash)
+        let err = run_proof_pipeline(&mut state, current_l1_height, &payload, asm_manifests_hash)
             .unwrap_err();
         assert!(matches!(
             err,

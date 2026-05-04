@@ -1,14 +1,18 @@
 use std::collections::BTreeMap;
 
 use ssz_derive::{Decode, Encode};
+use strata_asm_manifest_types::AsmManifestRangeHash;
 use strata_asm_params::CheckpointInitConfig;
-use strata_asm_proto_bridge_v1_types::WithdrawOutput;
-use strata_asm_proto_checkpoint_types::CheckpointTip;
+use strata_asm_proto_bridge_v1_types::{OperatorSelection, WithdrawOutput};
+use strata_asm_proto_checkpoint_types::{CheckpointPayload, CheckpointTip};
 use strata_btc_types::BitcoinAmount;
 use strata_identifiers::L2BlockCommitment;
 use strata_predicate::PredicateKey;
 
-use crate::errors::InvalidCheckpointPayload;
+use crate::{
+    errors::{CheckpointValidationResult, InvalidCheckpointPayload},
+    verification::{ValidatedL1Range, extract_and_validate_withdrawal_intents, verify_proof},
+};
 
 /// Opaque proof token for a verified set of withdrawal intents.
 ///
@@ -113,13 +117,46 @@ impl CheckpointState {
     }
 
     /// Updates the verified checkpoint tip after successful verification.
-    pub fn update_verified_tip(&mut self, new_tip: CheckpointTip) {
+    fn update_verified_tip(&mut self, new_tip: CheckpointTip) {
         self.verified_tip = new_tip
     }
 
     /// Records a processed deposit, incrementing the UTXO count for this denomination.
     pub fn record_deposit(&mut self, amount: BitcoinAmount) {
         *self.available_funds.entry(amount).or_insert(0) += 1;
+    }
+
+    /// Verifies the ZK proof against the precomputed ASM manifests hash, extracts
+    /// withdrawal intents, and — only on success — deducts the withdrawn funds and
+    /// advances the verified tip. Returns the extracted withdrawal intents for the
+    /// caller to relay.
+    ///
+    /// State is mutated iff the returned `Result` is `Ok` — partial application is
+    /// not possible.
+    ///
+    /// The [`ValidatedL1Range`] token must come from a successful
+    /// [`verify_progression`](crate::verification::verify_progression) call against the
+    /// same checkpoint. Envelope authentication via
+    /// [`verify_sequencer_predicate`](crate::verification::verify_sequencer_predicate)
+    /// is the caller's responsibility.
+    pub fn verify_proof_and_apply(
+        &mut self,
+        payload: &CheckpointPayload,
+        _validated_range: ValidatedL1Range,
+        asm_manifests_hash: AsmManifestRangeHash,
+    ) -> CheckpointValidationResult<Vec<(WithdrawOutput, OperatorSelection)>> {
+        verify_proof(self, payload, asm_manifests_hash)?;
+
+        let withdrawal_intents =
+            extract_and_validate_withdrawal_intents(payload.sidecar().ol_logs())?;
+
+        let withdraw_outputs: Vec<_> = withdrawal_intents.iter().map(|(w, _)| w.clone()).collect();
+        let verified_withdrawals = self.verify_can_honor_withdrawals(&withdraw_outputs)?;
+
+        self.deduct_withdrawals(verified_withdrawals);
+        self.update_verified_tip(payload.new_tip);
+
+        Ok(withdrawal_intents)
     }
 
     /// Verifies that the available funds can cover all withdrawal intents.
@@ -152,7 +189,7 @@ impl CheckpointState {
     ///
     /// Requires a [`VerifiedWithdrawals`] token, which can only be obtained from
     /// [`verify_can_honor_withdrawals`](Self::verify_can_honor_withdrawals).
-    pub fn deduct_withdrawals(&mut self, token: VerifiedWithdrawals) {
+    fn deduct_withdrawals(&mut self, token: VerifiedWithdrawals) {
         self.available_funds = token.0;
     }
 }

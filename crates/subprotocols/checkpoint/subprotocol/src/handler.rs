@@ -5,10 +5,7 @@ use strata_asm_proto_checkpoint_txs::extract_checkpoint_from_envelope;
 use strata_asm_proto_checkpoint_types::compute_asm_manifests_hash_from_leaves;
 use strata_checkpoint_verification::{
     state::CheckpointState,
-    verification::{
-        ValidatedCheckpointWithdrawals, verify_progression,
-        verify_proof_and_extract_withdrawal_intents, verify_sequencer_predicate,
-    },
+    verification::{verify_progression, verify_sequencer_predicate},
 };
 use strata_identifiers::L1Height;
 
@@ -47,8 +44,8 @@ pub(crate) fn handle_checkpoint_tx(
         return;
     }
 
-    // Phase 1: validate epoch / L1 / L2 progression. Yields the L1 range whose ASM
-    // manifests we must hash for phase 2.
+    // Validate epoch / L1 / L2 progression. Yields the L1 range whose ASM manifests
+    // we must resolve before proof verification.
     let validated_range = match verify_progression(
         state.verified_tip(),
         envelope.payload.new_tip(),
@@ -62,8 +59,8 @@ pub(crate) fn handle_checkpoint_tx(
     };
 
     // Resolve the validated range to manifest hashes. Aux data MUST be available for any
-    // range produced by phase 1 — failure here means the runtime did not honor the request
-    // issued in `pre_process_txs`, not a checkpoint-level rejection.
+    // range produced by `verify_progression` — failure here means the runtime did not honor
+    // the request issued in `pre_process_txs`, not a checkpoint-level rejection.
     let manifest_hashes = verified_aux_data
         .get_manifest_hashes(
             validated_range.start_height() as u64,
@@ -75,10 +72,9 @@ pub(crate) fn handle_checkpoint_tx(
         });
     let asm_manifests_hash = compute_asm_manifests_hash_from_leaves(&manifest_hashes);
 
-    // Phase 2: authenticate the envelope, verify the ZK proof against the precomputed
-    // hash, and extract withdrawal intents.
-    let validated = match verify_proof_and_extract_withdrawal_intents(
-        state,
+    // Verify the ZK proof against the precomputed hash, extract withdrawal intents, and
+    // atomically apply the resulting state changes.
+    let withdrawal_intents = match state.verify_proof_and_apply(
         &envelope.payload,
         validated_range,
         asm_manifests_hash,
@@ -90,17 +86,9 @@ pub(crate) fn handle_checkpoint_tx(
         }
     };
 
-    let ValidatedCheckpointWithdrawals {
-        withdrawal_intents,
-        verified_withdrawals,
-    } = validated;
-
     logging::info!(epoch, "checkpoint validated successfully");
 
-    state.deduct_withdrawals(verified_withdrawals);
-
     let new_tip = envelope.payload.new_tip;
-    state.update_verified_tip(new_tip);
 
     let checkpoint_tip_update = CheckpointTipUpdate::new(new_tip);
     let log_entry = AsmLogEntry::from_log(&checkpoint_tip_update)
