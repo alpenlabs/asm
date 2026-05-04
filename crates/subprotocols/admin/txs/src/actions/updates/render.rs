@@ -2,22 +2,29 @@ use strata_asm_params::Role;
 use strata_crypto::{hash, threshold_signature::ThresholdConfigUpdate};
 use strata_predicate::{PredicateKey, PredicateTypeId};
 
-use crate::signing_message::{append_indexed_fields, role_label};
+use crate::{
+    actions::IndentedDetails,
+    signing_message::{append_indexed_fields, role_label},
+};
 
-pub(super) fn multisig(role: Role, config: &ThresholdConfigUpdate, lines: &mut Vec<String>) {
-    lines.push(format!("target_role: {}", role_label(role)));
-    lines.push(format!("new_threshold: {}", config.new_threshold()));
+pub(super) fn multisig(
+    role: Role,
+    config: &ThresholdConfigUpdate,
+    details: &mut IndentedDetails<'_>,
+) {
+    details.push(format!("Target Role: {}", role_label(role)));
+    details.push(format!("New Threshold: {}", config.new_threshold()));
     append_indexed_fields(
-        lines,
-        "add_member",
+        details,
+        "Add Member",
         config
             .add_members()
             .iter()
             .map(|member| hex::encode(member.serialize())),
     );
     append_indexed_fields(
-        lines,
-        "remove_member",
+        details,
+        "Remove Member",
         config
             .remove_members()
             .iter()
@@ -25,16 +32,16 @@ pub(super) fn multisig(role: Role, config: &ThresholdConfigUpdate, lines: &mut V
     );
 }
 
-pub(super) fn predicate(label: &str, key: &PredicateKey, lines: &mut Vec<String>) {
+pub(super) fn predicate(label: &str, key: &PredicateKey, details: &mut IndentedDetails<'_>) {
     let predicate_type = PredicateTypeId::try_from(key.id())
         .expect("predicate type should be validated at construction");
     let condition = key.condition();
-    lines.push(format!("proof_type: {label}"));
-    lines.push(format!("predicate_type: {predicate_type}"));
-    lines.push(format!("condition_len: {}", condition.len()));
+    details.push(format!("Proof Type: {label}"));
+    details.push(format!("Predicate Type: {predicate_type}"));
+    details.push(format!("Condition Len: {}", condition.len()));
     if condition.len() <= 32 {
-        lines.push(format!("condition_hex: {}", hex::encode(condition)));
+        details.push(format!("Condition Hex: {}", hex::encode(condition)));
     } else {
-        lines.push(format!("condition_hash: {:x}", hash::raw(condition)));
+        details.push(format!("Condition Hash: {:x}", hash::raw(condition)));
     }
 }

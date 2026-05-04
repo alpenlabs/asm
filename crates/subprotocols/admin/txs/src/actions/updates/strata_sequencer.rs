@@ -3,7 +3,7 @@ use ssz_derive::{Decode, Encode};
 use strata_asm_params::{AdminTxType, UpdateTxType};
 use strata_identifiers::Buf32;
 
-use crate::actions::SigningMessage;
+use crate::actions::{IndentedDetails, SigningMessage};
 
 /// An update to the public key of the sequencer.
 #[derive(Clone, Debug, Eq, PartialEq, Arbitrary, Encode, Decode)]
@@ -33,8 +33,8 @@ impl SigningMessage for SequencerUpdate {
         AdminTxType::Update(UpdateTxType::SequencerUpdate)
     }
 
-    fn render_details(&self, lines: &mut Vec<String>) {
-        lines.push(format!("new_sequencer_key: {:x}", self.pub_key));
+    fn render_details(&self, details: &mut IndentedDetails<'_>) {
+        details.push(format!("New Sequencer Key: {:x}", self.pub_key));
     }
 }
 
@@ -56,12 +56,12 @@ mod tests {
         let message = render_signing_message(&action, 42, Role::StrataSequencerManager);
         assert_eq!(
             message,
-            "Alpen Admin Action\n\
-             version: 1\n\
-             role: StrataSequencerManager\n\
-             sequence: 42\n\
-             action_type: SequencerUpdate\n\
-             new_sequencer_key: 0707070707070707070707070707070707070707070707070707070707070707",
+            "Strata ASM Administration v2\n\
+             Role: StrataSequencerManager\n\
+             Sequence: 42\n\
+             Action: SequencerUpdate\n\
+             Action Details:\n  \
+             New Sequencer Key: 0707070707070707070707070707070707070707070707070707070707070707",
         );
     }
 }

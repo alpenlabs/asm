@@ -22,7 +22,7 @@ use arbitrary::Arbitrary;
 use ssz_derive::{Decode, Encode};
 use strata_asm_params::{AdminTxType, Role, UpdateTxType};
 
-use crate::actions::SigningMessage;
+use crate::actions::{IndentedDetails, SigningMessage};
 
 /// An action that updates some part of the ASM.
 ///
@@ -79,16 +79,16 @@ impl SigningMessage for UpdateAction {
         }
     }
 
-    fn render_details(&self, lines: &mut Vec<String>) {
+    fn render_details(&self, details: &mut IndentedDetails<'_>) {
         match self {
-            UpdateAction::StrataAdminMultisig(u) => u.render_details(lines),
-            UpdateAction::StrataSeqManagerMultisig(u) => u.render_details(lines),
-            UpdateAction::AlpenAdminMultisig(u) => u.render_details(lines),
-            UpdateAction::OperatorSet(u) => u.render_details(lines),
-            UpdateAction::Sequencer(u) => u.render_details(lines),
-            UpdateAction::OlStfVk(u) => u.render_details(lines),
-            UpdateAction::AsmStfVk(u) => u.render_details(lines),
-            UpdateAction::EeStfVk(u) => u.render_details(lines),
+            UpdateAction::StrataAdminMultisig(u) => u.render_details(details),
+            UpdateAction::StrataSeqManagerMultisig(u) => u.render_details(details),
+            UpdateAction::AlpenAdminMultisig(u) => u.render_details(details),
+            UpdateAction::OperatorSet(u) => u.render_details(details),
+            UpdateAction::Sequencer(u) => u.render_details(details),
+            UpdateAction::OlStfVk(u) => u.render_details(details),
+            UpdateAction::AsmStfVk(u) => u.render_details(details),
+            UpdateAction::EeStfVk(u) => u.render_details(details),
         }
     }
 }

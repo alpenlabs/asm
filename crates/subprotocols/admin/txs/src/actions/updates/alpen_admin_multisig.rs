@@ -3,7 +3,7 @@ use ssz_derive::{Decode, Encode};
 use strata_asm_params::{AdminTxType, Role, UpdateTxType};
 use strata_crypto::threshold_signature::ThresholdConfigUpdate;
 
-use crate::actions::SigningMessage;
+use crate::actions::{IndentedDetails, SigningMessage};
 
 /// An update to the Alpen administrator multisig configuration.
 #[derive(Clone, Debug, Eq, PartialEq, Arbitrary, Encode, Decode)]
@@ -28,8 +28,8 @@ impl SigningMessage for AlpenAdminMultisigUpdate {
         AdminTxType::Update(UpdateTxType::AlpenAdminMultisigUpdate)
     }
 
-    fn render_details(&self, lines: &mut Vec<String>) {
-        super::render::multisig(Role::AlpenAdministrator, &self.0, lines)
+    fn render_details(&self, details: &mut IndentedDetails<'_>) {
+        super::render::multisig(Role::AlpenAdministrator, &self.0, details)
     }
 }
 
@@ -58,16 +58,16 @@ mod tests {
         let message = render_signing_message(&action, 12, Role::AlpenAdministrator);
         assert_eq!(
             message,
-            "Alpen Admin Action\n\
-             version: 1\n\
-             role: AlpenAdministrator\n\
-             sequence: 12\n\
-             action_type: AlpenAdminMultisigUpdate\n\
-             target_role: AlpenAdministrator\n\
-             new_threshold: 2\n\
-             add_member_count: 1\n\
-             add_member_1: 020202020202020202020202020202020202020202020202020202020202020202\n\
-             remove_member_count: 0",
+            "Strata ASM Administration v2\n\
+             Role: AlpenAdministrator\n\
+             Sequence: 12\n\
+             Action: AlpenAdminMultisigUpdate\n\
+             Action Details:\n  \
+             Target Role: AlpenAdministrator\n  \
+             New Threshold: 2\n  \
+             Add Member Count: 1\n  \
+             Add Member 1: 020202020202020202020202020202020202020202020202020202020202020202\n  \
+             Remove Member Count: 0",
         );
     }
 }

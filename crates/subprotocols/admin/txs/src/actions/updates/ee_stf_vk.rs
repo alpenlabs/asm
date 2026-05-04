@@ -3,7 +3,7 @@ use ssz_derive::{Decode, Encode};
 use strata_asm_params::{AdminTxType, UpdateTxType};
 use strata_predicate::PredicateKey;
 
-use crate::actions::SigningMessage;
+use crate::actions::{IndentedDetails, SigningMessage};
 
 /// An update to the verifying key for the EE STF.
 #[derive(Clone, Debug, Eq, PartialEq, Arbitrary, Encode, Decode)]
@@ -28,8 +28,8 @@ impl SigningMessage for EeStfVkUpdate {
         AdminTxType::Update(UpdateTxType::EeStfVkUpdate)
     }
 
-    fn render_details(&self, lines: &mut Vec<String>) {
-        super::render::predicate("EeStf", &self.0, lines)
+    fn render_details(&self, details: &mut IndentedDetails<'_>) {
+        super::render::predicate("EeStf", &self.0, details)
     }
 }
 
@@ -53,15 +53,15 @@ mod tests {
         let message = render_signing_message(&action, 11, Role::AlpenAdministrator);
         assert_eq!(
             message,
-            "Alpen Admin Action\n\
-             version: 1\n\
-             role: AlpenAdministrator\n\
-             sequence: 11\n\
-             action_type: EeStfVkUpdate\n\
-             proof_type: EeStf\n\
-             predicate_type: Sp1Groth16\n\
-             condition_len: 2\n\
-             condition_hex: cafe",
+            "Strata ASM Administration v2\n\
+             Role: AlpenAdministrator\n\
+             Sequence: 11\n\
+             Action: EeStfVkUpdate\n\
+             Action Details:\n  \
+             Proof Type: EeStf\n  \
+             Predicate Type: Sp1Groth16\n  \
+             Condition Len: 2\n  \
+             Condition Hex: cafe",
         );
     }
 }

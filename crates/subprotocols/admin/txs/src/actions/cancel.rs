@@ -2,7 +2,7 @@ use arbitrary::Arbitrary;
 use ssz_derive::{Decode, Encode};
 use strata_asm_params::AdminTxType;
 
-use super::SigningMessage;
+use super::{IndentedDetails, SigningMessage};
 use crate::actions::UpdateId;
 
 #[derive(Clone, Debug, Eq, PartialEq, Arbitrary, Encode, Decode)]
@@ -26,7 +26,7 @@ impl SigningMessage for CancelAction {
         AdminTxType::Cancel
     }
 
-    fn render_details(&self, lines: &mut Vec<String>) {
-        lines.push(format!("target_id: {}", self.target_id));
+    fn render_details(&self, details: &mut IndentedDetails<'_>) {
+        details.push(format!("Target Id: {}", self.target_id));
     }
 }

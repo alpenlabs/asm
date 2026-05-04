@@ -3,7 +3,7 @@ use ssz_derive::{Decode, Encode};
 use strata_asm_params::{AdminTxType, UpdateTxType};
 use strata_predicate::PredicateKey;
 
-use crate::actions::SigningMessage;
+use crate::actions::{IndentedDetails, SigningMessage};
 
 /// An update to the verifying key for the OL STF.
 #[derive(Clone, Debug, Eq, PartialEq, Arbitrary, Encode, Decode)]
@@ -28,8 +28,8 @@ impl SigningMessage for OlStfVkUpdate {
         AdminTxType::Update(UpdateTxType::OlStfVkUpdate)
     }
 
-    fn render_details(&self, lines: &mut Vec<String>) {
-        super::render::predicate("OLStf", &self.0, lines)
+    fn render_details(&self, details: &mut IndentedDetails<'_>) {
+        super::render::predicate("OLStf", &self.0, details)
     }
 }
 
@@ -53,15 +53,15 @@ mod tests {
         let message = render_signing_message(&action, 3, Role::StrataAdministrator);
         assert_eq!(
             message,
-            "Alpen Admin Action\n\
-             version: 1\n\
-             role: StrataAdministrator\n\
-             sequence: 3\n\
-             action_type: OlStfVkUpdate\n\
-             proof_type: OLStf\n\
-             predicate_type: Sp1Groth16\n\
-             condition_len: 4\n\
-             condition_hex: deadbeef",
+            "Strata ASM Administration v2\n\
+             Role: StrataAdministrator\n\
+             Sequence: 3\n\
+             Action: OlStfVkUpdate\n\
+             Action Details:\n  \
+             Proof Type: OLStf\n  \
+             Predicate Type: Sp1Groth16\n  \
+             Condition Len: 4\n  \
+             Condition Hex: deadbeef",
         );
     }
 }

@@ -5,7 +5,7 @@ use strata_crypto::EvenPublicKey;
 use strata_identifiers::Buf32;
 
 use crate::{
-    actions::SigningMessage,
+    actions::{IndentedDetails, SigningMessage},
     signing_message::append_indexed_fields,
 };
 
@@ -48,18 +48,18 @@ impl SigningMessage for OperatorSetUpdate {
         AdminTxType::Update(UpdateTxType::OperatorUpdate)
     }
 
-    fn render_details(&self, lines: &mut Vec<String>) {
+    fn render_details(&self, details: &mut IndentedDetails<'_>) {
         append_indexed_fields(
-            lines,
-            "add_member",
+            details,
+            "Add Member",
             self.add_members
                 .iter()
                 .cloned()
                 .map(|member| format!("{:x}", Buf32::from(member))),
         );
         append_indexed_fields(
-            lines,
-            "remove_member",
+            details,
+            "Remove Member",
             self.remove_members.iter().map(u32::to_string),
         );
     }
@@ -91,15 +91,15 @@ mod tests {
         let message = render_signing_message(&action, 9, Role::StrataAdministrator);
         assert_eq!(
             message,
-            "Alpen Admin Action\n\
-             version: 1\n\
-             role: StrataAdministrator\n\
-             sequence: 9\n\
-             action_type: OperatorUpdate\n\
-             add_member_count: 1\n\
-             add_member_1: 79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798\n\
-             remove_member_count: 1\n\
-             remove_member_1: 5",
+            "Strata ASM Administration v2\n\
+             Role: StrataAdministrator\n\
+             Sequence: 9\n\
+             Action: OperatorUpdate\n\
+             Action Details:\n  \
+             Add Member Count: 1\n  \
+             Add Member 1: 79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798\n  \
+             Remove Member Count: 1\n  \
+             Remove Member 1: 5",
         );
     }
 }

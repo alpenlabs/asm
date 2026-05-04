@@ -8,7 +8,7 @@ mod sighash;
 pub mod updates;
 
 pub use cancel::CancelAction;
-pub use sighash::SigningMessage;
+pub use sighash::{IndentedDetails, SigningMessage};
 pub use updates::UpdateAction;
 
 use crate::constants::ADMINISTRATION_SUBPROTOCOL_ID;
@@ -33,10 +33,10 @@ impl SigningMessage for MultisigAction {
         }
     }
 
-    fn render_details(&self, lines: &mut Vec<String>) {
+    fn render_details(&self, details: &mut IndentedDetails<'_>) {
         match self {
-            MultisigAction::Cancel(c) => c.render_details(lines),
-            MultisigAction::Update(u) => u.render_details(lines),
+            MultisigAction::Cancel(c) => c.render_details(details),
+            MultisigAction::Update(u) => u.render_details(details),
         }
     }
 }
