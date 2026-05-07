@@ -43,7 +43,7 @@ use strata_asm_proto_bridge_v1_txs::{
     test_utils::create_test_operators,
 };
 use strata_asm_proto_bridge_v1_types::BRIDGE_GATEWAY_ACCT_SERIAL;
-use strata_asm_proto_checkpoint::{state::CheckpointState, subprotocol::CheckpointSubprotocol};
+use strata_asm_proto_checkpoint::{CheckpointState, CheckpointSubprotocol};
 use strata_asm_proto_checkpoint_types::{CheckpointTip, OLLog, SimpleWithdrawalIntentLogData};
 use strata_btc_types::BitcoinAmount;
 use strata_codec::{encode_to_vec, VarVec};

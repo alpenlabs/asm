@@ -13,7 +13,7 @@
 //! ```
 
 use strata_asm_common::{AnchorState, Subprotocol};
-use strata_asm_proto_checkpoint::{state::CheckpointState, subprotocol::CheckpointSubprotocol};
+use strata_asm_proto_checkpoint::{CheckpointState, CheckpointSubprotocol};
 
 use super::test_harness::AsmTestHarness;
 

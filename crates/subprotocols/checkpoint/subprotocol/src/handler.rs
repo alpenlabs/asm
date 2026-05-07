@@ -4,8 +4,7 @@ use strata_asm_proto_bridge_v1_msgs::{BridgeIncomingMsg, DispatchWithdrawalPaylo
 use strata_asm_proto_checkpoint_txs::extract_checkpoint_from_envelope;
 use strata_asm_proto_checkpoint_types::compute_asm_manifests_hash_from_leaves;
 use strata_checkpoint_verification::{
-    state::CheckpointState,
-    verification::{verify_progression, verify_sequencer_predicate},
+    CheckpointState, verify_progression, verify_sequencer_predicate,
 };
 use strata_identifiers::L1Height;
 
@@ -74,17 +73,14 @@ pub(crate) fn handle_checkpoint_tx(
 
     // Verify the ZK proof against the precomputed hash, extract withdrawal intents, and
     // atomically apply the resulting state changes.
-    let withdrawal_intents = match state.advance(
-        &envelope.payload,
-        validated_range,
-        asm_manifests_hash,
-    ) {
-        Ok(v) => v,
-        Err(e) => {
-            logging::warn!(epoch, error = %e, "checkpoint proof verification failed");
-            return;
-        }
-    };
+    let withdrawal_intents =
+        match state.advance(&envelope.payload, validated_range, asm_manifests_hash) {
+            Ok(v) => v,
+            Err(e) => {
+                logging::warn!(epoch, error = %e, "checkpoint proof verification failed");
+                return;
+            }
+        };
 
     logging::info!(epoch, "checkpoint validated successfully");
 

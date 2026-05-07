@@ -23,7 +23,7 @@ use crate::{
 /// This type has no public constructor or accessors, and is neither [`Clone`] nor [`Copy`],
 /// so that each verification produces exactly one deduction.
 #[derive(Debug)]
-pub struct VerifiedWithdrawals(BTreeMap<BitcoinAmount, u32>);
+struct VerifiedWithdrawals(BTreeMap<BitcoinAmount, u32>);
 
 /// Checkpoint subprotocol state.
 #[derive(Clone, Debug, PartialEq, Encode, Decode)]
@@ -167,7 +167,7 @@ impl CheckpointState {
     ///
     /// Each intent's amount is greedily decomposed into available UTXO denominations
     /// (largest first). This supports both single-denomination and batch withdrawal intents.
-    pub(crate) fn verify_can_honor_withdrawals(
+    fn verify_can_honor_withdrawals(
         &self,
         withdrawal_intents: &[WithdrawOutput],
     ) -> Result<VerifiedWithdrawals, InvalidCheckpointPayload> {

@@ -4,6 +4,10 @@
 //! that authenticates a checkpoint envelope and extracts withdrawal intents, and the
 //! associated error types. Reusable independently of the subprotocol trait wiring.
 
-pub mod errors;
-pub mod state;
-pub mod verification;
+mod errors;
+mod state;
+mod verification;
+
+pub use errors::CheckpointValidationError;
+pub use state::CheckpointState;
+pub use verification::{ValidatedL1Range, verify_progression, verify_sequencer_predicate};

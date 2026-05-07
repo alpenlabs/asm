@@ -4,7 +4,8 @@
 //! [`strata_asm_common::Subprotocol`] trait — handling checkpoint transactions, dispatching
 //! incoming messages from the admin and bridge subprotocols, and emitting tip-update logs.
 
-pub mod handler;
-pub mod subprotocol;
+mod handler;
+mod subprotocol;
 
-pub use strata_checkpoint_verification::state;
+pub use strata_checkpoint_verification::CheckpointState;
+pub use subprotocol::CheckpointSubprotocol;
