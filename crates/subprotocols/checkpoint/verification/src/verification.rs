@@ -124,7 +124,7 @@ pub(crate) fn verify_proof(
     asm_manifests_hash: AsmManifestRangeHash,
 ) -> CheckpointValidationResult<()> {
     let claim = construct_full_claim(
-        &state.verified_tip,
+        state.verified_tip(),
         payload.new_tip(),
         payload.sidecar(),
         asm_manifests_hash,

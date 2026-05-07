@@ -30,15 +30,15 @@ pub struct VerifiedWithdrawals(BTreeMap<BitcoinAmount, u32>);
 pub struct CheckpointState {
     /// Predicate for sequencer signature verification.
     /// Updated via `UpdateSequencerKey` message from admin subprotocol.
-    pub sequencer_predicate: PredicateKey,
+    sequencer_predicate: PredicateKey,
 
     /// Predicate for checkpoint ZK proof verification.
     /// Updated via `UpdateCheckpointPredicate` message from admin subprotocol.
-    pub checkpoint_predicate: PredicateKey,
+    checkpoint_predicate: PredicateKey,
 
     /// Last verified checkpoint tip position.
     /// Tracks the OL state that has been proven and verified by ASM.
-    pub verified_tip: CheckpointTip,
+    verified_tip: CheckpointTip,
 
     /// Available bridge UTXOs tracked by denomination.
     ///

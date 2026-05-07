@@ -41,7 +41,7 @@ async fn test_sequencer_update_propagates_to_checkpoint() {
     harness.mine_block(None).await.unwrap();
 
     let initial_checkpoint_state = harness.checkpoint_state().unwrap();
-    let initial_sequencer_predicate = initial_checkpoint_state.sequencer_predicate.clone();
+    let initial_sequencer_predicate = initial_checkpoint_state.sequencer_predicate().clone();
 
     // Submit a sequencer key update
     let new_key = [42u8; 32];
@@ -53,14 +53,16 @@ async fn test_sequencer_update_propagates_to_checkpoint() {
     let final_checkpoint_state = harness.checkpoint_state().unwrap();
 
     assert_ne!(
-        final_checkpoint_state.sequencer_predicate, initial_sequencer_predicate,
+        final_checkpoint_state.sequencer_predicate(),
+        &initial_sequencer_predicate,
         "Checkpoint sequencer_predicate should be updated after sequencer key change"
     );
 
     // Verify it's specifically a Bip340Schnorr predicate with our new key
     let expected = PredicateKey::new(PredicateTypeId::Bip340Schnorr, new_key.to_vec());
     assert_eq!(
-        final_checkpoint_state.sequencer_predicate, expected,
+        final_checkpoint_state.sequencer_predicate(),
+        &expected,
         "Checkpoint should have the new sequencer predicate"
     );
 }
@@ -103,7 +105,8 @@ async fn test_multiple_sequencer_updates_checkpoint_has_latest() {
     let checkpoint_state = harness.checkpoint_state().unwrap();
     let expected = PredicateKey::new(PredicateTypeId::Bip340Schnorr, key3.to_vec());
     assert_eq!(
-        checkpoint_state.sequencer_predicate, expected,
+        checkpoint_state.sequencer_predicate(),
+        &expected,
         "Checkpoint should have the latest sequencer predicate"
     );
 
@@ -139,7 +142,7 @@ async fn test_predicate_update_propagates_to_checkpoint() {
     harness.mine_block(None).await.unwrap();
 
     let initial_checkpoint_state = harness.checkpoint_state().unwrap();
-    let initial_predicate = initial_checkpoint_state.checkpoint_predicate.clone();
+    let initial_predicate = initial_checkpoint_state.checkpoint_predicate().clone();
 
     // Submit a predicate update (gets queued for StrataAdministrator role)
     let new_predicate = PredicateKey::always_accept();
@@ -155,7 +158,8 @@ async fn test_predicate_update_propagates_to_checkpoint() {
     // Checkpoint predicate should be unchanged while update is queued
     let checkpoint_state = harness.checkpoint_state().unwrap();
     assert_eq!(
-        checkpoint_state.checkpoint_predicate, initial_predicate,
+        checkpoint_state.checkpoint_predicate(),
+        &initial_predicate,
         "Checkpoint predicate should not change while update is queued"
     );
 
@@ -166,7 +170,8 @@ async fn test_predicate_update_propagates_to_checkpoint() {
     // Now verify checkpoint's predicate has been updated
     let final_checkpoint_state = harness.checkpoint_state().unwrap();
     assert_eq!(
-        final_checkpoint_state.checkpoint_predicate, new_predicate,
+        final_checkpoint_state.checkpoint_predicate(),
+        &new_predicate,
         "Checkpoint predicate should be updated after activation"
     );
 
@@ -214,7 +219,8 @@ async fn test_zero_and_nonzero_depth_updates_both_apply() {
         PredicateKey::new(PredicateTypeId::Bip340Schnorr, new_sequencer_key.to_vec());
     let mid_checkpoint_state = harness.checkpoint_state().unwrap();
     assert_eq!(
-        mid_checkpoint_state.sequencer_predicate, expected_seq_predicate,
+        mid_checkpoint_state.sequencer_predicate(),
+        &expected_seq_predicate,
         "Sequencer predicate should be updated immediately at confirmation depth 0"
     );
 
@@ -228,7 +234,8 @@ async fn test_zero_and_nonzero_depth_updates_both_apply() {
     // Predicate should still be initial (update is queued)
     let checkpoint_state = harness.checkpoint_state().unwrap();
     assert_eq!(
-        checkpoint_state.checkpoint_predicate, initial_checkpoint_state.checkpoint_predicate,
+        checkpoint_state.checkpoint_predicate(),
+        initial_checkpoint_state.checkpoint_predicate(),
         "Checkpoint predicate should not change yet (update is queued)"
     );
 
@@ -255,11 +262,13 @@ async fn test_zero_and_nonzero_depth_updates_both_apply() {
     // Now both should be updated in checkpoint
     let final_checkpoint_state = harness.checkpoint_state().unwrap();
     assert_eq!(
-        final_checkpoint_state.sequencer_predicate, expected_seq_predicate,
+        final_checkpoint_state.sequencer_predicate(),
+        &expected_seq_predicate,
         "Sequencer predicate should still be the new value"
     );
     assert_eq!(
-        final_checkpoint_state.checkpoint_predicate, new_predicate,
+        final_checkpoint_state.checkpoint_predicate(),
+        &new_predicate,
         "Checkpoint predicate should now be updated after activation"
     );
 }
