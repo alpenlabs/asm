@@ -47,7 +47,7 @@ impl Subprotocol for CheckpointSubprotocol {
                 match extract_checkpoint_from_envelope(tx) {
                     Ok(envelope) => {
                         // Skip request when the checkpoint covers no new L1 blocks
-                        // (zero L1 progress). Mirrors the `CheckpointL1Coverage::Empty`
+                        // (zero L1 progress). Mirrors the `CheckpointL1Range::Empty`
                         // branch in `handler.rs` so we never ask for an inverted range.
                         let prev_height = state.verified_tip().l1_height;
                         let new_height = envelope.payload.new_tip().l1_height;

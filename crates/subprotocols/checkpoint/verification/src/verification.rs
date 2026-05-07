@@ -40,7 +40,7 @@ pub enum CheckpointL1Range {
 /// exactly 1, L1 height does not regress and stays strictly below the current L1 tip,
 /// and L2 slot advances.
 ///
-/// On success, returns a [`CheckpointL1Coverage`] describing the L1 blocks the new
+/// On success, returns a [`CheckpointL1Range`] describing the L1 blocks the new
 /// checkpoint covers.
 pub fn verify_progression(
     verified_tip: &CheckpointTip,

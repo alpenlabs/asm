@@ -33,6 +33,7 @@ use bitcoin::{
 use bitcoin_bosd::Descriptor;
 use rand::RngCore;
 use strata_asm_common::{AnchorState, Subprotocol};
+use strata_asm_manifest_types::AsmManifestHash;
 use strata_asm_params::{BridgeV1InitConfig, CheckpointInitConfig};
 use strata_asm_proto_bridge_v1::{BridgeV1State, BridgeV1Subproto};
 use strata_asm_proto_bridge_v1_txs::{
@@ -168,10 +169,10 @@ impl BridgeExt for AsmTestHarness {
         let genesis_l1_height = self.genesis_height as u32;
 
         // 1. Get manifest hashes from the live ASM MMR
-        let mmr_leaves: Vec<strata_asm_manifest_types::AsmManifestHash> = self
+        let mmr_leaves: Vec<AsmManifestHash> = self
             .get_mmr_leaves()
             .into_iter()
-            .map(strata_asm_manifest_types::AsmManifestHash::from)
+            .map(AsmManifestHash::from)
             .collect();
 
         // 2. Build the new checkpoint tip covering all processed L1 blocks
