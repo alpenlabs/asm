@@ -144,10 +144,7 @@ async fn test_predicate_update_propagates_to_checkpoint() {
     // Submit a predicate update (gets queued for StrataAdministrator role)
     let new_predicate = PredicateKey::always_accept();
     harness
-        .submit_admin_action(
-            &mut ctx,
-            ol_stf_vk_update(new_predicate.clone()),
-        )
+        .submit_admin_action(&mut ctx, ol_stf_vk_update(new_predicate.clone()))
         .await
         .unwrap();
 
@@ -224,10 +221,7 @@ async fn test_zero_and_nonzero_depth_updates_both_apply() {
     // Submit predicate update (gets queued with activation_height = current + confirmation_depth)
     let new_predicate = PredicateKey::always_accept();
     harness
-        .submit_admin_action(
-            &mut ctx,
-            ol_stf_vk_update(new_predicate.clone()),
-        )
+        .submit_admin_action(&mut ctx, ol_stf_vk_update(new_predicate.clone()))
         .await
         .unwrap();
 

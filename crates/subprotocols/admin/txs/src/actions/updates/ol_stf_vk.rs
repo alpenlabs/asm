@@ -35,7 +35,6 @@ impl SigningMessage for OlStfVkUpdate {
 
 #[cfg(test)]
 mod tests {
-    use strata_asm_params::Role;
     use strata_predicate::PredicateTypeId;
 
     use super::*;
@@ -50,7 +49,7 @@ mod tests {
         let update = OlStfVkUpdate::new(key);
         let action = MultisigAction::Update(UpdateAction::OlStfVk(update));
 
-        let message = render_signing_message(&action, 3, Role::StrataAdministrator);
+        let message = render_signing_message(&action, 3);
         assert_eq!(
             message,
             "Strata ASM Administration v2\n\

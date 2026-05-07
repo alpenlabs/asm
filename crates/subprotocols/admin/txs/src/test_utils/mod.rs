@@ -4,7 +4,6 @@ use bitcoin::{
     sign_message::MessageSignature,
 };
 use ssz::Encode;
-use strata_asm_params::Role;
 use strata_asm_proto_txs_test_utils::create_reveal_transaction_stub;
 use strata_crypto::threshold_signature::{IndexedSignature, SignatureSet};
 
@@ -52,10 +51,9 @@ pub fn create_signature_set(
     privkeys: &[SecretKey],
     signer_indices: &[u8],
     action: &MultisigAction,
-    role: Role,
     seqno: u64,
 ) -> SignatureSet {
-    let message_hash = compute_signing_message_hash(action, seqno, role);
+    let message_hash = compute_signing_message_hash(action, seqno);
     let signatures: Vec<IndexedSignature> = signer_indices
         .iter()
         .map(|&index| {
@@ -89,10 +87,9 @@ pub fn create_test_admin_tx(
     privkeys: &[SecretKey],
     signer_indices: &[u8],
     action: &MultisigAction,
-    role: Role,
     seqno: u64,
 ) -> Transaction {
-    let signature_set = create_signature_set(privkeys, signer_indices, action, role, seqno);
+    let signature_set = create_signature_set(privkeys, signer_indices, action, seqno);
 
     // Create the signed payload (action + signatures) for the envelope
     let signed_payload = SignedPayload::new(seqno, action.clone(), signature_set);
@@ -111,7 +108,6 @@ mod tests {
     use bitcoin::secp256k1::PublicKey;
     use rand::rngs::OsRng;
     use strata_asm_common::TxInputRef;
-    use strata_asm_params::Role;
     use strata_asm_proto_txs_test_utils::TEST_MAGIC_BYTES;
     use strata_crypto::{
         keys::compressed::CompressedPublicKey,
@@ -150,13 +146,7 @@ mod tests {
 
         // Create a test multisig action with a self-describing role.
         let action = sample_update_action();
-        let signature_set = create_signature_set(
-            &privkeys,
-            &signer_indices,
-            &action,
-            Role::StrataSequencerManager,
-            seqno,
-        );
+        let signature_set = create_signature_set(&privkeys, &signer_indices, &action, seqno);
 
         // Verify the signature set has the expected structure
         assert_eq!(signature_set.len(), 2);
@@ -164,8 +154,7 @@ mod tests {
         assert_eq!(indices, vec![0, 2]);
 
         // Verify the signatures
-        let sign_message_hash =
-            compute_signing_message_hash(&action, seqno, Role::StrataSequencerManager);
+        let sign_message_hash = compute_signing_message_hash(&action, seqno);
         let res =
             verify_threshold_signatures(&config, signature_set.signatures(), &sign_message_hash.0);
         assert!(res.is_ok());
@@ -188,13 +177,7 @@ mod tests {
         let signer_indices = [0u8, 2u8];
 
         let action = sample_update_action();
-        let tx = create_test_admin_tx(
-            &privkeys,
-            &signer_indices,
-            &action,
-            Role::StrataSequencerManager,
-            seqno,
-        );
+        let tx = create_test_admin_tx(&privkeys, &signer_indices, &action, seqno);
         let tag_data_ref = ParseConfig::new(TEST_MAGIC_BYTES)
             .try_parse_tx(&tx)
             .unwrap();
@@ -204,8 +187,7 @@ mod tests {
         assert_eq!(action, parsed.action);
 
         // Verify the signatures
-        let sign_message_hash =
-            compute_signing_message_hash(&action, seqno, Role::StrataSequencerManager);
+        let sign_message_hash = compute_signing_message_hash(&action, seqno);
         let res = verify_threshold_signatures(
             &config,
             parsed.signatures.signatures(),

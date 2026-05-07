@@ -1,6 +1,6 @@
 use arbitrary::Arbitrary;
 use ssz_derive::{Decode, Encode};
-use strata_asm_params::AdminTxType;
+use strata_asm_params::{AdminTxType, Role};
 use strata_l1_txfmt::TagData;
 
 mod cancel;
@@ -49,5 +49,17 @@ impl MultisigAction {
     pub fn tag(&self) -> TagData {
         TagData::new(ADMINISTRATION_SUBPROTOCOL_ID, self.tx_type().into(), vec![])
             .expect("empty aux data always fits")
+    }
+
+    /// The role authorized to enact this action.
+    ///
+    /// Both variants are self-describing: an update carries its type directly, and a cancel
+    /// embeds the [`UpdateAction`] it targets — so the role is derivable without external
+    /// context (queue lookup, authority registry).
+    pub fn required_role(&self) -> Role {
+        match self {
+            MultisigAction::Update(update) => update.required_role(),
+            MultisigAction::Cancel(cancel) => cancel.update().required_role(),
+        }
     }
 }

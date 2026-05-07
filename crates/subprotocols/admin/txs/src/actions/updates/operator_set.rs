@@ -67,8 +67,6 @@ impl SigningMessage for OperatorSetUpdate {
 
 #[cfg(test)]
 mod tests {
-    use strata_asm_params::Role;
-
     use super::*;
     use crate::{
         actions::{MultisigAction, UpdateAction},
@@ -88,7 +86,7 @@ mod tests {
         let update = OperatorSetUpdate::new(vec![pk], vec![5]);
         let action = MultisigAction::Update(UpdateAction::OperatorSet(update));
 
-        let message = render_signing_message(&action, 9, Role::StrataAdministrator);
+        let message = render_signing_message(&action, 9);
         assert_eq!(
             message,
             "Strata ASM Administration v2\n\

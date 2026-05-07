@@ -312,10 +312,7 @@ async fn test_cancel_removes_queued_update() {
 
     // Cancel the queued update
     let cancel = cancel_update(0, &state);
-    harness
-        .submit_admin_action(&mut ctx, cancel)
-        .await
-        .unwrap();
+    harness.submit_admin_action(&mut ctx, cancel).await.unwrap();
 
     let state = harness.admin_state().unwrap();
     assert_eq!(state.queued().len(), 0, "Queued update should be cancelled");
@@ -352,13 +349,7 @@ async fn test_wrong_key_rejected() {
     // Sign with wrong key
     let action = sequencer_update([2u8; 32]);
     let seqno = 1;
-    let sig_set = create_signature_set(
-        &[wrong_privkey],
-        &[0u8],
-        &action,
-        Role::StrataSequencerManager,
-        seqno,
-    );
+    let sig_set = create_signature_set(&[wrong_privkey], &[0u8], &action, seqno);
     let signed = SignedPayload::new(seqno, action.clone(), sig_set);
     let payload = signed.as_ssz_bytes();
 
@@ -394,13 +385,7 @@ async fn test_corrupted_signature_rejected() {
 
     let action = sequencer_update([88u8; 32]);
     let seqno = 1;
-    let sig_set = create_signature_set(
-        ctx.privkeys(),
-        ctx.signer_indices(),
-        &action,
-        Role::StrataSequencerManager,
-        seqno,
-    );
+    let sig_set = create_signature_set(ctx.privkeys(), ctx.signer_indices(), &action, seqno);
 
     // Corrupt the signature
     let mut indexed_sigs = sig_set.into_inner();
@@ -588,10 +573,7 @@ async fn test_cancel_prevents_queued_update_activation() {
 
     // Submit cancel in the next block (before activation)
     let cancel = cancel_update(0, &state);
-    harness
-        .submit_admin_action(&mut ctx, cancel)
-        .await
-        .unwrap();
+    harness.submit_admin_action(&mut ctx, cancel).await.unwrap();
 
     // Verify update was cancelled
     let state = harness.admin_state().unwrap();

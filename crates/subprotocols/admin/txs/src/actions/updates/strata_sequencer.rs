@@ -40,8 +40,6 @@ impl SigningMessage for SequencerUpdate {
 
 #[cfg(test)]
 mod tests {
-    use strata_asm_params::Role;
-
     use super::*;
     use crate::{
         actions::{MultisigAction, UpdateAction},
@@ -53,7 +51,7 @@ mod tests {
         let update = SequencerUpdate::new(Buf32::from([7u8; 32]));
         let action = MultisigAction::Update(UpdateAction::Sequencer(update));
 
-        let message = render_signing_message(&action, 42, Role::StrataSequencerManager);
+        let message = render_signing_message(&action, 42);
         assert_eq!(
             message,
             "Strata ASM Administration v2\n\

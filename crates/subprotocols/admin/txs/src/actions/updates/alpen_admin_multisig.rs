@@ -55,7 +55,7 @@ mod tests {
         ));
         let action = MultisigAction::Update(UpdateAction::AlpenAdminMultisig(update));
 
-        let message = render_signing_message(&action, 12, Role::AlpenAdministrator);
+        let message = render_signing_message(&action, 12);
         assert_eq!(
             message,
             "Strata ASM Administration v2\n\

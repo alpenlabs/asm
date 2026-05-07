@@ -46,10 +46,7 @@ async fn test_asm_predicate_update_emits_log() {
     // Submit an ASM predicate update (gets queued for StrataAdministrator role)
     let new_predicate = PredicateKey::always_accept();
     harness
-        .submit_admin_action(
-            &mut ctx,
-            asm_stf_vk_update(new_predicate.clone()),
-        )
+        .submit_admin_action(&mut ctx, asm_stf_vk_update(new_predicate.clone()))
         .await
         .unwrap();
 
@@ -112,10 +109,7 @@ async fn test_proof_program_reflects_predicate_update() {
     // Submit an ASM predicate update (gets queued for StrataAdministrator role).
     let new_predicate = PredicateKey::never_accept();
     harness
-        .submit_admin_action(
-            &mut ctx,
-            asm_stf_vk_update(new_predicate.clone()),
-        )
+        .submit_admin_action(&mut ctx, asm_stf_vk_update(new_predicate.clone()))
         .await
         .unwrap();
 

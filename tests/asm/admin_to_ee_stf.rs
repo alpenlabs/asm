@@ -40,10 +40,7 @@ async fn test_ee_predicate_update_emits_log() {
     // Submit an EE predicate update (gets queued for AlpenAdministrator role).
     let new_predicate = PredicateKey::always_accept();
     harness
-        .submit_admin_action(
-            &mut ctx,
-            ee_stf_vk_update(new_predicate.clone()),
-        )
+        .submit_admin_action(&mut ctx, ee_stf_vk_update(new_predicate.clone()))
         .await
         .unwrap();
 

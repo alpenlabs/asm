@@ -35,7 +35,6 @@ impl SigningMessage for AsmStfVkUpdate {
 
 #[cfg(test)]
 mod tests {
-    use strata_asm_params::Role;
     use strata_crypto::hash;
     use strata_predicate::PredicateTypeId;
 
@@ -53,7 +52,7 @@ mod tests {
         let update = AsmStfVkUpdate::new(key);
         let action = MultisigAction::Update(UpdateAction::AsmStfVk(update));
 
-        let message = render_signing_message(&action, 5, Role::StrataAdministrator);
+        let message = render_signing_message(&action, 5);
         assert_eq!(
             message,
             format!(

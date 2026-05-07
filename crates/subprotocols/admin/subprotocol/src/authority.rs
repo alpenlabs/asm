@@ -82,7 +82,7 @@ impl MultisigAuthority {
                 max_gap: max_seqno_gap,
             });
         }
-        let message_hash = compute_signing_message_hash(&payload.action, payload.seqno, self.role);
+        let message_hash = compute_signing_message_hash(&payload.action, payload.seqno);
 
         verify_threshold_signatures(
             &self.config,
@@ -147,41 +147,12 @@ mod tests {
         let (authority, secret_key) = create_test_authority(Role::StrataSequencerManager);
         let action = sample_action();
         let seqno = 1;
-        let signatures = create_signature_set(
-            &[secret_key],
-            &[0],
-            &action,
-            Role::StrataSequencerManager,
-            seqno,
-        );
+        let signatures = create_signature_set(&[secret_key], &[0], &action, seqno);
         let payload = SignedPayload::new(seqno, action, signatures);
 
         let result =
             authority.verify_action_signature(&payload, NonZero::new(10).expect("non-zero"));
 
         assert!(result.is_ok());
-    }
-
-    #[test]
-    fn verify_action_signature_rejects_payload_signed_for_wrong_role() {
-        let (authority, secret_key) = create_test_authority(Role::StrataAdministrator);
-        let action = sample_action();
-        let seqno = 1;
-        let signatures = create_signature_set(
-            &[secret_key],
-            &[0],
-            &action,
-            Role::StrataSequencerManager,
-            seqno,
-        );
-        let payload = SignedPayload::new(seqno, action, signatures);
-
-        let result =
-            authority.verify_action_signature(&payload, NonZero::new(10).expect("non-zero"));
-
-        assert!(matches!(
-            result,
-            Err(AdministrationError::ThresholdSignature(_))
-        ));
     }
 }

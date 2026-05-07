@@ -10,17 +10,16 @@ pub mod strata_sequencer;
 mod render;
 
 pub use alpen_admin_multisig::AlpenAdminMultisigUpdate;
+use arbitrary::Arbitrary;
 pub use asm_stf_vk::AsmStfVkUpdate;
 pub use ee_stf_vk::EeStfVkUpdate;
 pub use ol_stf_vk::OlStfVkUpdate;
 pub use operator_set::OperatorSetUpdate;
+use ssz_derive::{Decode, Encode};
 pub use strata_admin_multisig::StrataAdminMultisigUpdate;
+use strata_asm_params::{AdminTxType, Role, UpdateTxType};
 pub use strata_seq_manager_multisig::StrataSeqManagerMultisigUpdate;
 pub use strata_sequencer::SequencerUpdate;
-
-use arbitrary::Arbitrary;
-use ssz_derive::{Decode, Encode};
-use strata_asm_params::{AdminTxType, Role, UpdateTxType};
 
 use crate::actions::{IndentedDetails, SigningMessage};
 

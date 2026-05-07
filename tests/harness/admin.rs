@@ -101,9 +101,9 @@ impl AdminContext {
     ///
     /// Auto-increments the appropriate role's sequence number after signing.
     pub fn sign(&mut self, action: &MultisigAction) -> anyhow::Result<Vec<u8>> {
-        let role = Self::role_for_action(action)?;
+        let role = action.required_role();
         let seqno = *self.seqnos.entry(role).or_insert(1);
-        let result = self.sign_impl(action, role, seqno);
+        let result = self.sign_impl(action, seqno);
         *self.seqnos.get_mut(&role).unwrap() += 1;
         Ok(result)
     }
@@ -112,25 +112,28 @@ impl AdminContext {
     ///
     /// Does NOT auto-increment the internal sequence number.
     pub fn sign_with_seqno(&self, action: &MultisigAction, seqno: u64) -> anyhow::Result<Vec<u8>> {
-        Ok(self.sign_impl(action, Self::role_for_action(action)?, seqno))
+        Ok(self.sign_impl(action, seqno))
     }
 
-    /// Sign an action with an explicitly resolved role.
+    /// Sign an action and bump the seqno tracked under `role`.
+    ///
+    /// `role` is used only for seqno bookkeeping; the signing message itself derives its role
+    /// from the action.
     pub fn sign_for_role(&mut self, action: &MultisigAction, role: Role) -> Vec<u8> {
         let seqno = *self.seqnos.entry(role).or_insert(1);
-        let result = self.sign_impl(action, role, seqno);
+        let result = self.sign_impl(action, seqno);
         *self.seqnos.get_mut(&role).unwrap() += 1;
         result
     }
 
-    /// Sign an action with a specific sequence number and explicitly resolved role.
+    /// Sign an action with a specific sequence number; `role` is bookkeeping-only.
     pub fn sign_with_seqno_for_role(
         &self,
         action: &MultisigAction,
-        role: Role,
+        _role: Role,
         seqno: u64,
     ) -> Vec<u8> {
-        self.sign_impl(action, role, seqno)
+        self.sign_impl(action, seqno)
     }
 
     /// Get the private keys (for manual signature construction in tests).
@@ -143,16 +146,8 @@ impl AdminContext {
         &self.signer_indices
     }
 
-    fn role_for_action(action: &MultisigAction) -> anyhow::Result<Role> {
-        match action {
-            MultisigAction::Update(update) => Ok(update.required_role()),
-            MultisigAction::Cancel(cancel) => Ok(cancel.update().required_role()),
-        }
-    }
-
-    fn sign_impl(&self, action: &MultisigAction, role: Role, seqno: u64) -> Vec<u8> {
-        let sig_set =
-            create_signature_set(&self.privkeys, &self.signer_indices, action, role, seqno);
+    fn sign_impl(&self, action: &MultisigAction, seqno: u64) -> Vec<u8> {
+        let sig_set = create_signature_set(&self.privkeys, &self.signer_indices, action, seqno);
         SignedPayload::new(seqno, action.clone(), sig_set).as_ssz_bytes()
     }
 }

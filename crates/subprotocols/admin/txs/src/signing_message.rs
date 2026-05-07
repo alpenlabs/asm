@@ -27,10 +27,13 @@ pub(crate) fn append_indexed_fields(
 }
 
 /// Renders the canonical Bitcoin `signMessage` payload for admin signatures.
-pub fn render_signing_message(action: &MultisigAction, seqno: u64, role: Role) -> String {
+///
+/// The `Role:` line is derived from `action` via [`MultisigAction::required_role`], so signers
+/// and verifiers cannot disagree on which role's authority must validate the message.
+pub fn render_signing_message(action: &MultisigAction, seqno: u64) -> String {
     let mut lines = vec![
         format!("Strata ASM Administration v{SIGNING_MESSAGE_VERSION}"),
-        format!("Role: {}", role_label(role)),
+        format!("Role: {}", role_label(action.required_role())),
         format!("Sequence: {seqno}"),
         format!("Action: {}", action.tx_type()),
         "Action Details:".to_string(),
@@ -41,8 +44,8 @@ pub fn render_signing_message(action: &MultisigAction, seqno: u64, role: Role) -
 }
 
 /// Computes the Bitcoin `signMessage` digest for an admin action.
-pub fn compute_signing_message_hash(action: &MultisigAction, seqno: u64, role: Role) -> Buf32 {
-    Buf32::from(signed_msg_hash(&render_signing_message(action, seqno, role)).to_byte_array())
+pub fn compute_signing_message_hash(action: &MultisigAction, seqno: u64) -> Buf32 {
+    Buf32::from(signed_msg_hash(&render_signing_message(action, seqno)).to_byte_array())
 }
 
 #[cfg(test)]
@@ -50,16 +53,14 @@ mod tests {
     use strata_identifiers::Buf32;
 
     use super::*;
-    use crate::actions::{
-        CancelAction, UpdateAction, updates::strata_sequencer::SequencerUpdate,
-    };
+    use crate::actions::{CancelAction, UpdateAction, updates::strata_sequencer::SequencerUpdate};
 
     #[test]
     fn test_cancel_message_renders_embedded_update() {
         let update = UpdateAction::Sequencer(SequencerUpdate::new(Buf32::from([0x11u8; 32])));
         let action = MultisigAction::Cancel(CancelAction::new(7, update));
 
-        let message = render_signing_message(&action, 9, Role::StrataSequencerManager);
+        let message = render_signing_message(&action, 9);
         assert_eq!(
             message,
             "Strata ASM Administration v2\n\

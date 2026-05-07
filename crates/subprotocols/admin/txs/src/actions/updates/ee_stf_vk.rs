@@ -35,7 +35,6 @@ impl SigningMessage for EeStfVkUpdate {
 
 #[cfg(test)]
 mod tests {
-    use strata_asm_params::Role;
     use strata_predicate::PredicateTypeId;
 
     use super::*;
@@ -50,7 +49,7 @@ mod tests {
         let update = EeStfVkUpdate::new(key);
         let action = MultisigAction::Update(UpdateAction::EeStfVk(update));
 
-        let message = render_signing_message(&action, 11, Role::AlpenAdministrator);
+        let message = render_signing_message(&action, 11);
         assert_eq!(
             message,
             "Strata ASM Administration v2\n\
