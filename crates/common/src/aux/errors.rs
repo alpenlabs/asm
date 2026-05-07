@@ -57,4 +57,13 @@ pub enum AuxError {
         /// The requested height
         height: u64,
     },
+
+    /// Manifest hash range is inverted (start > end).
+    #[error("manifest hash range inverted: start={start} > end={end}")]
+    InvertedManifestRange {
+        /// The requested start height
+        start: u64,
+        /// The requested end height
+        end: u64,
+    },
 }

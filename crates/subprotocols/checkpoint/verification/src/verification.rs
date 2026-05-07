@@ -19,46 +19,34 @@ use crate::{
     state::CheckpointState,
 };
 
-/// Token returned by [`verify_progression`] identifying the L1 block range the checkpoint
-/// covers.
-///
-/// The contained `start_height` and `end_height` (inclusive) are the heights of the L1
-/// blocks whose ASM manifests must be hashed and passed back to
-/// [`CheckpointState::advance`]. Has no public constructor: instances
-/// can only be obtained from [`verify_progression`], which enforces at the type level
-/// that the range has been validated before manifest hashes are consumed.
+/// L1 block range of a checkpoint, returned by [`verify_progression`].
 #[derive(Debug)]
-pub struct ValidatedL1Range {
-    start_height: u32,
-    end_height: u32,
-}
-
-impl ValidatedL1Range {
-    /// First L1 block height covered by the new checkpoint (inclusive).
-    pub fn start_height(&self) -> u32 {
-        self.start_height
-    }
-
-    /// Last L1 block height covered by the new checkpoint (inclusive).
-    pub fn end_height(&self) -> u32 {
-        self.end_height
-    }
+pub enum CheckpointL1Range {
+    /// Checkpoint covers no new L1 blocks beyond the previous verified tip. The ASM
+    /// manifests hash supplied to [`CheckpointState::advance`] must be
+    /// [`AsmManifestRangeHash::ZERO`](strata_asm_manifest_types::AsmManifestRangeHash::ZERO).
+    Empty,
+    /// Checkpoint covers an inclusive range of new L1 blocks. `verify_progression`
+    /// guarantees `start_height <= end_height` for this variant.
+    Range {
+        /// First L1 block height covered by the new checkpoint (inclusive).
+        start_height: u32,
+        /// Last L1 block height covered by the new checkpoint (inclusive).
+        end_height: u32,
+    },
 }
 
 /// Validates the checkpoint's range against progression rules — epoch advances by
 /// exactly 1, L1 height does not regress and stays strictly below the current L1 tip,
 /// and L2 slot advances.
 ///
-/// On success, returns a [`ValidatedL1Range`] identifying the L1 block range whose ASM
-/// manifests the caller must hash. The caller resolves the range to manifest hashes and
-/// passes them — alongside the token — to [`CheckpointState::advance`].
-///
-/// This function is pure — it does not mutate state.
+/// On success, returns a [`CheckpointL1Coverage`] describing the L1 blocks the new
+/// checkpoint covers.
 pub fn verify_progression(
     verified_tip: &CheckpointTip,
     new_tip: &CheckpointTip,
     current_l1_height: L1Height,
-) -> CheckpointValidationResult<ValidatedL1Range> {
+) -> CheckpointValidationResult<CheckpointL1Range> {
     // Validate epoch progression: each checkpoint must advance the epoch by exactly 1.
     let expected_epoch = verified_tip
         .epoch
@@ -107,10 +95,16 @@ pub fn verify_progression(
         .into());
     }
 
-    Ok(ValidatedL1Range {
-        start_height: l1_height_covered_in_last_checkpoint + 1,
-        end_height: l1_height_covered_in_new_checkpoint,
-    })
+    let coverage = if l1_height_covered_in_last_checkpoint == l1_height_covered_in_new_checkpoint {
+        CheckpointL1Range::Empty
+    } else {
+        CheckpointL1Range::Range {
+            start_height: l1_height_covered_in_last_checkpoint + 1,
+            end_height: l1_height_covered_in_new_checkpoint,
+        }
+    };
+
+    Ok(coverage)
 }
 
 /// Verifies the checkpoint ZK proof against the precomputed ASM manifests hash.
@@ -262,7 +256,7 @@ mod tests {
             InvalidSequencerPredicate,
         },
         state::CheckpointState,
-        verification::{verify_progression, verify_sequencer_predicate},
+        verification::{CheckpointL1Range, verify_progression, verify_sequencer_predicate},
     };
 
     fn test_setup() -> (CheckpointState, CheckpointTestHarness) {
@@ -276,7 +270,6 @@ mod tests {
     }
 
     /// Drives the full progression + proof pipeline with a precomputed manifest hash.
-    /// Used by tests that need a real `ValidatedL1Range` token to reach proof verification.
     /// Skips sequencer authentication, which has its own dedicated tests.
     fn run_proof_pipeline(
         state: &mut CheckpointState,
@@ -284,8 +277,8 @@ mod tests {
         payload: &CheckpointPayload,
         asm_manifests_hash: AsmManifestRangeHash,
     ) -> CheckpointValidationResult<Vec<(WithdrawOutput, OperatorSelection)>> {
-        let range = verify_progression(state.verified_tip(), payload.new_tip(), current_l1_height)?;
-        state.advance(payload, range, asm_manifests_hash)
+        verify_progression(state.verified_tip(), payload.new_tip(), current_l1_height)?;
+        state.advance(payload, asm_manifests_hash)
     }
 
     #[test]
@@ -396,8 +389,10 @@ mod tests {
         let payload = harness.build_payload_with_tip(new_tip);
         let current_l1_height = harness.verified_tip().l1_height + 1;
 
-        let res = verify_progression(harness.verified_tip(), payload.new_tip(), current_l1_height);
-        assert!(res.is_ok());
+        let coverage =
+            verify_progression(harness.verified_tip(), payload.new_tip(), current_l1_height)
+                .expect("zero L1 progress is accepted");
+        assert!(matches!(coverage, CheckpointL1Range::Empty));
     }
 
     #[test]

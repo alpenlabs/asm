@@ -2,9 +2,11 @@ use strata_asm_common::{AsmLogEntry, MsgRelayer, TxInputRef, VerifiedAuxData, lo
 use strata_asm_logs::CheckpointTipUpdate;
 use strata_asm_proto_bridge_v1_msgs::{BridgeIncomingMsg, DispatchWithdrawalPayload};
 use strata_asm_proto_checkpoint_txs::extract_checkpoint_from_envelope;
-use strata_asm_proto_checkpoint_types::compute_asm_manifests_hash_from_leaves;
+use strata_asm_proto_checkpoint_types::{
+    AsmManifestRangeHash, compute_asm_manifests_hash_from_leaves,
+};
 use strata_checkpoint_verification::{
-    CheckpointState, verify_progression, verify_sequencer_predicate,
+    CheckpointL1Range, CheckpointState, verify_progression, verify_sequencer_predicate,
 };
 use strata_identifiers::L1Height;
 
@@ -43,44 +45,50 @@ pub(crate) fn handle_checkpoint_tx(
         return;
     }
 
-    // Validate epoch / L1 / L2 progression. Yields the L1 range whose ASM manifests
+    // Validate epoch / L1 / L2 progression. Yields the L1 coverage whose ASM manifests
     // we must resolve before proof verification.
-    let validated_range = match verify_progression(
+    let coverage = match verify_progression(
         state.verified_tip(),
         envelope.payload.new_tip(),
         current_l1_height,
     ) {
-        Ok(r) => r,
+        Ok(c) => c,
         Err(e) => {
             logging::warn!(epoch, error = %e, "checkpoint progression verification failed");
             return;
         }
     };
 
-    // Resolve the validated range to manifest hashes. Aux data MUST be available for any
-    // range produced by `verify_progression` — failure here means the runtime did not honor
-    // the request issued in `pre_process_txs`, not a checkpoint-level rejection.
-    let manifest_hashes = verified_aux_data
-        .get_manifest_hashes(
-            validated_range.start_height() as u64,
-            validated_range.end_height() as u64,
-        )
-        .unwrap_or_else(|e| {
-            logging::error!(epoch, error = %e, "invalid aux data");
-            panic!("invalid aux");
-        });
-    let asm_manifests_hash = compute_asm_manifests_hash_from_leaves(&manifest_hashes);
+    // Derive the precomputed manifest hash committed to in the checkpoint claim. Empty
+    // coverage commits to the zero hash; otherwise resolve the range from aux data.
+    // Aux data MUST be available for any range produced by `verify_progression` —
+    // failure here means the runtime did not honor the request issued in
+    // `pre_process_txs`, not a checkpoint-level rejection.
+    let asm_manifests_hash = match &coverage {
+        CheckpointL1Range::Empty => AsmManifestRangeHash::ZERO,
+        CheckpointL1Range::Range {
+            start_height,
+            end_height,
+        } => {
+            let manifest_hashes = verified_aux_data
+                .get_manifest_hashes(*start_height as u64, *end_height as u64)
+                .unwrap_or_else(|e| {
+                    logging::error!(epoch, error = %e, "invalid aux data");
+                    panic!("invalid aux");
+                });
+            compute_asm_manifests_hash_from_leaves(&manifest_hashes)
+        }
+    };
 
     // Verify the ZK proof against the precomputed hash, extract withdrawal intents, and
     // atomically apply the resulting state changes.
-    let withdrawal_intents =
-        match state.advance(&envelope.payload, validated_range, asm_manifests_hash) {
-            Ok(v) => v,
-            Err(e) => {
-                logging::warn!(epoch, error = %e, "checkpoint proof verification failed");
-                return;
-            }
-        };
+    let withdrawal_intents = match state.advance(&envelope.payload, asm_manifests_hash) {
+        Ok(v) => v,
+        Err(e) => {
+            logging::warn!(epoch, error = %e, "checkpoint proof verification failed");
+            return;
+        }
+    };
 
     logging::info!(epoch, "checkpoint validated successfully");
 

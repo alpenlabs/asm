@@ -11,7 +11,7 @@ use strata_predicate::PredicateKey;
 
 use crate::{
     errors::{CheckpointValidationResult, InvalidCheckpointPayload},
-    verification::{ValidatedL1Range, extract_and_validate_withdrawal_intents, verify_proof},
+    verification::{extract_and_validate_withdrawal_intents, verify_proof},
 };
 
 /// Opaque proof token for a verified set of withdrawal intents.
@@ -130,19 +130,9 @@ impl CheckpointState {
     /// the precomputed ASM manifests hash and extracting withdrawal intents. On success,
     /// deducts the withdrawn funds and returns the extracted withdrawal intents for the
     /// caller to relay.
-    ///
-    /// State is mutated iff the returned `Result` is `Ok` — partial application is
-    /// not possible.
-    ///
-    /// The [`ValidatedL1Range`] token must come from a successful
-    /// [`verify_progression`](crate::verification::verify_progression) call against the
-    /// same checkpoint. Envelope authentication via
-    /// [`verify_sequencer_predicate`](crate::verification::verify_sequencer_predicate)
-    /// is the caller's responsibility.
     pub fn advance(
         &mut self,
         payload: &CheckpointPayload,
-        _validated_range: ValidatedL1Range,
         asm_manifests_hash: AsmManifestRangeHash,
     ) -> CheckpointValidationResult<Vec<(WithdrawOutput, OperatorSelection)>> {
         verify_proof(self, payload, asm_manifests_hash)?;

@@ -10,4 +10,4 @@ mod verification;
 
 pub use errors::CheckpointValidationError;
 pub use state::CheckpointState;
-pub use verification::{ValidatedL1Range, verify_progression, verify_sequencer_predicate};
+pub use verification::{CheckpointL1Range, verify_progression, verify_sequencer_predicate};

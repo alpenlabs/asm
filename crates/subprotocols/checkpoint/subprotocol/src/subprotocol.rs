@@ -46,9 +46,17 @@ impl Subprotocol for CheckpointSubprotocol {
             if tx.tag().tx_type() == OL_STF_CHECKPOINT_TX_TYPE {
                 match extract_checkpoint_from_envelope(tx) {
                     Ok(envelope) => {
-                        let start_height = state.verified_tip().l1_height + 1;
-                        let end_height = envelope.payload.new_tip().l1_height;
-                        collector.request_manifest_hashes(start_height as u64, end_height as u64);
+                        // Skip request when the checkpoint covers no new L1 blocks
+                        // (zero L1 progress). Mirrors the `CheckpointL1Coverage::Empty`
+                        // branch in `handler.rs` so we never ask for an inverted range.
+                        let prev_height = state.verified_tip().l1_height;
+                        let new_height = envelope.payload.new_tip().l1_height;
+                        if prev_height < new_height {
+                            collector.request_manifest_hashes(
+                                (prev_height + 1) as u64,
+                                new_height as u64,
+                            );
+                        }
                     }
                     Err(e) => {
                         logging::warn!(
