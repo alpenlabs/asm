@@ -74,7 +74,7 @@ pub(crate) fn handle_checkpoint_tx(
 
     // Verify the ZK proof against the precomputed hash, extract withdrawal intents, and
     // atomically apply the resulting state changes.
-    let withdrawal_intents = match state.verify_proof_and_apply(
+    let withdrawal_intents = match state.advance(
         &envelope.payload,
         validated_range,
         asm_manifests_hash,

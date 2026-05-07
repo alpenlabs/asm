@@ -24,7 +24,7 @@ use crate::{
 ///
 /// The contained `start_height` and `end_height` (inclusive) are the heights of the L1
 /// blocks whose ASM manifests must be hashed and passed back to
-/// [`CheckpointState::verify_proof_and_apply`]. Has no public constructor: instances
+/// [`CheckpointState::advance`]. Has no public constructor: instances
 /// can only be obtained from [`verify_progression`], which enforces at the type level
 /// that the range has been validated before manifest hashes are consumed.
 #[derive(Debug)]
@@ -51,7 +51,7 @@ impl ValidatedL1Range {
 ///
 /// On success, returns a [`ValidatedL1Range`] identifying the L1 block range whose ASM
 /// manifests the caller must hash. The caller resolves the range to manifest hashes and
-/// passes them — alongside the token — to [`CheckpointState::verify_proof_and_apply`].
+/// passes them — alongside the token — to [`CheckpointState::advance`].
 ///
 /// This function is pure — it does not mutate state.
 pub fn verify_progression(
@@ -285,7 +285,7 @@ mod tests {
         asm_manifests_hash: AsmManifestRangeHash,
     ) -> CheckpointValidationResult<Vec<(WithdrawOutput, OperatorSelection)>> {
         let range = verify_progression(state.verified_tip(), payload.new_tip(), current_l1_height)?;
-        state.verify_proof_and_apply(payload, range, asm_manifests_hash)
+        state.advance(payload, range, asm_manifests_hash)
     }
 
     #[test]

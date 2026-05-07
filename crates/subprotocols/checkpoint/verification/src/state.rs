@@ -126,9 +126,9 @@ impl CheckpointState {
         *self.available_funds.entry(amount).or_insert(0) += 1;
     }
 
-    /// Verifies the ZK proof against the precomputed ASM manifests hash, extracts
-    /// withdrawal intents, and — only on success — deducts the withdrawn funds and
-    /// advances the verified tip. Returns the extracted withdrawal intents for the
+    /// Advances the verified tip to `payload.new_tip` after verifying the ZK proof against
+    /// the precomputed ASM manifests hash and extracting withdrawal intents. On success,
+    /// deducts the withdrawn funds and returns the extracted withdrawal intents for the
     /// caller to relay.
     ///
     /// State is mutated iff the returned `Result` is `Ok` — partial application is
@@ -139,7 +139,7 @@ impl CheckpointState {
     /// same checkpoint. Envelope authentication via
     /// [`verify_sequencer_predicate`](crate::verification::verify_sequencer_predicate)
     /// is the caller's responsibility.
-    pub fn verify_proof_and_apply(
+    pub fn advance(
         &mut self,
         payload: &CheckpointPayload,
         _validated_range: ValidatedL1Range,
