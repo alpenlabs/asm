@@ -2,7 +2,7 @@ use arbitrary::Arbitrary;
 use ssz_derive::{Decode, Encode};
 use strata_asm_params::AdminTxType;
 
-use super::{IndentedDetails, SigningMessage, UpdateAction};
+use super::{IndentedDetails, RenderSigningMessage, UpdateAction};
 use crate::actions::UpdateId;
 
 #[derive(Clone, Debug, Eq, PartialEq, Arbitrary, Encode, Decode)]
@@ -29,7 +29,7 @@ impl CancelAction {
     }
 }
 
-impl SigningMessage for CancelAction {
+impl RenderSigningMessage for CancelAction {
     fn tx_type(&self) -> AdminTxType {
         AdminTxType::Cancel
     }

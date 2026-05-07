@@ -21,12 +21,12 @@ use strata_asm_params::{AdminTxType, Role, UpdateTxType};
 pub use strata_seq_manager_multisig::StrataSeqManagerMultisigUpdate;
 pub use strata_sequencer::SequencerUpdate;
 
-use crate::actions::{IndentedDetails, SigningMessage};
+use crate::actions::{IndentedDetails, RenderSigningMessage};
 
 /// An action that updates some part of the ASM.
 ///
 /// One variant per [`UpdateTxType`]: the wire-format tx type, the variant identity,
-/// and the per-variant [`SigningMessage`] impl are all in lockstep, so adding a new
+/// and the per-variant [`RenderSigningMessage`] impl are all in lockstep, so adding a new
 /// admin update kind forces matching arms across all dispatch sites.
 #[derive(Clone, Debug, Eq, PartialEq, Arbitrary, Encode, Decode)]
 #[ssz(enum_behaviour = "union")]
@@ -64,7 +64,7 @@ impl UpdateAction {
     }
 }
 
-impl SigningMessage for UpdateAction {
+impl RenderSigningMessage for UpdateAction {
     fn tx_type(&self) -> AdminTxType {
         match self {
             UpdateAction::StrataAdminMultisig(u) => u.tx_type(),

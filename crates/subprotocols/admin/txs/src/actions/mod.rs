@@ -8,7 +8,7 @@ mod sighash;
 pub mod updates;
 
 pub use cancel::CancelAction;
-pub use sighash::{IndentedDetails, SigningMessage};
+pub(crate) use sighash::{IndentedDetails, RenderSigningMessage, append_indexed_fields, role_label};
 pub use updates::UpdateAction;
 
 use crate::constants::ADMINISTRATION_SUBPROTOCOL_ID;
@@ -25,7 +25,7 @@ pub enum MultisigAction {
     Update(UpdateAction),
 }
 
-impl SigningMessage for MultisigAction {
+impl RenderSigningMessage for MultisigAction {
     fn tx_type(&self) -> AdminTxType {
         match self {
             MultisigAction::Cancel(c) => c.tx_type(),

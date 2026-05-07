@@ -3,7 +3,7 @@ use ssz_derive::{Decode, Encode};
 use strata_asm_params::{AdminTxType, UpdateTxType};
 use strata_identifiers::Buf32;
 
-use crate::actions::{IndentedDetails, SigningMessage};
+use crate::actions::{IndentedDetails, RenderSigningMessage};
 
 /// An update to the public key of the sequencer.
 #[derive(Clone, Debug, Eq, PartialEq, Arbitrary, Encode, Decode)]
@@ -28,7 +28,7 @@ impl SequencerUpdate {
     }
 }
 
-impl SigningMessage for SequencerUpdate {
+impl RenderSigningMessage for SequencerUpdate {
     fn tx_type(&self) -> AdminTxType {
         AdminTxType::Update(UpdateTxType::SequencerUpdate)
     }
@@ -43,7 +43,7 @@ mod tests {
     use super::*;
     use crate::{
         actions::{MultisigAction, UpdateAction},
-        signing_message::render_signing_message,
+        signing_message::SigningMessage,
     };
 
     #[test]
@@ -51,9 +51,9 @@ mod tests {
         let update = SequencerUpdate::new(Buf32::from([7u8; 32]));
         let action = MultisigAction::Update(UpdateAction::Sequencer(update));
 
-        let message = render_signing_message(&action, 42);
+        let message = SigningMessage::for_action(&action, 42);
         assert_eq!(
-            message,
+            message.as_str(),
             "Strata ASM Administration v2\n\
              Role: StrataSequencerManager\n\
              Sequence: 42\n\

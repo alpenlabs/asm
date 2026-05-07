@@ -3,7 +3,7 @@ use ssz_derive::{Decode, Encode};
 use strata_asm_params::{AdminTxType, UpdateTxType};
 use strata_predicate::PredicateKey;
 
-use crate::actions::{IndentedDetails, SigningMessage};
+use crate::actions::{IndentedDetails, RenderSigningMessage};
 
 /// An update to the verifying key for the OL STF.
 #[derive(Clone, Debug, Eq, PartialEq, Arbitrary, Encode, Decode)]
@@ -23,7 +23,7 @@ impl OlStfVkUpdate {
     }
 }
 
-impl SigningMessage for OlStfVkUpdate {
+impl RenderSigningMessage for OlStfVkUpdate {
     fn tx_type(&self) -> AdminTxType {
         AdminTxType::Update(UpdateTxType::OlStfVkUpdate)
     }
@@ -40,7 +40,7 @@ mod tests {
     use super::*;
     use crate::{
         actions::{MultisigAction, UpdateAction},
-        signing_message::render_signing_message,
+        signing_message::SigningMessage,
     };
 
     #[test]
@@ -49,9 +49,9 @@ mod tests {
         let update = OlStfVkUpdate::new(key);
         let action = MultisigAction::Update(UpdateAction::OlStfVk(update));
 
-        let message = render_signing_message(&action, 3);
+        let message = SigningMessage::for_action(&action, 3);
         assert_eq!(
-            message,
+            message.as_str(),
             "Strata ASM Administration v2\n\
              Role: StrataAdministrator\n\
              Sequence: 3\n\

@@ -3,7 +3,7 @@ use ssz_derive::{Decode, Encode};
 use strata_asm_params::{AdminTxType, Role, UpdateTxType};
 use strata_crypto::threshold_signature::ThresholdConfigUpdate;
 
-use crate::actions::{IndentedDetails, SigningMessage};
+use crate::actions::{IndentedDetails, RenderSigningMessage};
 
 /// An update to the Alpen administrator multisig configuration.
 #[derive(Clone, Debug, Eq, PartialEq, Arbitrary, Encode, Decode)]
@@ -23,7 +23,7 @@ impl AlpenAdminMultisigUpdate {
     }
 }
 
-impl SigningMessage for AlpenAdminMultisigUpdate {
+impl RenderSigningMessage for AlpenAdminMultisigUpdate {
     fn tx_type(&self) -> AdminTxType {
         AdminTxType::Update(UpdateTxType::AlpenAdminMultisigUpdate)
     }
@@ -42,7 +42,7 @@ mod tests {
     use super::*;
     use crate::{
         actions::{MultisigAction, UpdateAction},
-        signing_message::render_signing_message,
+        signing_message::SigningMessage,
     };
 
     #[test]
@@ -55,9 +55,9 @@ mod tests {
         ));
         let action = MultisigAction::Update(UpdateAction::AlpenAdminMultisig(update));
 
-        let message = render_signing_message(&action, 12);
+        let message = SigningMessage::for_action(&action, 12);
         assert_eq!(
-            message,
+            message.as_str(),
             "Strata ASM Administration v2\n\
              Role: AlpenAdministrator\n\
              Sequence: 12\n\

@@ -2,10 +2,7 @@ use strata_asm_params::Role;
 use strata_crypto::{hash, threshold_signature::ThresholdConfigUpdate};
 use strata_predicate::{PredicateKey, PredicateTypeId};
 
-use crate::{
-    actions::IndentedDetails,
-    signing_message::{append_indexed_fields, role_label},
-};
+use crate::actions::{IndentedDetails, append_indexed_fields, role_label};
 
 pub(super) fn multisig(
     role: Role,

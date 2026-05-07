@@ -4,10 +4,7 @@ use strata_asm_params::{AdminTxType, UpdateTxType};
 use strata_crypto::EvenPublicKey;
 use strata_identifiers::Buf32;
 
-use crate::{
-    actions::{IndentedDetails, SigningMessage},
-    signing_message::append_indexed_fields,
-};
+use crate::actions::{IndentedDetails, RenderSigningMessage, append_indexed_fields};
 
 /// An update to the Bridge Operator Set:
 /// - removes the specified `remove_members` (by operator index)
@@ -43,7 +40,7 @@ impl OperatorSetUpdate {
     }
 }
 
-impl SigningMessage for OperatorSetUpdate {
+impl RenderSigningMessage for OperatorSetUpdate {
     fn tx_type(&self) -> AdminTxType {
         AdminTxType::Update(UpdateTxType::OperatorUpdate)
     }
@@ -70,7 +67,7 @@ mod tests {
     use super::*;
     use crate::{
         actions::{MultisigAction, UpdateAction},
-        signing_message::render_signing_message,
+        signing_message::SigningMessage,
     };
 
     /// secp256k1 generator G's x-coordinate — a canonical, even-parity x-only public key.
@@ -86,9 +83,9 @@ mod tests {
         let update = OperatorSetUpdate::new(vec![pk], vec![5]);
         let action = MultisigAction::Update(UpdateAction::OperatorSet(update));
 
-        let message = render_signing_message(&action, 9);
+        let message = SigningMessage::for_action(&action, 9);
         assert_eq!(
-            message,
+            message.as_str(),
             "Strata ASM Administration v2\n\
              Role: StrataAdministrator\n\
              Sequence: 9\n\

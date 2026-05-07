@@ -7,9 +7,7 @@ use ssz::Encode;
 use strata_asm_proto_txs_test_utils::create_reveal_transaction_stub;
 use strata_crypto::threshold_signature::{IndexedSignature, SignatureSet};
 
-use crate::{
-    actions::MultisigAction, parser::SignedPayload, signing_message::compute_signing_message_hash,
-};
+use crate::{actions::MultisigAction, parser::SignedPayload, signing_message::SigningMessage};
 
 /// Creates an ECDSA signature with recoverable public key for a message hash.
 ///
@@ -53,7 +51,7 @@ pub fn create_signature_set(
     action: &MultisigAction,
     seqno: u64,
 ) -> SignatureSet {
-    let message_hash = compute_signing_message_hash(action, seqno);
+    let message_hash = SigningMessage::for_action(action, seqno).compute_sighash();
     let signatures: Vec<IndexedSignature> = signer_indices
         .iter()
         .map(|&index| {
@@ -154,7 +152,7 @@ mod tests {
         assert_eq!(indices, vec![0, 2]);
 
         // Verify the signatures
-        let sign_message_hash = compute_signing_message_hash(&action, seqno);
+        let sign_message_hash = SigningMessage::for_action(&action, seqno).compute_sighash();
         let res =
             verify_threshold_signatures(&config, signature_set.signatures(), &sign_message_hash.0);
         assert!(res.is_ok());
@@ -187,7 +185,7 @@ mod tests {
         assert_eq!(action, parsed.action);
 
         // Verify the signatures
-        let sign_message_hash = compute_signing_message_hash(&action, seqno);
+        let sign_message_hash = SigningMessage::for_action(&action, seqno).compute_sighash();
         let res = verify_threshold_signatures(
             &config,
             parsed.signatures.signatures(),

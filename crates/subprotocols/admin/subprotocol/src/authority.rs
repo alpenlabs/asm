@@ -2,9 +2,7 @@ use std::num::NonZero;
 
 use ssz_derive::{Decode, Encode};
 use strata_asm_params::Role;
-use strata_asm_proto_admin_txs::{
-    parser::SignedPayload, signing_message::compute_signing_message_hash,
-};
+use strata_asm_proto_admin_txs::{parser::SignedPayload, signing_message::SigningMessage};
 use strata_crypto::threshold_signature::{ThresholdConfig, verify_threshold_signatures};
 
 use crate::error::AdministrationError;
@@ -82,7 +80,8 @@ impl MultisigAuthority {
                 max_gap: max_seqno_gap,
             });
         }
-        let message_hash = compute_signing_message_hash(&payload.action, payload.seqno);
+        let message_hash =
+            SigningMessage::for_action(&payload.action, payload.seqno).compute_sighash();
 
         verify_threshold_signatures(
             &self.config,
