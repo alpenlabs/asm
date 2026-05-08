@@ -4,7 +4,9 @@ use strata_asm_params::{AdminTxType, UpdateTxType};
 use strata_crypto::EvenPublicKey;
 use strata_identifiers::Buf32;
 
-use crate::actions::{IndentedDetails, RenderSigningMessage, append_indexed_fields};
+use crate::actions::{
+    IndentedDetails, RenderSigningMessage, updates::render::append_indexed_fields,
+};
 
 /// An update to the Bridge Operator Set:
 /// - removes the specified `remove_members` (by operator index)
@@ -48,7 +50,8 @@ impl RenderSigningMessage for OperatorSetUpdate {
     fn render_details(&self, details: &mut IndentedDetails<'_>) {
         append_indexed_fields(
             details,
-            "Add Member",
+            "Operators to Add",
+            "Add Operator",
             self.add_members
                 .iter()
                 .cloned()
@@ -56,7 +59,8 @@ impl RenderSigningMessage for OperatorSetUpdate {
         );
         append_indexed_fields(
             details,
-            "Remove Member",
+            "Operators to Remove",
+            "Remove Operator Index",
             self.remove_members.iter().map(u32::to_string),
         );
     }
@@ -87,14 +91,14 @@ mod tests {
         assert_eq!(
             message.as_str(),
             "Strata ASM Administration v2\n\
-             Action: Operator Update\n\
+             Action: Bridge Operator Set Update\n\
              Authorized By: Strata Administrator\n\
              Sequence: 9\n\
              Action Details:\n  \
-             Add Member Count: 1\n  \
-             Add Member 1: 79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798\n  \
-             Remove Member Count: 1\n  \
-             Remove Member 1: 5",
+             Operators to Add: 1\n  \
+             1. Add Operator: 79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798\n  \
+             Operators to Remove: 1\n  \
+             1. Remove Operator Index: 5",
         );
     }
 }

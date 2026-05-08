@@ -1,6 +1,6 @@
 use arbitrary::Arbitrary;
 use ssz_derive::{Decode, Encode};
-use strata_asm_params::{AdminTxType, Role, UpdateTxType};
+use strata_asm_params::{AdminTxType, UpdateTxType};
 use strata_crypto::threshold_signature::ThresholdConfigUpdate;
 
 use crate::actions::{IndentedDetails, RenderSigningMessage};
@@ -29,7 +29,7 @@ impl RenderSigningMessage for StrataAdminMultisigUpdate {
     }
 
     fn render_details(&self, details: &mut IndentedDetails<'_>) {
-        super::render::multisig(Role::StrataAdministrator, &self.0, details)
+        super::render::multisig(&self.0, details)
     }
 }
 
@@ -63,11 +63,10 @@ mod tests {
              Authorized By: Strata Administrator\n\
              Sequence: 4\n\
              Action Details:\n  \
-             Target Role: Strata Administrator\n  \
              New Threshold: 2\n  \
-             Add Member Count: 1\n  \
-             Add Member 1: 020202020202020202020202020202020202020202020202020202020202020202\n  \
-             Remove Member Count: 0",
+             Members to Add: 1\n  \
+             1. Add Member: 020202020202020202020202020202020202020202020202020202020202020202\n  \
+             Members to Remove: 0",
         );
     }
 }

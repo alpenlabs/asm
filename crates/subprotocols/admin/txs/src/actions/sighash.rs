@@ -33,15 +33,3 @@ pub(crate) trait RenderSigningMessage {
     /// Pushes the action-specific sub-fields into the indented details buffer.
     fn render_details(&self, details: &mut IndentedDetails<'_>);
 }
-
-pub(crate) fn append_indexed_fields(
-    details: &mut IndentedDetails<'_>,
-    prefix: &str,
-    values: impl IntoIterator<Item = String>,
-) {
-    let values: Vec<String> = values.into_iter().collect();
-    details.push(format!("{prefix} Count: {}", values.len()));
-    for (idx, value) in values.into_iter().enumerate() {
-        details.push(format!("{prefix} {}: {value}", idx + 1));
-    }
-}

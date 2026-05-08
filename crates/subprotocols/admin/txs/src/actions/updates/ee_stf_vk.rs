@@ -29,7 +29,7 @@ impl RenderSigningMessage for EeStfVkUpdate {
     }
 
     fn render_details(&self, details: &mut IndentedDetails<'_>) {
-        super::render::predicate("EeStf", &self.0, details)
+        super::render::predicate(&self.0, details)
     }
 }
 
@@ -44,7 +44,7 @@ mod tests {
     };
 
     #[test]
-    fn renders_signing_message_small_condition() {
+    fn renders_signing_message_small_predicate() {
         let key = PredicateKey::new(PredicateTypeId::Sp1Groth16, vec![0xca, 0xfe]);
         let update = EeStfVkUpdate::new(key);
         let action = MultisigAction::Update(UpdateAction::EeStfVk(update));
@@ -57,10 +57,8 @@ mod tests {
              Authorized By: Alpen Administrator\n\
              Sequence: 11\n\
              Action Details:\n  \
-             Proof Type: EeStf\n  \
              Predicate Type: Sp1Groth16\n  \
-             Condition Len: 2\n  \
-             Condition Hex: cafe",
+             Predicate Hex: cafe",
         );
     }
 }

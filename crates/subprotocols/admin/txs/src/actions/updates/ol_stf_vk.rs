@@ -29,7 +29,7 @@ impl RenderSigningMessage for OlStfVkUpdate {
     }
 
     fn render_details(&self, details: &mut IndentedDetails<'_>) {
-        super::render::predicate("OLStf", &self.0, details)
+        super::render::predicate(&self.0, details)
     }
 }
 
@@ -44,7 +44,7 @@ mod tests {
     };
 
     #[test]
-    fn renders_signing_message_small_condition() {
+    fn renders_signing_message_small_predicate() {
         let key = PredicateKey::new(PredicateTypeId::Sp1Groth16, vec![0xde, 0xad, 0xbe, 0xef]);
         let update = OlStfVkUpdate::new(key);
         let action = MultisigAction::Update(UpdateAction::OlStfVk(update));
@@ -57,10 +57,8 @@ mod tests {
              Authorized By: Strata Administrator\n\
              Sequence: 3\n\
              Action Details:\n  \
-             Proof Type: OLStf\n  \
              Predicate Type: Sp1Groth16\n  \
-             Condition Len: 4\n  \
-             Condition Hex: deadbeef",
+             Predicate Hex: deadbeef",
         );
     }
 }

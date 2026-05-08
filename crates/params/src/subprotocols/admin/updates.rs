@@ -51,7 +51,7 @@ impl UpdateTxType {
             Self::StrataAdminMultisigUpdate => "Strata Administrator Multisig Update",
             Self::StrataSeqManagerMultisigUpdate => "Strata Sequencer Manager Multisig Update",
             Self::AlpenAdminMultisigUpdate => "Alpen Administrator Multisig Update",
-            Self::OperatorUpdate => "Operator Update",
+            Self::OperatorUpdate => "Bridge Operator Set Update",
             Self::SequencerUpdate => "Sequencer Update",
             Self::OlStfVkUpdate => "OL STF VK Update",
             Self::AsmStfVkUpdate => "ASM STF VK Update",

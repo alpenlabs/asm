@@ -29,7 +29,7 @@ impl RenderSigningMessage for AsmStfVkUpdate {
     }
 
     fn render_details(&self, details: &mut IndentedDetails<'_>) {
-        super::render::predicate("Asm", &self.0, details)
+        super::render::predicate(&self.0, details)
     }
 }
 
@@ -45,7 +45,7 @@ mod tests {
     };
 
     #[test]
-    fn renders_signing_message_large_condition_uses_hash() {
+    fn renders_signing_message_large_predicate_uses_hash() {
         let condition = vec![0x42; 64];
         let expected_hash = format!("{:x}", hash::raw(&condition));
         let key = PredicateKey::new(PredicateTypeId::Sp1Groth16, condition);
@@ -61,10 +61,8 @@ mod tests {
                  Authorized By: Strata Administrator\n\
                  Sequence: 5\n\
                  Action Details:\n  \
-                 Proof Type: Asm\n  \
                  Predicate Type: Sp1Groth16\n  \
-                 Condition Len: 64\n  \
-                 Condition Hash: {expected_hash}"
+                 Predicate Hash: {expected_hash}"
             ),
         );
     }
