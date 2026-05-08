@@ -138,3 +138,29 @@ mod non_zero_u8 {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::num::NonZero;
+
+    use proptest::prelude::*;
+
+    use super::non_zero_u8;
+
+    proptest! {
+        #[test]
+        fn test_non_zero_u8_ssz_roundtrip(raw in 1u8..=u8::MAX) {
+            let value = NonZero::new(raw).expect("raw is non-zero");
+            let mut buf = Vec::new();
+            non_zero_u8::encode::ssz_append(&value, &mut buf);
+            let decoded = non_zero_u8::decode::from_ssz_bytes(&buf)
+                .expect("roundtrip should succeed for non-zero u8");
+            prop_assert_eq!(decoded, value);
+        }
+    }
+
+    #[test]
+    fn test_non_zero_u8_ssz_decode_zero_fails() {
+        assert!(non_zero_u8::decode::from_ssz_bytes(&[0u8]).is_err());
+    }
+}
