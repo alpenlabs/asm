@@ -55,7 +55,7 @@ mod tests {
             "Strata ASM Administration v2\n\
              Role: Alpen Administrator\n\
              Sequence: 11\n\
-             Action: EeStfVkUpdate\n\
+             Action: EE STF VK Update\n\
              Action Details:\n  \
              Proof Type: EeStf\n  \
              Predicate Type: Sp1Groth16\n  \

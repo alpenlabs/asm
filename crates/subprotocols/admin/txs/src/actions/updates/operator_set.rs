@@ -89,7 +89,7 @@ mod tests {
             "Strata ASM Administration v2\n\
              Role: Strata Administrator\n\
              Sequence: 9\n\
-             Action: OperatorUpdate\n\
+             Action: Operator Update\n\
              Action Details:\n  \
              Add Member Count: 1\n  \
              Add Member 1: 79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798\n  \

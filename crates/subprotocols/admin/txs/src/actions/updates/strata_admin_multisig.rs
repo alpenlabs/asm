@@ -61,7 +61,7 @@ mod tests {
             "Strata ASM Administration v2\n\
              Role: Strata Administrator\n\
              Sequence: 4\n\
-             Action: StrataAdminMultisigUpdate\n\
+             Action: Strata Administrator Multisig Update\n\
              Action Details:\n  \
              Target Role: Strata Administrator\n  \
              New Threshold: 2\n  \

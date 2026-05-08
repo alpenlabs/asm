@@ -41,6 +41,23 @@ impl UpdateTxType {
             Self::StrataSeqManagerMultisigUpdate => Role::StrataSequencerManager,
         }
     }
+
+    /// Canonical name used in the signing-message payload.
+    ///
+    /// Must remain byte-stable: external signers (hardware wallets, signing services) hash
+    /// the rendered payload, so changing these labels invalidates already-signed messages.
+    pub fn name(&self) -> &'static str {
+        match self {
+            Self::StrataAdminMultisigUpdate => "Strata Administrator Multisig Update",
+            Self::StrataSeqManagerMultisigUpdate => "Strata Sequencer Manager Multisig Update",
+            Self::AlpenAdminMultisigUpdate => "Alpen Administrator Multisig Update",
+            Self::OperatorUpdate => "Operator Update",
+            Self::SequencerUpdate => "Sequencer Update",
+            Self::OlStfVkUpdate => "OL STF VK Update",
+            Self::AsmStfVkUpdate => "ASM STF VK Update",
+            Self::EeStfVkUpdate => "EE STF VK Update",
+        }
+    }
 }
 
 impl TryFrom<u8> for UpdateTxType {
@@ -63,18 +80,7 @@ impl TryFrom<u8> for UpdateTxType {
 
 impl fmt::Display for UpdateTxType {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            UpdateTxType::StrataAdminMultisigUpdate => write!(f, "StrataAdminMultisigUpdate"),
-            UpdateTxType::StrataSeqManagerMultisigUpdate => {
-                write!(f, "StrataSeqManagerMultisigUpdate")
-            }
-            UpdateTxType::AlpenAdminMultisigUpdate => write!(f, "AlpenAdminMultisigUpdate"),
-            UpdateTxType::OperatorUpdate => write!(f, "OperatorUpdate"),
-            UpdateTxType::SequencerUpdate => write!(f, "SequencerUpdate"),
-            UpdateTxType::OlStfVkUpdate => write!(f, "OlStfVkUpdate"),
-            UpdateTxType::AsmStfVkUpdate => write!(f, "AsmStfVkUpdate"),
-            UpdateTxType::EeStfVkUpdate => write!(f, "EeStfVkUpdate"),
-        }
+        f.write_str(self.name())
     }
 }
 

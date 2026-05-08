@@ -57,7 +57,7 @@ mod tests {
             "Strata ASM Administration v2\n\
              Role: Strata Sequencer Manager\n\
              Sequence: 42\n\
-             Action: SequencerUpdate\n\
+             Action: Sequencer Update\n\
              Action Details:\n  \
              New Sequencer Key: 0707070707070707070707070707070707070707070707070707070707070707",
         );

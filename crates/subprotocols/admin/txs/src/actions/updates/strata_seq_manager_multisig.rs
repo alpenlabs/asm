@@ -61,7 +61,7 @@ mod tests {
             "Strata ASM Administration v2\n\
              Role: Strata Sequencer Manager\n\
              Sequence: 7\n\
-             Action: StrataSeqManagerMultisigUpdate\n\
+             Action: Strata Sequencer Manager Multisig Update\n\
              Action Details:\n  \
              Target Role: Strata Sequencer Manager\n  \
              New Threshold: 2\n  \

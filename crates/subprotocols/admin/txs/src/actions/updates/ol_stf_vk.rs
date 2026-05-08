@@ -55,7 +55,7 @@ mod tests {
             "Strata ASM Administration v2\n\
              Role: Strata Administrator\n\
              Sequence: 3\n\
-             Action: OlStfVkUpdate\n\
+             Action: OL STF VK Update\n\
              Action Details:\n  \
              Proof Type: OLStf\n  \
              Predicate Type: Sp1Groth16\n  \
