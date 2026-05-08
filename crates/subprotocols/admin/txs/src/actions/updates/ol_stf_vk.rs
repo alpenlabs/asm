@@ -53,9 +53,9 @@ mod tests {
         assert_eq!(
             message.as_str(),
             "Strata ASM Administration v2\n\
-             Role: Strata Administrator\n\
-             Sequence: 3\n\
              Action: OL STF VK Update\n\
+             Authorized By: Strata Administrator\n\
+             Sequence: 3\n\
              Action Details:\n  \
              Proof Type: OLStf\n  \
              Predicate Type: Sp1Groth16\n  \

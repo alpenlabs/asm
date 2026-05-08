@@ -11,8 +11,9 @@ pub const SIGNING_MESSAGE_VERSION: u8 = 2;
 /// The canonical Bitcoin `signMessage` payload an admin signer signs over.
 ///
 /// Constructed via [`SigningMessage::for_action`] from a [`MultisigAction`] and its sequence
-/// number. The `Role:` line is derived from the action via [`MultisigAction::required_role`], so
-/// signers and verifiers cannot disagree on which role's authority must validate the message.
+/// number. The `Authorized By:` line is derived from the action via
+/// [`MultisigAction::required_role`], so signers and verifiers cannot disagree on which role's
+/// authority must validate the message.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SigningMessage(String);
 
@@ -21,9 +22,9 @@ impl SigningMessage {
     pub fn for_action(action: &MultisigAction, seqno: u64) -> Self {
         let mut lines = vec![
             format!("Strata ASM Administration v{SIGNING_MESSAGE_VERSION}"),
-            format!("Role: {}", action.required_role()),
-            format!("Sequence: {seqno}"),
             format!("Action: {}", action.tx_type()),
+            format!("Authorized By: {}", action.required_role()),
+            format!("Sequence: {seqno}"),
             "Action Details:".to_string(),
         ];
         let mut details = IndentedDetails::new(&mut lines);
@@ -58,9 +59,9 @@ mod tests {
         assert_eq!(
             message.as_str(),
             "Strata ASM Administration v2\n\
-             Role: Strata Sequencer Manager\n\
-             Sequence: 9\n\
              Action: Cancel\n\
+             Authorized By: Strata Sequencer Manager\n\
+             Sequence: 9\n\
              Action Details:\n  \
              Target Id: 7\n  \
              New Sequencer Key: 1111111111111111111111111111111111111111111111111111111111111111"

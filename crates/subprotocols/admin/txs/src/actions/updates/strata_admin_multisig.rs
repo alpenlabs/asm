@@ -59,9 +59,9 @@ mod tests {
         assert_eq!(
             message.as_str(),
             "Strata ASM Administration v2\n\
-             Role: Strata Administrator\n\
-             Sequence: 4\n\
              Action: Strata Administrator Multisig Update\n\
+             Authorized By: Strata Administrator\n\
+             Sequence: 4\n\
              Action Details:\n  \
              Target Role: Strata Administrator\n  \
              New Threshold: 2\n  \

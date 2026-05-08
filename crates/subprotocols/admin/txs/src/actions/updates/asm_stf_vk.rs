@@ -57,9 +57,9 @@ mod tests {
             message.as_str(),
             format!(
                 "Strata ASM Administration v2\n\
-                 Role: Strata Administrator\n\
-                 Sequence: 5\n\
                  Action: ASM STF VK Update\n\
+                 Authorized By: Strata Administrator\n\
+                 Sequence: 5\n\
                  Action Details:\n  \
                  Proof Type: Asm\n  \
                  Predicate Type: Sp1Groth16\n  \
