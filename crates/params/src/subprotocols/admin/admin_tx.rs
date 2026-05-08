@@ -66,3 +66,56 @@ impl fmt::Display for AdminTxType {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use proptest::prelude::*;
+
+    use super::{AdminTxType, UpdateTxType};
+
+    impl Arbitrary for AdminTxType {
+        type Parameters = ();
+        type Strategy = BoxedStrategy<Self>;
+
+        fn arbitrary_with(_args: Self::Parameters) -> Self::Strategy {
+            prop_oneof![
+                Just(AdminTxType::Cancel),
+                any::<UpdateTxType>().prop_map(AdminTxType::Update),
+            ]
+            .boxed()
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn test_admin_tx_type_roundtrip(tx_type: AdminTxType) {
+            let as_u8: u8 = tx_type.into();
+            let back_to_enum = AdminTxType::try_from(as_u8)
+                .expect("roundtrip conversion should succeed");
+            prop_assert_eq!(tx_type, back_to_enum);
+        }
+
+        #[test]
+        fn test_admin_tx_type_invalid_values(
+            value in (0u8..=255u8).prop_filter("must not be a valid variant", |v| {
+                !matches!(*v, 0 | 10 | 11 | 12 | 20 | 21 | 30 | 31 | 32)
+            })
+        ) {
+            prop_assert!(AdminTxType::try_from(value).is_err());
+        }
+    }
+
+    #[test]
+    fn test_try_from_admin_tx_type_for_update_tx_type() {
+        assert_eq!(
+            UpdateTxType::try_from(AdminTxType::Cancel),
+            Err(AdminTxType::Cancel)
+        );
+
+        let inner = UpdateTxType::OperatorUpdate;
+        assert_eq!(
+            UpdateTxType::try_from(AdminTxType::Update(inner)),
+            Ok(inner)
+        );
+    }
+}
