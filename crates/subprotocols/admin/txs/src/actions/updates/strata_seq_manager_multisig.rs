@@ -59,11 +59,11 @@ mod tests {
         assert_eq!(
             message.as_str(),
             "Strata ASM Administration v2\n\
-             Role: StrataSequencerManager\n\
+             Role: Strata Sequencer Manager\n\
              Sequence: 7\n\
              Action: StrataSeqManagerMultisigUpdate\n\
              Action Details:\n  \
-             Target Role: StrataSequencerManager\n  \
+             Target Role: Strata Sequencer Manager\n  \
              New Threshold: 2\n  \
              Add Member Count: 1\n  \
              Add Member 1: 020202020202020202020202020202020202020202020202020202020202020202\n  \

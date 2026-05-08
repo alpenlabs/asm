@@ -57,7 +57,7 @@ mod tests {
             message.as_str(),
             format!(
                 "Strata ASM Administration v2\n\
-                 Role: StrataAdministrator\n\
+                 Role: Strata Administrator\n\
                  Sequence: 5\n\
                  Action: AsmStfVkUpdate\n\
                  Action Details:\n  \

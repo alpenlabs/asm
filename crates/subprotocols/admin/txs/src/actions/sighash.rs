@@ -1,4 +1,4 @@
-use strata_asm_params::{AdminTxType, Role};
+use strata_asm_params::AdminTxType;
 
 /// A buffer for the indented sub-fields under the `Action Details:` header line.
 ///
@@ -32,14 +32,6 @@ pub(crate) trait RenderSigningMessage {
 
     /// Pushes the action-specific sub-fields into the indented details buffer.
     fn render_details(&self, details: &mut IndentedDetails<'_>);
-}
-
-pub(crate) fn role_label(role: Role) -> &'static str {
-    match role {
-        Role::StrataAdministrator => "StrataAdministrator",
-        Role::StrataSequencerManager => "StrataSequencerManager",
-        Role::AlpenAdministrator => "AlpenAdministrator",
-    }
 }
 
 pub(crate) fn append_indexed_fields(

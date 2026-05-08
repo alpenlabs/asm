@@ -59,11 +59,11 @@ mod tests {
         assert_eq!(
             message.as_str(),
             "Strata ASM Administration v2\n\
-             Role: AlpenAdministrator\n\
+             Role: Alpen Administrator\n\
              Sequence: 12\n\
              Action: AlpenAdminMultisigUpdate\n\
              Action Details:\n  \
-             Target Role: AlpenAdministrator\n  \
+             Target Role: Alpen Administrator\n  \
              New Threshold: 2\n  \
              Add Member Count: 1\n  \
              Add Member 1: 020202020202020202020202020202020202020202020202020202020202020202\n  \

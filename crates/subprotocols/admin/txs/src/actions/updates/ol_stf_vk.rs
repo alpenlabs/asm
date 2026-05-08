@@ -53,7 +53,7 @@ mod tests {
         assert_eq!(
             message.as_str(),
             "Strata ASM Administration v2\n\
-             Role: StrataAdministrator\n\
+             Role: Strata Administrator\n\
              Sequence: 3\n\
              Action: OlStfVkUpdate\n\
              Action Details:\n  \

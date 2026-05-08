@@ -1,7 +1,7 @@
 use bitcoin::{hashes::Hash as _, sign_message::signed_msg_hash};
 use strata_identifiers::Buf32;
 
-use crate::actions::{IndentedDetails, MultisigAction, RenderSigningMessage, role_label};
+use crate::actions::{IndentedDetails, MultisigAction, RenderSigningMessage};
 
 /// Version of the canonical Bitcoin `signMessage` payload format. Bumped on any breaking change
 /// to the rendered text so external signers (hardware wallets, signing services) can assert
@@ -21,7 +21,7 @@ impl SigningMessage {
     pub fn for_action(action: &MultisigAction, seqno: u64) -> Self {
         let mut lines = vec![
             format!("Strata ASM Administration v{SIGNING_MESSAGE_VERSION}"),
-            format!("Role: {}", role_label(action.required_role())),
+            format!("Role: {}", action.required_role()),
             format!("Sequence: {seqno}"),
             format!("Action: {}", action.tx_type()),
             "Action Details:".to_string(),
@@ -58,7 +58,7 @@ mod tests {
         assert_eq!(
             message.as_str(),
             "Strata ASM Administration v2\n\
-             Role: StrataSequencerManager\n\
+             Role: Strata Sequencer Manager\n\
              Sequence: 9\n\
              Action: Cancel\n\
              Action Details:\n  \

@@ -1,3 +1,5 @@
+use std::fmt;
+
 #[cfg(feature = "arbitrary")]
 use arbitrary::Arbitrary;
 use serde::{Deserialize, Serialize};
@@ -29,4 +31,24 @@ pub enum Role {
     /// (predicate key) of EE snark accounts, emitting an `EePredicateKeyUpdate`
     /// log that the OL STF applies during manifest processing.
     AlpenAdministrator,
+}
+
+impl Role {
+    /// Canonical name used in the signing-message payload.
+    ///
+    /// Must remain byte-stable: external signers (hardware wallets, signing services) hash
+    /// the rendered payload, so changing these labels invalidates already-signed messages.
+    pub fn name(&self) -> &'static str {
+        match self {
+            Role::StrataAdministrator => "Strata Administrator",
+            Role::StrataSequencerManager => "Strata Sequencer Manager",
+            Role::AlpenAdministrator => "Alpen Administrator",
+        }
+    }
+}
+
+impl fmt::Display for Role {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.name())
+    }
 }

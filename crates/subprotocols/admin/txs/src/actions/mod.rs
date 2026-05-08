@@ -8,7 +8,7 @@ mod sighash;
 pub mod updates;
 
 pub use cancel::CancelAction;
-pub(crate) use sighash::{IndentedDetails, RenderSigningMessage, append_indexed_fields, role_label};
+pub(crate) use sighash::{IndentedDetails, RenderSigningMessage, append_indexed_fields};
 pub use updates::UpdateAction;
 
 use crate::constants::ADMINISTRATION_SUBPROTOCOL_ID;

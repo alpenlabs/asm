@@ -2,14 +2,14 @@ use strata_asm_params::Role;
 use strata_crypto::{hash, threshold_signature::ThresholdConfigUpdate};
 use strata_predicate::{PredicateKey, PredicateTypeId};
 
-use crate::actions::{IndentedDetails, append_indexed_fields, role_label};
+use crate::actions::{IndentedDetails, append_indexed_fields};
 
 pub(super) fn multisig(
     role: Role,
     config: &ThresholdConfigUpdate,
     details: &mut IndentedDetails<'_>,
 ) {
-    details.push(format!("Target Role: {}", role_label(role)));
+    details.push(format!("Target Role: {role}"));
     details.push(format!("New Threshold: {}", config.new_threshold()));
     append_indexed_fields(
         details,
