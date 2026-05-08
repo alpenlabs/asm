@@ -54,7 +54,7 @@ mod tests {
         let message = SigningMessage::for_action(&action, 42);
         assert_eq!(
             message.as_str(),
-            "Strata ASM Administration v2\n\
+            "Strata ASM Administration v1\n\
              Action: Sequencer Update\n\
              Authorized By: Strata Sequencer Manager\n\
              Sequence: 42\n\

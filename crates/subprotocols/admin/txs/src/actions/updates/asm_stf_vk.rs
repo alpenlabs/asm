@@ -56,7 +56,7 @@ mod tests {
         assert_eq!(
             message.as_str(),
             format!(
-                "Strata ASM Administration v2\n\
+                "Strata ASM Administration v1\n\
                  Action: ASM STF VK Update\n\
                  Authorized By: Strata Administrator\n\
                  Sequence: 5\n\

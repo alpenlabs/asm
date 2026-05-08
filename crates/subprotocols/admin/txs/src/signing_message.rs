@@ -3,10 +3,10 @@ use strata_identifiers::Buf32;
 
 use crate::actions::{IndentedDetails, MultisigAction, RenderSigningMessage};
 
-/// Version of the canonical Bitcoin `signMessage` payload format. Bumped on any breaking change
-/// to the rendered text so external signers (hardware wallets, signing services) can assert
-/// they understand the format before signing.
-pub const SIGNING_MESSAGE_VERSION: u8 = 2;
+/// Version of the admin subprotocol. The version is embedded in every signing message and
+/// signed over, so bumping it on any breaking change to the subprotocol after deployment
+/// ensures admin signatures cannot be reinterpreted under new subprotocol semantics.
+pub const ADMIN_SUBPROTOCOL_VERSION: u8 = 1;
 
 /// The canonical Bitcoin `signMessage` payload an admin signer signs over.
 ///
@@ -21,7 +21,7 @@ impl SigningMessage {
     /// Renders the canonical signing-message payload for `action` at `seqno`.
     pub fn for_action(action: &MultisigAction, seqno: u64) -> Self {
         let mut lines = vec![
-            format!("Strata ASM Administration v{SIGNING_MESSAGE_VERSION}"),
+            format!("Strata ASM Administration v{ADMIN_SUBPROTOCOL_VERSION}"),
             format!("Action: {}", action.tx_type()),
             format!("Authorized By: {}", action.required_role()),
             format!("Sequence: {seqno}"),
