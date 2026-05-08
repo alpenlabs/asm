@@ -234,8 +234,7 @@ mod tests {
     };
     use strata_asm_proto_checkpoint_msgs::CheckpointIncomingMsg;
     use strata_crypto::{
-        keys::compressed::CompressedPublicKey,
-        threshold_signature::{SignatureSet, ThresholdConfig},
+        keys::compressed::CompressedPublicKey, threshold_signature::ThresholdConfig,
     };
     use strata_predicate::PredicateKey;
     use strata_test_utils_arb::ArbitraryGenerator;
@@ -666,18 +665,22 @@ mod tests {
     /// - Verify that handle_action returns UnknownAction error
     #[test]
     fn test_strata_administrator_non_existent_cancel() {
-        let mut arb = ArbitraryGenerator::new();
-        let (params, _, _) = create_test_params();
+        let (params, admin_sks, _) = create_test_params();
         let mut state = AdministrationSubprotoState::new(&params);
         let mut relayer = MockRelayer::<CheckpointIncomingMsg>::new();
-        let sig_set = SignatureSet::new(vec![]).unwrap();
         let current_height = 1000;
+        let signer_indices = [0u8, 2u8];
 
-        // Generate a random cancel action (likely targeting a non-existent ID)
-        let cancel_action: CancelAction = arb.generate();
-        let cancel_action = MultisigAction::Cancel(cancel_action);
+        // Build a cancel whose embedded update routes to StrataAdministrator (so admin_sks
+        // can sign it), but whose target_id is not in the (empty) queue.
+        let nonexistent_id = 42;
+        let update = get_strata_administrator_update_actions(1).pop().unwrap();
+        let cancel_action = MultisigAction::Cancel(CancelAction::new(nonexistent_id, update));
 
-        let payload = SignedPayload::new(arb.generate(), cancel_action, sig_set);
+        let payload_seqno = 1;
+        let sig_set =
+            create_signature_set(&admin_sks, &signer_indices, &cancel_action, payload_seqno);
+        let payload = SignedPayload::new(payload_seqno, cancel_action, sig_set);
         let res = handle_action(&mut state, payload, current_height, &mut relayer);
 
         assert!(matches!(res, Err(AdministrationError::UnknownAction(_))));
