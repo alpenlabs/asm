@@ -45,26 +45,15 @@ impl SigningMessage {
 
 #[cfg(test)]
 mod tests {
-    use strata_identifiers::Buf32;
+    use strata_test_utils_arb::ArbitraryGenerator;
 
-    use super::*;
-    use crate::actions::{CancelAction, UpdateAction, updates::strata_sequencer::SequencerUpdate};
+    use crate::{actions::MultisigAction, signing_message::SigningMessage};
 
     #[test]
-    fn test_cancel_message_renders_embedded_update() {
-        let update = UpdateAction::Sequencer(SequencerUpdate::new(Buf32::from([0x11u8; 32])));
-        let action = MultisigAction::Cancel(CancelAction::new(7, update));
-
-        let message = SigningMessage::for_action(&action, 9);
-        assert_eq!(
-            message.as_str(),
-            "Strata ASM Administration v2\n\
-             Action: Cancel\n\
-             Authorized By: Strata Sequencer Manager\n\
-             Sequence: 9\n\
-             Action Details:\n  \
-             Target Id: 7\n  \
-             New Sequencer Key: 1111111111111111111111111111111111111111111111111111111111111111"
-        );
+    fn test_compute_hash_is_infalliable() {
+        let mut arb = ArbitraryGenerator::new();
+        let action: MultisigAction = arb.generate();
+        let seqno: u64 = arb.generate();
+        SigningMessage::for_action(&action, seqno).compute_sighash();
     }
 }

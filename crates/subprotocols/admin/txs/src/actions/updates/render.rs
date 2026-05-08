@@ -26,8 +26,10 @@ pub(super) fn multisig(config: &ThresholdConfigUpdate, details: &mut IndentedDet
 }
 
 pub(super) fn predicate(key: &PredicateKey, details: &mut IndentedDetails<'_>) {
-    let predicate_type = PredicateTypeId::try_from(key.id())
-        .expect("predicate type should be validated at construction");
+    let predicate_type = match PredicateTypeId::try_from(key.id()) {
+        Ok(id) => id.to_string(),
+        Err(_) => format!("unknown ({})", key.id()),
+    };
     let condition = key.condition();
     details.push(format!("Predicate Type: {predicate_type}"));
     if condition.len() <= 32 {

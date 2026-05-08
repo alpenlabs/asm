@@ -36,6 +36,38 @@ impl RenderSigningMessage for CancelAction {
 
     fn render_details(&self, details: &mut IndentedDetails<'_>) {
         details.push(format!("Target Id: {}", self.target_id));
+        details.push(format!("Target Update: {}", self.update.update_tx_type()));
         self.update.render_details(details);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use strata_identifiers::Buf32;
+
+    use crate::{
+        actions::{
+            CancelAction, MultisigAction, UpdateAction, updates::strata_sequencer::SequencerUpdate,
+        },
+        signing_message::SigningMessage,
+    };
+
+    #[test]
+    fn test_cancel_message_renders_embedded_update() {
+        let update = UpdateAction::Sequencer(SequencerUpdate::new(Buf32::from([0x11u8; 32])));
+        let action = MultisigAction::Cancel(CancelAction::new(7, update));
+
+        let message = SigningMessage::for_action(&action, 9);
+        assert_eq!(
+            message.as_str(),
+            "Strata ASM Administration v2\n\
+             Action: Cancel\n\
+             Authorized By: Strata Sequencer Manager\n\
+             Sequence: 9\n\
+             Action Details:\n  \
+             Target Id: 7\n  \
+             Target Update: Sequencer Update\n  \
+             New Sequencer Key: 1111111111111111111111111111111111111111111111111111111111111111"
+        );
     }
 }
