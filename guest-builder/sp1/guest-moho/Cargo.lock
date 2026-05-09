@@ -14,15 +14,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "arbitrary"
-version = "1.4.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c3d036a3c4ab069c7b410a2ce876bd74808d2d0888a82667669f8e783a898bf1"
-dependencies = [
- "derive_arbitrary",
-]
-
-[[package]]
 name = "ark-ff"
 version = "0.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -33,7 +24,7 @@ dependencies = [
  "ark-serialize",
  "ark-std",
  "derivative",
- "digest",
+ "digest 0.10.7",
  "itertools 0.10.5",
  "num-bigint 0.4.6",
  "num-traits",
@@ -72,7 +63,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "adb7b85a02b83d2f22f89bd5cac66c9c89474240cb6207cb1efc16d098e822a5"
 dependencies = [
  "ark-std",
- "digest",
+ "digest 0.10.7",
  "num-bigint 0.4.6",
 ]
 
@@ -97,17 +88,6 @@ name = "arrayvec"
 version = "0.7.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7c02d123df017efcdfbd739ef81735b36c5ba83ec3c59c80a9d7ecc718f92e50"
-
-[[package]]
-name = "async-trait"
-version = "0.1.89"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9035ad2d096bed7955a320ee7e2230574d28fd3c3a0f186cbea1ff3c7eed5dbb"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 2.0.117",
-]
 
 [[package]]
 name = "autocfg"
@@ -166,7 +146,7 @@ version = "0.10.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "46502ad458c9a52b69d4d4d32775c788b7a1b85e8bc9d482d92250fc0e3f8efe"
 dependencies = [
- "digest",
+ "digest 0.10.7",
 ]
 
 [[package]]
@@ -201,6 +181,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3078c7629b62d3f0439517fa394996acacc5cbc91c5a20d8c658e77abd503a71"
 dependencies = [
  "generic-array",
+]
+
+[[package]]
+name = "block-buffer"
+version = "0.12.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cdd35008169921d80bc60d3d0ab416eecb028c4cd653352907921d95084790be"
+dependencies = [
+ "hybrid-array",
 ]
 
 [[package]]
@@ -307,6 +296,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2459377285ad874054d797f3ccebf984978aa39129f6eafde5cdc8315b612f8"
 
 [[package]]
+name = "const-oid"
+version = "0.10.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a6ef517f0926dd24a1582492c791b6a4818a4d94e789a334894aa15b0d12f55c"
+
+[[package]]
 name = "constant_time_eq"
 version = "0.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -390,6 +385,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "crypto-common"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "77727bb15fa921304124b128af125e7e3b968275d1b108b379190264f4423710"
+dependencies = [
+ "hybrid-array",
+]
+
+[[package]]
 name = "darling"
 version = "0.20.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -430,7 +434,7 @@ version = "0.7.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e7c1832837b905bbfb5101e07cc24c8deddf52f93225eee6ead5f4d63d53ddcb"
 dependencies = [
- "const-oid",
+ "const-oid 0.9.6",
  "zeroize",
 ]
 
@@ -446,35 +450,35 @@ dependencies = [
 ]
 
 [[package]]
-name = "derive_arbitrary"
-version = "1.4.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1e567bd82dcff979e4b03460c307b3cdc9e96fde3d73bed1496d2bc75d9dd62a"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 2.0.117",
-]
-
-[[package]]
 name = "digest"
 version = "0.10.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9ed9a281f7bc9b7576e61468ba615a66a5c8cfdff42420a70aa82701a3b1e292"
 dependencies = [
- "block-buffer",
- "const-oid",
- "crypto-common",
+ "block-buffer 0.10.4",
+ "const-oid 0.9.6",
+ "crypto-common 0.1.6",
  "subtle",
+]
+
+[[package]]
+name = "digest"
+version = "0.11.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f1dd6dbb5841937940781866fa1281a1ff7bd3bf827091440879f9994983d5c2"
+dependencies = [
+ "block-buffer 0.12.0",
+ "const-oid 0.10.2",
+ "crypto-common 0.2.1",
 ]
 
 [[package]]
 name = "ecdsa"
 version = "0.16.9"
-source = "git+https://github.com/sp1-patches/signatures.git?tag=patch-16.9-sp1-4.1.0#1880299a48fe7ef249edaa616fd411239fb5daf1"
+source = "git+https://github.com/sp1-patches/signatures?tag=sp1-skip-verify-on-recovery#1880299a48fe7ef249edaa616fd411239fb5daf1"
 dependencies = [
  "der",
- "digest",
+ "digest 0.10.7",
  "elliptic-curve",
  "rfc6979",
  "signature",
@@ -501,7 +505,7 @@ checksum = "b5e6043086bf7973472e0c7dff2142ea0b680d30e18d9cc40f267efbf222bd47"
 dependencies = [
  "base16ct",
  "crypto-bigint",
- "digest",
+ "digest 0.10.7",
  "ff 0.13.1",
  "generic-array",
  "group 0.13.0",
@@ -800,7 +804,16 @@ version = "0.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6c49c37c09c17a53d937dfbb742eb3a961d65a994e6bcdcf37e7399d0cc8ab5e"
 dependencies = [
- "digest",
+ "digest 0.10.7",
+]
+
+[[package]]
+name = "hybrid-array"
+version = "0.4.10"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3944cf8cf766b40e2a1a333ee5e9b563f854d5fa49d6a8ca2764e97c6eddb214"
+dependencies = [
+ "typenum",
 ]
 
 [[package]]
@@ -872,16 +885,16 @@ dependencies = [
 [[package]]
 name = "k256"
 version = "0.13.4"
-source = "git+https://github.com/sp1-patches/elliptic-curves?tag=patch-k256-13.4-sp1-5.0.0#f7d8998e05d8cbcbd8e543eba1030a7385011fa8"
+source = "git+https://github.com/sp1-patches/elliptic-curves?tag=patch-k256-13.4-sp1-6.0.0#476243d31d3ffd9d882d0e5da1f6adaa2a204b62"
 dependencies = [
  "cfg-if",
  "ecdsa",
  "elliptic-curve",
  "hex",
  "once_cell",
- "sha2",
+ "sha2 0.10.9",
  "signature",
- "sp1-lib 5.2.4",
+ "sp1-lib",
 ]
 
 [[package]]
@@ -935,7 +948,7 @@ checksum = "3d97bbf43eb4f088f8ca469930cde17fa036207c9a5e02ccc5107c4e8b17c964"
 [[package]]
 name = "moho-recursive-proof"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/moho?tag=v0.1-alpha.1#a80ef1e534a6ebbda5dff7125efb5ab5bf9b2485"
+source = "git+https://github.com/alpenlabs/moho?rev=c0134e4985d3abbff9edf3a97124225476add77e#c0134e4985d3abbff9edf3a97124225476add77e"
 dependencies = [
  "moho-types",
  "ssz",
@@ -944,17 +957,17 @@ dependencies = [
  "strata-predicate",
  "thiserror 2.0.18",
  "tree_hash",
- "zkaleido 0.1.0 (git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc24)",
+ "zkaleido",
  "zkaleido-native-adapter",
 ]
 
 [[package]]
 name = "moho-types"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/moho?tag=v0.1-alpha.1#a80ef1e534a6ebbda5dff7125efb5ab5bf9b2485"
+source = "git+https://github.com/alpenlabs/moho?rev=c0134e4985d3abbff9edf3a97124225476add77e#c0134e4985d3abbff9edf3a97124225476add77e"
 dependencies = [
  "hex",
- "sha2",
+ "sha2 0.11.0",
  "ssz",
  "ssz_codegen",
  "ssz_derive",
@@ -965,7 +978,7 @@ dependencies = [
  "thiserror 2.0.18",
  "tree_hash",
  "tree_hash_derive",
- "zkaleido 0.1.0 (git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc24)",
+ "zkaleido",
 ]
 
 [[package]]
@@ -1015,21 +1028,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9f7c3e4beb33f85d45ae3e3a1792185706c8e16d043238c593331cc7cd313b50"
 
 [[package]]
-name = "p3-baby-bear"
-version = "0.2.3-succinct"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7521838ecab2ddf4f7bc4ceebad06ec02414729598485c1ada516c39900820e8"
-dependencies = [
- "num-bigint 0.4.6",
- "p3-field 0.2.3-succinct",
- "p3-mds 0.2.3-succinct",
- "p3-poseidon2 0.2.3-succinct",
- "p3-symmetric 0.2.3-succinct",
- "rand 0.8.5",
- "serde",
-]
-
-[[package]]
 name = "p3-bn254-fr"
 version = "0.3.2-succinct"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1037,9 +1035,9 @@ checksum = "9abf208fbfe540d6e2a6caaa2a9a345b1c8cb23ffdcdfcc6987244525d4fc821"
 dependencies = [
  "ff 0.13.1",
  "num-bigint 0.4.6",
- "p3-field 0.3.2-succinct",
- "p3-poseidon2 0.3.2-succinct",
- "p3-symmetric 0.3.2-succinct",
+ "p3-field",
+ "p3-poseidon2",
+ "p3-symmetric",
  "rand 0.8.5",
  "serde",
 ]
@@ -1050,24 +1048,11 @@ version = "0.3.2-succinct"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "42b725b453bbb35117a1abf0ddfd900b0676063d6e4231e0fa6bb0d76018d8ad"
 dependencies = [
- "p3-field 0.3.2-succinct",
- "p3-maybe-rayon 0.3.2-succinct",
- "p3-symmetric 0.3.2-succinct",
- "p3-util 0.3.2-succinct",
+ "p3-field",
+ "p3-maybe-rayon",
+ "p3-symmetric",
+ "p3-util",
  "serde",
- "tracing",
-]
-
-[[package]]
-name = "p3-dft"
-version = "0.2.3-succinct"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "46414daedd796f1eefcdc1811c0484e4bced5729486b6eaba9521c572c76761a"
-dependencies = [
- "p3-field 0.2.3-succinct",
- "p3-matrix 0.2.3-succinct",
- "p3-maybe-rayon 0.2.3-succinct",
- "p3-util 0.2.3-succinct",
  "tracing",
 ]
 
@@ -1077,25 +1062,11 @@ version = "0.3.2-succinct"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "56a1f81101bff744b7ebba7f4497e917a2c6716d6e62736e4a56e555a2d98cb7"
 dependencies = [
- "p3-field 0.3.2-succinct",
- "p3-matrix 0.3.2-succinct",
- "p3-maybe-rayon 0.3.2-succinct",
- "p3-util 0.3.2-succinct",
+ "p3-field",
+ "p3-matrix",
+ "p3-maybe-rayon",
+ "p3-util",
  "tracing",
-]
-
-[[package]]
-name = "p3-field"
-version = "0.2.3-succinct"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "48948a0516b349e9d1cdb95e7236a6ee010c44e68c5cc78b4b92bf1c4022a0d9"
-dependencies = [
- "itertools 0.12.1",
- "num-bigint 0.4.6",
- "num-traits",
- "p3-util 0.2.3-succinct",
- "rand 0.8.5",
- "serde",
 ]
 
 [[package]]
@@ -1107,7 +1078,7 @@ dependencies = [
  "itertools 0.12.1",
  "num-bigint 0.4.6",
  "num-traits",
- "p3-util 0.3.2-succinct",
+ "p3-util",
  "rand 0.8.5",
  "serde",
 ]
@@ -1119,27 +1090,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "eb1f52bcb6be38bdc8fa6b38b3434d4eedd511f361d4249fd798c6a5ef817b40"
 dependencies = [
  "num-bigint 0.4.6",
- "p3-field 0.3.2-succinct",
- "p3-mds 0.3.2-succinct",
- "p3-poseidon2 0.3.2-succinct",
- "p3-symmetric 0.3.2-succinct",
+ "p3-field",
+ "p3-mds",
+ "p3-poseidon2",
+ "p3-symmetric",
  "rand 0.8.5",
  "serde",
-]
-
-[[package]]
-name = "p3-matrix"
-version = "0.2.3-succinct"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3e4de3f373589477cb735ea58e125898ed20935e03664b4614c7fac258b3c42f"
-dependencies = [
- "itertools 0.12.1",
- "p3-field 0.2.3-succinct",
- "p3-maybe-rayon 0.2.3-succinct",
- "p3-util 0.2.3-succinct",
- "rand 0.8.5",
- "serde",
- "tracing",
 ]
 
 [[package]]
@@ -1149,19 +1105,13 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5583e9cd136a4095a25c41a9edfdcce2dfae58ef01639317813bdbbd5b55c583"
 dependencies = [
  "itertools 0.12.1",
- "p3-field 0.3.2-succinct",
- "p3-maybe-rayon 0.3.2-succinct",
- "p3-util 0.3.2-succinct",
+ "p3-field",
+ "p3-maybe-rayon",
+ "p3-util",
  "rand 0.8.5",
  "serde",
  "tracing",
 ]
-
-[[package]]
-name = "p3-maybe-rayon"
-version = "0.2.3-succinct"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c3968ad1160310296eb04f91a5f4edfa38fe1d6b2b8cd6b5c64e6f9b7370979e"
 
 [[package]]
 name = "p3-maybe-rayon"
@@ -1171,46 +1121,17 @@ checksum = "e524d47a49fb4265611303339c4ef970d892817b006cc330dad18afb91e411b1"
 
 [[package]]
 name = "p3-mds"
-version = "0.2.3-succinct"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2356b1ed0add6d5dfbf7a338ce534a6fde827374394a52cec16a0840af6e97c9"
-dependencies = [
- "itertools 0.12.1",
- "p3-dft 0.2.3-succinct",
- "p3-field 0.2.3-succinct",
- "p3-matrix 0.2.3-succinct",
- "p3-symmetric 0.2.3-succinct",
- "p3-util 0.2.3-succinct",
- "rand 0.8.5",
-]
-
-[[package]]
-name = "p3-mds"
 version = "0.3.2-succinct"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4f6cb8edcb276033d43769a3725570c340d2ed6f35c3cca4cddeee07718fa376"
 dependencies = [
  "itertools 0.12.1",
- "p3-dft 0.3.2-succinct",
- "p3-field 0.3.2-succinct",
- "p3-matrix 0.3.2-succinct",
- "p3-symmetric 0.3.2-succinct",
- "p3-util 0.3.2-succinct",
+ "p3-dft",
+ "p3-field",
+ "p3-matrix",
+ "p3-symmetric",
+ "p3-util",
  "rand 0.8.5",
-]
-
-[[package]]
-name = "p3-poseidon2"
-version = "0.2.3-succinct"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7da1eec7e1b6900581bedd95e76e1ef4975608dd55be9872c9d257a8a9651c3a"
-dependencies = [
- "gcd",
- "p3-field 0.2.3-succinct",
- "p3-mds 0.2.3-succinct",
- "p3-symmetric 0.2.3-succinct",
- "rand 0.8.5",
- "serde",
 ]
 
 [[package]]
@@ -1220,21 +1141,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5a26197df2097b98ab7038d59a01e1fe1a0f545e7e04aa9436b2454b1836654f"
 dependencies = [
  "gcd",
- "p3-field 0.3.2-succinct",
- "p3-mds 0.3.2-succinct",
- "p3-symmetric 0.3.2-succinct",
+ "p3-field",
+ "p3-mds",
+ "p3-symmetric",
  "rand 0.8.5",
- "serde",
-]
-
-[[package]]
-name = "p3-symmetric"
-version = "0.2.3-succinct"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "edb439bea1d822623b41ff4b51e3309e80d13cadf8b86d16ffd5e6efb9fdc360"
-dependencies = [
- "itertools 0.12.1",
- "p3-field 0.2.3-succinct",
  "serde",
 ]
 
@@ -1245,16 +1155,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3a1d3b5202096bca57cde912fbbb9cbaedaf5ac7c42a924c7166b98709d64d21"
 dependencies = [
  "itertools 0.12.1",
- "p3-field 0.3.2-succinct",
- "serde",
-]
-
-[[package]]
-name = "p3-util"
-version = "0.2.3-succinct"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b6c2c2010678b9332b563eaa38364915b585c1a94b5ca61e2c7541c087ddda5c"
-dependencies = [
+ "p3-field",
  "serde",
 ]
 
@@ -1487,7 +1388,7 @@ dependencies = [
 [[package]]
 name = "rfc6979"
 version = "0.4.0"
-source = "git+https://github.com/sp1-patches/signatures.git?tag=patch-16.9-sp1-4.1.0#1880299a48fe7ef249edaa616fd411239fb5daf1"
+source = "git+https://github.com/sp1-patches/signatures?tag=sp1-skip-verify-on-recovery#1880299a48fe7ef249edaa616fd411239fb5daf1"
 dependencies = [
  "hmac",
  "subtle",
@@ -1610,12 +1511,22 @@ dependencies = [
 [[package]]
 name = "sha2"
 version = "0.10.9"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a7507d819769d01a365ab707794a4084392c824f54a7a6a7862f8c3d0892b283"
+source = "git+https://github.com/sp1-patches/RustCrypto-hashes?tag=patch-sha2-0.10.9-sp1-6.0.0#e48b656ebc806117554bb33c2f8687e4637e37ff"
 dependencies = [
  "cfg-if",
  "cpufeatures 0.2.17",
- "digest",
+ "digest 0.10.7",
+]
+
+[[package]]
+name = "sha2"
+version = "0.11.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "446ba717509524cb3f22f17ecc096f10f4822d76ab5c0b9822c5f9c284e825f4"
+dependencies = [
+ "cfg-if",
+ "cpufeatures 0.3.0",
+ "digest 0.11.3",
 ]
 
 [[package]]
@@ -1624,7 +1535,7 @@ version = "0.10.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "77fd7028345d415a4034cf8777cd4f8ab1851274233b45f84e3d955502d93874"
 dependencies = [
- "digest",
+ "digest 0.10.7",
  "keccak",
 ]
 
@@ -1640,7 +1551,7 @@ version = "2.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "77549399552de45a898a580c1b41d445bf730df867cc44e6c0233bbc4b8329de"
 dependencies = [
- "digest",
+ "digest 0.10.7",
  "rand_core 0.6.4",
 ]
 
@@ -1665,7 +1576,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "733912d564a68ff209707e71fdc517d4ff82d4362b6a409f6a8241dfcb7a576a"
 dependencies = [
  "itertools 0.14.0",
- "p3-field 0.3.2-succinct",
+ "p3-field",
  "serde",
 ]
 
@@ -1719,7 +1630,7 @@ version = "6.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5b06e4a24cba104a0a39740eedd97e60e8896926cc38e6a58d5866cc9811affa"
 dependencies = [
- "p3-poseidon2 0.3.2-succinct",
+ "p3-poseidon2",
 ]
 
 [[package]]
@@ -1737,7 +1648,7 @@ version = "6.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e6d159948b924fd00f280064d7a049e43dceb2f26067f32fb99570d3169969ee"
 dependencies = [
- "p3-symmetric 0.3.2-succinct",
+ "p3-symmetric",
 ]
 
 [[package]]
@@ -1748,45 +1659,14 @@ checksum = "67b1b7a3b5fe4f1376887184045fcf45c69e92af734b7aaddc05fb777b6fbd03"
 
 [[package]]
 name = "sp1-lib"
-version = "5.2.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b73b8ff343f2405d5935440e56b7aba5cee6d87303f0051974cbd6f5de502f57"
-dependencies = [
- "bincode",
- "elliptic-curve",
- "serde",
- "sp1-primitives 5.2.4",
-]
-
-[[package]]
-name = "sp1-lib"
 version = "6.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9b96392c1b1c197beaa6b0806099a8d73643a09d5ac0874e26c9c5153a7fcb4c"
 dependencies = [
  "bincode",
+ "elliptic-curve",
  "serde",
- "sp1-primitives 6.1.0",
-]
-
-[[package]]
-name = "sp1-primitives"
-version = "5.2.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7e69a03098f827102c54c31a5e57280eb45b2c085de433b3f702e4f9e3ec1641"
-dependencies = [
- "bincode",
- "blake3",
- "cfg-if",
- "hex",
- "lazy_static",
- "num-bigint 0.4.6",
- "p3-baby-bear",
- "p3-field 0.2.3-succinct",
- "p3-poseidon2 0.2.3-succinct",
- "p3-symmetric 0.2.3-succinct",
- "serde",
- "sha2",
+ "sp1-primitives",
 ]
 
 [[package]]
@@ -1803,7 +1683,7 @@ dependencies = [
  "lazy_static",
  "num-bigint 0.4.6",
  "serde",
- "sha2",
+ "sha2 0.10.9",
  "slop-algebra",
  "slop-bn254",
  "slop-challenger",
@@ -1827,9 +1707,9 @@ dependencies = [
  "lazy_static",
  "libm",
  "rand 0.8.5",
- "sha2",
- "sp1-lib 6.1.0",
- "sp1-primitives 6.1.0",
+ "sha2 0.10.9",
+ "sp1-lib",
+ "sp1-primitives",
 ]
 
 [[package]]
@@ -1919,7 +1799,7 @@ checksum = "a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f"
 [[package]]
 name = "strata-codec"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/strata-common?tag=v0.1.0-alpha-rc16#a0c346696ffbf2bc95b7fa37174e09d41462efa3"
+source = "git+https://github.com/alpenlabs/strata-common?rev=75763ada955765fb7cb32dba045c7484f591aa25#75763ada955765fb7cb32dba045c7484f591aa25"
 dependencies = [
  "thiserror 2.0.18",
 ]
@@ -1927,12 +1807,12 @@ dependencies = [
 [[package]]
 name = "strata-merkle"
 version = "0.2.0"
-source = "git+https://github.com/alpenlabs/strata-common?tag=v0.1.0-alpha-rc16#a0c346696ffbf2bc95b7fa37174e09d41462efa3"
+source = "git+https://github.com/alpenlabs/strata-common?rev=75763ada955765fb7cb32dba045c7484f591aa25#75763ada955765fb7cb32dba045c7484f591aa25"
 dependencies = [
  "borsh",
- "digest",
+ "digest 0.10.7",
  "serde",
- "sha2",
+ "sha2 0.10.9",
  "ssz",
  "ssz_codegen",
  "ssz_derive",
@@ -1947,7 +1827,7 @@ dependencies = [
 [[package]]
 name = "strata-predicate"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/strata-common?tag=v0.1.0-alpha-rc16#a0c346696ffbf2bc95b7fa37174e09d41462efa3"
+source = "git+https://github.com/alpenlabs/strata-common?rev=75763ada955765fb7cb32dba045c7484f591aa25#75763ada955765fb7cb32dba045c7484f591aa25"
 dependencies = [
  "borsh",
  "hex",
@@ -1974,7 +1854,7 @@ checksum = "7da8b5736845d9f2fcb837ea5d9e2628564b3b043a70948a3f0b778838c5fb4f"
 [[package]]
 name = "substrate-bn"
 version = "0.6.0"
-source = "git+https://github.com/sp1-patches/bn?tag=patch-0.6.0-sp1-5.0.0#e0d67f219b2ad6a1887e3275b7ba09ada4b1afb6"
+source = "git+https://github.com/sp1-patches/bn?tag=patch-0.6.0-sp1-6.0.0-substrate-bn#13747d255e00c158afbb6d4a4a94275edd804bbf"
 dependencies = [
  "bytemuck",
  "byteorder",
@@ -1984,7 +1864,7 @@ dependencies = [
  "num-bigint 0.4.6",
  "rand 0.8.5",
  "rustc-hex",
- "sp1-lib 5.2.4",
+ "sp1-lib",
 ]
 
 [[package]]
@@ -2181,8 +2061,8 @@ name = "tree_hash"
 version = "0.15.0"
 source = "git+https://github.com/alpenlabs/ssz-gen?tag=v0.15.0#6e4b99ef2831ea3a97b8cb98a88c06206395f337"
 dependencies = [
- "digest",
- "sha2",
+ "digest 0.10.7",
+ "sha2 0.10.9",
  "smallvec",
  "ssz",
  "ssz_primitives",
@@ -2326,20 +2206,7 @@ dependencies = [
 [[package]]
 name = "zkaleido"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc20#d5b46312a55e8409a08a8437716ca42128e3d085"
-dependencies = [
- "arbitrary",
- "async-trait",
- "bincode",
- "borsh",
- "serde",
- "thiserror 1.0.69",
-]
-
-[[package]]
-name = "zkaleido"
-version = "0.1.0"
-source = "git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc24#69692581a5e1cb5a361fb6a3a23d847fd93a6b47"
+source = "git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc26#4ec7ebfe380924219837f185146f5c8b4f0066fa"
 dependencies = [
  "bincode",
  "borsh",
@@ -2349,41 +2216,30 @@ dependencies = [
 ]
 
 [[package]]
-name = "zkaleido"
-version = "0.1.0"
-source = "git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc26#4ec7ebfe380924219837f185146f5c8b4f0066fa"
-dependencies = [
- "bincode",
- "borsh",
- "serde",
- "thiserror 1.0.69",
-]
-
-[[package]]
 name = "zkaleido-native-adapter"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc24#69692581a5e1cb5a361fb6a3a23d847fd93a6b47"
+source = "git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc26#4ec7ebfe380924219837f185146f5c8b4f0066fa"
 dependencies = [
  "bincode",
  "k256",
  "rand_core 0.6.4",
  "serde",
- "zkaleido 0.1.0 (git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc24)",
+ "zkaleido",
 ]
 
 [[package]]
 name = "zkaleido-sp1-groth16-verifier"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc20#d5b46312a55e8409a08a8437716ca42128e3d085"
+source = "git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc26#4ec7ebfe380924219837f185146f5c8b4f0066fa"
 dependencies = [
  "blake3",
  "borsh",
  "hex",
  "serde",
- "sha2",
+ "sha2 0.10.9",
  "substrate-bn",
  "thiserror 1.0.69",
- "zkaleido 0.1.0 (git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc20)",
+ "zkaleido",
 ]
 
 [[package]]
@@ -2395,7 +2251,7 @@ dependencies = [
  "cfg-if",
  "serde",
  "sp1-zkvm",
- "zkaleido 0.1.0 (git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc26)",
+ "zkaleido",
 ]
 
 [[package]]
@@ -2420,7 +2276,7 @@ dependencies = [
  "pasta_curves 0.5.1",
  "rand 0.8.5",
  "serde",
- "sha2",
+ "sha2 0.10.9",
  "sha3",
  "subtle",
 ]
@@ -2428,9 +2284,9 @@ dependencies = [
 [[patch.unused]]
 name = "secp256k1"
 version = "0.29.1"
-source = "git+https://github.com/sp1-patches/rust-secp256k1?tag=patch-0.29.1-sp1-5.0.0#14136bdd2fafe651e3d0ce680f930473e848cf56"
+source = "git+https://github.com/sp1-patches/rust-secp256k1?tag=patch-0.29.1-sp1-6.0.0#5daf12595f56cb549d1516d8139cb7935d79de7a"
 
 [[patch.unused]]
 name = "secp256k1-sys"
 version = "0.10.0"
-source = "git+https://github.com/sp1-patches/rust-secp256k1?tag=patch-0.29.1-sp1-5.0.0#14136bdd2fafe651e3d0ce680f930473e848cf56"
+source = "git+https://github.com/sp1-patches/rust-secp256k1?tag=patch-0.29.1-sp1-6.0.0#5daf12595f56cb549d1516d8139cb7935d79de7a"
