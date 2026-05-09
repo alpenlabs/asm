@@ -8,4 +8,4 @@ default = []
 docker-build = []
 
 [build-dependencies]
-sp1-build = "5.2.1"
+sp1-build = "6.1.0"
