@@ -9,7 +9,7 @@ use std::any::Any;
 use ssz_derive::{Decode, Encode};
 use strata_asm_common::{InterprotoMsg, SubprotocolId};
 use strata_asm_proto_bridge_v1_txs::BRIDGE_V1_SUBPROTOCOL_ID;
-use strata_asm_proto_bridge_v1_types::{OperatorIdx, OperatorSelection, WithdrawOutput};
+use strata_asm_proto_bridge_v1_types::{OperatorIdx, WithdrawOutput};
 use strata_crypto::EvenPublicKey;
 
 /// Incoming message types received from other subprotocols.
@@ -21,20 +21,11 @@ use strata_crypto::EvenPublicKey;
 pub enum BridgeIncomingMsg {
     /// Emitted after a checkpoint proof has been validated. Contains the withdrawal command
     /// specifying the destination descriptor and amount to be withdrawn.
-    DispatchWithdrawal(DispatchWithdrawalPayload),
+    DispatchWithdrawal(WithdrawOutput),
 
     /// Emitted by the admin subprotocol when the operator set is updated.
     /// Adds new operators by public key and removes existing operators by index.
     UpdateOperatorSet(UpdateOperatorSetPayload),
-}
-
-/// Payload for [`BridgeIncomingMsg::DispatchWithdrawal`].
-#[derive(Clone, Debug, Eq, PartialEq, Encode, Decode)]
-pub struct DispatchWithdrawalPayload {
-    /// The withdrawal output (destination + amount).
-    pub output: WithdrawOutput,
-    /// User's operator selection for withdrawal assignment.
-    pub selected_operator: OperatorSelection,
 }
 
 /// Payload for [`BridgeIncomingMsg::UpdateOperatorSet`].

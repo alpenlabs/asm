@@ -10,11 +10,14 @@ use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use strata_btc_types::BitcoinAmount;
 
+use crate::OperatorSelection;
+
 /// Bitcoin output specification for a withdrawal operation.
 ///
-/// Each withdrawal output specifies a destination address (as a Bitcoin descriptor)
-/// and the amount to be sent. This structure provides all information needed by
-/// operators to construct the appropriate Bitcoin transaction output.
+/// Each withdrawal output specifies a destination address (as a Bitcoin descriptor),
+/// the amount to be sent, and the user's operator selection for who should fulfill
+/// the withdrawal. This structure provides all information needed by the bridge to
+/// assign and construct the appropriate Bitcoin transaction output.
 ///
 /// # Bitcoin Descriptors
 ///
@@ -27,12 +30,24 @@ pub struct WithdrawOutput {
 
     /// Amount to withdraw (in satoshis).
     pub amt: BitcoinAmount,
+
+    /// User's operator selection for withdrawal assignment.
+    pub selected_operator: OperatorSelection,
 }
 
 impl WithdrawOutput {
-    /// Creates a new withdrawal output with the specified destination and amount.
-    pub fn new(destination: Descriptor, amt: BitcoinAmount) -> Self {
-        Self { destination, amt }
+    /// Creates a new withdrawal output with the specified destination, amount, and operator
+    /// selection.
+    pub fn new(
+        destination: Descriptor,
+        amt: BitcoinAmount,
+        selected_operator: OperatorSelection,
+    ) -> Self {
+        Self {
+            destination,
+            amt,
+            selected_operator,
+        }
     }
 
     /// Returns a reference to the destination descriptor.
@@ -43,6 +58,11 @@ impl WithdrawOutput {
     /// Returns the withdrawal amount.
     pub fn amt(&self) -> BitcoinAmount {
         self.amt
+    }
+
+    /// Returns the operator selection.
+    pub fn selected_operator(&self) -> OperatorSelection {
+        self.selected_operator
     }
 }
 

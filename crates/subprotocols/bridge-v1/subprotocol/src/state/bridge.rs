@@ -1,9 +1,7 @@
 use ssz_derive::{Decode, Encode};
 use strata_asm_params::BridgeV1InitConfig;
 use strata_asm_proto_bridge_v1_txs::{deposit::DepositInfo, errors::Mismatch};
-use strata_asm_proto_bridge_v1_types::{
-    OperatorIdx, OperatorSelection, WithdrawOutput, WithdrawalCommand,
-};
+use strata_asm_proto_bridge_v1_types::{OperatorIdx, WithdrawOutput, WithdrawalCommand};
 use strata_btc_types::BitcoinAmount;
 use strata_identifiers::L1BlockCommitment;
 
@@ -149,7 +147,6 @@ impl BridgeV1State {
     pub fn create_withdrawal_assignment(
         &mut self,
         withdrawal_output: &WithdrawOutput,
-        selected_operator: OperatorSelection,
         l1_block: &L1BlockCommitment,
     ) -> Result<(), WithdrawalCommandError> {
         // Get the oldest deposit
@@ -167,6 +164,7 @@ impl BridgeV1State {
             ));
         }
 
+        let selected_operator = withdrawal_output.selected_operator();
         let withdrawal_cmd = WithdrawalCommand::new(withdrawal_output.clone(), self.operator_fee);
 
         self.assignments.add_new_assignment(
@@ -186,7 +184,6 @@ impl BridgeV1State {
     pub fn create_batch_withdrawal_assignments(
         &mut self,
         withdrawal_output: &WithdrawOutput,
-        selected_operator: OperatorSelection,
         l1_block: &L1BlockCommitment,
     ) -> Result<(), WithdrawalCommandError> {
         let amt = withdrawal_output.amt().to_sat();
@@ -202,11 +199,14 @@ impl BridgeV1State {
         }
 
         let n = amt / denom;
-        let single_output =
-            WithdrawOutput::new(withdrawal_output.destination().clone(), self.denomination);
+        let single_output = WithdrawOutput::new(
+            withdrawal_output.destination().clone(),
+            self.denomination,
+            withdrawal_output.selected_operator(),
+        );
 
         for _ in 0..n {
-            self.create_withdrawal_assignment(&single_output, selected_operator, l1_block)?;
+            self.create_withdrawal_assignment(&single_output, l1_block)?;
         }
 
         Ok(())
@@ -302,8 +302,7 @@ mod tests {
             let l1blk: L1BlockCommitment = arb.generate();
             let mut output: WithdrawOutput = arb.generate();
             output.amt = state.denomination;
-            let selected_operator: OperatorSelection = arb.generate();
-            let res = state.create_withdrawal_assignment(&output, selected_operator, &l1blk);
+            let res = state.create_withdrawal_assignment(&output, &l1blk);
             assert!(res.is_ok());
 
             let unassigned_deposit_count = state.deposits.len();
@@ -314,8 +313,7 @@ mod tests {
 
         let l1blk: L1BlockCommitment = arb.generate();
         let output: WithdrawOutput = arb.generate();
-        let selected_operator: OperatorSelection = arb.generate();
-        let res = state.create_withdrawal_assignment(&output, selected_operator, &l1blk);
+        let res = state.create_withdrawal_assignment(&output, &l1blk);
         assert!(res.is_err());
     }
 
@@ -333,9 +331,8 @@ mod tests {
 
         let l1blk: L1BlockCommitment = arb.generate();
         let output: WithdrawOutput = arb.generate();
-        let selected_operator: OperatorSelection = arb.generate();
         let err = state
-            .create_withdrawal_assignment(&output, selected_operator, &l1blk)
+            .create_withdrawal_assignment(&output, &l1blk)
             .unwrap_err();
         assert!(matches!(
             err,
@@ -357,10 +354,9 @@ mod tests {
         let l1blk: L1BlockCommitment = arb.generate();
         let mut output: WithdrawOutput = arb.generate();
         output.amt = BitcoinAmount::from_sat(state.denomination.to_sat() * 3);
-        let selected_operator: OperatorSelection = arb.generate();
 
         state
-            .create_batch_withdrawal_assignments(&output, selected_operator, &l1blk)
+            .create_batch_withdrawal_assignments(&output, &l1blk)
             .unwrap();
 
         assert_eq!(state.assignments.len(), 3);
@@ -377,10 +373,9 @@ mod tests {
         let l1blk: L1BlockCommitment = arb.generate();
         let mut output: WithdrawOutput = arb.generate();
         output.amt = BitcoinAmount::from_sat(state.denomination.to_sat() + 1);
-        let selected_operator: OperatorSelection = arb.generate();
 
         let err = state
-            .create_batch_withdrawal_assignments(&output, selected_operator, &l1blk)
+            .create_batch_withdrawal_assignments(&output, &l1blk)
             .unwrap_err();
 
         assert!(matches!(

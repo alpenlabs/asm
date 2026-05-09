@@ -140,11 +140,7 @@ impl Subprotocol for BridgeV1Subproto {
         for msg in msgs {
             match msg {
                 BridgeIncomingMsg::DispatchWithdrawal(payload) => {
-                    if let Err(e) = state.create_batch_withdrawal_assignments(
-                        &payload.output,
-                        payload.selected_operator,
-                        l1ref,
-                    ) {
+                    if let Err(e) = state.create_batch_withdrawal_assignments(payload, l1ref) {
                         // PANIC: Withdrawal assignment failure indicates catastrophic system
                         // compromise.
                         panic!("Failed to create withdrawal assignment: {e}",);

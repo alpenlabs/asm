@@ -3,7 +3,7 @@ use std::collections::BTreeMap;
 use ssz_derive::{Decode, Encode};
 use strata_asm_manifest_types::AsmManifestRangeHash;
 use strata_asm_params::CheckpointInitConfig;
-use strata_asm_proto_bridge_v1_types::{OperatorSelection, WithdrawOutput};
+use strata_asm_proto_bridge_v1_types::WithdrawOutput;
 use strata_asm_proto_checkpoint_types::{CheckpointPayload, CheckpointTip};
 use strata_btc_types::BitcoinAmount;
 use strata_identifiers::L2BlockCommitment;
@@ -134,14 +134,13 @@ impl CheckpointState {
         &mut self,
         payload: &CheckpointPayload,
         asm_manifests_hash: AsmManifestRangeHash,
-    ) -> CheckpointValidationResult<Vec<(WithdrawOutput, OperatorSelection)>> {
+    ) -> CheckpointValidationResult<Vec<WithdrawOutput>> {
         verify_proof(self, payload, asm_manifests_hash)?;
 
         let withdrawal_intents =
             extract_and_validate_withdrawal_intents(payload.sidecar().ol_logs())?;
 
-        let withdraw_outputs: Vec<_> = withdrawal_intents.iter().map(|(w, _)| w.clone()).collect();
-        let verified_withdrawals = self.verify_can_honor_withdrawals(&withdraw_outputs)?;
+        let verified_withdrawals = self.verify_can_honor_withdrawals(&withdrawal_intents)?;
 
         self.deduct_withdrawals(verified_withdrawals);
         self.update_verified_tip(payload.new_tip);
@@ -301,7 +300,7 @@ mod tests {
     use std::collections::BTreeMap;
 
     use bitcoin_bosd::Descriptor;
-    use strata_asm_proto_bridge_v1_types::WithdrawOutput;
+    use strata_asm_proto_bridge_v1_types::{OperatorSelection, WithdrawOutput};
     use strata_asm_proto_checkpoint_types::CheckpointTip;
     use strata_btc_types::BitcoinAmount;
     use strata_identifiers::L2BlockCommitment;
@@ -412,7 +411,11 @@ mod tests {
     }
 
     fn withdrawal(sats: u64) -> WithdrawOutput {
-        WithdrawOutput::new(dummy_descriptor(), BitcoinAmount::from_sat(sats))
+        WithdrawOutput::new(
+            dummy_descriptor(),
+            BitcoinAmount::from_sat(sats),
+            OperatorSelection::any(),
+        )
     }
 
     #[test]

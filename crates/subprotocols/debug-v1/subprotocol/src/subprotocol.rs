@@ -8,7 +8,7 @@ use strata_asm_common::{
     AsmError, AsmLogEntry, MsgRelayer, NullMsg, Subprotocol, SubprotocolId, TxInputRef,
     VerifiedAuxData, logging,
 };
-use strata_asm_proto_bridge_v1_msgs::{BridgeIncomingMsg, DispatchWithdrawalPayload};
+use strata_asm_proto_bridge_v1_msgs::BridgeIncomingMsg;
 use strata_identifiers::L1BlockCommitment;
 
 use crate::{
@@ -92,13 +92,10 @@ fn process_parsed_debug_tx(
             logging::info!("Successfully emitted ASM log");
         }
 
-        ParsedDebugTx::MockWithdrawIntent((output, selected_operator)) => {
+        ParsedDebugTx::MockWithdrawIntent(output) => {
             logging::info!(amount = output.amt.to_sat(), "Processing mock withdrawal");
 
-            let bridge_msg = BridgeIncomingMsg::DispatchWithdrawal(DispatchWithdrawalPayload {
-                output,
-                selected_operator,
-            });
+            let bridge_msg = BridgeIncomingMsg::DispatchWithdrawal(output);
             relayer.relay_msg(&bridge_msg);
 
             logging::info!("Successfully sent mock withdrawal intent to bridge");

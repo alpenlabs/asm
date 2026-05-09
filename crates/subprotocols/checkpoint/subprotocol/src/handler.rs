@@ -1,6 +1,6 @@
 use strata_asm_common::{AsmLogEntry, MsgRelayer, TxInputRef, VerifiedAuxData, logging};
 use strata_asm_logs::CheckpointTipUpdate;
-use strata_asm_proto_bridge_v1_msgs::{BridgeIncomingMsg, DispatchWithdrawalPayload};
+use strata_asm_proto_bridge_v1_msgs::BridgeIncomingMsg;
 use strata_asm_proto_checkpoint_txs::extract_checkpoint_from_envelope;
 use strata_asm_proto_checkpoint_types::{
     AsmManifestRangeHash, compute_asm_manifests_hash_from_leaves,
@@ -99,11 +99,8 @@ pub(crate) fn handle_checkpoint_tx(
         .expect("CheckpointTipUpdate encoding is infallible for fixed-size SSZ");
     relayer.emit_log(log_entry);
 
-    for (output, selected_operator) in withdrawal_intents {
-        let bridge_msg = BridgeIncomingMsg::DispatchWithdrawal(DispatchWithdrawalPayload {
-            output,
-            selected_operator,
-        });
+    for output in withdrawal_intents {
+        let bridge_msg = BridgeIncomingMsg::DispatchWithdrawal(output);
         relayer.relay_msg(&bridge_msg);
     }
 }
