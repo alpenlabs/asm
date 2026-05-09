@@ -49,6 +49,9 @@ jobs:
       - name: Check SP1 toolchain
         run: cargo prove --version
 
+      - name: Install protoc
+        uses: arduino/setup-protoc@c65c819552d16ad3c9b72d9dfd5ba5237b9c906b # v3.0.0
+
       - name: Run prover-perf and post PR comment
         if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork == false
         env:
