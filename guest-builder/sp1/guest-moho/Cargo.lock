@@ -948,7 +948,7 @@ checksum = "3d97bbf43eb4f088f8ca469930cde17fa036207c9a5e02ccc5107c4e8b17c964"
 [[package]]
 name = "moho-recursive-proof"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/moho?rev=c0134e4985d3abbff9edf3a97124225476add77e#c0134e4985d3abbff9edf3a97124225476add77e"
+source = "git+https://github.com/alpenlabs/moho?rev=v0.1-alpha.3#f6a75b906835dc9c061b13a6665456f5c363e724"
 dependencies = [
  "moho-types",
  "ssz",
@@ -964,7 +964,7 @@ dependencies = [
 [[package]]
 name = "moho-types"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/moho?rev=c0134e4985d3abbff9edf3a97124225476add77e#c0134e4985d3abbff9edf3a97124225476add77e"
+source = "git+https://github.com/alpenlabs/moho?rev=v0.1-alpha.3#f6a75b906835dc9c061b13a6665456f5c363e724"
 dependencies = [
  "hex",
  "sha2 0.11.0",
@@ -1799,7 +1799,7 @@ checksum = "a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f"
 [[package]]
 name = "strata-codec"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/strata-common?rev=75763ada955765fb7cb32dba045c7484f591aa25#75763ada955765fb7cb32dba045c7484f591aa25"
+source = "git+https://github.com/alpenlabs/strata-common?tag=v0.1.0-alpha-rc20#75763ada955765fb7cb32dba045c7484f591aa25"
 dependencies = [
  "thiserror 2.0.18",
 ]
@@ -1807,7 +1807,7 @@ dependencies = [
 [[package]]
 name = "strata-merkle"
 version = "0.2.0"
-source = "git+https://github.com/alpenlabs/strata-common?rev=75763ada955765fb7cb32dba045c7484f591aa25#75763ada955765fb7cb32dba045c7484f591aa25"
+source = "git+https://github.com/alpenlabs/strata-common?tag=v0.1.0-alpha-rc20#75763ada955765fb7cb32dba045c7484f591aa25"
 dependencies = [
  "borsh",
  "digest 0.10.7",
@@ -1827,7 +1827,7 @@ dependencies = [
 [[package]]
 name = "strata-predicate"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/strata-common?rev=75763ada955765fb7cb32dba045c7484f591aa25#75763ada955765fb7cb32dba045c7484f591aa25"
+source = "git+https://github.com/alpenlabs/strata-common?rev=v0.1.0-alpha-rc20#75763ada955765fb7cb32dba045c7484f591aa25"
 dependencies = [
  "borsh",
  "hex",
