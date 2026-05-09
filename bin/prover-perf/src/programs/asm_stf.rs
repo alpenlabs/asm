@@ -40,10 +40,9 @@ pub(crate) fn gen_perf_report() -> PerformanceReport {
         .expect("failed to generate performance report")
 }
 
-pub(crate) fn gen_proof() -> (String, ProofReceiptWithMetadata) {
+pub(crate) fn gen_proof() -> ProofReceiptWithMetadata {
     let input = create_runtime_input();
-    let proof = AsmStfProofProgram::prove(&input, &*ASM_HOST).expect("failed to generate proof");
-    (ASM_HOST.proving_key.verifying_key().bytes32(), proof)
+    AsmStfProofProgram::prove(&input, &*ASM_HOST).expect("failed to generate proof")
 }
 
 pub(crate) fn compute_asm_predicate_key() -> PredicateKey {

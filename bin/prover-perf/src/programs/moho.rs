@@ -35,11 +35,9 @@ pub(crate) fn gen_perf_report() -> PerformanceReport {
         .expect("failed to generate performance report")
 }
 
-pub(crate) fn gen_proof() -> (String, ProofReceiptWithMetadata) {
+pub(crate) fn gen_proof() -> ProofReceiptWithMetadata {
     let input = create_moho_recursive_input();
-    let proof = MohoRecursiveProgram::prove(&input, &*MOHO_HOST)
-        .expect("failed to generate performance report");
-    (MOHO_HOST.proving_key.verifying_key().bytes32(), proof)
+    MohoRecursiveProgram::prove(&input, &*MOHO_HOST).expect("failed to generate performance report")
 }
 
 pub(crate) fn compute_moho_predicate_key() -> PredicateKey {
@@ -48,16 +46,11 @@ pub(crate) fn compute_moho_predicate_key() -> PredicateKey {
 }
 
 pub(crate) fn load_asm_stf_predicate_and_proof() -> (PredicateKey, StepMohoProof) {
-    const ASM_PROGRAM_ID_STR: &str =
-        "0061de0996d4cc66d710d9ad80585ecaba0f64b9c089b606ad635c5d0408f59b";
-    let asm_program_id: [u8; 32] = hex::decode(ASM_PROGRAM_ID_STR).unwrap().try_into().unwrap();
-    let asm_predicate = compute_sp1_predicate_key(asm_program_id);
-
-    let proof_path = Path::new(env!("CARGO_MANIFEST_DIR")).join(format!(
-        "asm-stf_0x{}_SP1_v5.0.0.proof.bin",
-        ASM_PROGRAM_ID_STR
-    ));
+    let proof_path = Path::new(env!("CARGO_MANIFEST_DIR")).join("asm-stf_SP1_v6.1.0.proof.bin");
     let asm_stf_proof = ProofReceiptWithMetadata::load(proof_path).expect("failed to open proof");
+
+    let asm_predicate = compute_sp1_predicate_key(asm_stf_proof.metadata().program_id().0);
+
     let proven_moho_attestation =
         StepMohoAttestation::from_ssz_bytes(asm_stf_proof.receipt().public_values().as_bytes())
             .unwrap();

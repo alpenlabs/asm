@@ -8076,7 +8076,6 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "clap",
- "hex",
  "moho-recursive-proof",
  "moho-runtime-impl",
  "moho-runtime-interface",
