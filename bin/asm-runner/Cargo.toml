@@ -69,7 +69,7 @@ zkaleido-sp1-host = { workspace = true, optional = true, features = [
 tempfile.workspace = true
 
 [features]
-default = ["sp1"]
+default = []
 sp1 = [
   "dep:zkaleido-sp1-host",
   "dep:zkaleido-sp1-groth16-verifier",
