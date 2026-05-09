@@ -3,7 +3,7 @@ use std::str::FromStr;
 mod asm_stf;
 mod moho;
 
-use sp1_verifier::GROTH16_VK_BYTES;
+use sp1_verifier::{GROTH16_VK_BYTES, VK_ROOT_BYTES};
 use strata_predicate::{PredicateKey, PredicateTypeId::Sp1Groth16};
 use zkaleido::{PerformanceReport, ProofReceiptWithMetadata};
 use zkaleido_sp1_groth16_verifier::SP1Groth16Verifier;
@@ -59,7 +59,8 @@ pub(crate) fn gen_sp1_proof(programs: &[GuestProgram]) -> Vec<(String, ProofRece
 }
 
 pub(crate) fn compute_sp1_predicate_key(program_vk_hash: [u8; 32]) -> PredicateKey {
-    let sp1_verifier = SP1Groth16Verifier::load(&GROTH16_VK_BYTES, program_vk_hash).unwrap();
+    let sp1_verifier =
+        SP1Groth16Verifier::load(&GROTH16_VK_BYTES, program_vk_hash, *VK_ROOT_BYTES, true).unwrap();
     let condition_bytes = sp1_verifier.vk.to_uncompressed_bytes();
     PredicateKey::new(Sp1Groth16, condition_bytes)
 }

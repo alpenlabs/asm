@@ -13,7 +13,7 @@ use zkaleido::{ZkVm, ZkVmHost};
 use {
     anyhow::Context,
     sp1_sdk::{HashableKey, SP1VerifyingKey},
-    sp1_verifier::GROTH16_VK_BYTES,
+    sp1_verifier::{GROTH16_VK_BYTES, VK_ROOT_BYTES},
     zkaleido_sp1_groth16_verifier::SP1Groth16Verifier,
     zkaleido_sp1_host::SP1Host,
 };
@@ -140,8 +140,13 @@ fn resolve_predicate(host: &impl ZkVmHost) -> Result<PredicateKey> {
             let sp1_vk: SP1VerifyingKey = bincode::deserialize(vk.as_bytes())
                 .context("failed to deserialize SP1 verifying key")?;
 
-            let verifier = SP1Groth16Verifier::load(&GROTH16_VK_BYTES, sp1_vk.hash_bytes())
-                .context("failed to load SP1 Groth16 verifier")?;
+            let verifier = SP1Groth16Verifier::load(
+                &GROTH16_VK_BYTES,
+                sp1_vk.hash_bytes(),
+                *VK_ROOT_BYTES,
+                true,
+            )
+            .context("failed to load SP1 Groth16 verifier")?;
 
             Ok(PredicateKey::new(
                 PredicateTypeId::Sp1Groth16,

@@ -5,7 +5,7 @@ use moho_recursive_proof::{
 };
 use moho_runtime_interface::MohoProgram;
 use moho_types::{StateRefAttestation, StepMohoAttestation, StepMohoProof};
-use sp1_sdk::HashableKey;
+use sp1_sdk::{HashableKey, ProvingKey};
 use ssz::Decode;
 use strata_asm_proof_impl::{
     moho_program::program::AsmStfProgram,
@@ -39,11 +39,11 @@ pub(crate) fn gen_proof() -> (String, ProofReceiptWithMetadata) {
     let input = create_moho_recursive_input();
     let proof = MohoRecursiveProgram::prove(&input, &*MOHO_HOST)
         .expect("failed to generate performance report");
-    (MOHO_HOST.proving_key.vk.bytes32(), proof)
+    (MOHO_HOST.proving_key.verifying_key().bytes32(), proof)
 }
 
 pub(crate) fn compute_moho_predicate_key() -> PredicateKey {
-    let vk = MOHO_HOST.proving_key.vk.bytes32_raw();
+    let vk = MOHO_HOST.proving_key.verifying_key().bytes32_raw();
     compute_sp1_predicate_key(vk)
 }
 

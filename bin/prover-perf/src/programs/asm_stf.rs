@@ -1,7 +1,7 @@
 use std::{fs, sync::LazyLock};
 
 use moho_runtime_impl::RuntimeInput;
-use sp1_sdk::HashableKey;
+use sp1_sdk::{HashableKey, ProvingKey};
 use ssz::Encode;
 use strata_asm_proof_impl::{
     program::AsmStfProofProgram,
@@ -43,10 +43,10 @@ pub(crate) fn gen_perf_report() -> PerformanceReport {
 pub(crate) fn gen_proof() -> (String, ProofReceiptWithMetadata) {
     let input = create_runtime_input();
     let proof = AsmStfProofProgram::prove(&input, &*ASM_HOST).expect("failed to generate proof");
-    (ASM_HOST.proving_key.vk.bytes32(), proof)
+    (ASM_HOST.proving_key.verifying_key().bytes32(), proof)
 }
 
 pub(crate) fn compute_asm_predicate_key() -> PredicateKey {
-    let vk = ASM_HOST.proving_key.vk.bytes32_raw();
+    let vk = ASM_HOST.proving_key.verifying_key().bytes32_raw();
     compute_sp1_predicate_key(vk)
 }
