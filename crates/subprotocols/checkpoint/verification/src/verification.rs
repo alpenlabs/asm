@@ -206,7 +206,7 @@ fn construct_full_claim(
 ///
 /// Filters OL logs from the bridge gateway account, validates that withdrawal intent
 /// destination descriptors can be parsed, and returns the extracted withdrawal outputs.
-pub(crate) fn extract_and_validate_withdrawal_intents(
+pub(crate) fn extract_withdrawal_intents(
     logs: &[OLLog],
 ) -> CheckpointValidationResult<Vec<WithdrawOutput>> {
     let mut withdrawal_intents = Vec::new();

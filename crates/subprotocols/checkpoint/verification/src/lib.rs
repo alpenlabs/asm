@@ -4,6 +4,7 @@
 //! that authenticates a checkpoint envelope and extracts withdrawal intents, and the
 //! associated error types. Reusable independently of the subprotocol trait wiring.
 
+mod deposit_pool;
 mod errors;
 mod state;
 mod verification;
