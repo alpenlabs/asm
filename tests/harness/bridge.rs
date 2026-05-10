@@ -43,7 +43,7 @@ use strata_asm_proto_bridge_v1_txs::{
     },
     test_utils::create_test_operators,
 };
-use strata_asm_proto_bridge_v1_types::BRIDGE_GATEWAY_ACCT_SERIAL;
+use strata_asm_proto_bridge_v1_types::{OperatorSelection, BRIDGE_GATEWAY_ACCT_SERIAL};
 use strata_asm_proto_checkpoint::{CheckpointState, CheckpointSubprotocol};
 use strata_asm_proto_checkpoint_types::{CheckpointTip, OLLog, SimpleWithdrawalIntentLogData};
 use strata_btc_types::BitcoinAmount;
@@ -115,11 +115,23 @@ pub trait BridgeExt {
     /// Submit a checkpoint with withdrawal intents.
     ///
     /// Builds a valid checkpoint payload containing OL logs with withdrawal intents
-    /// for the given amounts, signs it, and submits it as an SPS-50 envelope transaction.
+    /// for the given amounts (each with no specific operator selection), signs it,
+    /// and submits it as an SPS-50 envelope transaction.
     fn submit_checkpoint_with_withdrawals(
         &self,
         checkpoint_harness: &mut CheckpointTestHarness,
         withdrawal_amounts: &[u64],
+    ) -> impl Future<Output = anyhow::Result<BlockHash>>;
+
+    /// Submit a checkpoint with withdrawal intents that pin per-intent operator selection.
+    ///
+    /// Like [`submit_checkpoint_with_withdrawals`](Self::submit_checkpoint_with_withdrawals),
+    /// but each intent is `(amount, operator_selection)` so callers can request a specific
+    /// operator or fall back to the random "any" sentinel.
+    fn submit_checkpoint_with_withdrawal_intents(
+        &self,
+        checkpoint_harness: &mut CheckpointTestHarness,
+        intents: &[(u64, OperatorSelection)],
     ) -> impl Future<Output = anyhow::Result<BlockHash>>;
 }
 
@@ -166,6 +178,19 @@ impl BridgeExt for AsmTestHarness {
         checkpoint_harness: &mut CheckpointTestHarness,
         withdrawal_amounts: &[u64],
     ) -> anyhow::Result<BlockHash> {
+        let intents: Vec<(u64, OperatorSelection)> = withdrawal_amounts
+            .iter()
+            .map(|&amt| (amt, OperatorSelection::any()))
+            .collect();
+        self.submit_checkpoint_with_withdrawal_intents(checkpoint_harness, &intents)
+            .await
+    }
+
+    async fn submit_checkpoint_with_withdrawal_intents(
+        &self,
+        checkpoint_harness: &mut CheckpointTestHarness,
+        intents: &[(u64, OperatorSelection)],
+    ) -> anyhow::Result<BlockHash> {
         let genesis_l1_height = self.genesis_height as u32;
 
         // 1. Get manifest hashes from the live ASM MMR
@@ -184,7 +209,7 @@ impl BridgeExt for AsmTestHarness {
         let new_tip = CheckpointTip::new(new_epoch, new_l1_height, new_ol_commitment);
 
         // 3. Build OL logs with withdrawal intents
-        let ol_logs = build_withdrawal_ol_logs(withdrawal_amounts);
+        let ol_logs = build_withdrawal_ol_logs(intents);
 
         // 4. Build checkpoint payload with custom OL logs and live manifest hashes
         let payload =
@@ -425,20 +450,20 @@ fn build_trivial_script() -> ScriptBuf {
 // Test Setup
 // ============================================================================
 
-/// Builds OL logs encoding withdrawal intents for the given amounts.
+/// Builds OL logs encoding withdrawal intents for the given (amount, selection) pairs.
 ///
 /// Each withdrawal intent is a [`SimpleWithdrawalIntentLogData`] encoded via `strata_codec`
 /// and wrapped in an [`OLLog`] from the bridge gateway account.
-fn build_withdrawal_ol_logs(withdrawal_amounts: &[u64]) -> Vec<OLLog> {
-    withdrawal_amounts
+fn build_withdrawal_ol_logs(intents: &[(u64, OperatorSelection)]) -> Vec<OLLog> {
+    intents
         .iter()
-        .map(|&amt| {
+        .map(|(amt, sel)| {
             // P2WPKH descriptor: type tag 0x00 + 20-byte hash = 21 bytes
             let hash160 = [0x14; 20];
             let descriptor = Descriptor::new_p2wpkh(&hash160);
             let dest = descriptor.to_bytes();
 
-            let withdrawal_data = SimpleWithdrawalIntentLogData::new(amt, dest, 0)
+            let withdrawal_data = SimpleWithdrawalIntentLogData::new(*amt, dest, sel.raw())
                 .expect("withdrawal intent creation should not fail");
             let encoded_payload = strata_codec::encode_to_vec(&withdrawal_data)
                 .expect("withdrawal intent encoding should not fail");
