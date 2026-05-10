@@ -1,8 +1,10 @@
 //! Bridge UTXO availability tracker for the checkpoint subprotocol.
 //!
-//! All deposits and withdrawal intents must share a single denomination — fixed by the
-//! first recorded deposit and enforced thereafter. The bridge enforces this invariant on
-//! its side; the pool re-asserts it for intents arriving via OL logs.
+//! Bridge UTXOs all share a single denomination — fixed by the first recorded deposit and
+//! enforced thereafter on every subsequent deposit. Withdrawal intents may carry any
+//! non-negative integer multiple of that denomination; a multi-denomination intent
+//! consumes that many UTXOs from the pool. The bridge enforces these invariants on its
+//! side; the pool re-asserts them for intents arriving via OL logs.
 
 use ssz_derive::{Decode, Encode};
 use strata_asm_proto_bridge_v1_types::WithdrawOutput;
@@ -73,10 +75,10 @@ impl DepositPool {
 
     /// Verifies that the pool can cover all withdrawal intents.
     ///
-    /// Does not mutate state. The available UTXO count must cover the number of intents,
-    /// and each intent's amount must equal the established denomination. Returns a
-    /// [`VerifiedWithdrawals`] token that must be passed to
-    /// [`apply_withdrawals`](Self::apply_withdrawals) to deduct the funds.
+    /// Does not mutate state. Each intent's amount must be a positive integer multiple of
+    /// the established denomination, and the sum of those multiples must not exceed the
+    /// available UTXO count. Returns a [`VerifiedWithdrawals`] token that must be passed
+    /// to [`apply_withdrawals`](Self::apply_withdrawals) to deduct the funds.
     pub(crate) fn verify_withdrawals(
         &self,
         intents: &[WithdrawOutput],
@@ -87,23 +89,34 @@ impl DepositPool {
             });
         }
 
-        // Count check first: an empty pool naturally fails here with `available = ZERO`,
-        // so no separate "uninitialized" branch is needed.
-        let required = intents.len() as u32;
-        if required > self.count {
+        // Uninitialized pool: no deposits recorded, so denomination is unset. Any non-empty
+        // intent set is unsatisfiable, and computing multiples would divide by zero.
+        if self.count == 0 {
             return Err(InvalidCheckpointPayload::InsufficientFunds {
-                available: self.total(),
+                available: BitcoinAmount::ZERO,
                 required: BitcoinAmount::from_sat(intents.iter().map(|w| w.amt().to_sat()).sum()),
             });
         }
 
+        let denom = self.denomination.to_sat();
+        let mut required: u32 = 0;
         for intent in intents {
-            if intent.amt() != self.denomination {
+            let amt = intent.amt().to_sat();
+            if amt == 0 || !amt.is_multiple_of(denom) {
                 return Err(InvalidCheckpointPayload::DenominationMismatch {
                     expected: self.denomination,
                     actual: intent.amt(),
                 });
             }
+            // u32 is sufficient: pool count is u32, and we reject below if required exceeds it.
+            required = required.saturating_add((amt / denom) as u32);
+        }
+
+        if required > self.count {
+            return Err(InvalidCheckpointPayload::InsufficientFunds {
+                available: self.total(),
+                required: BitcoinAmount::from_sat(intents.iter().map(|w| w.amt().to_sat()).sum()),
+            });
         }
 
         Ok(VerifiedWithdrawals {
@@ -244,6 +257,93 @@ mod tests {
     fn empty_intents_succeed_on_empty_pool() {
         let pool = DepositPool::default();
         pool.verify_withdrawals(&[]).unwrap();
+    }
+
+    #[test]
+    fn multi_denomination_intent_consumes_multiple_utxos() {
+        let mut pool = DepositPool::default();
+        let denom = BitcoinAmount::from_sat(100_000_000);
+        for _ in 0..5 {
+            pool.record(denom);
+        }
+
+        let intents = vec![withdrawal(300_000_000)];
+        let token = pool.verify_withdrawals(&intents).unwrap();
+        pool.apply_withdrawals(token);
+
+        assert_eq!(pool.total(), BitcoinAmount::from_sat(200_000_000));
+    }
+
+    #[test]
+    fn mixed_single_and_multi_denomination_intents() {
+        let mut pool = DepositPool::default();
+        let denom = BitcoinAmount::from_sat(100_000_000);
+        for _ in 0..6 {
+            pool.record(denom);
+        }
+
+        let intents = vec![
+            withdrawal(100_000_000),
+            withdrawal(300_000_000),
+            withdrawal(200_000_000),
+        ];
+        let token = pool.verify_withdrawals(&intents).unwrap();
+        pool.apply_withdrawals(token);
+
+        assert_eq!(pool.total(), BitcoinAmount::ZERO);
+    }
+
+    #[test]
+    fn multi_denomination_intent_exceeding_pool_fails() {
+        let pool = {
+            let mut p = DepositPool::default();
+            let denom = BitcoinAmount::from_sat(100_000_000);
+            for _ in 0..2 {
+                p.record(denom);
+            }
+            p
+        };
+
+        let intents = vec![withdrawal(300_000_000)];
+        let err = pool.verify_withdrawals(&intents).unwrap_err();
+        assert!(matches!(
+            err,
+            InvalidCheckpointPayload::InsufficientFunds { available, required }
+            if available == BitcoinAmount::from_sat(200_000_000)
+                && required == BitcoinAmount::from_sat(300_000_000)
+        ));
+    }
+
+    #[test]
+    fn non_multiple_intent_fails() {
+        let mut pool = DepositPool::default();
+        let denom = BitcoinAmount::from_sat(100_000_000);
+        for _ in 0..3 {
+            pool.record(denom);
+        }
+
+        let intents = vec![withdrawal(150_000_000)];
+        let err = pool.verify_withdrawals(&intents).unwrap_err();
+        assert!(matches!(
+            err,
+            InvalidCheckpointPayload::DenominationMismatch { expected, actual }
+            if expected == denom && actual == BitcoinAmount::from_sat(150_000_000)
+        ));
+    }
+
+    #[test]
+    fn zero_amount_intent_fails() {
+        let mut pool = DepositPool::default();
+        let denom = BitcoinAmount::from_sat(100_000_000);
+        pool.record(denom);
+
+        let intents = vec![withdrawal(0)];
+        let err = pool.verify_withdrawals(&intents).unwrap_err();
+        assert!(matches!(
+            err,
+            InvalidCheckpointPayload::DenominationMismatch { expected, actual }
+            if expected == denom && actual == BitcoinAmount::ZERO
+        ));
     }
 
     #[test]

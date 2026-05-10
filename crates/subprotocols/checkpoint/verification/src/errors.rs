@@ -107,13 +107,13 @@ pub enum InvalidCheckpointPayload {
         required: BitcoinAmount,
     },
 
-    /// A withdrawal intent's amount does not match the established bridge denomination.
+    /// A withdrawal intent's amount is not a positive multiple of the bridge denomination.
     ///
-    /// The bridge enforces a single deposit denomination; every withdrawal intent must carry
-    /// that exact amount. Mismatches indicate either a malformed intent from OL or a bug
-    /// upstream of the checkpoint subprotocol.
+    /// The bridge has a single deposit denomination; every withdrawal intent must carry a
+    /// positive integer multiple of that amount. Mismatches indicate either a malformed
+    /// intent from OL or a bug upstream of the checkpoint subprotocol.
     #[error(
-        "withdrawal intent denomination mismatch: expected {expected} sat, got {actual} sat"
+        "withdrawal intent amount must be a positive multiple of denomination {expected} sat, got {actual} sat"
     )]
     DenominationMismatch {
         expected: BitcoinAmount,

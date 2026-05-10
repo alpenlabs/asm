@@ -196,6 +196,115 @@ async fn test_withdrawal_deducts_from_deposit_sum() {
     );
 }
 
+/// Verifies that a single withdrawal intent for a multiple of the denomination is honored
+/// and consumes that many UTXOs from the deposit pool.
+///
+/// Flow:
+/// 1. Submit 3 deposits → `available_deposit_sum` = 3 * denomination
+/// 2. Submit a checkpoint with 1 withdrawal for 2 * denomination sats
+/// 3. Verify `available_deposit_sum` == 1 * denomination (2 UTXOs consumed by the one intent)
+/// 4. Verify `verified_tip.epoch` advanced to 1
+#[tokio::test(flavor = "multi_thread")]
+async fn test_multi_denomination_withdrawal_consumes_multiple_utxos() {
+    let genesis_l1_height = AsmTestHarnessBuilder::DEFAULT_GENESIS_HEIGHT as u32;
+    let (bridge_params, ctx) = create_test_bridge_setup(3);
+    let (checkpoint_params, mut checkpoint_harness) =
+        create_test_checkpoint_setup(genesis_l1_height);
+    let denomination = ctx.denomination();
+
+    let harness = AsmTestHarnessBuilder::default()
+        .with_bridge_config(bridge_params)
+        .with_checkpoint_config(checkpoint_params)
+        .with_txindex()
+        .build()
+        .await
+        .unwrap();
+
+    harness.mine_block(None).await.unwrap();
+
+    let num_deposits = 3u32;
+    for i in 0..num_deposits {
+        harness.submit_deposit(&ctx, i).await.unwrap();
+    }
+    harness.mine_block(None).await.unwrap();
+
+    let checkpoint_state = harness.checkpoint_new_state().unwrap();
+    assert_eq!(
+        checkpoint_state.available_deposit_sum(),
+        denomination.to_sat() * num_deposits as u64,
+        "available_deposit_sum should equal 3 * denomination before withdrawal"
+    );
+
+    // Single intent for 2 * denomination: should consume 2 UTXOs.
+    harness
+        .submit_checkpoint_with_withdrawals(&mut checkpoint_harness, &[denomination.to_sat() * 2])
+        .await
+        .unwrap();
+
+    let checkpoint_state = harness.checkpoint_new_state().unwrap();
+    assert_eq!(
+        checkpoint_state.available_deposit_sum(),
+        denomination.to_sat(),
+        "one 2x intent should consume two UTXOs, leaving one denomination available"
+    );
+    assert_eq!(
+        checkpoint_state.verified_tip().epoch,
+        1,
+        "verified_tip epoch should advance to 1 after accepted multi-denomination checkpoint"
+    );
+}
+
+/// Verifies that a checkpoint is rejected when an intent's amount is not a multiple of
+/// the bridge denomination.
+///
+/// Flow:
+/// 1. Submit 3 deposits → `available_deposit_sum` = 3 * denomination
+/// 2. Submit a checkpoint with one withdrawal for `denomination + 1` sats
+/// 3. Verify `available_deposit_sum` unchanged and `verified_tip.epoch` still 0
+#[tokio::test(flavor = "multi_thread")]
+async fn test_checkpoint_rejected_on_non_multiple_withdrawal() {
+    let genesis_l1_height = AsmTestHarnessBuilder::DEFAULT_GENESIS_HEIGHT as u32;
+    let (bridge_params, ctx) = create_test_bridge_setup(3);
+    let (checkpoint_params, mut checkpoint_harness) =
+        create_test_checkpoint_setup(genesis_l1_height);
+    let denomination = ctx.denomination();
+
+    let harness = AsmTestHarnessBuilder::default()
+        .with_bridge_config(bridge_params)
+        .with_checkpoint_config(checkpoint_params)
+        .with_txindex()
+        .build()
+        .await
+        .unwrap();
+
+    harness.mine_block(None).await.unwrap();
+
+    let num_deposits = 3u32;
+    for i in 0..num_deposits {
+        harness.submit_deposit(&ctx, i).await.unwrap();
+    }
+    harness.mine_block(None).await.unwrap();
+
+    let initial_sum = denomination.to_sat() * num_deposits as u64;
+
+    harness
+        .submit_checkpoint_with_withdrawals(&mut checkpoint_harness, &[denomination.to_sat() + 1])
+        .await
+        .unwrap();
+
+    let checkpoint_state = harness.checkpoint_new_state().unwrap();
+    assert_eq!(
+        checkpoint_state.available_deposit_sum(),
+        initial_sum,
+        "available_deposit_sum should be unchanged when the checkpoint is rejected"
+    );
+    assert_eq!(
+        checkpoint_state.verified_tip().epoch,
+        0,
+        "verified_tip epoch should remain 0 when the checkpoint is rejected"
+    );
+}
+
 /// Verifies that a checkpoint is rejected when withdrawal intents exceed available deposits.
 ///
 /// Flow:

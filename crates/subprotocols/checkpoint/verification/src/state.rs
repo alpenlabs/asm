@@ -115,9 +115,10 @@ impl CheckpointState {
         asm_manifests_hash: AsmManifestRangeHash,
     ) -> CheckpointValidationResult<Vec<WithdrawOutput>> {
         let withdrawal_intents = extract_withdrawal_intents(payload.sidecar().ol_logs())?;
-        let token = self.deposits.verify_withdrawals(&withdrawal_intents)?;
 
+        let token = self.deposits.verify_withdrawals(&withdrawal_intents)?;
         verify_proof(self, payload, asm_manifests_hash)?;
+
         self.deposits.apply_withdrawals(token);
         self.update_verified_tip(payload.new_tip);
 
