@@ -28,8 +28,8 @@ use bitcoin::secp256k1::{PublicKey, Secp256k1, SecretKey};
 use bitcoind_async_client::traits::Reader;
 use harness::{
     admin::{
-        cancel_update, create_test_admin_setup, multisig_config_update, ol_stf_vk_update,
-        operator_set_update, sequencer_update, AdminExt,
+        cancel_update, create_test_admin_setup, ee_stf_vk_update, multisig_config_update,
+        ol_stf_vk_update, operator_set_update, sequencer_update, AdminExt,
     },
     test_harness::AsmTestHarnessBuilder,
 };
@@ -512,6 +512,133 @@ async fn test_ol_stf_vk_signed_by_seq_manager_rejected() {
         state.next_update_id(),
         0,
         "Update ID should not increment for rejected tx"
+    );
+}
+
+// ============================================================================
+// Cancel Role Authorization
+// ============================================================================
+//
+// Cancel actions derive their required role from the embedded update, not from the
+// signer or any default. These tests guard that resolution path: an AlpenAdministrator-
+// queued update must be cancellable only by the AlpenAdministrator, and any other role
+// holding a valid signing key for its own authority must not be able to cancel it.
+
+/// An AlpenAdministrator can cancel an update it previously queued.
+///
+/// Establishes the positive baseline for cancel-path role resolution: the handler must
+/// walk the embedded update to find AlpenAdministrator and accept the AlpenAdministrator's
+/// signature.
+#[tokio::test(flavor = "multi_thread")]
+async fn test_cancel_of_alpen_update_by_alpen_admin_succeeds() {
+    let (admin_config, mut ctx) = create_test_admin_setup(2);
+    let harness = AsmTestHarnessBuilder::default()
+        .with_admin_config(admin_config)
+        .build()
+        .await
+        .unwrap();
+
+    harness.mine_block(None).await.unwrap();
+
+    // Queue an Alpen-authorized update; submit_admin_action auto-routes to alpen.
+    harness
+        .submit_admin_action(&mut ctx, ee_stf_vk_update(PredicateKey::always_accept()))
+        .await
+        .unwrap();
+
+    let state = harness.admin_state().unwrap();
+    assert_eq!(state.queued().len(), 1, "Setup: update should be queued");
+
+    // Cancel: auto-routing again picks alpen (the embedded update's required role).
+    let cancel = cancel_update(0, &state);
+    harness.submit_admin_action(&mut ctx, cancel).await.unwrap();
+
+    let state = harness.admin_state().unwrap();
+    assert_eq!(
+        state.queued().len(),
+        0,
+        "Cancel signed by AlpenAdministrator should remove the queued update"
+    );
+}
+
+/// The StrataAdministrator cannot cancel an Alpen-authorized queued update.
+///
+/// The cancel embeds the original AlpenAdministrator update, so role resolution must
+/// land on AlpenAdministrator and verification fails against the StrataAdministrator's
+/// signature. The explicit seqno=2 sits above alpen's `last_seqno` (=1 after the initial
+/// queue), so signature verification is the unambiguous rejection path — not replay
+/// protection — which would otherwise mask a buggy role resolution.
+#[tokio::test(flavor = "multi_thread")]
+async fn test_cancel_of_alpen_update_by_strata_admin_rejected() {
+    let (admin_config, mut ctx) = create_test_admin_setup(2);
+    let harness = AsmTestHarnessBuilder::default()
+        .with_admin_config(admin_config)
+        .build()
+        .await
+        .unwrap();
+
+    harness.mine_block(None).await.unwrap();
+
+    harness
+        .submit_admin_action(&mut ctx, ee_stf_vk_update(PredicateKey::always_accept()))
+        .await
+        .unwrap();
+
+    let state = harness.admin_state().unwrap();
+    let cancel = cancel_update(0, &state);
+
+    harness
+        .submit_admin_action_as_role_with_seqno(&ctx, cancel, Role::StrataAdministrator, 2)
+        .await
+        .unwrap();
+
+    let state = harness.admin_state().unwrap();
+    assert_eq!(
+        state.queued().len(),
+        1,
+        "Cancel signed by StrataAdministrator should be rejected; queue must be intact"
+    );
+    assert_eq!(
+        state
+            .authority(Role::AlpenAdministrator)
+            .unwrap()
+            .last_seqno(),
+        1,
+        "Alpen authority seqno should not advance for a rejected cancel"
+    );
+}
+
+/// Symmetric to the StrataAdministrator case: the StrataSequencerManager cannot
+/// cancel an Alpen-authorized queued update either.
+#[tokio::test(flavor = "multi_thread")]
+async fn test_cancel_of_alpen_update_by_seq_manager_rejected() {
+    let (admin_config, mut ctx) = create_test_admin_setup(2);
+    let harness = AsmTestHarnessBuilder::default()
+        .with_admin_config(admin_config)
+        .build()
+        .await
+        .unwrap();
+
+    harness.mine_block(None).await.unwrap();
+
+    harness
+        .submit_admin_action(&mut ctx, ee_stf_vk_update(PredicateKey::always_accept()))
+        .await
+        .unwrap();
+
+    let state = harness.admin_state().unwrap();
+    let cancel = cancel_update(0, &state);
+
+    harness
+        .submit_admin_action_as_role_with_seqno(&ctx, cancel, Role::StrataSequencerManager, 2)
+        .await
+        .unwrap();
+
+    let state = harness.admin_state().unwrap();
+    assert_eq!(
+        state.queued().len(),
+        1,
+        "Cancel signed by StrataSequencerManager should be rejected; queue must be intact"
     );
 }
 

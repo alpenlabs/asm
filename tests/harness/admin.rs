@@ -86,6 +86,20 @@ pub trait AdminExt {
         action: MultisigAction,
         signing_role: Role,
     ) -> impl Future<Output = anyhow::Result<BlockHash>>;
+
+    /// Submit an admin action with `signing_role`'s keys and an explicit seqno.
+    ///
+    /// Needed when a role-mismatch test has to set the seqno above the action's
+    /// *required* role's `last_seqno` (e.g. cancelling a queued alpen update where
+    /// alpen's seqno already advanced) so that signature verification is the
+    /// unambiguous failure path rather than replay protection.
+    fn submit_admin_action_as_role_with_seqno(
+        &self,
+        ctx: &AdminContext,
+        action: MultisigAction,
+        signing_role: Role,
+        seqno: u64,
+    ) -> impl Future<Output = anyhow::Result<BlockHash>>;
 }
 
 /// Signing material for a single role.
@@ -367,6 +381,19 @@ impl AdminExt for AsmTestHarness {
     ) -> anyhow::Result<BlockHash> {
         let payload = ctx.sign_as_role(&action, signing_role);
         let tx = self.build_envelope_tx(action.tag(), payload).await?;
+        self.submit_and_mine_tx(&tx).await
+    }
+
+    async fn submit_admin_action_as_role_with_seqno(
+        &self,
+        ctx: &AdminContext,
+        action: MultisigAction,
+        signing_role: Role,
+        seqno: u64,
+    ) -> anyhow::Result<BlockHash> {
+        let tag = action.tag();
+        let payload = ctx.sign_as_role_with_seqno(&action, signing_role, seqno);
+        let tx = self.build_envelope_tx(tag, payload).await?;
         self.submit_and_mine_tx(&tx).await
     }
 }
