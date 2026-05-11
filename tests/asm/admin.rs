@@ -385,7 +385,9 @@ async fn test_corrupted_signature_rejected() {
 
     let action = sequencer_update([88u8; 32]);
     let seqno = 1;
-    let sig_set = create_signature_set(ctx.privkeys(), ctx.signer_indices(), &action, seqno);
+    let role = action.required_role();
+    let sig_set =
+        create_signature_set(ctx.privkeys(role), ctx.signer_indices(role), &action, seqno);
 
     // Corrupt the signature
     let mut indexed_sigs = sig_set.into_inner();
@@ -415,6 +417,101 @@ async fn test_corrupted_signature_rejected() {
         state.next_update_id(),
         0,
         "Corrupted signature should be rejected"
+    );
+}
+
+// ============================================================================
+// Role-Based Authorization
+// ============================================================================
+
+/// Verifies an OL STF VK update signed by the AlpenAdministrator is rejected.
+///
+/// OL STF VK updates require the StrataAdministrator role. The AlpenAdministrator's key
+/// is valid for its own role but does not satisfy the StrataAdministrator's threshold
+/// config — so the signature must fail verification, leaving all role seqnos at zero.
+#[tokio::test(flavor = "multi_thread")]
+async fn test_ol_stf_vk_signed_by_alpen_admin_rejected() {
+    let (admin_config, mut ctx) = create_test_admin_setup(2);
+    let harness = AsmTestHarnessBuilder::default()
+        .with_admin_config(admin_config)
+        .build()
+        .await
+        .unwrap();
+
+    // Initialize subprotocols
+    harness.mine_block(None).await.unwrap();
+
+    // Sign an OL STF VK update (requires StrataAdministrator) with the AlpenAdministrator's
+    // keys. The handler resolves the required role from the action and verifies against
+    // StrataAdministrator's threshold config — which rejects the AlpenAdministrator's sig.
+    harness
+        .submit_admin_action_as_role(
+            &mut ctx,
+            ol_stf_vk_update(PredicateKey::always_accept()),
+            Role::AlpenAdministrator,
+        )
+        .await
+        .unwrap();
+
+    let state = harness.admin_state().unwrap();
+    assert_eq!(
+        state.queued().len(),
+        0,
+        "OL STF VK update signed by wrong role should not be queued"
+    );
+    assert_eq!(
+        state.next_update_id(),
+        0,
+        "Update ID should not increment for rejected tx"
+    );
+    // No role's seqno should advance — verification fails before the seqno update.
+    for role in [
+        Role::StrataAdministrator,
+        Role::StrataSequencerManager,
+        Role::AlpenAdministrator,
+    ] {
+        assert_eq!(
+            state.authority(role).unwrap().last_seqno(),
+            0,
+            "{role:?} seqno should not advance for rejected tx",
+        );
+    }
+}
+
+/// Verifies an OL STF VK update signed by the StrataSequencerManager is rejected.
+///
+/// Companion to the AlpenAdministrator case: a valid signer for some role still cannot
+/// authorize an action belonging to a different role.
+#[tokio::test(flavor = "multi_thread")]
+async fn test_ol_stf_vk_signed_by_seq_manager_rejected() {
+    let (admin_config, mut ctx) = create_test_admin_setup(2);
+    let harness = AsmTestHarnessBuilder::default()
+        .with_admin_config(admin_config)
+        .build()
+        .await
+        .unwrap();
+
+    harness.mine_block(None).await.unwrap();
+
+    harness
+        .submit_admin_action_as_role(
+            &mut ctx,
+            ol_stf_vk_update(PredicateKey::always_accept()),
+            Role::StrataSequencerManager,
+        )
+        .await
+        .unwrap();
+
+    let state = harness.admin_state().unwrap();
+    assert_eq!(
+        state.queued().len(),
+        0,
+        "OL STF VK update signed by wrong role should not be queued"
+    );
+    assert_eq!(
+        state.next_update_id(),
+        0,
+        "Update ID should not increment for rejected tx"
     );
 }
 
@@ -481,9 +578,9 @@ async fn test_multiple_zero_depth_updates_same_block() {
     let action2 = sequencer_update([8u8; 32]);
     let action3 = sequencer_update([9u8; 32]);
 
-    let payload1 = ctx.sign(&action1).unwrap();
-    let payload2 = ctx.sign(&action2).unwrap();
-    let payload3 = ctx.sign(&action3).unwrap();
+    let payload1 = ctx.sign(&action1);
+    let payload2 = ctx.sign(&action2);
+    let payload3 = ctx.sign(&action3);
 
     let tx1 = harness
         .build_envelope_tx(action1.tag(), payload1)
