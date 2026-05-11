@@ -8248,7 +8248,9 @@ version = "0.1.0"
 dependencies = [
  "bitcoin-bosd 0.10.0",
  "ssz",
+ "ssz_codegen",
  "ssz_derive",
+ "ssz_primitives",
  "ssz_types",
  "strata-asm-manifest-types",
  "strata-asm-params",
@@ -8261,6 +8263,8 @@ dependencies = [
  "strata-predicate",
  "strata-test-utils-checkpoint",
  "thiserror 2.0.18",
+ "tree_hash",
+ "tree_hash_derive",
  "zkaleido-logging",
 ]
 

@@ -15,8 +15,8 @@ use strata_predicate::{PredicateKey, PredicateTypeId};
 use zkaleido_logging as logging;
 
 use crate::{
+    CheckpointState,
     errors::{CheckpointValidationResult, InvalidCheckpointPayload, InvalidSequencerPredicate},
-    state::CheckpointState,
 };
 
 /// L1 block range of a checkpoint, returned by [`verify_progression`].
@@ -252,11 +252,11 @@ mod tests {
     use strata_test_utils_checkpoint::CheckpointTestHarness;
 
     use crate::{
+        CheckpointState,
         errors::{
             CheckpointValidationError, CheckpointValidationResult, InvalidCheckpointPayload,
             InvalidSequencerPredicate,
         },
-        state::CheckpointState,
         verification::{CheckpointL1Range, verify_progression, verify_sequencer_predicate},
     };
 

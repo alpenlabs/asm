@@ -1,4 +1,3 @@
-use ssz_derive::{Decode, Encode};
 use strata_asm_manifest_types::AsmManifestRangeHash;
 use strata_asm_params::CheckpointInitConfig;
 use strata_asm_proto_bridge_v1_types::WithdrawOutput;
@@ -8,29 +7,10 @@ use strata_identifiers::L2BlockCommitment;
 use strata_predicate::PredicateKey;
 
 use crate::{
-    deposit_pool::DepositPool,
+    CheckpointState, DepositPool,
     errors::CheckpointValidationResult,
     verification::{extract_withdrawal_intents, verify_proof},
 };
-
-/// Checkpoint subprotocol state.
-#[derive(Clone, Debug, PartialEq, Encode, Decode)]
-pub struct CheckpointState {
-    /// Predicate for sequencer signature verification.
-    /// Updated via `UpdateSequencerKey` message from admin subprotocol.
-    sequencer_predicate: PredicateKey,
-
-    /// Predicate for checkpoint ZK proof verification.
-    /// Updated via `UpdateCheckpointPredicate` message from admin subprotocol.
-    checkpoint_predicate: PredicateKey,
-
-    /// Last verified checkpoint tip position.
-    /// Tracks the OL state that has been proven and verified by ASM.
-    verified_tip: CheckpointTip,
-
-    /// Bridge UTXOs available to honor withdrawals.
-    deposits: DepositPool,
-}
 
 impl CheckpointState {
     /// Initializes checkpoint state from configuration.

@@ -1,0 +1,35 @@
+import strata_predicate
+import strata_btc_types
+import strata_asm_proto_checkpoint_types
+
+### Pool of bridge UTXOs available to honor withdrawals.
+###
+### Defaults to empty (denomination = `ZERO`, count = 0). The denomination is fixed by
+### the first recorded deposit; from then on, every deposit and withdrawal intent must
+### match it.
+class DepositPool(Container):
+    ### Bridge deposit denomination. Trivially zero until the first deposit fixes it.
+    denomination: strata_btc_types.BitcoinAmount
+
+    ### Count of bridge UTXOs that have been processed but not yet consumed by withdrawals.
+    count: uint32
+
+### Checkpoint subprotocol state.
+class CheckpointState(Container):
+    ### Predicate for sequencer signature verification.
+    ### Updated via `UpdateSequencerKey` message from admin subprotocol.
+    #~# external_kind: container
+    sequencer_predicate: strata_predicate.PredicateKey
+
+    ### Predicate for checkpoint ZK proof verification.
+    ### Updated via `UpdateCheckpointPredicate` message from admin subprotocol.
+    #~# external_kind: container
+    checkpoint_predicate: strata_predicate.PredicateKey
+
+    ### Last verified checkpoint tip position.
+    ### Tracks the OL state that has been proven and verified by ASM.
+    #~# external_kind: container
+    verified_tip: strata_asm_proto_checkpoint_types.CheckpointTip
+
+    ### Bridge UTXOs available to honor withdrawals.
+    deposits: DepositPool

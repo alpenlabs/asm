@@ -6,30 +6,10 @@
 //! consumes that many UTXOs from the pool. The bridge enforces these invariants on its
 //! side; the pool re-asserts them for intents arriving via OL logs.
 
-use ssz_derive::{Decode, Encode};
 use strata_asm_proto_bridge_v1_types::WithdrawOutput;
 use strata_btc_types::BitcoinAmount;
 
-use crate::errors::InvalidCheckpointPayload;
-
-/// Pool of bridge UTXOs available to honor withdrawals.
-///
-/// Defaults to empty (denomination = `ZERO`, count = 0). The denomination is fixed by the
-/// first recorded deposit; from then on, every deposit and withdrawal intent must match it.
-#[derive(Clone, Debug, PartialEq, Encode, Decode)]
-pub(crate) struct DepositPool {
-    /// Bridge deposit denomination. Trivially zero until the first deposit fixes it.
-    denomination: BitcoinAmount,
-
-    /// Count of bridge UTXOs that have been processed but not yet consumed by withdrawals.
-    count: u32,
-}
-
-impl Default for DepositPool {
-    fn default() -> Self {
-        Self::new_empty()
-    }
-}
+use crate::{DepositPool, errors::InvalidCheckpointPayload};
 
 /// Opaque proof token for a verified set of withdrawal intents.
 ///
@@ -40,6 +20,12 @@ impl Default for DepositPool {
 #[derive(Debug)]
 pub(crate) struct VerifiedWithdrawals {
     remaining_count: u32,
+}
+
+impl Default for DepositPool {
+    fn default() -> Self {
+        Self::new_empty()
+    }
 }
 
 impl DepositPool {
