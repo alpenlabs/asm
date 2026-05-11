@@ -219,7 +219,7 @@ pub(crate) fn extract_withdrawal_intents(
         // Logs from this account may have other formats, so skip if decoding fails
         let Ok(withdrawal_data) = decode_buf_exact::<SimpleWithdrawalIntentLogData>(log.payload())
         else {
-            logging::debug!("Skipping log that is not a withdrawal intent");
+            logging::trace!("Skipping log that is not a withdrawal intent");
             continue;
         };
 
