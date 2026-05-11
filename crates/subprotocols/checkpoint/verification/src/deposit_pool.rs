@@ -8,6 +8,7 @@
 
 use strata_asm_proto_bridge_v1_types::WithdrawOutput;
 use strata_btc_types::BitcoinAmount;
+use zkaleido_logging as logging;
 
 use crate::{DepositPool, errors::InvalidCheckpointPayload};
 
@@ -42,19 +43,34 @@ impl DepositPool {
         BitcoinAmount::from_sat(self.denomination.to_sat() * self.count as u64)
     }
 
+    /// Whether the pool is in its initial state — no deposits ever recorded and no
+    /// denomination established. A pool that previously held UTXOs but was fully drained
+    /// is NOT empty under this definition: its denomination remains locked in.
+    pub(crate) fn is_empty(&self) -> bool {
+        self.count == 0 && self.denomination == BitcoinAmount::ZERO
+    }
+
     /// Records a processed deposit, incrementing the available UTXO count.
     ///
-    /// The first deposit (when `count == 0`) fixes the denomination; subsequent deposits
-    /// debug-assert that the amount matches it. Single-denomination is a bridge-side
-    /// invariant — a mismatch here indicates an upstream bug.
+    /// The first deposit into a fresh pool fixes the denomination; subsequent deposits
+    /// must match it, including after the pool has been fully drained — the denomination
+    /// stays locked once set. Single-denomination is a bridge-side invariant — a mismatch
+    /// here indicates an upstream bug, so we log an error and skip the deposit rather
+    /// than corrupt the pool's `count × denomination` accounting.
+    ///
+    /// NOTE: If multi-denomination deposits become supported on the bridge side, this
+    /// method (and the pool's `count × denomination` model) will need to be reworked
+    /// to track UTXOs per denomination.
     pub(crate) fn record(&mut self, amount: BitcoinAmount) {
-        if self.count == 0 {
+        if self.is_empty() {
             self.denomination = amount;
-        } else {
-            debug_assert_eq!(
-                amount, self.denomination,
-                "deposits must match the established denomination"
+        } else if amount != self.denomination {
+            logging::error!(
+                expected = ?self.denomination,
+                actual = ?amount,
+                "deposit amount does not match established denomination; skipping",
             );
+            return;
         }
         self.count += 1;
     }
