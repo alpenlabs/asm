@@ -223,7 +223,7 @@ impl<R: ZkVmRemoteHost> ProofOrchestrator<R> {
 
         for proof_id in batch {
             if let Err(e) = self.try_submit(proof_id).await {
-                warn!(?proof_id, ?e, "failed to submit proof, re-enqueuing");
+                warn!(?proof_id, %e, "failed to submit proof, re-enqueuing");
                 self.queue.enqueue(proof_id);
             }
         }
@@ -262,7 +262,7 @@ impl<R: ZkVmRemoteHost> ProofOrchestrator<R> {
                 let prerequisite = match self.input_builder.check_moho_prerequisite(*block).await {
                     Ok(prereq) => prereq,
                     Err(e) => {
-                        warn!(?e, "moho proof generation cannot be done yet, re-enqueuing");
+                        warn!(%e, "moho proof generation cannot be done yet, re-enqueuing");
                         self.queue.enqueue(proof_id);
                         return Ok(());
                     }
