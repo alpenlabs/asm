@@ -145,7 +145,7 @@ fn resolve_predicate(host: &impl ZkVmHost) -> Result<PredicateKey> {
 
             let verifier = SP1Groth16Verifier::load(
                 &GROTH16_VK_BYTES,
-                sp1_vk.hash_bytes(),
+                sp1_vk.bytes32_raw(),
                 *VK_ROOT_BYTES,
                 true,
             )
