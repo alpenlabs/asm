@@ -8112,7 +8112,6 @@ dependencies = [
  "strata-asm-proto-checkpoint-txs",
  "strata-asm-proto-checkpoint-types",
  "strata-asm-rpc",
- "strata-asm-sp1-guest-builder",
  "strata-asm-spec",
  "strata-asm-worker",
  "strata-btc-types",

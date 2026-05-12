@@ -9,6 +9,8 @@
 use anyhow::{Result, bail};
 use strata_predicate::{PredicateKey, PredicateTypeId};
 use zkaleido::{ZkVm, ZkVmHost};
+
+use crate::prover::config::BackendConfig;
 #[cfg(feature = "sp1")]
 use {
     anyhow::Context,
@@ -53,8 +55,8 @@ impl ProofBackend {
     /// Returns an error if either host cannot be constructed (e.g. a guest
     /// ELF cannot be read in `sp1` builds) or if either host's verifying key
     /// cannot be turned into a [`PredicateKey`].
-    pub(crate) async fn new() -> Result<Self> {
-        let (asm_host, moho_host) = build_proof_hosts().await?;
+    pub(crate) async fn new(cfg: &BackendConfig) -> Result<Self> {
+        let (asm_host, moho_host) = build_proof_hosts(cfg).await?;
         let asm_predicate = resolve_predicate(&asm_host)?;
         let moho_predicate = resolve_predicate(&moho_host)?;
         Ok(Self {
@@ -69,25 +71,25 @@ impl ProofBackend {
 /// Builds the `(asm, moho)` host pair used by the proof orchestrator.
 ///
 /// With the `sp1` feature, both hosts are SP1 hosts initialized from the
-/// embedded guest ELFs and capable of dispatching proofs to a remote SP1
-/// prover. Without the `sp1` feature, both hosts are native (in-process)
-/// hosts that simply execute the proof programs and do not produce real
-/// cryptographic proofs.
+/// guest ELFs found at `<elfs_dir>/{asm,moho}.elf` and are capable of
+/// dispatching proofs to a remote SP1 prover. Without the `sp1` feature,
+/// both hosts are native (in-process) hosts that simply execute the proof
+/// programs and do not produce real cryptographic proofs.
 ///
 /// # Errors
 ///
 /// With the `sp1` feature, returns an error if either guest ELF cannot be
-/// read from the path baked into the guest builder.
+/// read from `elfs_dir`.
 #[cfg(feature = "sp1")]
-async fn build_proof_hosts() -> Result<(ProofHost, ProofHost)> {
+async fn build_proof_hosts(cfg: &BackendConfig) -> Result<(ProofHost, ProofHost)> {
     use std::fs;
 
-    use strata_asm_sp1_guest_builder::{ASM_ELF_PATH, MOHO_ELF_PATH};
-
-    let asm_elf = fs::read(ASM_ELF_PATH)
-        .with_context(|| format!("failed to read ASM guest ELF at {ASM_ELF_PATH}"))?;
-    let moho_elf = fs::read(MOHO_ELF_PATH)
-        .with_context(|| format!("failed to read Moho guest ELF at {MOHO_ELF_PATH}"))?;
+    let asm_path = cfg.elfs_dir.join("asm.elf");
+    let moho_path = cfg.elfs_dir.join("moho.elf");
+    let asm_elf = fs::read(&asm_path)
+        .with_context(|| format!("failed to read ASM guest ELF at {}", asm_path.display()))?;
+    let moho_elf = fs::read(&moho_path)
+        .with_context(|| format!("failed to read Moho guest ELF at {}", moho_path.display()))?;
 
     Ok((
         SP1Host::init(&asm_elf).await,
@@ -96,7 +98,7 @@ async fn build_proof_hosts() -> Result<(ProofHost, ProofHost)> {
 }
 
 #[cfg(not(feature = "sp1"))]
-async fn build_proof_hosts() -> Result<(ProofHost, ProofHost)> {
+async fn build_proof_hosts(_cfg: &BackendConfig) -> Result<(ProofHost, ProofHost)> {
     use moho_recursive_proof::MohoRecursiveProgram;
     use strata_asm_proof_impl::program::AsmStfProofProgram;
 

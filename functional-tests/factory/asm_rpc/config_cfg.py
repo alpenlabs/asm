@@ -39,12 +39,20 @@ class BitcoinConfig:
 
 
 @dataclass
+class BackendConfig:
+    """Backend-specific orchestrator configuration."""
+
+    elfs_dir: str | None = None  # required for sp1 builds, ignored otherwise
+
+
+@dataclass
 class OrchestratorConfig:
     """Proof orchestrator configuration."""
 
     tick_interval: Duration
     max_concurrent_proofs: int
     proof_db_path: str
+    backend: BackendConfig | None = None
 
 
 @dataclass
