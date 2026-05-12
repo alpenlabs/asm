@@ -1,7 +1,6 @@
-use std::{fs, sync::LazyLock};
+use std::fs;
 
 use moho_runtime_impl::RuntimeInput;
-use sp1_sdk::{HashableKey, ProvingKey};
 use ssz::Encode;
 use strata_asm_proof_impl::{
     program::AsmStfProofProgram,
@@ -11,22 +10,22 @@ use strata_asm_proof_impl::{
 };
 use strata_asm_sp1_guest_builder::ASM_ELF_PATH;
 use strata_predicate::PredicateKey;
-use zkaleido::{PerformanceReport, ProofReceiptWithMetadata, ZkVmProgram, ZkVmProgramPerf};
+use zkaleido::{ExecutionSummary, ProofReceiptWithMetadata, ZkVmExecutor, ZkVmProgram};
 use zkaleido_sp1_host::SP1Host;
 
 use crate::programs::compute_sp1_predicate_key;
 
-static ASM_HOST: LazyLock<SP1Host> = LazyLock::new(|| {
+async fn init_asm_host() -> SP1Host {
     let elf = fs::read(ASM_ELF_PATH)
         .unwrap_or_else(|err| panic!("failed to read guest elf at {ASM_ELF_PATH}: {err}"));
-    SP1Host::init(&elf)
-});
+    SP1Host::init(&elf).await
+}
 
 /// Creates a runtime input for a single ASM STF step.
-pub(crate) fn create_runtime_input() -> RuntimeInput {
+fn create_runtime_input(host: &SP1Host) -> RuntimeInput {
     let step_input = create_asm_step_input();
     let inner_pre_state = create_deterministic_genesis_anchor_state(step_input.block());
-    let moho_pre_state = create_moho_state(&inner_pre_state, compute_asm_predicate_key());
+    let moho_pre_state = create_moho_state(&inner_pre_state, compute_asm_predicate_key(host));
     RuntimeInput::new(
         moho_pre_state,
         inner_pre_state.as_ssz_bytes(),
@@ -34,18 +33,19 @@ pub(crate) fn create_runtime_input() -> RuntimeInput {
     )
 }
 
-pub(crate) fn gen_perf_report() -> PerformanceReport {
-    let input = create_runtime_input();
-    AsmStfProofProgram::perf_report(&input, &*ASM_HOST)
-        .expect("failed to generate performance report")
+pub(crate) async fn gen_execution_summary() -> ExecutionSummary {
+    let host = init_asm_host().await;
+    let input = create_runtime_input(&host);
+    <AsmStfProofProgram as ZkVmProgram>::execute(&input, &host)
+        .expect("failed to generate execution summary")
 }
 
-pub(crate) fn gen_proof() -> ProofReceiptWithMetadata {
-    let input = create_runtime_input();
-    AsmStfProofProgram::prove(&input, &*ASM_HOST).expect("failed to generate proof")
+pub(crate) async fn gen_proof() -> ProofReceiptWithMetadata {
+    let host = init_asm_host().await;
+    let input = create_runtime_input(&host);
+    AsmStfProofProgram::prove(&input, &host).expect("failed to generate proof")
 }
 
-pub(crate) fn compute_asm_predicate_key() -> PredicateKey {
-    let vk = ASM_HOST.proving_key.verifying_key().bytes32_raw();
-    compute_sp1_predicate_key(vk)
+fn compute_asm_predicate_key(host: &SP1Host) -> PredicateKey {
+    compute_sp1_predicate_key(host.program_id().0)
 }

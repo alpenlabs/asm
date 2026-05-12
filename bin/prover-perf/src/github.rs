@@ -1,5 +1,5 @@
 use anyhow::{anyhow, bail, Result};
-use reqwest::blocking::{Client, RequestBuilder};
+use reqwest::{Client, RequestBuilder};
 use serde_json::json;
 
 use crate::args::EvalArgs;
@@ -8,7 +8,7 @@ use crate::args::EvalArgs;
 ///
 /// Updates an existing previous comment by `github-actions[bot]` (matching the
 /// prover output marker) if present, otherwise posts a new one.
-pub(crate) fn post_to_github_pr(args: &EvalArgs, message: &str) -> Result<()> {
+pub(crate) async fn post_to_github_pr(args: &EvalArgs, message: &str) -> Result<()> {
     if args.github_token.trim().is_empty() {
         bail!("--github-token is required when --post-to-gh is set");
     }
@@ -22,16 +22,18 @@ pub(crate) fn post_to_github_pr(args: &EvalArgs, message: &str) -> Result<()> {
         args.github_repo, args.pr_number
     );
 
-    let comments_response =
-        set_github_headers(client.get(&comments_url), &args.github_token).send()?;
+    let comments_response = set_github_headers(client.get(&comments_url), &args.github_token)
+        .send()
+        .await?;
     if !comments_response.status().is_success() {
         let status = comments_response.status();
-        let body = comments_response.text().unwrap_or_default();
+        let body = comments_response.text().await.unwrap_or_default();
         bail!("failed to fetch PR comments ({status}): {body}");
     }
 
     let comments: Vec<serde_json::Value> = comments_response
         .json()
+        .await
         .map_err(|e| anyhow!("failed to decode PR comments response: {e}"))?;
 
     let bot_comment = comments.iter().find(|comment| {
@@ -54,11 +56,12 @@ pub(crate) fn post_to_github_pr(args: &EvalArgs, message: &str) -> Result<()> {
 
     let response = set_github_headers(request, &args.github_token)
         .json(&json!({ "body": message }))
-        .send()?;
+        .send()
+        .await?;
 
     if !response.status().is_success() {
         let status = response.status();
-        let body = response.text().unwrap_or_default();
+        let body = response.text().await.unwrap_or_default();
         bail!("failed to post/update PR comment ({status}): {body}");
     }
 

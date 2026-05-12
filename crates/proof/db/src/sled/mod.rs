@@ -124,7 +124,8 @@ pub(crate) mod test_util {
     use strata_asm_proof_types::{AsmProof, L1Range, MohoProof};
     use strata_identifiers::{Buf32, L1BlockCommitment, L1BlockId};
     use zkaleido::{
-        ProgramId, Proof, ProofMetadata, ProofReceipt, ProofReceiptWithMetadata, PublicValues, ZkVm,
+        ProgramId, Proof, ProofMetadata, ProofReceipt, ProofReceiptWithMetadata, ProofType,
+        PublicValues, ZkVm,
     };
 
     use super::SledProofDb;
@@ -156,7 +157,12 @@ pub(crate) mod test_util {
     -> impl Strategy<Value = ProofReceiptWithMetadata> {
         (vec(any::<u8>(), 0..512), vec(any::<u8>(), 0..512)).prop_map(|(proof_bytes, pv_bytes)| {
             let receipt = ProofReceipt::new(Proof::new(proof_bytes), PublicValues::new(pv_bytes));
-            let metadata = ProofMetadata::new(ZkVm::Native, ProgramId::default(), "test");
+            let metadata = ProofMetadata::new(
+                ZkVm::Native,
+                ProgramId::default(),
+                "test",
+                ProofType::Groth16,
+            );
             ProofReceiptWithMetadata::new(receipt, metadata)
         })
     }

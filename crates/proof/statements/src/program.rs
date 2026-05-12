@@ -55,7 +55,7 @@ impl ZkVmProgram for AsmStfProofProgram {
 impl AsmStfProofProgram {
     /// Native host that can be used for testing
     pub fn native_host() -> NativeHost {
-        NativeHost::new(process_asm_stf)
+        NativeHost::new_with_random_key(process_asm_stf)
     }
 
     /// Executes the program using the native host.
@@ -64,7 +64,8 @@ impl AsmStfProofProgram {
     ) -> ZkVmResult<<Self as ZkVmProgram>::Output> {
         // Get the native host and delegate to the trait's execute method
         let host = Self::native_host();
-        <Self as ZkVmProgram>::execute(input, &host)
+        let summary = <Self as ZkVmProgram>::execute(input, &host)?;
+        <Self as ZkVmProgram>::process_output::<NativeHost>(summary.public_values())
     }
 }
 

@@ -5,7 +5,7 @@ mod moho;
 
 use sp1_verifier::{GROTH16_VK_BYTES, VK_ROOT_BYTES};
 use strata_predicate::{PredicateKey, PredicateTypeId::Sp1Groth16};
-use zkaleido::{PerformanceReport, ProofReceiptWithMetadata};
+use zkaleido::{ExecutionSummary, ProofReceiptWithMetadata};
 use zkaleido_sp1_groth16_verifier::SP1Groth16Verifier;
 
 #[derive(Debug, Clone)]
@@ -36,26 +36,32 @@ impl FromStr for GuestProgram {
     }
 }
 
-/// Runs SP1 programs to generate reports.
-pub(crate) fn gen_sp1_perf_report(programs: &[GuestProgram]) -> Vec<PerformanceReport> {
-    programs
-        .iter()
-        .map(|program| match program {
-            GuestProgram::AsmStf => asm_stf::gen_perf_report(),
-            GuestProgram::Moho => moho::gen_perf_report(),
-        })
-        .collect()
+/// Runs SP1 programs to generate execution summaries.
+pub(crate) async fn gen_sp1_execution_summaries(
+    programs: &[GuestProgram],
+) -> Vec<ExecutionSummary> {
+    let mut summaries = Vec::with_capacity(programs.len());
+    for program in programs {
+        let summary = match program {
+            GuestProgram::AsmStf => asm_stf::gen_execution_summary().await,
+            GuestProgram::Moho => moho::gen_execution_summary().await,
+        };
+        summaries.push(summary);
+    }
+    summaries
 }
 
-/// Runs SP1 programs to generate reports.
-pub(crate) fn gen_sp1_proof(programs: &[GuestProgram]) -> Vec<ProofReceiptWithMetadata> {
-    programs
-        .iter()
-        .map(|program| match program {
-            GuestProgram::AsmStf => asm_stf::gen_proof(),
-            GuestProgram::Moho => moho::gen_proof(),
-        })
-        .collect()
+/// Runs SP1 programs to generate proofs.
+pub(crate) async fn gen_sp1_proof(programs: &[GuestProgram]) -> Vec<ProofReceiptWithMetadata> {
+    let mut proofs = Vec::with_capacity(programs.len());
+    for program in programs {
+        let proof = match program {
+            GuestProgram::AsmStf => asm_stf::gen_proof().await,
+            GuestProgram::Moho => moho::gen_proof().await,
+        };
+        proofs.push(proof);
+    }
+    proofs
 }
 
 pub(crate) fn compute_sp1_predicate_key(program_vk_hash: [u8; 32]) -> PredicateKey {
