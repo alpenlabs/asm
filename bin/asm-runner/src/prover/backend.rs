@@ -6,11 +6,11 @@
 //! [`ProofBackend`] value that the runner builds once at startup and threads
 //! into the proof orchestrator and the input builder.
 
+use std::path::Path;
+
 use anyhow::{Result, bail};
 use strata_predicate::{PredicateKey, PredicateTypeId};
 use zkaleido::{ZkVm, ZkVmHost};
-
-use crate::prover::config::BackendConfig;
 #[cfg(feature = "sp1")]
 use {
     anyhow::Context,
@@ -19,6 +19,8 @@ use {
     zkaleido_sp1_groth16_verifier::SP1Groth16Verifier,
     zkaleido_sp1_host::SP1Host,
 };
+
+use crate::prover::config::BackendConfig;
 
 /// Concrete host type used by the proof orchestrator.
 ///
@@ -52,9 +54,10 @@ impl ProofBackend {
     ///
     /// # Errors
     ///
-    /// Returns an error if either host cannot be constructed (e.g. a guest
-    /// ELF cannot be read in `sp1` builds) or if either host's verifying key
-    /// cannot be turned into a [`PredicateKey`].
+    /// - Returns an error if the requested [`BackendConfig`] variant does not match the binary's
+    ///   build features (e.g. `Sp1` requested without the `sp1` feature).
+    /// - Returns an error if either host cannot be constructed (e.g. a guest ELF cannot be read in
+    ///   `sp1` builds) or if either host's verifying key cannot be turned into a [`PredicateKey`].
     pub(crate) async fn new(cfg: &BackendConfig) -> Result<Self> {
         let (asm_host, moho_host) = build_proof_hosts(cfg).await?;
         let asm_predicate = resolve_predicate(&asm_host)?;
@@ -70,22 +73,24 @@ impl ProofBackend {
 
 /// Builds the `(asm, moho)` host pair used by the proof orchestrator.
 ///
-/// With the `sp1` feature, both hosts are SP1 hosts initialized from the
-/// guest ELFs found at `<elfs_dir>/{asm,moho}.elf` and are capable of
-/// dispatching proofs to a remote SP1 prover. Without the `sp1` feature,
-/// both hosts are native (in-process) hosts that simply execute the proof
-/// programs and do not produce real cryptographic proofs.
-///
-/// # Errors
-///
-/// With the `sp1` feature, returns an error if either guest ELF cannot be
-/// read from `elfs_dir`.
-#[cfg(feature = "sp1")]
+/// Dispatches on the [`BackendConfig`] variant. If the variant does not
+/// match the binary's build features, surfaces a clear startup error rather
+/// than failing later in the proving path.
 async fn build_proof_hosts(cfg: &BackendConfig) -> Result<(ProofHost, ProofHost)> {
+    match cfg {
+        BackendConfig::Sp1 { elfs_dir } => build_sp1_hosts(elfs_dir).await,
+        BackendConfig::Native {
+            schnorr_signing_key,
+        } => build_native_hosts(schnorr_signing_key).await,
+    }
+}
+
+#[cfg(feature = "sp1")]
+async fn build_sp1_hosts(elfs_dir: &Path) -> Result<(ProofHost, ProofHost)> {
     use std::fs;
 
-    let asm_path = cfg.elfs_dir.join("asm.elf");
-    let moho_path = cfg.elfs_dir.join("moho.elf");
+    let asm_path = elfs_dir.join("asm.elf");
+    let moho_path = elfs_dir.join("moho.elf");
     let asm_elf = fs::read(&asm_path)
         .with_context(|| format!("failed to read ASM guest ELF at {}", asm_path.display()))?;
     let moho_elf = fs::read(&moho_path)
@@ -98,7 +103,17 @@ async fn build_proof_hosts(cfg: &BackendConfig) -> Result<(ProofHost, ProofHost)
 }
 
 #[cfg(not(feature = "sp1"))]
-async fn build_proof_hosts(_cfg: &BackendConfig) -> Result<(ProofHost, ProofHost)> {
+async fn build_sp1_hosts(_elfs_dir: &Path) -> Result<(ProofHost, ProofHost)> {
+    bail!("sp1 backend requested but binary was built without the `sp1` feature");
+}
+
+#[cfg(feature = "sp1")]
+async fn build_native_hosts(_signing_key: &[u8; 32]) -> Result<(ProofHost, ProofHost)> {
+    bail!("native backend requested but binary was built with the `sp1` feature");
+}
+
+#[cfg(not(feature = "sp1"))]
+async fn build_native_hosts(_signing_key: &[u8; 32]) -> Result<(ProofHost, ProofHost)> {
     use moho_recursive_proof::MohoRecursiveProgram;
     use strata_asm_proof_impl::program::AsmStfProofProgram;
 

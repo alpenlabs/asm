@@ -8089,6 +8089,7 @@ dependencies = [
  "borsh",
  "clap",
  "futures",
+ "hex",
  "jsonrpsee",
  "moho-recursive-proof",
  "moho-runtime-impl",

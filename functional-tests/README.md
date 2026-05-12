@@ -27,12 +27,20 @@ cd functional-tests
 ./run_test.sh fn_asm_block_test
 ```
 
-### SP1 proof generation
+### Proof backend
+
+The runner is built against one of two proof backends, selected by
+`ASM_PROVER_BACKEND`:
+
+- `native` (default) — debug build, in-process native execution. Fast to
+  build, no real cryptographic proofs.
+- `sp1` — release build with `--features sp1`. SP1 proving is unusably slow
+  in debug, so release is forced.
 
 To run with SP1 proof generation enabled:
 
 ```bash
-SP1_PROOF_STRATEGY="" NETWORK_PRIVATE_KEY="" CARGO_DEBUG=0 CARGO_FEATURES=sp1 ./run_test.sh fn_asm_proof_test
+ASM_PROVER_BACKEND=sp1 SP1_PROOF_STRATEGY="" NETWORK_PRIVATE_KEY="" ./run_test.sh fn_asm_proof_test
 ```
 
 - `SP1_PROOF_STRATEGY` — the SP1 proof fulfillment strategy. See

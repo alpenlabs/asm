@@ -7,20 +7,30 @@ source env.bash
 # Set finite fd limit so subprocesses inherit a sane value.
 ulimit -n 10240
 
+# Which proof backend the runner is built against.
+#   native (default): debug build, no extra features. Fast iteration.
+#   sp1:              release build with --features sp1. SP1 proving is
+#                     unusably slow in debug.
+ASM_PROVER_BACKEND="${ASM_PROVER_BACKEND:-native}"
+export ASM_PROVER_BACKEND
+
+case "$ASM_PROVER_BACKEND" in
+  native)
+    CARGO_ARGS=()
+    TARGET_DIR="debug"
+    ;;
+  sp1)
+    CARGO_ARGS=(--release --features sp1)
+    TARGET_DIR="release"
+    ;;
+  *)
+    echo "Unknown ASM_PROVER_BACKEND: $ASM_PROVER_BACKEND (expected: native|sp1)" >&2
+    exit 1
+    ;;
+esac
+
 pushd .. > /dev/null
-if [ "${CARGO_DEBUG:-1}" = "0" ]; then
-  CARGO_ARGS=(--release)
-  TARGET_DIR="release"
-else
-  CARGO_ARGS=()
-  TARGET_DIR="debug"
-fi
-
-if [ -n "${CARGO_FEATURES:-}" ]; then
-  CARGO_ARGS+=(--features "$CARGO_FEATURES")
-fi
-
-cargo build --bin strata-asm-runner ${CARGO_ARGS[@]+"${CARGO_ARGS[@]}"}
+cargo build --bin strata-asm-runner "${CARGO_ARGS[@]}"
 TARGET_ROOT="${CARGO_TARGET_DIR:-target}"
 if [[ "$TARGET_ROOT" != /* ]]; then
   TARGET_ROOT="$PWD/$TARGET_ROOT"

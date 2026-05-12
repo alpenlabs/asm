@@ -16,25 +16,44 @@ pub(crate) struct OrchestratorConfig {
     /// Path to the proof database (SledProofDb).
     pub proof_db_path: PathBuf,
 
-    /// Backend-specific configuration. Required under `sp1`; defaults to
-    /// empty under native builds (until per-mode fields are added there).
-    #[cfg_attr(not(feature = "sp1"), serde(default))]
+    /// Which proof backend to construct at startup, plus its configuration.
     pub backend: BackendConfig,
 }
 
 /// Backend-specific orchestrator configuration.
 ///
-/// The shape varies with the active proof backend (`sp1` vs native), so the
-/// struct is cfg-gated to carry only the fields the active backend needs.
-#[cfg(feature = "sp1")]
+/// Tagged with `kind` so the same config schema is valid regardless of
+/// which features the binary was built with. If the selected variant does
+/// not match the build (e.g. `sp1` requested in a binary built without the
+/// `sp1` feature), [`crate::prover::backend::ProofBackend::new`] surfaces a
+/// startup error.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub(crate) struct BackendConfig {
-    /// Directory containing the SP1 guest ELFs (`asm.elf`, `moho.elf`).
-    pub elfs_dir: PathBuf,
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub(crate) enum BackendConfig {
+    /// SP1 backend. ELFs at `<elfs_dir>/{asm,moho}.elf` are loaded at startup.
+    Sp1 { elfs_dir: PathBuf },
+
+    /// Native (in-process) backend. The signing key authenticates proofs
+    /// from this host; parsed eagerly so config errors surface at startup.
+    Native {
+        #[serde(with = "hex_bytes")]
+        schnorr_signing_key: [u8; 32],
+    },
 }
 
-#[cfg(not(feature = "sp1"))]
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub(crate) struct BackendConfig {
-    // Future: pub schnorr_signing_key: SigningKey,
+mod hex_bytes {
+    use serde::{Deserialize, Deserializer, Serializer, de::Error as _};
+
+    pub(super) fn serialize<S: Serializer>(bytes: &[u8; 32], s: S) -> Result<S::Ok, S::Error> {
+        s.serialize_str(&hex::encode(bytes))
+    }
+
+    pub(super) fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<[u8; 32], D::Error> {
+        let s = String::deserialize(d)?;
+        let bytes = hex::decode(&s).map_err(D::Error::custom)?;
+        bytes
+            .as_slice()
+            .try_into()
+            .map_err(|_| D::Error::custom(format!("expected 32 bytes, got {}", bytes.len())))
+    }
 }
