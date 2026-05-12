@@ -40,7 +40,7 @@ pub(crate) async fn bootstrap(
         let sled_db = sled::open(&orch_config.proof_db_path)?;
         let proof_db = SledProofDb::open(&sled_db)?;
         let moho_state_db = SledMohoStateDb::open(&sled_db)?;
-        let backend = ProofBackend::new()?;
+        let backend = ProofBackend::new().await?;
         Some((orch_config, proof_db, moho_state_db, backend))
     } else {
         None

@@ -53,8 +53,8 @@ impl ProofBackend {
     /// Returns an error if either host cannot be constructed (e.g. a guest
     /// ELF cannot be read in `sp1` builds) or if either host's verifying key
     /// cannot be turned into a [`PredicateKey`].
-    pub(crate) fn new() -> Result<Self> {
-        let (asm_host, moho_host) = build_proof_hosts()?;
+    pub(crate) async fn new() -> Result<Self> {
+        let (asm_host, moho_host) = build_proof_hosts().await?;
         let asm_predicate = resolve_predicate(&asm_host)?;
         let moho_predicate = resolve_predicate(&moho_host)?;
         Ok(Self {
@@ -79,7 +79,7 @@ impl ProofBackend {
 /// With the `sp1` feature, returns an error if either guest ELF cannot be
 /// read from the path baked into the guest builder.
 #[cfg(feature = "sp1")]
-fn build_proof_hosts() -> Result<(ProofHost, ProofHost)> {
+async fn build_proof_hosts() -> Result<(ProofHost, ProofHost)> {
     use std::fs;
 
     use strata_asm_sp1_guest_builder::{ASM_ELF_PATH, MOHO_ELF_PATH};
@@ -89,11 +89,14 @@ fn build_proof_hosts() -> Result<(ProofHost, ProofHost)> {
     let moho_elf = fs::read(MOHO_ELF_PATH)
         .with_context(|| format!("failed to read Moho guest ELF at {MOHO_ELF_PATH}"))?;
 
-    Ok((SP1Host::init(&asm_elf), SP1Host::init(&moho_elf)))
+    Ok((
+        SP1Host::init(&asm_elf).await,
+        SP1Host::init(&moho_elf).await,
+    ))
 }
 
 #[cfg(not(feature = "sp1"))]
-fn build_proof_hosts() -> Result<(ProofHost, ProofHost)> {
+async fn build_proof_hosts() -> Result<(ProofHost, ProofHost)> {
     use moho_recursive_proof::MohoRecursiveProgram;
     use strata_asm_proof_impl::program::AsmStfProofProgram;
 
