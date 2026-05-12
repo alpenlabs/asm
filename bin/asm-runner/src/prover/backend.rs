@@ -150,7 +150,7 @@ fn resolve_predicate(host: &impl ZkVmHost) -> Result<PredicateKey> {
 
             Ok(PredicateKey::new(
                 PredicateTypeId::Sp1Groth16,
-                verifier.vk.to_uncompressed_bytes(),
+                borsh::to_vec(&verifier).expect("borsh serialization of verifier is infalliable"),
             ))
         }
         #[cfg(not(feature = "sp1"))]

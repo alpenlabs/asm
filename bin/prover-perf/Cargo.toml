@@ -25,6 +25,7 @@ strata-asm-stf.workspace = true
 strata-predicate.workspace = true
 
 anyhow.workspace = true
+borsh.workspace = true
 clap.workspace = true
 num-format = "0.4.4"
 reqwest = { version = "0.12.28", default-features = false, features = [
