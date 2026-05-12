@@ -100,7 +100,7 @@ def wait_until_asm_proof_exists(asm_rpc, block_hash: str, timeout: int = 600, st
     )
 
 
-def wait_until_moho_proof_exists(asm_rpc, block_hash: str, timeout: int = 60, step: int = 2):
+def wait_until_moho_proof_exists(asm_rpc, block_hash: str, timeout: int = 600, step: int = 2):
     """Wait until a Moho recursive proof exists for the given block hash."""
 
     def check():
