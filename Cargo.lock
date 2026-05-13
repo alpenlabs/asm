@@ -8091,6 +8091,7 @@ dependencies = [
  "futures",
  "hex",
  "jsonrpsee",
+ "k256",
  "moho-recursive-proof",
  "moho-runtime-impl",
  "moho-runtime-interface",

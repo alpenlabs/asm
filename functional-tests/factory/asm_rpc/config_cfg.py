@@ -45,7 +45,8 @@ class Sp1Backend:
     Mirrors `BackendConfig::Sp1` in bin/asm-runner/src/prover/config.rs.
     """
 
-    elfs_dir: str
+    asm_elf_path: str
+    moho_elf_path: str
     kind: str = "sp1"
 
 
@@ -54,11 +55,13 @@ class NativeBackend:
     """Native (in-process) proof backend configuration.
 
     Mirrors `BackendConfig::Native` in bin/asm-runner/src/prover/config.rs.
-    `schnorr_signing_key` is a 32-byte value rendered as a lowercase hex
-    string with no `0x` prefix.
+    Each signing key is a 32-byte value rendered as a lowercase hex
+    string with no `0x` prefix; the Rust side validates that the bytes
+    form a valid BIP-340 Schnorr signing key (rejects the zero scalar).
     """
 
-    schnorr_signing_key: str
+    asm_schnorr_signing_key: str
+    moho_schnorr_signing_key: str
     kind: str = "native"
 
 

@@ -1,7 +1,8 @@
 //! Configuration for the proof orchestrator.
 
-use std::{path::PathBuf, time::Duration};
+use std::{fmt, path::PathBuf, time::Duration};
 
+use k256::schnorr::SigningKey;
 use serde::{Deserialize, Serialize};
 
 /// Configuration for the proof orchestrator.
@@ -27,33 +28,64 @@ pub(crate) struct OrchestratorConfig {
 /// not match the build (e.g. `sp1` requested in a binary built without the
 /// `sp1` feature), [`crate::prover::backend::ProofBackend::new`] surfaces a
 /// startup error.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
+#[expect(
+    clippy::large_enum_variant,
+    reason = "BackendConfig is parsed once at startup; boxing a SigningKey to save a few bytes on a singleton value is not worth the indirection"
+)]
 pub(crate) enum BackendConfig {
-    /// SP1 backend. ELFs at `<elfs_dir>/{asm,moho}.elf` are loaded at startup.
-    Sp1 { elfs_dir: PathBuf },
+    /// SP1 backend. Loads the ASM and Moho guest ELFs from explicit paths at startup.
+    Sp1 {
+        asm_elf_path: PathBuf,
+        moho_elf_path: PathBuf,
+    },
 
-    /// Native (in-process) backend. The signing key authenticates proofs
-    /// from this host; parsed eagerly so config errors surface at startup.
+    /// Native (in-process) backend. Each signing key fixes the predicate
+    /// identity of its host: a native host's verifying key (derived from the
+    /// configured signing key) is what `resolve_predicate` packs into the
+    /// `PredicateKey`. Keys are parsed and validated as BIP-340 Schnorr
+    /// signing keys at config load, so an invalid key fails startup rather
+    /// than later in the proving path.
     Native {
-        #[serde(with = "hex_bytes")]
-        schnorr_signing_key: [u8; 32],
+        #[serde(with = "hex_signing_key")]
+        asm_schnorr_signing_key: SigningKey,
+        #[serde(with = "hex_signing_key")]
+        moho_schnorr_signing_key: SigningKey,
     },
 }
 
-mod hex_bytes {
+impl fmt::Debug for BackendConfig {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Sp1 {
+                asm_elf_path,
+                moho_elf_path,
+            } => f
+                .debug_struct("Sp1")
+                .field("asm_elf_path", asm_elf_path)
+                .field("moho_elf_path", moho_elf_path)
+                .finish(),
+            Self::Native { .. } => f
+                .debug_struct("Native")
+                .field("asm_schnorr_signing_key", &"<redacted>")
+                .field("moho_schnorr_signing_key", &"<redacted>")
+                .finish(),
+        }
+    }
+}
+
+mod hex_signing_key {
+    use k256::schnorr::SigningKey;
     use serde::{Deserialize, Deserializer, Serializer, de::Error as _};
 
-    pub(super) fn serialize<S: Serializer>(bytes: &[u8; 32], s: S) -> Result<S::Ok, S::Error> {
-        s.serialize_str(&hex::encode(bytes))
+    pub(super) fn serialize<S: Serializer>(key: &SigningKey, s: S) -> Result<S::Ok, S::Error> {
+        s.serialize_str(&hex::encode(key.to_bytes()))
     }
 
-    pub(super) fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<[u8; 32], D::Error> {
+    pub(super) fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<SigningKey, D::Error> {
         let s = String::deserialize(d)?;
         let bytes = hex::decode(&s).map_err(D::Error::custom)?;
-        bytes
-            .as_slice()
-            .try_into()
-            .map_err(|_| D::Error::custom(format!("expected 32 bytes, got {}", bytes.len())))
+        SigningKey::from_bytes(&bytes).map_err(D::Error::custom)
     }
 }
