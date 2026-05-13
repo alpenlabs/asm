@@ -124,6 +124,7 @@ mod tests {
 
     use proptest::{collection::vec, prelude::*};
     use tokio::runtime::Runtime;
+    use zkaleido::RemoteProofFailureReason;
 
     use super::*;
     use crate::sled::test_util::*;
@@ -133,14 +134,24 @@ mod tests {
         vec(any::<u8>(), 1..64).prop_map(RemoteProofId)
     }
 
+    /// Generates an arbitrary [`RemoteProofFailureReason`].
+    fn arb_failure_reason() -> impl Strategy<Value = RemoteProofFailureReason> {
+        prop_oneof![
+            Just(RemoteProofFailureReason::Unexecutable),
+            Just(RemoteProofFailureReason::Unfulfillable),
+            Just(RemoteProofFailureReason::Reverted),
+            Just(RemoteProofFailureReason::Expired),
+            ".*".prop_map(RemoteProofFailureReason::Other),
+        ]
+    }
+
     /// Generates an arbitrary [`RemoteProofStatus`].
     fn arb_remote_proof_status() -> impl Strategy<Value = RemoteProofStatus> {
         prop_oneof![
             Just(RemoteProofStatus::Requested),
             Just(RemoteProofStatus::InProgress),
             Just(RemoteProofStatus::Completed),
-            ".*".prop_map(RemoteProofStatus::Failed),
-            Just(RemoteProofStatus::Unknown),
+            arb_failure_reason().prop_map(RemoteProofStatus::Failed),
         ]
     }
 
@@ -156,8 +167,7 @@ mod tests {
     fn arb_terminal_status() -> impl Strategy<Value = RemoteProofStatus> {
         prop_oneof![
             Just(RemoteProofStatus::Completed),
-            ".*".prop_map(RemoteProofStatus::Failed),
-            Just(RemoteProofStatus::Unknown),
+            arb_failure_reason().prop_map(RemoteProofStatus::Failed),
         ]
     }
 

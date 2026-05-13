@@ -90,10 +90,10 @@ strata-test-utils-btcio = { path = "crates/test-utils/btcio" }
 strata-test-utils-checkpoint = { path = "crates/test-utils/checkpoint" }
 
 # Dependencies from alpenlabs/moho
-moho-recursive-proof = { git = "https://github.com/alpenlabs/moho", tag = "v0.1-alpha.5" }
-moho-runtime-impl = { git = "https://github.com/alpenlabs/moho", tag = "v0.1-alpha.5" }
-moho-runtime-interface = { git = "https://github.com/alpenlabs/moho", tag = "v0.1-alpha.5" }
-moho-types = { git = "https://github.com/alpenlabs/moho", tag = "v0.1-alpha.5" }
+moho-recursive-proof = { git = "https://github.com/alpenlabs/moho", tag = "v0.1-alpha.6" }
+moho-runtime-impl = { git = "https://github.com/alpenlabs/moho", tag = "v0.1-alpha.6" }
+moho-runtime-interface = { git = "https://github.com/alpenlabs/moho", tag = "v0.1-alpha.6" }
+moho-types = { git = "https://github.com/alpenlabs/moho", tag = "v0.1-alpha.6" }
 
 # Dependencies from alpenlabs/strata-common
 strata-btc-types = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.1.0-alpha-rc21" }
@@ -122,20 +122,20 @@ tree_hash = { git = "https://github.com/alpenlabs/ssz-gen", tag = "v0.15.0" }
 tree_hash_derive = { git = "https://github.com/alpenlabs/ssz-gen", tag = "v0.15.0" }
 
 # dependencies from alpenlabs/zkaleido
-zkaleido = { git = "https://github.com/alpenlabs/zkaleido", tag = "v0.1-beta.1", features = [
+zkaleido = { git = "https://github.com/alpenlabs/zkaleido", tag = "v0.1-beta.2", features = [
   "borsh",
   "remote-prover",
   "serde",
 ] }
-zkaleido-logging = { git = "https://github.com/alpenlabs/zkaleido", tag = "v0.1-beta.1" }
-zkaleido-native-adapter = { git = "https://github.com/alpenlabs/zkaleido", tag = "v0.1-beta.1", features = [
+zkaleido-logging = { git = "https://github.com/alpenlabs/zkaleido", tag = "v0.1-beta.2" }
+zkaleido-native-adapter = { git = "https://github.com/alpenlabs/zkaleido", tag = "v0.1-beta.2", features = [
   "remote-prover",
 ] }
-zkaleido-sp1-groth16-verifier = { git = "https://github.com/alpenlabs/zkaleido", tag = "v0.1-beta.1" }
-zkaleido-sp1-host = { git = "https://github.com/alpenlabs/zkaleido", tag = "v0.1-beta.1" }
+zkaleido-sp1-groth16-verifier = { git = "https://github.com/alpenlabs/zkaleido", tag = "v0.1-beta.2" }
+zkaleido-sp1-host = { git = "https://github.com/alpenlabs/zkaleido", tag = "v0.1-beta.2" }
 
-sp1-sdk = "6.1.0"
-sp1-verifier = "6.1.0"
+sp1-sdk = "6.2.0"
+sp1-verifier = "6.2.0"
 
 bitcoin-bosd = { git = "https://github.com/alpenlabs/bitcoin-bosd", version = "0.10.0", tag = "v0.10.0", features = [
   "ssz",
