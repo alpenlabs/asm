@@ -205,6 +205,13 @@ impl<R: ZkVmRemoteHost> ProofOrchestrator<R> {
     // ---- Step 2: Schedule -------------------------------------------------
 
     /// Dequeues proofs from the pending queue and submits them to the remote prover.
+    ///
+    /// Drains past proofs whose prerequisites are not yet satisfied (e.g. a Moho
+    /// proof waiting on its ASM step proof) so that independent higher-priority
+    /// work behind them — typically the next ASM step proof — still gets
+    /// submitted within the same tick. Deferred proofs are parked in a local
+    /// buffer and re-enqueued at the end to avoid popping the same blocked item
+    /// repeatedly within one loop.
     async fn schedule_proofs(&mut self) -> Result<()> {
         let in_flight = self
             .db
@@ -213,25 +220,38 @@ impl<R: ZkVmRemoteHost> ProofOrchestrator<R> {
             .context("failed to query in-progress proofs")?
             .len();
 
-        let capacity = self.config.max_concurrent_proofs.saturating_sub(in_flight);
+        let mut capacity = self.config.max_concurrent_proofs.saturating_sub(in_flight);
 
         if capacity == 0 {
             return Ok(());
         }
 
-        let batch = self.queue.dequeue_batch(capacity);
+        let mut deferred: Vec<ProofId> = Vec::new();
 
-        for proof_id in batch {
-            if let Err(e) = self.try_submit(proof_id).await {
-                warn!(?proof_id, %e, "failed to submit proof, re-enqueuing");
-                self.queue.enqueue(proof_id);
+        while capacity > 0 {
+            let Some(proof_id) = self.queue.dequeue_one() else {
+                break;
+            };
+            match self.try_submit(proof_id).await {
+                Ok(SubmitOutcome::Submitted) => capacity -= 1,
+                Ok(SubmitOutcome::Skipped) => {}
+                Ok(SubmitOutcome::Deferred) => deferred.push(proof_id),
+                Err(e) => {
+                    warn!(?proof_id, %e, "failed to submit proof, re-enqueuing");
+                    deferred.push(proof_id);
+                }
             }
         }
+
+        for id in deferred {
+            self.queue.enqueue(id);
+        }
+
         Ok(())
     }
 
     /// Attempts to submit a single proof, enforcing prerequisites and dedup.
-    async fn try_submit(&mut self, proof_id: ProofId) -> Result<()> {
+    async fn try_submit(&mut self, proof_id: ProofId) -> Result<SubmitOutcome> {
         // Skip if already submitted.
         if self
             .db
@@ -241,13 +261,13 @@ impl<R: ZkVmRemoteHost> ProofOrchestrator<R> {
             .is_some()
         {
             debug!(?proof_id, "proof already submitted, skipping");
-            return Ok(());
+            return Ok(SubmitOutcome::Skipped);
         }
 
         // Skip if proof already exists locally.
         if proof_store::proof_exists(&self.db, &proof_id).await? {
             debug!(?proof_id, "proof already exists, skipping");
-            return Ok(());
+            return Ok(SubmitOutcome::Skipped);
         }
 
         // Build input and submit to remote prover, dispatching by proof type.
@@ -262,9 +282,8 @@ impl<R: ZkVmRemoteHost> ProofOrchestrator<R> {
                 let prerequisite = match self.input_builder.check_moho_prerequisite(*block).await {
                     Ok(prereq) => prereq,
                     Err(e) => {
-                        warn!(%e, "moho proof generation cannot be done yet, re-enqueuing");
-                        self.queue.enqueue(proof_id);
-                        return Ok(());
+                        debug!(?proof_id, %e, "moho prerequisite not ready, deferring");
+                        return Ok(SubmitOutcome::Deferred);
                     }
                 };
                 let input = self
@@ -291,8 +310,18 @@ impl<R: ZkVmRemoteHost> ProofOrchestrator<R> {
             .await
             .context("failed to store initial proof status")?;
 
-        Ok(())
+        Ok(SubmitOutcome::Submitted)
     }
+}
+
+/// Outcome of a single `try_submit` call.
+enum SubmitOutcome {
+    /// Proof was submitted to the remote prover and counts against capacity.
+    Submitted,
+    /// Proof was already submitted or already exists locally; nothing to do.
+    Skipped,
+    /// Prerequisites not yet available; caller should re-enqueue for later.
+    Deferred,
 }
 
 /// Converts a persisted [`RemoteProofId`] back into the host's typed proof ID.

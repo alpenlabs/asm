@@ -34,18 +34,9 @@ impl PendingProofQueue {
         self.pending.insert(id);
     }
 
-    /// Removes and returns up to `count` entries in priority order.
-    pub(crate) fn dequeue_batch(&mut self, count: usize) -> Vec<ProofId> {
-        let mut batch = Vec::with_capacity(count);
-
-        while batch.len() < count {
-            let Some(id) = self.pending.pop_first() else {
-                break;
-            };
-            batch.push(id);
-        }
-
-        batch
+    /// Removes and returns the next entry in priority order, if any.
+    pub(crate) fn dequeue_one(&mut self) -> Option<ProofId> {
+        self.pending.pop_first()
     }
 
     pub(crate) fn len(&self) -> usize {
@@ -82,9 +73,8 @@ mod tests {
         q.enqueue(moho(3));
         q.enqueue(asm(3));
 
-        let batch = q.dequeue_batch(10);
-        assert!(matches!(batch[0], ProofId::Asm(_)));
-        assert!(matches!(batch[1], ProofId::Moho(_)));
+        assert!(matches!(q.dequeue_one(), Some(ProofId::Asm(_))));
+        assert!(matches!(q.dequeue_one(), Some(ProofId::Moho(_))));
     }
 
     #[test]
@@ -93,9 +83,8 @@ mod tests {
         q.enqueue(moho(2));
         q.enqueue(asm(5));
 
-        let batch = q.dequeue_batch(10);
-        assert!(matches!(batch[0], ProofId::Moho(_)));
-        assert!(matches!(batch[1], ProofId::Asm(_)));
+        assert!(matches!(q.dequeue_one(), Some(ProofId::Moho(_))));
+        assert!(matches!(q.dequeue_one(), Some(ProofId::Asm(_))));
     }
 
     #[test]
@@ -105,27 +94,15 @@ mod tests {
         q.enqueue(asm(2));
         q.enqueue(asm(8));
 
-        let batch = q.dequeue_batch(10);
-        assert_eq!(batch, vec![asm(2), asm(5), asm(8)]);
+        assert_eq!(q.dequeue_one(), Some(asm(2)));
+        assert_eq!(q.dequeue_one(), Some(asm(5)));
+        assert_eq!(q.dequeue_one(), Some(asm(8)));
     }
 
     #[test]
-    fn dequeue_batch_limits_count() {
+    fn dequeue_one_on_empty() {
         let mut q = PendingProofQueue::new();
-        for h in 0..10 {
-            q.enqueue(asm(h));
-        }
-
-        let batch = q.dequeue_batch(3);
-        assert_eq!(batch.len(), 3);
-        assert_eq!(batch, vec![asm(0), asm(1), asm(2)]);
-        assert_eq!(q.len(), 7);
-    }
-
-    #[test]
-    fn dequeue_batch_on_empty() {
-        let mut q = PendingProofQueue::new();
-        assert!(q.dequeue_batch(5).is_empty());
+        assert_eq!(q.dequeue_one(), None);
     }
 
     #[test]
