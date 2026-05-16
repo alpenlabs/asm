@@ -7,6 +7,7 @@ mod block_watcher;
 mod bootstrap;
 mod config;
 mod prover;
+mod retry;
 mod rpc_server;
 mod storage;
 mod worker_context;
