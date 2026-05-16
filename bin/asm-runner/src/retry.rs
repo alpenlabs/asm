@@ -6,6 +6,10 @@
 //! favour of the shared crate once that's promoted out of alpen. Update both
 //! sides when changing.
 //!
+//! TODO(STR-3473): move this to a shared `strata-common` crate and drop the
+//! duplicate. Discussed but not actioned in
+//! <https://github.com/alpenlabs/asm/pull/62>.
+//!
 //! Usage matches alpen and strata-bridge: wrap a fallible async call with
 //! [`retry_with_backoff_async`], pick a [`Backoff`] implementation, and the
 //! helper handles delays, logging, and exhaustion.
