@@ -19,8 +19,12 @@ pub enum WorkerError {
     #[error("missing ASM state for the block {0:?}")]
     MissingAsmState(L1BlockId),
 
-    #[error("btc client error")]
-    BtcClient,
+    /// A Bitcoin RPC call failed after exhausting its retry budget. The
+    /// payload carries the underlying error's display so the operator sees
+    /// the actual cause (block not found, timeout, connection refused, auth,
+    /// etc.) without us bucketing it.
+    #[error("btc rpc: {0}")]
+    BtcRpc(String),
 
     #[error("db error")]
     DbError,
