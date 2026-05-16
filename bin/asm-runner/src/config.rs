@@ -50,10 +50,6 @@ pub(crate) struct BitcoinConfig {
     pub rpc_user: String,
     /// Bitcoin RPC password
     pub rpc_password: String,
-    /// Optional retry count for failed requests
-    pub retry_count: Option<u64>,
-    /// Optional retry interval
-    pub retry_interval: Option<Duration>,
     /// Connection string used in `bitcoin.conf => zmqpubrawblock`.
     // TODO(STR-2662): We should be able to work with `hashblock_connection_string` since ASM
     // runner used btc-client to fetch the full block. We don't use it here since the BlockEvent is
