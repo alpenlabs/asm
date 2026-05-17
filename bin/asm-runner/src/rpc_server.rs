@@ -20,7 +20,7 @@ use strata_asm_proto_bridge_v1_txs::BRIDGE_V1_SUBPROTOCOL_ID;
 use strata_asm_proto_checkpoint::CheckpointState;
 use strata_asm_proto_checkpoint_txs::CHECKPOINT_SUBPROTOCOL_ID;
 use strata_asm_proto_checkpoint_types::CheckpointTip;
-use strata_asm_rpc::traits::{AsmProofApiServer, AssignmentsApiServer};
+use strata_asm_rpc::traits::{AsmControlApiServer, AsmProofApiServer, AsmStateApiServer};
 use strata_asm_worker::{AsmState, AsmWorkerHandle, AsmWorkerStatus};
 use strata_btc_types::BlockHashExt;
 use strata_identifiers::L1BlockCommitment;
@@ -42,6 +42,7 @@ async fn to_block_commitment(
 }
 
 /// Always-on ASM RPC handlers backed by the ASM state DB and worker status.
+#[derive(Clone)]
 pub(crate) struct AsmRpcServer {
     state_db: Arc<AsmStateDb>,
     asm_worker: Arc<AsmWorkerHandle>,
@@ -108,7 +109,14 @@ impl AsmRpcServer {
 }
 
 #[async_trait]
-impl AssignmentsApiServer for AsmRpcServer {
+impl AsmControlApiServer for AsmRpcServer {
+    async fn get_status(&self) -> RpcResult<AsmWorkerStatus> {
+        Ok(self.asm_worker.monitor().get_current())
+    }
+}
+
+#[async_trait]
+impl AsmStateApiServer for AsmRpcServer {
     async fn get_assignments(&self, block_hash: BlockHash) -> RpcResult<Vec<AssignmentEntry>> {
         match self.get_bridge_state(block_hash).await? {
             Some(bridge_state) => Ok(bridge_state.assignments().assignments().to_vec()),
@@ -121,10 +129,6 @@ impl AssignmentsApiServer for AsmRpcServer {
             Some(bridge_state) => Ok(bridge_state.deposits().deposits().cloned().collect()),
             None => Ok(vec![]),
         }
-    }
-
-    async fn get_status(&self) -> RpcResult<AsmWorkerStatus> {
-        Ok(self.asm_worker.monitor().get_current())
     }
 
     async fn get_checkpoint_tip(&self, block_hash: BlockHash) -> RpcResult<Option<CheckpointTip>> {
@@ -293,7 +297,9 @@ pub(crate) async fn run_rpc_server(
     rpc_port: u16,
     shutdown: ShutdownGuard,
 ) -> Result<()> {
-    let mut module = AsmRpcServer::new(state_db, asm_worker, bitcoin_client.clone()).into_rpc();
+    let asm_rpc = AsmRpcServer::new(state_db, asm_worker, bitcoin_client.clone());
+    let mut module = AsmControlApiServer::into_rpc(asm_rpc.clone());
+    module.merge(AsmStateApiServer::into_rpc(asm_rpc))?;
 
     if let Some(deps) = proof_deps {
         let proof_module = AsmProofRpcServer::new(bitcoin_client, deps).into_rpc();

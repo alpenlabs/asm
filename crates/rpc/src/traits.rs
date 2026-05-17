@@ -7,10 +7,19 @@ use strata_asm_proto_bridge_v1::{AssignmentEntry, DepositEntry};
 use strata_asm_proto_checkpoint_types::CheckpointTip;
 use strata_asm_worker::{AsmState, AsmWorkerStatus};
 
-/// Always-on ASM RPCs: derived purely from the ASM state DB and worker status.
+/// Control-plane ASM RPCs: liveness and overall worker status.
 #[cfg_attr(not(feature = "client"), rpc(server, namespace = "strata_asm"))]
 #[cfg_attr(feature = "client", rpc(server, client, namespace = "strata_asm"))]
-pub trait AssignmentsApi {
+pub trait AsmControlApi {
+    /// Return the current ASM worker status.
+    #[method(name = "getStatus")]
+    async fn get_status(&self) -> RpcResult<AsmWorkerStatus>;
+}
+
+/// State-query ASM RPCs: derived purely from the ASM state DB and keyed by L1 block hash.
+#[cfg_attr(not(feature = "client"), rpc(server, namespace = "strata_asm"))]
+#[cfg_attr(feature = "client", rpc(server, client, namespace = "strata_asm"))]
+pub trait AsmStateApi {
     /// Return the assignment state for the provided Bitcoin block hash.
     #[method(name = "getAssignments")]
     async fn get_assignments(&self, block_hash: BlockHash) -> RpcResult<Vec<AssignmentEntry>>;
@@ -18,10 +27,6 @@ pub trait AssignmentsApi {
     /// Return the deposit state for the provided Bitcoin block hash.
     #[method(name = "getDeposits")]
     async fn get_deposits(&self, block_hash: BlockHash) -> RpcResult<Vec<DepositEntry>>;
-
-    /// Return the status
-    #[method(name = "getStatus")]
-    async fn get_status(&self) -> RpcResult<AsmWorkerStatus>;
 
     /// Return the verified checkpoint tip for the provided Bitcoin block hash.
     #[method(name = "getCheckpointTip")]
