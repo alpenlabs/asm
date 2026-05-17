@@ -1,6 +1,6 @@
 //! RPC server implementation for ASM queries
 
-use std::{fmt::Display, sync::Arc};
+use std::{fmt::Display, sync::Arc, time::Instant};
 
 use anyhow::Result;
 use asm_storage::{AsmStateDb, ExportEntriesDb};
@@ -47,6 +47,8 @@ pub(crate) struct AsmRpcServer {
     state_db: Arc<AsmStateDb>,
     asm_worker: Arc<AsmWorkerHandle>,
     bitcoin_client: Arc<Client>,
+    /// Monotonic start instant, used to compute uptime for the control API.
+    start_time: Instant,
 }
 
 impl AsmRpcServer {
@@ -59,6 +61,7 @@ impl AsmRpcServer {
             state_db,
             asm_worker,
             bitcoin_client,
+            start_time: Instant::now(),
         }
     }
 
@@ -110,6 +113,10 @@ impl AsmRpcServer {
 
 #[async_trait]
 impl AsmControlApiServer for AsmRpcServer {
+    async fn get_uptime(&self) -> RpcResult<u64> {
+        Ok(self.start_time.elapsed().as_secs())
+    }
+
     async fn get_status(&self) -> RpcResult<AsmWorkerStatus> {
         Ok(self.asm_worker.monitor().get_current())
     }

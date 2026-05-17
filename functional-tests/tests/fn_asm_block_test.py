@@ -29,6 +29,13 @@ class AsmBlockProcessingTest(flexitest.Test):
         wait_until_asm_ready(asm_rpc)
         logging.info("ASM RPC service is ready")
 
+        initial_uptime = asm_rpc.strata_asm_uptime()
+        if not isinstance(initial_uptime, int) or initial_uptime < 0:
+            raise AssertionError(
+                f"strata_asm_uptime should return a non-negative int, got {initial_uptime!r}"
+            )
+        logging.info("ASM uptime after ready: %s seconds", initial_uptime)
+
         initial_btc_height = bitcoin_rpc.proxy.getblockcount()
         logging.info("Initial Bitcoin height: %s", initial_btc_height)
 
@@ -48,5 +55,13 @@ class AsmBlockProcessingTest(flexitest.Test):
         if assignments is None:
             raise AssertionError("ASM getAssignments should return a list")
         logging.info("Assignments at latest ASM block: %s entries", len(assignments))
+
+        later_uptime = asm_rpc.strata_asm_uptime()
+        if later_uptime < initial_uptime:
+            raise AssertionError(
+                f"strata_asm_uptime should be monotonic non-decreasing, "
+                f"got {initial_uptime} then {later_uptime}"
+            )
+        logging.info("ASM uptime after block processing: %s seconds", later_uptime)
 
         return True

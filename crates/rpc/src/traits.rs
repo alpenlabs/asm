@@ -11,6 +11,12 @@ use strata_asm_worker::{AsmState, AsmWorkerStatus};
 #[cfg_attr(not(feature = "client"), rpc(server, namespace = "strata_asm"))]
 #[cfg_attr(feature = "client", rpc(server, client, namespace = "strata_asm"))]
 pub trait AsmControlApi {
+    /// Return the uptime of the ASM runner in seconds, measured against a monotonic clock
+    /// captured when the RPC server was constructed. Doubles as a liveness probe: any successful
+    /// response means the RPC server is reachable.
+    #[method(name = "uptime")]
+    async fn get_uptime(&self) -> RpcResult<u64>;
+
     /// Return the current ASM worker status.
     #[method(name = "getStatus")]
     async fn get_status(&self) -> RpcResult<AsmWorkerStatus>;
