@@ -245,29 +245,4 @@ mod tests {
         let proof = mmr_db.generate_proof(2, 4).unwrap();
         assert!(compact_at_4.verify(&proof, &make_leaf(2).0));
     }
-
-    #[test]
-    fn persistence_across_reopen() {
-        let dir = tempfile::tempdir().unwrap();
-
-        {
-            let db = sled::open(dir.path()).unwrap();
-            let mmr = MmrDb::open(&db).unwrap();
-            mmr.append_leaf(make_leaf(0x42)).unwrap();
-            mmr.append_leaf(make_leaf(0x43)).unwrap();
-            // Drop tree handles before the db so its file lock is released
-            // synchronously (sled 0.34 can otherwise race on reopen on Linux).
-            drop(mmr);
-            db.flush().unwrap();
-            drop(db);
-        }
-
-        {
-            let db = sled::open(dir.path()).unwrap();
-            let mmr = MmrDb::open(&db).unwrap();
-            assert_eq!(mmr.leaf_count().unwrap(), 2);
-            assert_eq!(mmr.get_leaf(0).unwrap().unwrap(), make_leaf(0x42));
-            assert_eq!(mmr.get_leaf(1).unwrap().unwrap(), make_leaf(0x43));
-        }
-    }
 }

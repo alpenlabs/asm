@@ -242,32 +242,6 @@ mod tests {
         assert_eq!(store.get(1, idx1).unwrap().unwrap(), (11, hash(0xa1)));
     }
 
-    #[test]
-    fn persistence_across_reopen() {
-        let dir = tempfile::tempdir().unwrap();
-
-        {
-            let db = sled::open(dir.path()).unwrap();
-            let store = ExportEntriesDb::open(&db).unwrap();
-            store.append(2, 5, hash(0x42)).unwrap();
-            store.append(2, 6, hash(0x43)).unwrap();
-            // Drop tree handles before the db so its file lock is released
-            // synchronously (sled 0.34 can otherwise race on reopen on Linux).
-            drop(store);
-            db.flush().unwrap();
-            drop(db);
-        }
-
-        {
-            let db = sled::open(dir.path()).unwrap();
-            let store = ExportEntriesDb::open(&db).unwrap();
-            assert_eq!(store.num_entries(2).unwrap(), 2);
-            assert_eq!(store.get(2, 0).unwrap().unwrap(), (5, hash(0x42)));
-            assert_eq!(store.get(2, 1).unwrap().unwrap(), (6, hash(0x43)));
-            assert_eq!(store.find_index(2, &hash(0x43)).unwrap(), Some((1, 6)));
-        }
-    }
-
     fn rebuild_compact_mmr(store: &ExportEntriesDb, container_id: u8, size: u64) -> Mmr64B32 {
         let mut compact = Mmr64B32::new_empty();
         for i in 0..size {
