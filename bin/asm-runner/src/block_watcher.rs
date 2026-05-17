@@ -8,9 +8,9 @@
 //! real-time block notification with `bury_depth=0` (no reorg tracking, no
 //! tx monitoring). Written to avoid a painful dependency on `strata-bridge`.
 
-use std::{sync::Arc, time::Duration};
+use std::{ops::RangeInclusive, sync::Arc, time::Duration};
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result};
 use bitcoin::Block;
 use bitcoincore_zmq::{Message, SocketMessage, subscribe_async_wait_handshake};
 use bitcoind_async_client::{Client, traits::Reader};
@@ -54,6 +54,19 @@ pub(crate) async fn drive_asm_from_bitcoin(
     let mut stream = stream;
     let mut cursor = start_height;
 
+    // ZMQ only delivers blocks mined after we subscribe, so any heights between
+    // `cursor` and the current tip — typically blocks mined while we were down —
+    // would otherwise wait forever for a fresh ZMQ event that may never come.
+    // Poll the tip via RPC and fill the gap before entering the wait loop.
+    let tip_height = bitcoin_client
+        .get_block_count()
+        .await
+        .context("failed to query bitcoind tip for startup catchup")?;
+    if tip_height >= cursor {
+        backfill_range(&bitcoin_client, &asm_worker, &proof_tx, cursor..=tip_height).await?;
+        cursor = tip_height + 1;
+    }
+
     loop {
         let msg = tokio::select! {
             _ = shutdown.wait_for_shutdown() => {
@@ -94,30 +107,17 @@ pub(crate) async fn drive_asm_from_bitcoin(
             continue;
         }
 
-        // Backfill any skipped heights [cursor, received_height). This covers
-        // the common case of starting after a downtime, or rare ZMQ drops.
+        // Backfill any skipped heights [cursor, received_height - 1]. Covers
+        // rare ZMQ drops between events; the startup-tip catchup above handles
+        // the restart case.
         if received_height > cursor {
-            info!(
-                from = %cursor,
-                to = %received_height,
-                "backfilling skipped blocks"
-            );
-            for height in cursor..received_height {
-                match fetch_block_at_height(&bitcoin_client, height).await {
-                    Ok(fetched) => {
-                        if let Err(err) = submit_block(&asm_worker, &proof_tx, fetched).await {
-                            error!(%height, ?err, "failed to submit backfill block");
-                            // Stop backfilling on failure so we don't hand the
-                            // worker a gap. The next ZMQ event will retry.
-                            bail!("backfill interrupted at height {height}: {err}");
-                        }
-                    }
-                    Err(err) => {
-                        error!(%height, ?err, "failed to fetch backfill block");
-                        bail!("backfill fetch failed at height {height}: {err}");
-                    }
-                }
-            }
+            backfill_range(
+                &bitcoin_client,
+                &asm_worker,
+                &proof_tx,
+                cursor..=received_height - 1,
+            )
+            .await?;
         }
 
         if let Err(err) = submit_block(&asm_worker, &proof_tx, block).await {
@@ -125,6 +125,26 @@ pub(crate) async fn drive_asm_from_bitcoin(
         }
         cursor = received_height + 1;
     }
+}
+
+/// Fetch and submit every block in `range` via RPC, bailing on the first
+/// failure so we never hand the worker a gap.
+async fn backfill_range(
+    client: &Client,
+    asm_worker: &AsmWorkerHandle,
+    proof_tx: &Option<mpsc::UnboundedSender<ProofId>>,
+    range: RangeInclusive<u64>,
+) -> Result<()> {
+    info!(from = %range.start(), to = %range.end(), "backfilling skipped blocks");
+    for height in range {
+        let block = fetch_block_at_height(client, height)
+            .await
+            .with_context(|| format!("backfill fetch failed at height {height}"))?;
+        submit_block(asm_worker, proof_tx, block)
+            .await
+            .with_context(|| format!("backfill submit failed at height {height}"))?;
+    }
+    Ok(())
 }
 
 /// Fetch a single block by height via the bitcoind RPC client.
