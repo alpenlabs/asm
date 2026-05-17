@@ -68,6 +68,7 @@ class AsmRpcFactory(flexitest.Factory):
             "rpc_port": rpc_port,
             "rpc_url": f"http://127.0.0.1:{rpc_port}",
             "db_path": db_path,
+            "log_path": logfile,
         }
 
         rpc_url = f"http://127.0.0.1:{rpc_port}"
