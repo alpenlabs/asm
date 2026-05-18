@@ -8,6 +8,12 @@ use strata_predicate::{PredicateKey, PredicateTypeId::Sp1Groth16};
 use zkaleido::{ExecutionSummary, ProofReceiptWithMetadata};
 use zkaleido_sp1_groth16_verifier::SP1Groth16Verifier;
 
+/// On-disk 32-byte artifact carrying the moho pre-state's inner-state commitment (the ASM state
+/// root) that the hardcoded ASM STF proof transitions from. Regenerated alongside the proof by
+/// `--generate-proof` so the two files stay in sync; consumed by moho eval to rebuild a matching
+/// `MohoState` without ever touching ASM types at runtime.
+pub(crate) const INITIAL_ASM_STATE_ROOT_FILE: &str = "asm-stf_initial_asm_state_root.bin";
+
 #[derive(Debug, Clone)]
 #[non_exhaustive]
 pub(crate) enum GuestProgram {
