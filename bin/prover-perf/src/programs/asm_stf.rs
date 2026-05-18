@@ -10,32 +10,10 @@ use strata_asm_proof_impl::{
     },
 };
 use strata_asm_sp1_guest_builder::ASM_ELF_PATH;
-use strata_predicate::PredicateKey;
 use zkaleido::{ExecutionSummary, ProofReceiptWithMetadata, ZkVmExecutor, ZkVmProgram};
 use zkaleido_sp1_host::SP1Host;
 
 use crate::programs::{compute_sp1_predicate_key, INITIAL_ASM_STATE_ROOT_FILE};
-
-async fn init_asm_host() -> SP1Host {
-    let elf = fs::read(ASM_ELF_PATH)
-        .unwrap_or_else(|err| panic!("failed to read guest elf at {ASM_ELF_PATH}: {err}"));
-    SP1Host::init(&elf).await
-}
-
-/// Returns the runtime input for a single ASM STF step together with the moho pre-state it
-/// transitions from. The pre-state is returned so `gen_proof` can persist its inner-state
-/// commitment alongside the proof.
-fn create_runtime_input(host: &SP1Host) -> (RuntimeInput, MohoState) {
-    let step_input = create_asm_step_input();
-    let inner_pre_state = create_deterministic_genesis_anchor_state(step_input.block());
-    let moho_pre_state = create_moho_state(&inner_pre_state, compute_asm_predicate_key(host));
-    let runtime_input = RuntimeInput::new(
-        moho_pre_state.clone(),
-        inner_pre_state.as_ssz_bytes(),
-        step_input.as_ssz_bytes(),
-    );
-    (runtime_input, moho_pre_state)
-}
 
 pub(crate) async fn gen_execution_summary() -> ExecutionSummary {
     let host = init_asm_host().await;
@@ -52,8 +30,28 @@ pub(crate) async fn gen_proof() -> ProofReceiptWithMetadata {
     proof
 }
 
-fn compute_asm_predicate_key(host: &SP1Host) -> PredicateKey {
-    compute_sp1_predicate_key(host.program_id().0)
+async fn init_asm_host() -> SP1Host {
+    let elf = fs::read(ASM_ELF_PATH)
+        .unwrap_or_else(|err| panic!("failed to read guest elf at {ASM_ELF_PATH}: {err}"));
+    SP1Host::init(&elf).await
+}
+
+/// Returns the runtime input for a single ASM STF step together with the moho pre-state it
+/// transitions from. The pre-state is returned so `gen_proof` can persist its inner-state
+/// commitment alongside the proof.
+fn create_runtime_input(host: &SP1Host) -> (RuntimeInput, MohoState) {
+    let step_input = create_asm_step_input();
+    let inner_pre_state = create_deterministic_genesis_anchor_state(step_input.block());
+    let moho_pre_state = create_moho_state(
+        &inner_pre_state,
+        compute_sp1_predicate_key(host.program_id().0),
+    );
+    let runtime_input = RuntimeInput::new(
+        moho_pre_state.clone(),
+        inner_pre_state.as_ssz_bytes(),
+        step_input.as_ssz_bytes(),
+    );
+    (runtime_input, moho_pre_state)
 }
 
 /// Writes the moho pre-state's inner-state commitment so the moho recursive eval can rebuild a
