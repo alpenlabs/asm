@@ -178,11 +178,10 @@ pub(crate) async fn bootstrap(
 
 /// Connect to Bitcoin node.
 ///
-/// All three `Option` parameters are passed as `None`, which lets
-/// `bitcoind-async-client` apply its own defaults — at the time of writing
-/// (v0.10.2): `max_retries=3`, `retry_interval=1000ms`, `timeout=30s`. See
-/// [`BitcoinConfig::retry_config`] for how this inner layer composes with
-/// the outer retry wrapper.
+/// All three `Option` parameters are passed as `None` so
+/// `bitcoind-async-client` applies its own defaults for `max_retries`,
+/// `retry_interval`, and `timeout`. See [`BitcoinConfig::retry_config`]
+/// for how this inner layer composes with the outer retry wrapper.
 async fn connect_bitcoin(config: &BitcoinConfig) -> Result<Client> {
     let client = Client::new(
         config.rpc_url.clone(),

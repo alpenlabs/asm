@@ -153,7 +153,7 @@ pub(crate) struct RetryConfig {
     /// Initial delay before the first retry, in milliseconds.
     #[serde(default = "RetryConfig::default_base_delay_ms")]
     pub base_delay_ms: u64,
-    /// Numerator of the backoff multiplier (e.g. `20` with `multiplier_base = 10` for 2×).
+    /// Numerator of the backoff multiplier (paired with `multiplier_base`).
     #[serde(default = "RetryConfig::default_multiplier")]
     pub multiplier: u64,
     /// Denominator of the backoff multiplier.
