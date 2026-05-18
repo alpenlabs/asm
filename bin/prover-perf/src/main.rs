@@ -21,12 +21,7 @@ async fn main() -> Result<()> {
     let programs = parse_programs(&args.programs).map_err(anyhow::Error::msg)?;
 
     if args.generate_proof {
-        let sp1_proofs = programs::gen_sp1_proof(&programs).await;
-        for (program, proof) in programs.iter().zip(sp1_proofs) {
-            proof
-                .save(program.as_str())
-                .unwrap_or_else(|e| panic!("failed to save proof for {}: {e}", program.as_str()));
-        }
+        programs::gen_and_save_sp1_proofs(&programs).await;
         return Ok(());
     }
 

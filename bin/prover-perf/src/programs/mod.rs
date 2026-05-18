@@ -57,17 +57,31 @@ pub(crate) async fn gen_sp1_execution_summaries(
     summaries
 }
 
-/// Runs SP1 programs to generate proofs.
-pub(crate) async fn gen_sp1_proof(programs: &[GuestProgram]) -> Vec<ProofReceiptWithMetadata> {
-    let mut proofs = Vec::with_capacity(programs.len());
+/// Runs SP1 programs to generate proofs and persists each program's artifacts before the next
+/// program runs. The per-program save-on-completion ordering is load-bearing: `moho::gen_proof`
+/// reads `asm-stf_SP1_v6.1.0.proof.bin` and `asm-stf_initial_asm_state_root.bin` from disk, so
+/// when both programs are requested together the asm-stf artifacts must already be on disk by
+/// the time moho runs — otherwise moho would prove against a stale asm-stf proof / root pair.
+pub(crate) async fn gen_and_save_sp1_proofs(programs: &[GuestProgram]) {
     for program in programs {
-        let proof = match program {
-            GuestProgram::AsmStf => asm_stf::gen_proof().await,
-            GuestProgram::Moho => moho::gen_proof().await,
-        };
-        proofs.push(proof);
+        match program {
+            GuestProgram::AsmStf => {
+                let (proof, initial_asm_state_root) = asm_stf::gen_proof_and_initial_root().await;
+                save_proof(&proof, program.as_str());
+                asm_stf::save_initial_asm_state_root(&initial_asm_state_root);
+            }
+            GuestProgram::Moho => {
+                let proof = moho::gen_proof().await;
+                save_proof(&proof, program.as_str());
+            }
+        }
     }
-    proofs
+}
+
+fn save_proof(proof: &ProofReceiptWithMetadata, program_name: &str) {
+    proof
+        .save(program_name)
+        .unwrap_or_else(|e| panic!("failed to save proof for {program_name}: {e}"));
 }
 
 pub(crate) fn compute_sp1_predicate_key(program_vk_hash: [u8; 32]) -> PredicateKey {

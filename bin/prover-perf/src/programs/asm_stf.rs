@@ -22,12 +22,16 @@ pub(crate) async fn gen_execution_summary() -> ExecutionSummary {
         .expect("failed to generate execution summary")
 }
 
-pub(crate) async fn gen_proof() -> ProofReceiptWithMetadata {
+pub(crate) async fn gen_proof_and_initial_root() -> (ProofReceiptWithMetadata, [u8; 32]) {
     let host = init_asm_host().await;
     let (input, moho_pre_state) = create_runtime_input(&host);
     let proof = AsmStfProofProgram::prove(&input, &host).expect("failed to generate proof");
-    save_initial_asm_state_root(&moho_pre_state);
-    proof
+    let initial_asm_state_root = moho_pre_state
+        .inner_state()
+        .as_bytes()
+        .try_into()
+        .expect("inner-state commitment is 32 bytes");
+    (proof, initial_asm_state_root)
 }
 
 async fn init_asm_host() -> SP1Host {
@@ -37,8 +41,8 @@ async fn init_asm_host() -> SP1Host {
 }
 
 /// Returns the runtime input for a single ASM STF step together with the moho pre-state it
-/// transitions from. The pre-state is returned so `gen_proof` can persist its inner-state
-/// commitment alongside the proof.
+/// transitions from. The pre-state is returned so `gen_proof_and_initial_root` can extract its
+/// inner-state commitment for the caller to persist alongside the proof.
 fn create_runtime_input(host: &SP1Host) -> (RuntimeInput, MohoState) {
     let step_input = create_asm_step_input();
     let inner_pre_state = create_deterministic_genesis_anchor_state(step_input.block());
@@ -54,11 +58,11 @@ fn create_runtime_input(host: &SP1Host) -> (RuntimeInput, MohoState) {
     (runtime_input, moho_pre_state)
 }
 
-/// Writes the moho pre-state's inner-state commitment so the moho recursive eval can rebuild a
-/// matching `MohoState` without re-deriving an `AnchorState`. Called only after the SP1 proof
-/// succeeds to keep this file and `asm-stf_SP1_v6.1.0.proof.bin` updated atomically.
-fn save_initial_asm_state_root(moho_pre_state: &MohoState) {
+/// Persists the moho pre-state's inner-state commitment so the moho recursive eval can rebuild a
+/// matching `MohoState` without re-deriving an `AnchorState`. Caller is responsible for invoking
+/// this in lockstep with `proof.save` so the root and proof files refresh as a pair.
+pub(crate) fn save_initial_asm_state_root(initial_asm_state_root: &[u8; 32]) {
     let path = Path::new(env!("CARGO_MANIFEST_DIR")).join(INITIAL_ASM_STATE_ROOT_FILE);
-    fs::write(&path, moho_pre_state.inner_state().as_bytes())
+    fs::write(&path, initial_asm_state_root)
         .unwrap_or_else(|err| panic!("failed to write {}: {err}", path.display()));
 }
