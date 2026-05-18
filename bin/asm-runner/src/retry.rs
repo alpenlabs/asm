@@ -20,6 +20,18 @@ use serde::{Deserialize, Serialize};
 use tokio::time::sleep as async_sleep;
 use tracing::{error, warn};
 
+/// Default retry attempts after the initial call.
+const DEFAULT_MAX_RETRIES: u16 = 10;
+/// Default initial delay before the first retry, in milliseconds.
+const DEFAULT_BASE_DELAY_MS: u64 = 1_000;
+/// Default backoff multiplier numerator (paired with [`DEFAULT_MULTIPLIER_BASE`]
+/// for a 2× growth factor).
+const DEFAULT_MULTIPLIER: u64 = 20;
+/// Default backoff multiplier denominator.
+const DEFAULT_MULTIPLIER_BASE: u64 = 10;
+/// Default cap on the delay between retries, in milliseconds.
+const DEFAULT_MAX_DELAY_MS: u64 = 60_000;
+
 /// Runs a fallible async operation with a backoff retry.
 ///
 /// Retries the given async `operation` up to `max_retries` times with delays
@@ -131,8 +143,8 @@ impl Backoff for ExponentialBackoff {
 /// [`ExponentialBackoff`]. Mirrors `ExponentialBackoff`'s fields (so it can
 /// build one) and adds the `max_retries` count consumed by the retry helper.
 ///
-/// Defaults: 10 retries, 1 s base, 2× growth (`20/10`), 60 s cap — ~17 minutes
-/// total patience.
+/// See the `DEFAULT_*` consts at the top of this module for the default
+/// values; together they give roughly 17 minutes of patience.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct RetryConfig {
     /// Maximum number of retry attempts after the initial call.
@@ -155,19 +167,19 @@ pub(crate) struct RetryConfig {
 
 impl RetryConfig {
     fn default_max_retries() -> u16 {
-        10
+        DEFAULT_MAX_RETRIES
     }
     fn default_base_delay_ms() -> u64 {
-        1_000
+        DEFAULT_BASE_DELAY_MS
     }
     fn default_multiplier() -> u64 {
-        20
+        DEFAULT_MULTIPLIER
     }
     fn default_multiplier_base() -> u64 {
-        10
+        DEFAULT_MULTIPLIER_BASE
     }
     fn default_max_delay_ms() -> u64 {
-        60_000
+        DEFAULT_MAX_DELAY_MS
     }
 
     /// Build an [`ExponentialBackoff`] from this config.
