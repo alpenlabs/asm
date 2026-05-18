@@ -53,7 +53,7 @@ fn create_moho_recursive_input(moho_predicate: PredicateKey) -> MohoRecursiveInp
 }
 
 fn load_asm_stf_predicate_and_proof() -> (PredicateKey, StepMohoProof) {
-    let proof_path = Path::new(env!("CARGO_MANIFEST_DIR")).join("asm-stf_SP1_v6.1.0.proof.bin");
+    let proof_path = Path::new(env!("CARGO_MANIFEST_DIR")).join("asm-stf_SP1_v6.1.0.proof");
     let asm_stf_proof = ProofReceiptWithMetadata::load(proof_path).expect("failed to open proof");
     let asm_predicate = compute_sp1_predicate_key(asm_stf_proof.metadata().program_id().0);
     let proven_moho_attestation =
