@@ -105,6 +105,7 @@ strata-crypto = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.
 strata-identifiers = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.1.0-alpha-rc21" }
 strata-l1-envelope-fmt = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.1.0-alpha-rc21" }
 strata-l1-txfmt = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.1.0-alpha-rc21" }
+strata-logging = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.1.0-alpha-rc21" }
 strata-merkle = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.1.0-alpha-rc21" }
 strata-msg-fmt = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.1.0-alpha-rc21" }
 strata-predicate = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.1.0-alpha-rc21" }

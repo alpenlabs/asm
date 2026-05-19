@@ -28,6 +28,7 @@ strata-asm-proto-checkpoint-types.workspace = true
 strata-asm-spec.workspace = true
 strata-asm-worker.workspace = true
 strata-btc-types.workspace = true
+strata-logging.workspace = true
 
 asm-storage.workspace = true
 
@@ -59,7 +60,6 @@ thiserror.workspace = true
 tokio.workspace = true
 toml.workspace = true
 tracing.workspace = true
-tracing-subscriber = { version = "0.3.19", features = ["env-filter"] }
 zkaleido.workspace = true
 zkaleido-native-adapter.workspace = true
 zkaleido-sp1-groth16-verifier = { workspace = true, optional = true }

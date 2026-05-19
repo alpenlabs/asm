@@ -16,13 +16,16 @@ use std::{fs::read_to_string, path::PathBuf, time::Duration};
 use anyhow::Result;
 use clap::Parser;
 use strata_asm_params::AsmParams;
+use strata_logging::{LoggingInitConfig, finalize, init_logging_from_config};
 use strata_tasks::TaskManager;
-use tokio::runtime::Builder;
-use tracing::info;
-use tracing_subscriber::{EnvFilter, fmt, layer::SubscriberExt, util::SubscriberInitExt};
+use tokio::runtime::{Builder, Handle};
+use tracing::{error, info};
 use zkaleido_native_adapter as _;
 
-use crate::{bootstrap::bootstrap, config::AsmRpcConfig};
+use crate::{
+    bootstrap::bootstrap,
+    config::{AsmRpcConfig, LoggingConfig},
+};
 
 /// Timeout for graceful shutdown.
 const SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(30);
@@ -42,28 +45,28 @@ struct Cli {
 }
 
 fn main() {
-    // 1. Initialize logging
-    init_logging();
-
-    // 2. Parse CLI args
+    // 1. Parse CLI args
     let cli = Cli::parse();
 
-    // 3. Load configuration
+    // 2. Load configuration
     let config = load_config(&cli.config).expect("Failed to load config");
 
-    // 4. Load ASM params
+    // 3. Load ASM params
     let params = load_params(&cli.params).expect("Failed to load ASM params");
+
+    // 4. Create tokio runtime
+    let runtime = Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .expect("Failed to create tokio runtime");
+
+    // 5. Initialize logging.
+    init_logging(runtime.handle(), &config.logging);
 
     info!(
         "Starting ASM RPC server with config: {:?}, params: {:?}",
         config, params
     );
-
-    // 5. Create tokio runtime
-    let runtime = Builder::new_multi_thread()
-        .enable_all()
-        .build()
-        .expect("Failed to create tokio runtime");
 
     // 6. Create task manager and start signal listeners
     let task_manager = TaskManager::new(runtime.handle().clone());
@@ -76,12 +79,19 @@ fn main() {
         bootstrap(config, params, executor_clone).await
     });
 
-    // 8. Monitor all tasks and handle shutdown
-    if let Err(e) = task_manager.monitor(Some(SHUTDOWN_TIMEOUT)) {
-        panic!("ASM RPC server crashed: {e:?}");
+    // 8. Monitor all tasks and handle shutdown. Flush OTLP on both paths so a crash signal still
+    //    reaches the collector.
+    match task_manager.monitor(Some(SHUTDOWN_TIMEOUT)) {
+        Ok(()) => {
+            info!("ASM RPC server shutdown complete");
+            finalize();
+        }
+        Err(e) => {
+            error!("ASM RPC server crashed: {e:?}");
+            finalize();
+            panic!("ASM RPC server crashed: {e:?}");
+        }
     }
-
-    tracing::info!("ASM RPC server shutdown complete");
 }
 
 /// Load ASM parameters
@@ -98,14 +108,25 @@ fn load_config(path: &PathBuf) -> Result<AsmRpcConfig> {
     Ok(config)
 }
 
-/// Initialize tracing-based logging with an env filter.
-///
-/// Honors the `RUST_LOG` environment variable. When unset, defaults to `info`.
-fn init_logging() {
-    let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
-    let layer = fmt::layer().compact();
-    tracing_subscriber::registry()
-        .with(filter)
-        .with(layer)
-        .init();
+// The OTLP exporter is built via the Tokio reactor, so init must happen inside
+// a runtime context — entering the handle for the duration of this call is
+// enough; the guard does not need to live past initialization.
+fn init_logging(rt: &Handle, config: &LoggingConfig) {
+    let _guard = rt.enter();
+    let extra_filter_directives: Vec<&str> = config
+        .extra_filter_directives
+        .iter()
+        .map(String::as_str)
+        .collect();
+    init_logging_from_config(LoggingInitConfig {
+        service_base_name: "asm-runner",
+        service_label: config.service_label.as_deref(),
+        otlp_url: config.otlp_url.as_deref(),
+        log_dir: config.log_dir.as_ref(),
+        log_file_prefix: config.log_file_prefix.as_deref(),
+        json_format: config.json_format,
+        default_log_prefix: "asm-runner",
+        enable_metrics_layer: config.otlp_url.is_some(),
+        extra_filter_directives: &extra_filter_directives,
+    });
 }
