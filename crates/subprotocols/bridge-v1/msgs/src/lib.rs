@@ -30,6 +30,10 @@ pub enum BridgeIncomingMsg {
     /// Defcon1 signal raised by the admin subprotocol. The bridge responds by
     /// activating the safe harbour.
     Defcon1(Defcon1Payload),
+
+    /// Defcon3 signal raised by the admin subprotocol. The bridge responds by
+    /// activating the safe harbour.
+    Defcon3(Defcon3Payload),
 }
 
 /// Payload for [`BridgeIncomingMsg::UpdateOperatorSet`].
@@ -44,6 +48,10 @@ pub struct UpdateOperatorSetPayload {
 /// Empty marker payload for [`BridgeIncomingMsg::Defcon1`]; the signal itself carries no data.
 #[derive(Clone, Debug, Eq, PartialEq, Default, Encode, Decode)]
 pub struct Defcon1Payload {}
+
+/// Empty marker payload for [`BridgeIncomingMsg::Defcon3`]; the signal itself carries no data.
+#[derive(Clone, Debug, Eq, PartialEq, Default, Encode, Decode)]
+pub struct Defcon3Payload {}
 
 impl InterprotoMsg for BridgeIncomingMsg {
     fn id(&self) -> SubprotocolId {
