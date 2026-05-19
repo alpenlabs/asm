@@ -4,6 +4,7 @@ use bitcoin::BlockHash;
 use jsonrpsee::{core::RpcResult, proc_macros::rpc};
 use strata_asm_proof_types::{AsmProof, MohoProof};
 use strata_asm_proto_bridge_v1::{AssignmentEntry, DepositEntry};
+use strata_asm_proto_bridge_v1_types::SafeHarbour;
 use strata_asm_proto_checkpoint_types::CheckpointTip;
 use strata_asm_worker::{AsmState, AsmWorkerStatus};
 
@@ -33,6 +34,10 @@ pub trait AsmStateApi {
     /// Return the deposit state for the provided Bitcoin block hash.
     #[method(name = "getDeposits")]
     async fn get_deposits(&self, block_hash: BlockHash) -> RpcResult<Vec<DepositEntry>>;
+
+    /// Return the safe harbour address for the provided Bitcoin block hash.
+    #[method(name = "getSafeHarbour")]
+    async fn get_safe_harbour(&self, block_hash: BlockHash) -> RpcResult<Option<SafeHarbour>>;
 
     /// Return the verified checkpoint tip for the provided Bitcoin block hash.
     #[method(name = "getCheckpointTip")]
