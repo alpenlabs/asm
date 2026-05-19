@@ -6,6 +6,7 @@
 
 use std::any::Any;
 
+use bitcoin_bosd::Descriptor;
 use ssz_derive::{Decode, Encode};
 use strata_asm_common::{InterprotoMsg, SubprotocolId};
 use strata_asm_proto_bridge_v1_txs::BRIDGE_V1_SUBPROTOCOL_ID;
@@ -27,11 +28,15 @@ pub enum BridgeIncomingMsg {
     /// Adds new operators by public key and removes existing operators by index.
     UpdateOperatorSet(UpdateOperatorSetPayload),
 
-    /// Defcon1 signal raised by the admin subprotocol. The bridge responds by
+    /// Emitted by the admin subprotocol to update the safe harbour destination
+    /// descriptor.
+    UpdateSafeHarbourAddress(Descriptor),
+
+    /// Defcon1 signal raised by the admin subprotocol. The bridge must respond by
     /// activating the safe harbour.
     Defcon1(Defcon1Payload),
 
-    /// Defcon3 signal raised by the admin subprotocol. The bridge responds by
+    /// Defcon3 signal raised by the admin subprotocol. The bridge must respond by
     /// activating the safe harbour.
     Defcon3(Defcon3Payload),
 }

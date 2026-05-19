@@ -156,6 +156,12 @@ impl Subprotocol for BridgeV1Subproto {
                     );
                     state.apply_operator_set_update(add_members, remove_members);
                 }
+
+                BridgeIncomingMsg::UpdateSafeHarbourAddress(descriptor) => {
+                    info!("Updating the safe harbour address from admin subprotocol");
+                    state.update_safe_harbour_address(descriptor.clone());
+                }
+
                 BridgeIncomingMsg::Defcon1(_) | BridgeIncomingMsg::Defcon3(_) => {
                     info!(
                         "Activating safe harbour address on Defcon1 signal from admin subprotocol"

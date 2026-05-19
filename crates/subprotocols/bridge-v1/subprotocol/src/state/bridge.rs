@@ -1,3 +1,4 @@
+use bitcoin_bosd::Descriptor;
 use ssz_derive::{Decode, Encode};
 use strata_asm_params::BridgeV1InitConfig;
 use strata_asm_proto_bridge_v1_txs::{deposit::DepositInfo, errors::Mismatch};
@@ -106,6 +107,11 @@ impl BridgeV1State {
     /// Sets the safe harbour activation flag.
     pub fn set_safe_harbour_activated(&mut self, activated: bool) {
         self.safe_harbour.set_activated(activated);
+    }
+
+    /// Sets the safe harbour activation flag.
+    pub fn update_safe_harbour_address(&mut self, new_address: Descriptor) {
+        self.safe_harbour.update_address(new_address);
     }
 
     /// Processes a deposit transaction by validating and adding it to the deposits table.

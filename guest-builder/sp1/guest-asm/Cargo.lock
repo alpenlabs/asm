@@ -2209,6 +2209,7 @@ version = "0.1.0"
 dependencies = [
  "arbitrary",
  "bitcoin",
+ "bitcoin-bosd 0.10.0",
  "rand_chacha 0.9.0",
  "serde",
  "ssz",
@@ -2231,6 +2232,7 @@ dependencies = [
 name = "strata-asm-proto-bridge-v1-msgs"
 version = "0.1.0"
 dependencies = [
+ "bitcoin-bosd 0.10.0",
  "ssz",
  "ssz_derive",
  "strata-asm-common",
