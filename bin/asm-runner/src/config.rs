@@ -27,6 +27,7 @@ pub(crate) struct AsmRpcConfig {
 ///
 /// All fields are optional; missing fields fall back to `strata-logging` defaults.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
 pub(crate) struct LoggingConfig {
     /// Optional service label appended to the service name (e.g. `"prod"`, `"dev"`).
     pub service_label: Option<String>,
@@ -84,4 +85,69 @@ pub(crate) struct BitcoinConfig {
     // runner used btc-client to fetch the full block. We don't use it here since the BlockEvent is
     // emitted only on the rawblock connection. Fix that.
     pub rawblock_connection_string: String,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // A `[logging]` section that only sets `otlp_url` must deserialize cleanly
+    // and leave every other field at its default — historically the missing
+    // `extra_filter_directives` triggered `missing field` errors.
+    #[test]
+    fn logging_config_partial_section_uses_defaults() {
+        let toml_src = r#"
+            [rpc]
+            host = "127.0.0.1"
+            port = 8000
+
+            [database]
+            path = "/tmp/asm-db"
+
+            [bitcoin]
+            rpc_url = "http://localhost:18443"
+            rpc_user = "user"
+            rpc_password = "pass"
+            rawblock_connection_string = "tcp://127.0.0.1:28332"
+
+            [logging]
+            otlp_url = "http://localhost:4317"
+        "#;
+
+        let config: AsmRpcConfig = toml::from_str(toml_src).expect("should parse");
+
+        assert_eq!(
+            config.logging.otlp_url.as_deref(),
+            Some("http://localhost:4317")
+        );
+        assert!(config.logging.service_label.is_none());
+        assert!(config.logging.log_dir.is_none());
+        assert!(config.logging.log_file_prefix.is_none());
+        assert!(config.logging.json_format.is_none());
+        assert!(config.logging.extra_filter_directives.is_empty());
+    }
+
+    // Omitting the entire `[logging]` table must also be a clean parse.
+    #[test]
+    fn logging_section_optional() {
+        let toml_src = r#"
+            [rpc]
+            host = "127.0.0.1"
+            port = 8000
+
+            [database]
+            path = "/tmp/asm-db"
+
+            [bitcoin]
+            rpc_url = "http://localhost:18443"
+            rpc_user = "user"
+            rpc_password = "pass"
+            rawblock_connection_string = "tcp://127.0.0.1:28332"
+        "#;
+
+        let config: AsmRpcConfig = toml::from_str(toml_src).expect("should parse");
+
+        assert!(config.logging.otlp_url.is_none());
+        assert!(config.logging.extra_filter_directives.is_empty());
+    }
 }
