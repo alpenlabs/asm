@@ -7,6 +7,10 @@ from typing import Any
 
 from constants import ASM_MAGIC_BYTES
 
+# BOSD-encoded P2TR descriptor used as the default safe harbour address in
+# tests. Address `bc1ppuxgmd6n4j73wdp688p08a8rte97dkn5n70r2ym6kgsw0v3c5ensrytduf`.
+DEFAULT_SAFE_HARBOUR_ADDRESS = "040f0c8db753acbd17343a39c2f3f4e35e4be6da749f9e35137ab220e7b238a667"
+
 
 @dataclass
 class Block:
@@ -64,6 +68,7 @@ class BridgeSubprotocol:
     assignment_duration: int
     operator_fee: int
     recovery_delay: int
+    safe_harbour_address: str
 
 
 @dataclass
@@ -110,6 +115,7 @@ def build_subprotocols(
     assignment_duration: int = 100_000,
     operator_fee: int = 100_000_000,
     recovery_delay: int = 1_008,
+    safe_harbour_address: str = DEFAULT_SAFE_HARBOUR_ADDRESS,
 ) -> list[dict[str, Any]]:
     compressed_keys = [f"02{key}" for key in musig2_keys]
     confirmation_depth = 144
@@ -154,6 +160,7 @@ def build_subprotocols(
                 assignment_duration=assignment_duration,
                 operator_fee=operator_fee,
                 recovery_delay=recovery_delay,
+                safe_harbour_address=safe_harbour_address,
             )
         )
     }
@@ -171,6 +178,7 @@ def build_asm_params(
     assignment_duration: int = 10_000,
     operator_fee: int = 100_000_000,
     recovery_delay: int = 1_008,
+    safe_harbour_address: str = DEFAULT_SAFE_HARBOUR_ADDRESS,
 ) -> AsmParams:
     anchor = build_l1_anchor(genesis_height, block_hash, header)
     subprotocols = build_subprotocols(
@@ -180,6 +188,7 @@ def build_asm_params(
         assignment_duration=assignment_duration,
         operator_fee=operator_fee,
         recovery_delay=recovery_delay,
+        safe_harbour_address=safe_harbour_address,
     )
     return AsmParams(
         magic=magic,
