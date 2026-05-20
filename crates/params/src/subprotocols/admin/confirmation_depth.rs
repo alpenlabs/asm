@@ -28,6 +28,8 @@ pub struct ConfirmationDepths {
     pub ol_stf_vk_update: u16,
     pub asm_stf_vk_update: u16,
     pub ee_stf_vk_update: u16,
+    pub defcon1: u16,
+    pub defcon3: u16,
 }
 
 impl ConfirmationDepths {
@@ -46,6 +48,8 @@ impl ConfirmationDepths {
             UpdateTxType::OlStfVkUpdate => self.ol_stf_vk_update,
             UpdateTxType::AsmStfVkUpdate => self.asm_stf_vk_update,
             UpdateTxType::EeStfVkUpdate => self.ee_stf_vk_update,
+            UpdateTxType::Defcon1 => self.defcon1,
+            UpdateTxType::Defcon3 => self.defcon3,
         };
         (depth != 0).then_some(depth)
     }

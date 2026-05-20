@@ -356,6 +356,9 @@ mod tests {
             ol_stf_vk_update: depth,
             asm_stf_vk_update: depth,
             ee_stf_vk_update: depth,
+            // Defcon1 is designed to apply immediately (depth 0 sentinel).
+            defcon1: 0,
+            defcon3: depth,
         }
     }
 

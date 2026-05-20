@@ -324,6 +324,8 @@ pub fn create_test_admin_setup(
             ol_stf_vk_update: confirmation_depth,
             asm_stf_vk_update: confirmation_depth,
             ee_stf_vk_update: confirmation_depth,
+            defcon1: confirmation_depth,
+            defcon3: confirmation_depth,
         },
         max_seqno_gap: DEFAULT_MAX_SEQNO_GAP,
     };
