@@ -30,7 +30,7 @@ case "$ASM_PROVER_BACKEND" in
 esac
 
 pushd .. > /dev/null
-cargo build --bin strata-asm-runner "${CARGO_ARGS[@]}"
+cargo build --bin strata-asm-runner ${CARGO_ARGS[@]+"${CARGO_ARGS[@]}"}
 if [[ "$ASM_PROVER_BACKEND" == "sp1" ]]; then
   # Produces guest-builder/sp1/elfs/{asm,moho}.elf, which the runner reads at startup.
   cargo build -p strata-asm-sp1-guest-builder --release
