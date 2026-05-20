@@ -7908,6 +7908,7 @@ dependencies = [
  "bitvec",
  "borsh",
  "serde",
+ "serde_json",
  "ssz",
  "ssz_derive",
  "strata-btc-types",
