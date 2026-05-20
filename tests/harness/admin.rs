@@ -30,8 +30,8 @@ use strata_asm_proto_admin::{AdministrationSubprotoState, AdministrationSubproto
 use strata_asm_proto_admin_txs::{
     actions::{
         updates::{
-            AlpenAdminMultisigUpdate, AsmStfVkUpdate, EeStfVkUpdate, OlStfVkUpdate,
-            OperatorSetUpdate, SequencerUpdate, StrataAdminMultisigUpdate,
+            AlpenAdminMultisigUpdate, AsmStfVkUpdate, Defcon1Update, Defcon3Update, EeStfVkUpdate,
+            OlStfVkUpdate, OperatorSetUpdate, SequencerUpdate, StrataAdminMultisigUpdate,
             StrataSecurityCouncilMultisigUpdate, StrataSeqManagerMultisigUpdate,
         },
         CancelAction, MultisigAction, UpdateAction,
@@ -277,6 +277,16 @@ pub fn ol_stf_vk_update(key: PredicateKey) -> MultisigAction {
 /// Create an EE STF verifying key update action.
 pub fn ee_stf_vk_update(key: PredicateKey) -> MultisigAction {
     MultisigAction::Update(UpdateAction::EeStfVk(EeStfVkUpdate::new(key)))
+}
+
+/// Create a Defcon 1 emergency sweep action.
+pub fn defcon1_update() -> MultisigAction {
+    MultisigAction::Update(UpdateAction::Defcon1(Defcon1Update))
+}
+
+/// Create a Defcon 3 delayed sweep action.
+pub fn defcon3_update() -> MultisigAction {
+    MultisigAction::Update(UpdateAction::Defcon3(Defcon3Update))
 }
 
 // ============================================================================

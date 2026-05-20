@@ -8,7 +8,9 @@ use strata_asm_proto_admin_txs::{
     actions::{MultisigAction, UpdateAction},
     parser::SignedPayload,
 };
-use strata_asm_proto_bridge_v1_msgs::{BridgeIncomingMsg, UpdateOperatorSetPayload};
+use strata_asm_proto_bridge_v1_msgs::{
+    BridgeIncomingMsg, Defcon1Payload, Defcon3Payload, UpdateOperatorSetPayload,
+};
 use strata_asm_proto_checkpoint_msgs::CheckpointIncomingMsg;
 use strata_crypto::threshold_signature::ThresholdConfigUpdate;
 use strata_identifiers::{AccountSerial, Buf32, L1Height, SYSTEM_RESERVED_ACCTS};
@@ -163,6 +165,8 @@ fn handle_update(
         UpdateAction::EeStfVk(update) => {
             relay_alpen_predicate_update(relayer, update.into_key());
         }
+        UpdateAction::Defcon1(_) => relay_bridge_defcon1(relayer),
+        UpdateAction::Defcon3(_) => relay_bridge_defcon3(relayer),
     }
 }
 
@@ -218,6 +222,16 @@ fn relay_bridge_operator_set_update(
     info!("Forwarded operator set update to bridge subprotocol");
 }
 
+fn relay_bridge_defcon1(relayer: &mut impl MsgRelayer) {
+    relayer.relay_msg(&BridgeIncomingMsg::Defcon1(Defcon1Payload::default()));
+    info!("Forwarded Defcon1 signal to bridge subprotocol");
+}
+
+fn relay_bridge_defcon3(relayer: &mut impl MsgRelayer) {
+    relayer.relay_msg(&BridgeIncomingMsg::Defcon3(Defcon3Payload::default()));
+    info!("Forwarded Defcon3 signal to bridge subprotocol");
+}
+
 #[cfg(test)]
 mod tests {
     use std::{any::Any, num::NonZero};
@@ -230,11 +244,14 @@ mod tests {
     use strata_asm_proto_admin_txs::{
         actions::{
             CancelAction, MultisigAction, UpdateAction,
-            updates::{AsmStfVkUpdate, OlStfVkUpdate, SequencerUpdate},
+            updates::{
+                AsmStfVkUpdate, Defcon1Update, Defcon3Update, OlStfVkUpdate, SequencerUpdate,
+            },
         },
         parser::SignedPayload,
         test_utils::create_signature_set,
     };
+    use strata_asm_proto_bridge_v1_msgs::BridgeIncomingMsg;
     use strata_asm_proto_checkpoint_msgs::CheckpointIncomingMsg;
     use strata_crypto::{
         keys::compressed::CompressedPublicKey, threshold_signature::ThresholdConfig,
@@ -586,6 +603,52 @@ mod tests {
             }
             _ => panic!("expected rollup verifying key update to checkpoint"),
         }
+    }
+
+    #[test]
+    fn test_defcon1_update_forwarded_to_bridge() {
+        let (params, _, _, _) = create_test_params();
+        let mut state = AdministrationSubprotoState::new(&params);
+        let mut relayer = MockRelayer::<BridgeIncomingMsg>::new();
+
+        let update = UpdateAction::Defcon1(Defcon1Update);
+        let update_id = state.next_update_id();
+        let activation_height = 42;
+        state.enqueue(QueuedUpdate::new(update_id, update, activation_height));
+
+        handle_pending_updates(&mut state, &mut relayer, activation_height);
+
+        assert!(state.queued().is_empty());
+        let bridge_msgs = relayer.messages();
+        assert_eq!(bridge_msgs.len(), 1);
+        assert!(
+            matches!(bridge_msgs.first(), Some(BridgeIncomingMsg::Defcon1(_))),
+            "expected Defcon1 message to bridge, got {:?}",
+            bridge_msgs.first()
+        );
+    }
+
+    #[test]
+    fn test_defcon3_update_forwarded_to_bridge() {
+        let (params, _, _, _) = create_test_params();
+        let mut state = AdministrationSubprotoState::new(&params);
+        let mut relayer = MockRelayer::<BridgeIncomingMsg>::new();
+
+        let update = UpdateAction::Defcon3(Defcon3Update);
+        let update_id = state.next_update_id();
+        let activation_height = 42;
+        state.enqueue(QueuedUpdate::new(update_id, update, activation_height));
+
+        handle_pending_updates(&mut state, &mut relayer, activation_height);
+
+        assert!(state.queued().is_empty());
+        let bridge_msgs = relayer.messages();
+        assert_eq!(bridge_msgs.len(), 1);
+        assert!(
+            matches!(bridge_msgs.first(), Some(BridgeIncomingMsg::Defcon3(_))),
+            "expected Defcon3 message to bridge, got {:?}",
+            bridge_msgs.first()
+        );
     }
 
     #[test]

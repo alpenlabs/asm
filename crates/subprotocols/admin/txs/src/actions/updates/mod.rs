@@ -1,5 +1,7 @@
 pub mod alpen_admin_multisig;
 pub mod asm_stf_vk;
+pub mod defcon1;
+pub mod defcon3;
 pub mod ee_stf_vk;
 pub mod ol_stf_vk;
 pub mod operator_set;
@@ -13,6 +15,8 @@ mod render;
 pub use alpen_admin_multisig::AlpenAdminMultisigUpdate;
 use arbitrary::Arbitrary;
 pub use asm_stf_vk::AsmStfVkUpdate;
+pub use defcon1::Defcon1Update;
+pub use defcon3::Defcon3Update;
 pub use ee_stf_vk::EeStfVkUpdate;
 pub use ol_stf_vk::OlStfVkUpdate;
 pub use operator_set::OperatorSetUpdate;
@@ -42,6 +46,8 @@ pub enum UpdateAction {
     OlStfVk(OlStfVkUpdate),
     AsmStfVk(AsmStfVkUpdate),
     EeStfVk(EeStfVkUpdate),
+    Defcon1(Defcon1Update),
+    Defcon3(Defcon3Update),
 }
 
 impl UpdateAction {
@@ -61,6 +67,8 @@ impl UpdateAction {
             UpdateAction::OlStfVk(_) => UpdateTxType::OlStfVkUpdate,
             UpdateAction::AsmStfVk(_) => UpdateTxType::AsmStfVkUpdate,
             UpdateAction::EeStfVk(_) => UpdateTxType::EeStfVkUpdate,
+            UpdateAction::Defcon1(_) => UpdateTxType::Defcon1,
+            UpdateAction::Defcon3(_) => UpdateTxType::Defcon3,
         }
     }
 
@@ -82,6 +90,8 @@ impl RenderSigningMessage for UpdateAction {
             UpdateAction::OlStfVk(u) => u.tx_type(),
             UpdateAction::AsmStfVk(u) => u.tx_type(),
             UpdateAction::EeStfVk(u) => u.tx_type(),
+            UpdateAction::Defcon1(u) => u.tx_type(),
+            UpdateAction::Defcon3(u) => u.tx_type(),
         }
     }
 
@@ -96,6 +106,8 @@ impl RenderSigningMessage for UpdateAction {
             UpdateAction::OlStfVk(u) => u.render_details(details),
             UpdateAction::AsmStfVk(u) => u.render_details(details),
             UpdateAction::EeStfVk(u) => u.render_details(details),
+            UpdateAction::Defcon1(u) => u.render_details(details),
+            UpdateAction::Defcon3(u) => u.render_details(details),
         }
     }
 }
