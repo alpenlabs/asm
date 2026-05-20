@@ -351,13 +351,11 @@ mod tests {
             alpen_admin_multisig_update: depth,
             strata_security_council_multisig_update: depth,
             operator_update: depth,
-            // Sequencer updates are designed to apply immediately (depth 0 sentinel).
-            sequencer_update: 0,
+            sequencer_update: depth,
             ol_stf_vk_update: depth,
             asm_stf_vk_update: depth,
             ee_stf_vk_update: depth,
-            // Defcon1 is designed to apply immediately (depth 0 sentinel).
-            defcon1: 0,
+            defcon1: depth,
             defcon3: depth,
         }
     }
