@@ -146,7 +146,9 @@ mod tests {
           "sequencer_update": 144,
           "ol_stf_vk_update": 144,
           "asm_stf_vk_update": 144,
-          "ee_stf_vk_update": 144
+          "ee_stf_vk_update": 144,
+          "defcon1": 144,
+          "defcon3": 144
         },
         "max_seqno_gap": 10
       }

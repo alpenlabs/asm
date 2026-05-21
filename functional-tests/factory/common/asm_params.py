@@ -43,6 +43,8 @@ class ConfirmationDepths:
     ol_stf_vk_update: int
     asm_stf_vk_update: int
     ee_stf_vk_update: int
+    defcon1: int
+    defcon3: int
 
 
 @dataclass
@@ -139,6 +141,8 @@ def build_subprotocols(
                     ol_stf_vk_update=confirmation_depth,
                     asm_stf_vk_update=confirmation_depth,
                     ee_stf_vk_update=confirmation_depth,
+                    defcon1=confirmation_depth,
+                    defcon3=confirmation_depth,
                 ),
                 max_seqno_gap=10,
             )
