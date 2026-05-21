@@ -32,13 +32,12 @@ pub enum BridgeIncomingMsg {
     /// descriptor.
     UpdateSafeHarbourAddress(Descriptor),
 
-    /// Defcon1 signal raised by the admin subprotocol. The bridge must respond by
-    /// activating the safe harbour.
-    Defcon1(Defcon1Payload),
-
-    /// Defcon3 signal raised by the admin subprotocol. The bridge must respond by
-    /// activating the safe harbour.
-    Defcon3(Defcon3Payload),
+    /// Defcon signal raised by the admin subprotocol. The bridge must respond by
+    /// activating the safe harbour. The admin subprotocol distinguishes between
+    /// Defcon1 (emergency sweep) and Defcon3 (delayed sweep) on the signing
+    /// surface, but the bridge response is identical so they collapse into one
+    /// message here.
+    Defcon(DefconPayload),
 }
 
 /// Payload for [`BridgeIncomingMsg::UpdateOperatorSet`].
@@ -50,13 +49,9 @@ pub struct UpdateOperatorSetPayload {
     pub remove_members: Vec<OperatorIdx>,
 }
 
-/// Empty marker payload for [`BridgeIncomingMsg::Defcon1`]; the signal itself carries no data.
+/// Empty marker payload for [`BridgeIncomingMsg::Defcon`]; the signal itself carries no data.
 #[derive(Clone, Debug, Eq, PartialEq, Default, Encode, Decode)]
-pub struct Defcon1Payload {}
-
-/// Empty marker payload for [`BridgeIncomingMsg::Defcon3`]; the signal itself carries no data.
-#[derive(Clone, Debug, Eq, PartialEq, Default, Encode, Decode)]
-pub struct Defcon3Payload {}
+pub struct DefconPayload {}
 
 impl InterprotoMsg for BridgeIncomingMsg {
     fn id(&self) -> SubprotocolId {

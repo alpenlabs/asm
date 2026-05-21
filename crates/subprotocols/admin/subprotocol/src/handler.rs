@@ -8,9 +8,7 @@ use strata_asm_proto_admin_txs::{
     actions::{MultisigAction, UpdateAction},
     parser::SignedPayload,
 };
-use strata_asm_proto_bridge_v1_msgs::{
-    BridgeIncomingMsg, Defcon1Payload, Defcon3Payload, UpdateOperatorSetPayload,
-};
+use strata_asm_proto_bridge_v1_msgs::{BridgeIncomingMsg, DefconPayload, UpdateOperatorSetPayload};
 use strata_asm_proto_checkpoint_msgs::CheckpointIncomingMsg;
 use strata_crypto::threshold_signature::ThresholdConfigUpdate;
 use strata_identifiers::{AccountSerial, Buf32, L1Height, SYSTEM_RESERVED_ACCTS};
@@ -165,8 +163,7 @@ fn handle_update(
         UpdateAction::EeStfVk(update) => {
             relay_alpen_predicate_update(relayer, update.into_key());
         }
-        UpdateAction::Defcon1(_) => relay_bridge_defcon1(relayer),
-        UpdateAction::Defcon3(_) => relay_bridge_defcon3(relayer),
+        UpdateAction::Defcon1(_) | UpdateAction::Defcon3(_) => relay_bridge_defcon(relayer),
     }
 }
 
@@ -222,14 +219,9 @@ fn relay_bridge_operator_set_update(
     info!("Forwarded operator set update to bridge subprotocol");
 }
 
-fn relay_bridge_defcon1(relayer: &mut impl MsgRelayer) {
-    relayer.relay_msg(&BridgeIncomingMsg::Defcon1(Defcon1Payload::default()));
-    info!("Forwarded Defcon1 signal to bridge subprotocol");
-}
-
-fn relay_bridge_defcon3(relayer: &mut impl MsgRelayer) {
-    relayer.relay_msg(&BridgeIncomingMsg::Defcon3(Defcon3Payload::default()));
-    info!("Forwarded Defcon3 signal to bridge subprotocol");
+fn relay_bridge_defcon(relayer: &mut impl MsgRelayer) {
+    relayer.relay_msg(&BridgeIncomingMsg::Defcon(DefconPayload::default()));
+    info!("Forwarded Defcon signal to bridge subprotocol");
 }
 
 #[cfg(test)]
@@ -622,8 +614,8 @@ mod tests {
         let bridge_msgs = relayer.messages();
         assert_eq!(bridge_msgs.len(), 1);
         assert!(
-            matches!(bridge_msgs.first(), Some(BridgeIncomingMsg::Defcon1(_))),
-            "expected Defcon1 message to bridge, got {:?}",
+            matches!(bridge_msgs.first(), Some(BridgeIncomingMsg::Defcon(_))),
+            "expected Defcon message to bridge, got {:?}",
             bridge_msgs.first()
         );
     }
@@ -645,8 +637,8 @@ mod tests {
         let bridge_msgs = relayer.messages();
         assert_eq!(bridge_msgs.len(), 1);
         assert!(
-            matches!(bridge_msgs.first(), Some(BridgeIncomingMsg::Defcon3(_))),
-            "expected Defcon3 message to bridge, got {:?}",
+            matches!(bridge_msgs.first(), Some(BridgeIncomingMsg::Defcon(_))),
+            "expected Defcon message to bridge, got {:?}",
             bridge_msgs.first()
         );
     }

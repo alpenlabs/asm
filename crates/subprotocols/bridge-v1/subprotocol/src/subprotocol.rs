@@ -162,10 +162,8 @@ impl Subprotocol for BridgeV1Subproto {
                     state.update_safe_harbour_address(descriptor.clone());
                 }
 
-                BridgeIncomingMsg::Defcon1(_) | BridgeIncomingMsg::Defcon3(_) => {
-                    info!(
-                        "Activating safe harbour address on Defcon1 signal from admin subprotocol"
-                    );
+                BridgeIncomingMsg::Defcon(_) => {
+                    info!("Activating safe harbour on Defcon signal from admin subprotocol");
                     state.set_safe_harbour_activated(true);
                 }
             }
@@ -177,7 +175,7 @@ impl Subprotocol for BridgeV1Subproto {
 mod tests {
     use bitcoin_bosd::Descriptor;
     use strata_asm_common::Subprotocol;
-    use strata_asm_proto_bridge_v1_msgs::{BridgeIncomingMsg, Defcon1Payload, Defcon3Payload};
+    use strata_asm_proto_bridge_v1_msgs::{BridgeIncomingMsg, DefconPayload};
     use strata_identifiers::L1BlockCommitment;
     use strata_test_utils_arb::ArbitraryGenerator;
 
@@ -218,11 +216,11 @@ mod tests {
     }
 
     #[test]
-    fn process_msgs_defcon1_activates_safe_harbour() {
+    fn process_msgs_defcon_activates_safe_harbour() {
         let (mut state, _privkeys) = create_test_state();
         let l1ref: L1BlockCommitment = ArbitraryGenerator::new().generate();
 
-        let msgs = vec![BridgeIncomingMsg::Defcon1(Defcon1Payload::default())];
+        let msgs = vec![BridgeIncomingMsg::Defcon(DefconPayload::default())];
         BridgeV1Subproto::process_msgs(&mut state, &msgs, &l1ref);
 
         assert!(state.safe_harbour().is_activated());
@@ -230,17 +228,6 @@ mod tests {
             state.safe_harbour().active_address(),
             Some(state.safe_harbour().address())
         );
-    }
-
-    #[test]
-    fn process_msgs_defcon3_activates_safe_harbour() {
-        let (mut state, _privkeys) = create_test_state();
-        let l1ref: L1BlockCommitment = ArbitraryGenerator::new().generate();
-
-        let msgs = vec![BridgeIncomingMsg::Defcon3(Defcon3Payload::default())];
-        BridgeV1Subproto::process_msgs(&mut state, &msgs, &l1ref);
-
-        assert!(state.safe_harbour().is_activated());
     }
 
     /// Updating the address after activation must keep the new address active —
@@ -252,7 +239,7 @@ mod tests {
         let l1ref: L1BlockCommitment = ArbitraryGenerator::new().generate();
 
         let msgs = vec![
-            BridgeIncomingMsg::Defcon1(Defcon1Payload::default()),
+            BridgeIncomingMsg::Defcon(DefconPayload::default()),
             BridgeIncomingMsg::UpdateSafeHarbourAddress(descriptor_b()),
         ];
         BridgeV1Subproto::process_msgs(&mut state, &msgs, &l1ref);
