@@ -9,7 +9,7 @@
 //! - Combined add/remove → both applied atomically after activation
 //! - Defcon1/Defcon3 from the security council → bridge activates the safe harbour
 //! - Defcon1/Defcon3 signed by any other role → rejected, bridge unchanged
-//! - Safe harbour address rotation from the security council → bridge adopts new address
+//! - Safe harbour address rotation from the strata administrator → bridge adopts new address
 //! - Safe harbour address rotation signed by any other role → rejected, bridge unchanged
 
 #![allow(
@@ -228,25 +228,27 @@ async fn test_defcon1_does_not_apply_before_activation() {
 /// advance.
 #[tokio::test(flavor = "multi_thread")]
 async fn test_defcon1_signed_by_non_security_council_rejected() {
-    assert_only_security_council_can_send(defcon1_update()).await;
+    assert_only_required_role_can_send(defcon1_update()).await;
 }
 
 /// Defcon3 signed by any role other than the security council is rejected — same guarantees
 /// as the Defcon1 case.
 #[tokio::test(flavor = "multi_thread")]
 async fn test_defcon3_signed_by_non_security_council_rejected() {
-    assert_only_security_council_can_send(defcon3_update()).await;
+    assert_only_required_role_can_send(defcon3_update()).await;
 }
 
 // ============================================================================
 // Safe Harbour Address Rotation → Bridge Safe Harbour
 // ============================================================================
 //
-// The security council can rotate the bridge's safe harbour destination address
-// without changing its activation state. The bridge picks up the new address
-// after the configured confirmation depth elapses.
+// The strata administrator — *not* the security council — rotates the bridge's
+// safe harbour destination address, so the council cannot both trigger a sweep
+// (via Defcon) and pick where the funds land. Rotation never changes activation
+// state; the bridge picks up the new address after the configured confirmation
+// depth elapses.
 
-/// The bridge adopts the new safe harbour address after the security council's rotation is
+/// The bridge adopts the new safe harbour address after the administrator's rotation is
 /// enacted. Activation state must be preserved across the rotation — only Defcon signals
 /// toggle activation.
 #[tokio::test(flavor = "multi_thread")]
@@ -273,12 +275,13 @@ async fn test_safe_harbour_address_update_propagates_to_bridge() {
     assert!(!bridge.safe_harbour().is_activated());
 }
 
-/// Safe harbour address rotation signed by any role other than the security council is
-/// rejected — same role-segregation guarantees as the Defcon cases.
+/// Safe harbour address rotation signed by any role other than the strata administrator is
+/// rejected — same role-segregation guarantee as the Defcon cases, but enforced against the
+/// administrator instead of the security council.
 #[tokio::test(flavor = "multi_thread")]
-async fn test_safe_harbour_address_update_signed_by_non_security_council_rejected() {
+async fn test_safe_harbour_address_update_signed_by_non_administrator_rejected() {
     let new_address = Descriptor::new_p2wpkh(&[0xCD; 20]);
-    assert_only_security_council_can_send(safe_harbour_address_update(new_address)).await;
+    assert_only_required_role_can_send(safe_harbour_address_update(new_address)).await;
 }
 
 /// Submits a single admin action and mines `CONFIRMATION_DEPTH` blocks so it activates.
@@ -293,18 +296,15 @@ async fn submit_and_activate_action(
     }
 }
 
-/// Submits `action` once per non-`StrataSecurityCouncil` role with that role's signing keys
-/// and asserts the handler rejects all of them.
+/// Submits `action` once per non-required role with that role's signing keys and asserts
+/// the handler rejects all of them.
 ///
-/// The action's required role is `StrataSecurityCouncil`, so signing with any other role's
-/// keys must fail signature verification — verified by checking that the bridge safe harbour
-/// stays deactivated, nothing is queued, and the security council's seqno doesn't advance.
-async fn assert_only_security_council_can_send(action: MultisigAction) {
-    assert_eq!(
-        action.required_role(),
-        Role::StrataSecurityCouncil,
-        "this helper only exercises actions whose required role is the security council",
-    );
+/// The handler resolves the required role from the action itself, so signing with any
+/// *other* role's keys must fail signature verification — verified by checking that the
+/// bridge safe harbour stays deactivated, nothing is queued, and the required role's
+/// seqno doesn't advance.
+async fn assert_only_required_role_can_send(action: MultisigAction) {
+    let required_role = action.required_role();
 
     let (harness, mut ctx) = setup().await;
 
@@ -312,7 +312,11 @@ async fn assert_only_security_council_can_send(action: MultisigAction) {
         Role::StrataAdministrator,
         Role::StrataSequencerManager,
         Role::AlpenAdministrator,
+        Role::StrataSecurityCouncil,
     ] {
+        if signing_role == required_role {
+            continue;
+        }
         harness
             .submit_admin_action_as_role(&mut ctx, action.clone(), signing_role)
             .await
@@ -331,15 +335,12 @@ async fn assert_only_security_council_can_send(action: MultisigAction) {
         0,
         "next_update_id must not advance for rejected txs",
     );
-    // The security council's on-chain seqno must stay at 0 — the wrong-role payloads carry
-    // valid seqnos but the signature fails to verify against the council's threshold config.
+    // The required role's on-chain seqno must stay at 0 — the wrong-role payloads carry
+    // valid seqnos but the signature fails to verify against the required role's config.
     assert_eq!(
-        admin_state
-            .authority(Role::StrataSecurityCouncil)
-            .unwrap()
-            .last_seqno(),
+        admin_state.authority(required_role).unwrap().last_seqno(),
         0,
-        "security council seqno must not advance for rejected txs",
+        "{required_role:?} seqno must not advance for rejected txs",
     );
 
     // Mine through the activation window to confirm nothing latent applies later.
@@ -349,6 +350,6 @@ async fn assert_only_security_council_can_send(action: MultisigAction) {
     let bridge = harness.bridge_state().unwrap();
     assert!(
         !bridge.safe_harbour().is_activated(),
-        "safe harbour must stay deactivated when a security-council action is signed by the wrong role",
+        "safe harbour must stay deactivated when a privileged action is signed by the wrong role",
     );
 }

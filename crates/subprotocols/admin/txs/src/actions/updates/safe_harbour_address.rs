@@ -8,9 +8,12 @@ use crate::actions::{IndentedDetails, RenderSigningMessage};
 /// Rotate the bridge's safe harbour destination address.
 ///
 /// Authorized by the
-/// [`Role::StrataSecurityCouncil`](strata_asm_params::Role::StrataSecurityCouncil). Carries the
-/// new destination descriptor that the bridge will adopt; activation state of the safe
-/// harbour is unaffected (only Defcon signals toggle activation).
+/// [`Role::StrataAdministrator`](strata_asm_params::Role::StrataAdministrator) — the
+/// security council can sweep funds to the safe harbour via Defcon signals but must not
+/// also choose where they land, otherwise the same authority could both trigger a sweep
+/// and pick its destination. Carries the new destination descriptor that the bridge will
+/// adopt; activation state of the safe harbour is unaffected (only Defcon signals toggle
+/// activation).
 #[derive(Clone, Debug, Eq, PartialEq, Arbitrary, Encode, Decode)]
 pub struct SafeHarbourAddressUpdate {
     address: Descriptor,
@@ -67,7 +70,7 @@ mod tests {
             format!(
                 "Strata ASM Administration v1\n\
                  Action: Safe Harbour Address Update\n\
-                 Authorized By: Strata Security Council\n\
+                 Authorized By: Strata Administrator\n\
                  Sequence: 17\n\
                  Action Details:\n  \
                  New Safe Harbour Address: {expected_hex}"

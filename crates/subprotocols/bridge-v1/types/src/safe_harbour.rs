@@ -1,8 +1,10 @@
 //! Safe harbour address.
 //!
 //! A safe harbour is a Bitcoin output script descriptor used to redirect flows
-//! under emergency conditions. Both activation (via Defcon signals) and address
-//! rotation are restricted to the strata security council.
+//! under emergency conditions. Activation (via Defcon signals) is restricted to
+//! the strata security council; address rotation is restricted to the strata
+//! administrator, so the same authority cannot both trigger a sweep and pick
+//! its destination.
 
 use arbitrary::Arbitrary;
 use bitcoin_bosd::Descriptor;

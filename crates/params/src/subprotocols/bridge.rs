@@ -19,7 +19,9 @@ pub struct BridgeV1InitConfig {
     /// funds if operators fail to process the deposit.
     pub recovery_delay: u16,
     /// Predefined safe harbour address. Deactivated at init; the strata security council
-    /// toggles activation (via Defcon signals) and may rotate the address.
+    /// toggles activation (via Defcon signals), and the strata administrator rotates the
+    /// destination descriptor — keeping the sweep trigger and the sweep destination under
+    /// separate authorities.
     pub safe_harbour_address: Descriptor,
 }
 

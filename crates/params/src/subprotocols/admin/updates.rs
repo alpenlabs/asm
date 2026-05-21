@@ -41,6 +41,14 @@ impl UpdateTxType {
             Self::OlStfVkUpdate => Role::StrataAdministrator,
             Self::AsmStfVkUpdate => Role::StrataAdministrator,
             Self::OperatorUpdate => Role::StrataAdministrator,
+            // The safe harbour destination is rotated by the administrator, not the
+            // security council: the council can sweep funds to the safe harbour (via
+            // Defcon signals) but must not also pick where they land, otherwise the
+            // same authority could both trigger a sweep and steal the proceeds.
+            Self::SafeHarbourAddressUpdate => Role::StrataAdministrator,
+            // Security council membership is rotated by the administrator, not by the
+            // council itself.
+            Self::StrataSecurityCouncilMultisigUpdate => Role::StrataAdministrator,
 
             Self::AlpenAdminMultisigUpdate => Role::AlpenAdministrator,
             Self::EeStfVkUpdate => Role::AlpenAdministrator,
@@ -48,13 +56,7 @@ impl UpdateTxType {
             Self::SequencerUpdate => Role::StrataSequencerManager,
             Self::StrataSeqManagerMultisigUpdate => Role::StrataSequencerManager,
 
-            // Security council membership is rotated by the administrator so the council
-            // cannot lock itself out via self-rotation.
-            Self::StrataSecurityCouncilMultisigUpdate => Role::StrataAdministrator,
-
-            Self::Defcon1 | Self::Defcon3 | Self::SafeHarbourAddressUpdate => {
-                Role::StrataSecurityCouncil
-            }
+            Self::Defcon1 | Self::Defcon3 => Role::StrataSecurityCouncil,
         }
     }
 
