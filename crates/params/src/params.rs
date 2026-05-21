@@ -148,7 +148,8 @@ mod tests {
           "asm_stf_vk_update": 144,
           "ee_stf_vk_update": 144,
           "defcon1": 144,
-          "defcon3": 144
+          "defcon3": 144,
+          "safe_harbour_address_update": 144
         },
         "max_seqno_gap": 10
       }

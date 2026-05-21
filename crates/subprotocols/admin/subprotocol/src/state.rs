@@ -268,6 +268,7 @@ mod tests {
             ee_stf_vk_update: depth,
             defcon1: depth,
             defcon3: depth,
+            safe_harbour_address_update: depth,
         }
     }
 

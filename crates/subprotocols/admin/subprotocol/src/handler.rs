@@ -1,3 +1,4 @@
+use bitcoin_bosd::Descriptor;
 use strata_asm_common::{
     AsmLogEntry, MsgRelayer,
     logging::{debug, error, info},
@@ -164,6 +165,9 @@ fn handle_update(
             relay_alpen_predicate_update(relayer, update.into_key());
         }
         UpdateAction::Defcon1(_) | UpdateAction::Defcon3(_) => relay_bridge_defcon(relayer),
+        UpdateAction::SafeHarbourAddress(update) => {
+            relay_bridge_safe_harbour_address_update(relayer, update.into_inner());
+        }
     }
 }
 
@@ -224,11 +228,18 @@ fn relay_bridge_defcon(relayer: &mut impl MsgRelayer) {
     info!("Forwarded Defcon signal to bridge subprotocol");
 }
 
+fn relay_bridge_safe_harbour_address_update(relayer: &mut impl MsgRelayer, address: Descriptor) {
+    debug!(?address, "New safe harbour address");
+    relayer.relay_msg(&BridgeIncomingMsg::UpdateSafeHarbourAddress(address));
+    info!("Forwarded safe harbour address update to bridge subprotocol");
+}
+
 #[cfg(test)]
 mod tests {
     use std::{any::Any, num::NonZero};
 
     use bitcoin::secp256k1::{PublicKey, Secp256k1, SecretKey};
+    use bitcoin_bosd::Descriptor;
     use rand::{rngs::OsRng, seq::SliceRandom, thread_rng};
     use strata_asm_common::{AsmLogEntry, InterprotoMsg, MsgRelayer};
     use strata_asm_logs::AsmStfUpdate;
@@ -237,7 +248,8 @@ mod tests {
         actions::{
             CancelAction, MultisigAction, UpdateAction,
             updates::{
-                AsmStfVkUpdate, Defcon1Update, Defcon3Update, OlStfVkUpdate, SequencerUpdate,
+                AsmStfVkUpdate, Defcon1Update, Defcon3Update, OlStfVkUpdate,
+                SafeHarbourAddressUpdate, SequencerUpdate,
             },
         },
         parser::SignedPayload,
@@ -366,6 +378,7 @@ mod tests {
             ee_stf_vk_update: depth,
             defcon1: depth,
             defcon3: depth,
+            safe_harbour_address_update: depth,
         }
     }
 
@@ -639,6 +652,34 @@ mod tests {
         assert!(
             matches!(bridge_msgs.first(), Some(BridgeIncomingMsg::Defcon(_))),
             "expected Defcon message to bridge, got {:?}",
+            bridge_msgs.first()
+        );
+    }
+
+    #[test]
+    fn test_safe_harbour_address_update_forwarded_to_bridge() {
+        let (params, _, _, _) = create_test_params();
+        let mut state = AdministrationSubprotoState::new(&params);
+        let mut relayer = MockRelayer::<BridgeIncomingMsg>::new();
+
+        let new_address = Descriptor::new_p2wpkh(&[0xCD; 20]);
+        let update =
+            UpdateAction::SafeHarbourAddress(SafeHarbourAddressUpdate::new(new_address.clone()));
+        let update_id = state.next_update_id();
+        let activation_height = 42;
+        state.enqueue(QueuedUpdate::new(update_id, update, activation_height));
+
+        handle_pending_updates(&mut state, &mut relayer, activation_height);
+
+        assert!(state.queued().is_empty());
+        let bridge_msgs = relayer.messages();
+        assert_eq!(bridge_msgs.len(), 1);
+        assert!(
+            matches!(
+                bridge_msgs.first(),
+                Some(BridgeIncomingMsg::UpdateSafeHarbourAddress(addr)) if addr == &new_address
+            ),
+            "expected UpdateSafeHarbourAddress message to bridge, got {:?}",
             bridge_msgs.first()
         );
     }

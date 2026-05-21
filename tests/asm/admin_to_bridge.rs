@@ -9,16 +9,19 @@
 //! - Combined add/remove → both applied atomically after activation
 //! - Defcon1/Defcon3 from the security council → bridge activates the safe harbour
 //! - Defcon1/Defcon3 signed by any other role → rejected, bridge unchanged
+//! - Safe harbour address rotation from the security council → bridge adopts new address
+//! - Safe harbour address rotation signed by any other role → rejected, bridge unchanged
 
 #![allow(
     unused_crate_dependencies,
     reason = "test dependencies shared across test suite"
 )]
 
+use bitcoin_bosd::Descriptor;
 use harness::{
     admin::{
-        create_test_admin_setup, defcon1_update, defcon3_update, operator_set_update, AdminContext,
-        AdminExt,
+        create_test_admin_setup, defcon1_update, defcon3_update, operator_set_update,
+        safe_harbour_address_update, AdminContext, AdminExt,
     },
     bridge::{create_test_bridge_setup, BridgeExt},
     test_harness::{AsmTestHarness, AsmTestHarnessBuilder},
@@ -235,6 +238,49 @@ async fn test_defcon3_signed_by_non_security_council_rejected() {
     assert_only_security_council_can_send(defcon3_update()).await;
 }
 
+// ============================================================================
+// Safe Harbour Address Rotation → Bridge Safe Harbour
+// ============================================================================
+//
+// The security council can rotate the bridge's safe harbour destination address
+// without changing its activation state. The bridge picks up the new address
+// after the configured confirmation depth elapses.
+
+/// The bridge adopts the new safe harbour address after the security council's rotation is
+/// enacted. Activation state must be preserved across the rotation — only Defcon signals
+/// toggle activation.
+#[tokio::test(flavor = "multi_thread")]
+async fn test_safe_harbour_address_update_propagates_to_bridge() {
+    let (harness, mut ctx) = setup().await;
+
+    let initial = harness.bridge_state().unwrap();
+    let initial_address = initial.safe_harbour().address().clone();
+    assert!(!initial.safe_harbour().is_activated());
+
+    let new_address = Descriptor::new_p2wpkh(&[0xCD; 20]);
+    assert_ne!(new_address, initial_address);
+
+    submit_and_activate_action(
+        &harness,
+        &mut ctx,
+        safe_harbour_address_update(new_address.clone()),
+    )
+    .await;
+
+    let bridge = harness.bridge_state().unwrap();
+    assert_eq!(bridge.safe_harbour().address(), &new_address);
+    // Address rotation alone must not activate the safe harbour.
+    assert!(!bridge.safe_harbour().is_activated());
+}
+
+/// Safe harbour address rotation signed by any role other than the security council is
+/// rejected — same role-segregation guarantees as the Defcon cases.
+#[tokio::test(flavor = "multi_thread")]
+async fn test_safe_harbour_address_update_signed_by_non_security_council_rejected() {
+    let new_address = Descriptor::new_p2wpkh(&[0xCD; 20]);
+    assert_only_security_council_can_send(safe_harbour_address_update(new_address)).await;
+}
+
 /// Submits a single admin action and mines `CONFIRMATION_DEPTH` blocks so it activates.
 async fn submit_and_activate_action(
     harness: &AsmTestHarness,
@@ -278,12 +324,12 @@ async fn assert_only_security_council_can_send(action: MultisigAction) {
     assert_eq!(
         admin_state.queued().len(),
         0,
-        "no defcon update should be queued when signed by the wrong role",
+        "no update should be queued when signed by the wrong role",
     );
     assert_eq!(
         admin_state.next_update_id(),
         0,
-        "next_update_id must not advance for rejected defcon txs",
+        "next_update_id must not advance for rejected txs",
     );
     // The security council's on-chain seqno must stay at 0 — the wrong-role payloads carry
     // valid seqnos but the signature fails to verify against the council's threshold config.
@@ -293,7 +339,7 @@ async fn assert_only_security_council_can_send(action: MultisigAction) {
             .unwrap()
             .last_seqno(),
         0,
-        "security council seqno must not advance for rejected defcon txs",
+        "security council seqno must not advance for rejected txs",
     );
 
     // Mine through the activation window to confirm nothing latent applies later.
@@ -303,6 +349,6 @@ async fn assert_only_security_council_can_send(action: MultisigAction) {
     let bridge = harness.bridge_state().unwrap();
     assert!(
         !bridge.safe_harbour().is_activated(),
-        "safe harbour must stay deactivated when defcon is signed by the wrong role",
+        "safe harbour must stay deactivated when a security-council action is signed by the wrong role",
     );
 }

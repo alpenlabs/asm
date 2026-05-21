@@ -1861,6 +1861,7 @@ name = "strata-asm-proto-admin"
 version = "0.1.0"
 dependencies = [
  "arbitrary",
+ "bitcoin-bosd 0.10.0",
  "ssz",
  "ssz_derive",
  "strata-asm-common",
@@ -1881,6 +1882,7 @@ version = "0.1.0"
 dependencies = [
  "arbitrary",
  "bitcoin",
+ "bitcoin-bosd 0.10.0",
  "hex",
  "ssz",
  "ssz_derive",

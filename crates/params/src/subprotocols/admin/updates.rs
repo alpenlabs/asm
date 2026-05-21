@@ -30,6 +30,8 @@ pub enum UpdateTxType {
     Defcon1 = 40,
     /// Authorize a sweep of bridge funds to the Safe-Harbor after timelock.
     Defcon3 = 41,
+    /// Update the safe harbour destination address on the bridge.
+    SafeHarbourAddressUpdate = 42,
 }
 
 impl UpdateTxType {
@@ -50,7 +52,9 @@ impl UpdateTxType {
             // cannot lock itself out via self-rotation.
             Self::StrataSecurityCouncilMultisigUpdate => Role::StrataAdministrator,
 
-            Self::Defcon1 | Self::Defcon3 => Role::StrataSecurityCouncil,
+            Self::Defcon1 | Self::Defcon3 | Self::SafeHarbourAddressUpdate => {
+                Role::StrataSecurityCouncil
+            }
         }
     }
 
@@ -71,6 +75,7 @@ impl UpdateTxType {
             Self::EeStfVkUpdate => "EE STF VK Update",
             Self::Defcon1 => "Defcon 1",
             Self::Defcon3 => "Defcon 3",
+            Self::SafeHarbourAddressUpdate => "Safe Harbour Address Update",
         }
     }
 }
@@ -91,6 +96,7 @@ impl TryFrom<u8> for UpdateTxType {
             32 => Ok(UpdateTxType::EeStfVkUpdate),
             40 => Ok(UpdateTxType::Defcon1),
             41 => Ok(UpdateTxType::Defcon3),
+            42 => Ok(UpdateTxType::SafeHarbourAddressUpdate),
             invalid => Err(invalid),
         }
     }
@@ -125,6 +131,7 @@ mod tests {
                 Just(UpdateTxType::EeStfVkUpdate),
                 Just(UpdateTxType::Defcon1),
                 Just(UpdateTxType::Defcon3),
+                Just(UpdateTxType::SafeHarbourAddressUpdate),
             ]
             .boxed()
         }

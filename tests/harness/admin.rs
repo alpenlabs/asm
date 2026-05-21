@@ -23,6 +23,7 @@ use bitcoin::{
     secp256k1::{PublicKey, Secp256k1, SecretKey},
     BlockHash,
 };
+use bitcoin_bosd::Descriptor;
 use ssz::Encode;
 use strata_asm_common::{AnchorState, Subprotocol};
 use strata_asm_params::{AdministrationInitConfig, ConfirmationDepths, Role};
@@ -31,8 +32,9 @@ use strata_asm_proto_admin_txs::{
     actions::{
         updates::{
             AlpenAdminMultisigUpdate, AsmStfVkUpdate, Defcon1Update, Defcon3Update, EeStfVkUpdate,
-            OlStfVkUpdate, OperatorSetUpdate, SequencerUpdate, StrataAdminMultisigUpdate,
-            StrataSecurityCouncilMultisigUpdate, StrataSeqManagerMultisigUpdate,
+            OlStfVkUpdate, OperatorSetUpdate, SafeHarbourAddressUpdate, SequencerUpdate,
+            StrataAdminMultisigUpdate, StrataSecurityCouncilMultisigUpdate,
+            StrataSeqManagerMultisigUpdate,
         },
         CancelAction, MultisigAction, UpdateAction,
     },
@@ -289,6 +291,13 @@ pub fn defcon3_update() -> MultisigAction {
     MultisigAction::Update(UpdateAction::Defcon3(Defcon3Update))
 }
 
+/// Create a safe harbour address update action.
+pub fn safe_harbour_address_update(address: Descriptor) -> MultisigAction {
+    MultisigAction::Update(UpdateAction::SafeHarbourAddress(
+        SafeHarbourAddressUpdate::new(address),
+    ))
+}
+
 // ============================================================================
 // Test Setup
 // ============================================================================
@@ -336,6 +345,7 @@ pub fn create_test_admin_setup(
             ee_stf_vk_update: confirmation_depth,
             defcon1: confirmation_depth,
             defcon3: confirmation_depth,
+            safe_harbour_address_update: confirmation_depth,
         },
         max_seqno_gap: DEFAULT_MAX_SEQNO_GAP,
     };
