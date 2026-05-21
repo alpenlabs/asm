@@ -40,8 +40,7 @@ mod tests {
             "Strata ASM Administration v1\n\
              Action: Defcon 1 Emergency Sweep\n\
              Authorized By: Strata Security Council\n\
-             Sequence: 42\n\
-             Action Details:",
+             Sequence: 42",
         );
     }
 }

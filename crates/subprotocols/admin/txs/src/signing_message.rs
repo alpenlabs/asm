@@ -25,10 +25,14 @@ impl SigningMessage {
             format!("Action: {}", action.tx_type()),
             format!("Authorized By: {}", action.required_role()),
             format!("Sequence: {seqno}"),
-            "Action Details:".to_string(),
         ];
-        let mut details = IndentedDetails::new(&mut lines);
+        let mut detail_lines = Vec::new();
+        let mut details = IndentedDetails::new(&mut detail_lines);
         action.render_details(&mut details);
+        if !detail_lines.is_empty() {
+            lines.push("Action Details:".to_string());
+            lines.extend(detail_lines);
+        }
         Self(lines.join("\n"))
     }
 
