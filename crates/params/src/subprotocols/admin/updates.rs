@@ -69,8 +69,8 @@ impl UpdateTxType {
             Self::OlStfVkUpdate => "OL STF VK Update",
             Self::AsmStfVkUpdate => "ASM STF VK Update",
             Self::EeStfVkUpdate => "EE STF VK Update",
-            Self::Defcon1 => "Defcon 1 Emergency Sweep",
-            Self::Defcon3 => "Defcon 3 Delayed Sweep",
+            Self::Defcon1 => "Defcon 1",
+            Self::Defcon3 => "Defcon 3",
         }
     }
 }
