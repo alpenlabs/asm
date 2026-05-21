@@ -142,7 +142,7 @@ mod tests {
         #[test]
         fn test_update_tx_type_invalid_values(
             value in (0u8..=255u8).prop_filter("must not be a valid variant", |v| {
-                !matches!(*v, 10 | 11 | 12 | 13 | 20 | 21 | 30 | 31 | 32 | 40 | 41)
+                UpdateTxType::try_from(*v).is_err()
             })
         ) {
             prop_assert!(UpdateTxType::try_from(value).is_err());
