@@ -71,7 +71,7 @@ impl fmt::Display for AdminTxType {
 mod tests {
     use proptest::prelude::*;
 
-    use super::{AdminTxType, UpdateTxType};
+    use super::{AdminTxType, CANCEL_TX_TYPE, UpdateTxType};
 
     impl Arbitrary for AdminTxType {
         type Parameters = ();
@@ -98,7 +98,7 @@ mod tests {
         #[test]
         fn test_admin_tx_type_invalid_values(
             value in (0u8..=255u8).prop_filter("must not be a valid variant", |v| {
-                !matches!(*v, 0 | 10 | 11 | 12 | 13 | 20 | 21 | 30 | 31 | 32)
+                *v != CANCEL_TX_TYPE && UpdateTxType::try_from(*v).is_err()
             })
         ) {
             prop_assert!(AdminTxType::try_from(value).is_err());
