@@ -1,3 +1,5 @@
+use std::fmt::{self, Display, Formatter};
+
 use arbitrary::Arbitrary;
 use bitvec::prelude::*;
 use borsh::{BorshDeserialize, BorshSerialize};
@@ -67,6 +69,15 @@ impl OperatorSelection {
     /// Constructs from a raw [`u32`], as decoded from the wire.
     pub fn from_raw(raw: u32) -> Self {
         Self(raw)
+    }
+}
+
+impl Display for OperatorSelection {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        match self.as_specific() {
+            Some(idx) => write!(f, "specific({idx})"),
+            None => f.write_str("any"),
+        }
     }
 }
 
@@ -364,6 +375,12 @@ mod tests {
     use strata_test_utils_arb::ArbitraryGenerator;
 
     use super::*;
+
+    #[test]
+    fn test_operator_selection_display() {
+        assert_eq!(OperatorSelection::any().to_string(), "any");
+        assert_eq!(OperatorSelection::specific(42).to_string(), "specific(42)");
+    }
 
     #[test]
     fn test_operator_bitmap_new_empty() {
