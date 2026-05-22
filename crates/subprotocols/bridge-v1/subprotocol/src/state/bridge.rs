@@ -1,5 +1,6 @@
 use bitcoin_bosd::Descriptor;
 use ssz_derive::{Decode, Encode};
+use strata_asm_common::logging::info;
 use strata_asm_params::BridgeV1InitConfig;
 use strata_asm_proto_bridge_v1_txs::{deposit::DepositInfo, errors::Mismatch};
 use strata_asm_proto_bridge_v1_types::{
@@ -187,15 +188,36 @@ impl BridgeV1State {
         }
 
         let selected_operator = withdrawal_output.selected_operator();
+        let selected_operator_raw = selected_operator.raw();
+        let deposit_idx = deposit.idx();
+        let amount_sat = deposit.amt().to_sat();
         let withdrawal_cmd = WithdrawalCommand::new(withdrawal_output.clone(), self.operator_fee);
 
-        self.assignments.add_new_assignment(
+        let result = self.assignments.add_new_assignment(
             deposit,
             withdrawal_cmd,
             self.operators.current_multisig(),
             l1_block,
             selected_operator,
-        )
+        );
+
+        if result.is_ok() {
+            let assignment = self
+                .assignments
+                .get_assignment(deposit_idx)
+                .expect("assignment must exist after successful insertion");
+            info!(
+                deposit_idx,
+                assignee = assignment.current_assignee(),
+                amount_sat,
+                fulfillment_deadline = assignment.fulfillment_deadline(),
+                selected_operator_raw,
+                selected_operator = %selected_operator,
+                "Created withdrawal assignment",
+            );
+        }
+
+        result
     }
 
     /// Decomposes a batch withdrawal into N individual assignments.
@@ -258,8 +280,23 @@ impl BridgeV1State {
         &mut self,
         current_block: &L1BlockCommitment,
     ) -> Result<Vec<u32>, WithdrawalCommandError> {
-        self.assignments
-            .reassign_expired_assignments(self.operators.current_multisig(), current_block)
+        let reassigned_deposits = self
+            .assignments
+            .reassign_expired_assignments(self.operators.current_multisig(), current_block)?;
+
+        for deposit_idx in &reassigned_deposits {
+            if let Some(assignment) = self.assignments.get_assignment(*deposit_idx) {
+                info!(
+                    deposit_idx,
+                    assignee = assignment.current_assignee(),
+                    fulfillment_deadline = assignment.fulfillment_deadline(),
+                    l1_height = current_block.height(),
+                    "Reassigned expired withdrawal assignment",
+                );
+            }
+        }
+
+        Ok(reassigned_deposits)
     }
 
     /// Removes an assignment by its deposit index.
