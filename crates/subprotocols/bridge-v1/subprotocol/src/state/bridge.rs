@@ -105,9 +105,9 @@ impl BridgeV1State {
         &self.safe_harbour
     }
 
-    /// Sets the safe harbour activation flag.
-    pub fn set_safe_harbour_activated(&mut self, activated: bool) {
-        self.safe_harbour.set_activated(activated);
+    /// Activates the safe harbour.
+    pub fn activate_safe_harbour(&mut self) {
+        self.safe_harbour.set_activated(true);
     }
 
     /// Sets the safe harbour activation flag.
