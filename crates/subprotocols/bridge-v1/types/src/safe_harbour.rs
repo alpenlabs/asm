@@ -8,15 +8,18 @@
 //! is rejected so bridge nodes always observe a single destination.
 
 use arbitrary::Arbitrary;
+#[cfg(feature = "arbitrary")]
+use bitcoin::secp256k1::{Keypair, SECP256K1, SecretKey};
 use bitcoin_bosd::{Descriptor, DescriptorType};
 use serde::{Deserialize, Serialize};
 use ssz::{Decode as SszDecode, DecodeError};
 use ssz_derive::{Decode, Encode};
 /// A safe harbour [`Descriptor`] restricted to taproot (P2TR) outputs.
 ///
-/// Constructible only via [`SafeHarbourAddress::new`]. Both [`Deserialize`]
-/// and [`SszDecode`] re-apply the P2TR check so the invariant cannot be
-/// bypassed by supplying arbitrary wire bytes.
+/// Constructible only via [`SafeHarbourAddress::new`]. Deserialization, SSZ
+/// decoding, and the `arbitrary`-gated [`Arbitrary`] impl all enforce the
+/// P2TR check so the invariant cannot be bypassed by supplying arbitrary
+/// wire bytes.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Encode)]
 pub struct SafeHarbourAddress(Descriptor);
 
@@ -52,6 +55,28 @@ impl<'de> Deserialize<'de> for SafeHarbourAddress {
         SafeHarbourAddress::new(descriptor).ok_or_else(|| {
             serde::de::Error::custom("safe harbour address must be a P2TR descriptor")
         })
+    }
+}
+
+#[cfg(feature = "arbitrary")]
+impl<'a> Arbitrary<'a> for SafeHarbourAddress {
+    fn arbitrary(u: &mut arbitrary::Unstructured<'a>) -> arbitrary::Result<Self> {
+        // Derive a P2TR descriptor from a fresh secp256k1 keypair so the
+        // x-only pubkey is always on the curve. `SecretKey::from_slice` can
+        // still reject zero / overflow scalars, so retry until it accepts one.
+        let mut secret_bytes = [0u8; 32];
+        u.fill_buffer(&mut secret_bytes)?;
+        let secret_key = loop {
+            match SecretKey::from_slice(&secret_bytes) {
+                Ok(sk) => break sk,
+                Err(_) => u.fill_buffer(&mut secret_bytes)?,
+            }
+        };
+        let keypair = Keypair::from_secret_key(SECP256K1, &secret_key);
+        let (x_only, _parity) = keypair.x_only_public_key();
+        let descriptor = Descriptor::new_p2tr(&x_only.serialize())
+            .expect("x-only pubkey from a valid secp256k1 keypair is always a valid P2TR payload");
+        Ok(SafeHarbourAddress(descriptor))
     }
 }
 
@@ -260,5 +285,27 @@ mod tests {
         let err = serde_json::from_str::<SafeHarbourAddress>(&json)
             .expect_err("non-P2TR descriptor must be rejected");
         assert!(err.to_string().contains("P2TR"));
+    }
+
+    /// The custom `Arbitrary` impl must only ever yield P2TR descriptors,
+    /// since constructing a non-P2TR `SafeHarbourAddress` would violate the
+    /// type invariant that `new`, `Deserialize`, and `SszDecode` enforce.
+    #[cfg(feature = "arbitrary")]
+    #[test]
+    fn safe_harbour_address_arbitrary_is_always_p2tr() {
+        let mut seed = [0u8; 4096];
+        for (i, byte) in seed.iter_mut().enumerate() {
+            *byte = (i as u8).wrapping_mul(37).wrapping_add(13);
+        }
+        let mut u = arbitrary::Unstructured::new(&seed);
+        let mut generated = 0;
+        while !u.is_empty() {
+            let Ok(addr) = SafeHarbourAddress::arbitrary(&mut u) else {
+                break;
+            };
+            assert_eq!(addr.as_descriptor().type_tag(), DescriptorType::P2tr);
+            generated += 1;
+        }
+        assert!(generated > 0, "arbitrary should produce at least one value");
     }
 }

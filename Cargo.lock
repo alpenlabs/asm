@@ -8055,6 +8055,7 @@ name = "strata-asm-proto-bridge-v1-types"
 version = "0.1.0"
 dependencies = [
  "arbitrary",
+ "bitcoin",
  "bitcoin-bosd 0.10.0",
  "bitvec",
  "borsh",
