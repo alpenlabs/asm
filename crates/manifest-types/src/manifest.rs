@@ -56,7 +56,7 @@ impl AsmManifest {
     /// enables creating Merkle inclusion proofs for individual fields (logs,
     /// `wtxids_root`, etc.) when needed.
     pub fn compute_hash(&self) -> AsmManifestHash {
-        let root = TreeHash::<Sha256Hasher>::tree_hash_root(self);
+        let root = TreeHash::tree_hash_root::<Sha256Hasher>(self);
         AsmManifestHash::from(root.0)
     }
 }

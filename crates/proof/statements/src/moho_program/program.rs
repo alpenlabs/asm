@@ -67,7 +67,7 @@ impl MohoProgram for AsmStfProgram {
     }
 
     fn compute_state_commitment(state: &AnchorState) -> InnerStateCommitment {
-        let state_commitment_root = TreeHash::<Sha256Hasher>::tree_hash_root(state);
+        let state_commitment_root = TreeHash::tree_hash_root::<Sha256Hasher>(state);
         InnerStateCommitment::new(state_commitment_root.0)
     }
 

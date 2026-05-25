@@ -202,11 +202,11 @@ impl InputBuilder {
         let parent_state = self.get_moho_state(parent).await?;
 
         let leaves = vec![
-            <_ as TreeHash<TreeSha256Hasher>>::tree_hash_root(&parent_state.inner_state)
+            <_ as TreeHash>::tree_hash_root::<TreeSha256Hasher>(&parent_state.inner_state)
                 .into_inner(),
-            <_ as TreeHash<TreeSha256Hasher>>::tree_hash_root(&parent_state.next_predicate)
+            <_ as TreeHash>::tree_hash_root::<TreeSha256Hasher>(&parent_state.next_predicate)
                 .into_inner(),
-            <_ as TreeHash<TreeSha256Hasher>>::tree_hash_root(&parent_state.export_state)
+            <_ as TreeHash>::tree_hash_root::<TreeSha256Hasher>(&parent_state.export_state)
                 .into_inner(),
             [0u8; 32],
         ];

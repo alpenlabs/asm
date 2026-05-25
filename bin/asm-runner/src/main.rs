@@ -127,7 +127,6 @@ fn init_logging(rt: &Handle, config: &LoggingConfig) {
         log_file_prefix: config.log_file_prefix.as_deref(),
         json_format: config.json_format,
         default_log_prefix: "asm-runner",
-        enable_metrics_layer: config.otlp_url.is_some(),
         extra_filter_directives: &extra_filter_directives,
     });
 }

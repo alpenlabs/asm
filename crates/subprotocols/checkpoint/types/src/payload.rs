@@ -52,7 +52,7 @@ impl OLLog {
 
     /// Computes the hash commitment of this log using SSZ tree hash.
     pub fn compute_hash_commitment(&self) -> Buf32 {
-        let root = TreeHash::<Sha256Hasher>::tree_hash_root(self);
+        let root = TreeHash::tree_hash_root::<Sha256Hasher>(self);
         Buf32::from(root.0)
     }
 }
@@ -101,7 +101,7 @@ impl TerminalHeaderComplement {
 
     /// Computes the SSZ tree hash root of this complement.
     pub fn compute_hash(&self) -> FixedBytes<32> {
-        FixedBytes::<32>::from(TreeHash::<Sha256Hasher>::tree_hash_root(self).0)
+        FixedBytes::<32>::from(TreeHash::tree_hash_root::<Sha256Hasher>(self).0)
     }
 }
 
