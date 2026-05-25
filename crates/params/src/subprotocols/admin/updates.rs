@@ -26,9 +26,9 @@ pub enum UpdateTxType {
     AsmStfVkUpdate = 31,
     /// Update the verifying key for the EE STF.
     EeStfVkUpdate = 32,
-    /// Authorize an immediate sweep of bridge funds to the the Safe-Harbor.
+    /// Authorize an immediate sweep of bridge funds to the Safe-Harbour.
     Defcon1 = 40,
-    /// Authorize a sweep of bridge funds to the Safe-Harbor after timelock.
+    /// Authorize a sweep of bridge funds to the Safe-Harbour after timelock.
     Defcon3 = 41,
     /// Update the safe harbour destination address on the bridge.
     SafeHarbourAddressUpdate = 42,
