@@ -34,7 +34,7 @@ pub enum BridgeIncomingMsg {
 
     /// Defcon signal raised by the admin subprotocol. The bridge must respond by
     /// activating the safe harbour. The admin subprotocol distinguishes between
-    /// Defcon1 (emergency sweep) and Defcon3 (delayed sweep) on the signing
+    /// Defcon1 (immediate sweep) and Defcon3 (delayed sweep) on the signing
     /// surface, but the bridge response is identical so they collapse into one
     /// message here.
     Defcon(DefconPayload),

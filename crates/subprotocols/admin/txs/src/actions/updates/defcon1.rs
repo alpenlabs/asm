@@ -4,7 +4,7 @@ use strata_asm_params::{AdminTxType, UpdateTxType};
 
 use crate::actions::{IndentedDetails, RenderSigningMessage};
 
-/// Defcon 1 emergency sweep authorization.
+/// Defcon 1 immediate sweep authorization.
 ///
 /// Authorized by the
 /// [`Role::StrataSecurityCouncil`](strata_asm_params::Role::StrataSecurityCouncil) to signal the

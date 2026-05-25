@@ -281,7 +281,7 @@ pub fn ee_stf_vk_update(key: PredicateKey) -> MultisigAction {
     MultisigAction::Update(UpdateAction::EeStfVk(EeStfVkUpdate::new(key)))
 }
 
-/// Create a Defcon 1 emergency sweep action.
+/// Create a Defcon 1 immediate sweep action.
 pub fn defcon1_update() -> MultisigAction {
     MultisigAction::Update(UpdateAction::Defcon1(Defcon1Update))
 }
