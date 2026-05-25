@@ -12,6 +12,7 @@
 //! - Defcon1/Defcon3 signed by any other role → rejected, bridge unchanged
 //! - Safe harbour address rotation from the strata administrator → bridge adopts new address
 //! - Safe harbour address rotation signed by any other role → rejected, bridge unchanged
+//! - Safe harbour address rotation after activation → rejected, bridge address unchanged
 
 #![allow(
     unused_crate_dependencies,
@@ -296,6 +297,41 @@ async fn test_safe_harbour_address_update_propagates_to_bridge() {
 async fn test_safe_harbour_address_update_signed_by_non_administrator_rejected() {
     let new_address = Descriptor::new_p2wpkh(&[0xCD; 20]);
     assert_only_required_role_can_send(safe_harbour_address_update(new_address)).await;
+}
+
+/// Once the safe harbour is activated, the address is frozen so bridge nodes always observe
+/// a single destination — a subsequent administrator rotation must be rejected and the
+/// activated address must remain unchanged.
+#[tokio::test(flavor = "multi_thread")]
+async fn test_safe_harbour_address_update_after_activation_rejected() {
+    let (harness, mut ctx) = setup().await;
+
+    let initial = harness.bridge_state().unwrap();
+    let activated_address = initial.safe_harbour().address().clone();
+    assert!(!initial.safe_harbour().is_activated());
+
+    // Activate the safe harbour via Defcon1 (applies in the same block).
+    harness
+        .submit_admin_action(&mut ctx, defcon1_update())
+        .await
+        .unwrap();
+
+    let bridge = harness.bridge_state().unwrap();
+    assert!(bridge.safe_harbour().is_activated());
+
+    // Attempt to rotate the address after activation — the update propagates through the
+    // admin queue and the confirmation delay elapses, but the bridge must reject the change.
+    let new_address = Descriptor::new_p2wpkh(&[0xCD; 20]);
+    assert_ne!(new_address, activated_address);
+    submit_and_activate_action(&harness, &mut ctx, safe_harbour_address_update(new_address)).await;
+
+    let bridge = harness.bridge_state().unwrap();
+    assert!(bridge.safe_harbour().is_activated());
+    assert_eq!(bridge.safe_harbour().address(), &activated_address);
+    assert_eq!(
+        bridge.safe_harbour().active_address(),
+        Some(&activated_address),
+    );
 }
 
 /// Submits a single admin action and mines `CONFIRMATION_DEPTH` blocks so it activates.

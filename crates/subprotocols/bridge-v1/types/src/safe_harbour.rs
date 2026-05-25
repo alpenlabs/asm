@@ -4,14 +4,16 @@
 //! under emergency conditions. Activation (via Defcon signals) is restricted to
 //! the strata security council; address rotation is restricted to the strata
 //! administrator, so the same authority cannot both trigger a sweep and pick
-//! its destination.
+//! its destination. Once activated, the address is frozen — further rotation
+//! is rejected so bridge nodes always observe a single destination.
 
 use arbitrary::Arbitrary;
 use bitcoin_bosd::Descriptor;
 use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 
-/// A safe harbour address with an activation flag.
+/// A safe harbour address with an activation flag. The address is mutable
+/// while deactivated and frozen once activated.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, Arbitrary, Encode, Decode)]
 pub struct SafeHarbour {
     address: Descriptor,
@@ -47,9 +49,18 @@ impl SafeHarbour {
         self.activated = activated;
     }
 
-    /// Updates the address
-    pub fn update_address(&mut self, address: Descriptor) {
-        self.address = address
+    /// Updates the address if the safe harbour is not currently activated.
+    ///
+    /// Returns `true` if the address was updated, `false` if the update was
+    /// rejected because the safe harbour is already activated. The address
+    /// is frozen on activation so bridge nodes always observe a single
+    /// destination.
+    pub fn update_address(&mut self, address: Descriptor) -> bool {
+        if self.activated {
+            return false;
+        }
+        self.address = address;
+        true
     }
 }
 
@@ -89,16 +100,21 @@ mod tests {
     }
 
     #[test]
-    fn update_address_preserves_activation_flag() {
+    fn update_address_when_deactivated_succeeds() {
         let mut sh = SafeHarbour::new(descriptor_a());
-        sh.update_address(descriptor_b());
+        assert!(sh.update_address(descriptor_b()));
         assert_eq!(sh.address(), &descriptor_b());
         assert!(!sh.is_activated());
+    }
 
+    #[test]
+    fn update_address_when_activated_is_rejected() {
+        let mut sh = SafeHarbour::new(descriptor_a());
         sh.set_activated(true);
-        sh.update_address(descriptor_a());
+
+        assert!(!sh.update_address(descriptor_b()));
+        // Address must remain unchanged when the update is rejected.
         assert_eq!(sh.address(), &descriptor_a());
-        // Updating the address must not deactivate an already-active safe harbour.
         assert!(sh.is_activated());
         assert_eq!(sh.active_address(), Some(&descriptor_a()));
     }

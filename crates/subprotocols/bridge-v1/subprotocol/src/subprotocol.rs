@@ -230,13 +230,16 @@ mod tests {
         );
     }
 
-    /// Updating the address after activation must keep the new address active —
-    /// the strata administrator should be able to redirect an already-activated
-    /// safe harbour without re-issuing a defcon signal.
+    /// Once the safe harbour is activated, the address must be frozen so
+    /// bridge nodes see a single sweep destination. Allowing it to change
+    /// mid-sweep would split funds across two addresses with no coherent
+    /// destination for the bridge node to drive the rest of the sweep to.
     #[test]
-    fn process_msgs_update_after_activation_keeps_activated() {
+    fn process_msgs_update_after_activation_is_rejected() {
         let (mut state, _privkeys) = create_test_state();
         let l1ref: L1BlockCommitment = ArbitraryGenerator::new().generate();
+
+        let original_address = state.safe_harbour().address().clone();
 
         let msgs = vec![
             BridgeIncomingMsg::Defcon(DefconPayload::default()),
@@ -245,7 +248,11 @@ mod tests {
         BridgeV1Subproto::process_msgs(&mut state, &msgs, &l1ref);
 
         assert!(state.safe_harbour().is_activated());
-        assert_eq!(state.safe_harbour().address(), &descriptor_b());
-        assert_eq!(state.safe_harbour().active_address(), Some(&descriptor_b()));
+        // Address must be unchanged from before the rejected update.
+        assert_eq!(state.safe_harbour().address(), &original_address);
+        assert_eq!(
+            state.safe_harbour().active_address(),
+            Some(&original_address)
+        );
     }
 }
