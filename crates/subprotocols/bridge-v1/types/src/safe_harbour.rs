@@ -67,16 +67,16 @@ impl<'de> Deserialize<'de> for SafeHarbourAddress {
 impl<'a> Arbitrary<'a> for SafeHarbourAddress {
     fn arbitrary(u: &mut arbitrary::Unstructured<'a>) -> arbitrary::Result<Self> {
         // Derive a P2TR descriptor from a fresh secp256k1 keypair so the
-        // x-only pubkey is always on the curve. `SecretKey::from_slice` can
-        // still reject zero / overflow scalars, so retry until it accepts one.
+        // x-only pubkey is always on the curve. The only realistic rejection
+        // from `SecretKey::from_slice` is the all-zero scalar (overflow is
+        // ~2^-128); patch that one case rather than re-drawing entropy.
         let mut secret_bytes = [0u8; 32];
         u.fill_buffer(&mut secret_bytes)?;
-        let secret_key = loop {
-            match SecretKey::from_slice(&secret_bytes) {
-                Ok(sk) => break sk,
-                Err(_) => u.fill_buffer(&mut secret_bytes)?,
-            }
-        };
+        if secret_bytes.iter().all(|&b| b == 0) {
+            secret_bytes[31] = 1;
+        }
+        let secret_key =
+            SecretKey::from_slice(&secret_bytes).map_err(|_| arbitrary::Error::IncorrectFormat)?;
         let keypair = Keypair::from_secret_key(SECP256K1, &secret_key);
         let (x_only, _parity) = keypair.x_only_public_key();
         let descriptor = Descriptor::new_p2tr(&x_only.serialize())
@@ -309,19 +309,9 @@ mod tests {
     #[cfg(feature = "arbitrary")]
     #[test]
     fn safe_harbour_address_arbitrary_is_always_p2tr() {
-        let mut seed = [0u8; 4096];
-        for (i, byte) in seed.iter_mut().enumerate() {
-            *byte = (i as u8).wrapping_mul(37).wrapping_add(13);
-        }
+        let seed: Vec<u8> = (0..=u8::MAX).collect();
         let mut u = arbitrary::Unstructured::new(&seed);
-        let mut generated = 0;
-        while !u.is_empty() {
-            let Ok(addr) = SafeHarbourAddress::arbitrary(&mut u) else {
-                break;
-            };
-            assert_eq!(addr.as_descriptor().type_tag(), DescriptorType::P2tr);
-            generated += 1;
-        }
-        assert!(generated > 0, "arbitrary should produce at least one value");
+        let addr = SafeHarbourAddress::arbitrary(&mut u).expect("arbitrary safe harbour address");
+        assert_eq!(addr.as_descriptor().type_tag(), DescriptorType::P2tr);
     }
 }
