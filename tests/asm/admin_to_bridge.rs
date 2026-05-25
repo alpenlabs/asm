@@ -7,7 +7,8 @@
 //! - Operator additions → bridge operator table gains new members
 //! - Operator removals → bridge operator table deactivates members
 //! - Combined add/remove → both applied atomically after activation
-//! - Defcon1/Defcon3 from the security council → bridge activates the safe harbour
+//! - Defcon1 from the security council → bridge activates the safe harbour immediately
+//! - Defcon3 from the security council → bridge activates the safe harbour after the timelock
 //! - Defcon1/Defcon3 signed by any other role → rejected, bridge unchanged
 //! - Safe harbour address rotation from the strata administrator → bridge adopts new address
 //! - Safe harbour address rotation signed by any other role → rejected, bridge unchanged
@@ -157,11 +158,13 @@ async fn test_operator_update_does_not_apply_before_activation() {
 // Defcon1 and Defcon3 are the security council's emergency levers: they signal the
 // bridge to activate its safe harbour address. Both updates require the
 // `StrataSecurityCouncil` role — these tests guard both directions of that
-// invariant.
+// invariant. Defcon1 bypasses the confirmation queue and applies in the same block
+// as submission; Defcon3 follows the configured confirmation depth.
 
-/// The bridge safe harbour activates after the security council's Defcon1 update is enacted.
+/// The bridge safe harbour activates in the same block that the security council's Defcon1
+/// update is submitted — Defcon1 has no confirmation delay by definition.
 #[tokio::test(flavor = "multi_thread")]
-async fn test_defcon1_propagates_to_bridge() {
+async fn test_defcon1_propagates_to_bridge_immediately() {
     let (harness, mut ctx) = setup().await;
 
     let initial = harness.bridge_state().unwrap();
@@ -169,7 +172,17 @@ async fn test_defcon1_propagates_to_bridge() {
     assert_eq!(initial.safe_harbour().active_address(), None);
     let configured_address = initial.safe_harbour().address().clone();
 
-    submit_and_activate_action(&harness, &mut ctx, defcon1_update()).await;
+    harness
+        .submit_admin_action(&mut ctx, defcon1_update())
+        .await
+        .unwrap();
+
+    let admin_state = harness.admin_state().unwrap();
+    assert_eq!(
+        admin_state.queued().len(),
+        0,
+        "Defcon1 must bypass the queue and apply immediately",
+    );
 
     let bridge = harness.bridge_state().unwrap();
     assert!(bridge.safe_harbour().is_activated());
@@ -198,14 +211,15 @@ async fn test_defcon3_propagates_to_bridge() {
     );
 }
 
-/// A defcon update remains queued — and the bridge stays in its pre-defcon state — until
-/// the configured confirmation depth elapses.
+/// A Defcon3 update remains queued — and the bridge stays in its pre-defcon state — until
+/// the configured confirmation depth elapses. Defcon1's immediate-apply behavior is
+/// covered by [`test_defcon1_propagates_to_bridge_immediately`].
 #[tokio::test(flavor = "multi_thread")]
-async fn test_defcon1_does_not_apply_before_activation() {
+async fn test_defcon3_does_not_apply_before_activation() {
     let (harness, mut ctx) = setup().await;
 
     harness
-        .submit_admin_action(&mut ctx, defcon1_update())
+        .submit_admin_action(&mut ctx, defcon3_update())
         .await
         .unwrap();
 
@@ -213,7 +227,7 @@ async fn test_defcon1_does_not_apply_before_activation() {
     assert_eq!(
         admin_state.queued().len(),
         1,
-        "Defcon1 should be queued, not applied immediately"
+        "Defcon3 should be queued, not applied immediately"
     );
 
     let bridge = harness.bridge_state().unwrap();

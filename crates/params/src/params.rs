@@ -147,7 +147,6 @@ mod tests {
           "ol_stf_vk_update": 144,
           "asm_stf_vk_update": 144,
           "ee_stf_vk_update": 144,
-          "defcon1": 144,
           "defcon3": 144,
           "safe_harbour_address_update": 144
         },

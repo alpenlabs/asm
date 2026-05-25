@@ -43,7 +43,6 @@ class ConfirmationDepths:
     ol_stf_vk_update: int
     asm_stf_vk_update: int
     ee_stf_vk_update: int
-    defcon1: int
     defcon3: int
     safe_harbour_address_update: int
 
@@ -142,7 +141,6 @@ def build_subprotocols(
                     ol_stf_vk_update=confirmation_depth,
                     asm_stf_vk_update=confirmation_depth,
                     ee_stf_vk_update=confirmation_depth,
-                    defcon1=confirmation_depth,
                     defcon3=confirmation_depth,
                     safe_harbour_address_update=confirmation_depth,
                 ),
