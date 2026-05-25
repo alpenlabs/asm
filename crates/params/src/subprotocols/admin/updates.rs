@@ -110,8 +110,8 @@ impl TryFrom<u8> for UpdateTxType {
             21 => Ok(UpdateTxType::SequencerUpdate),
             30 => Ok(UpdateTxType::AlpenAdminMultisigUpdate),
             31 => Ok(UpdateTxType::EeStfVkUpdate),
-            40 => Ok(UpdateTxType::Defcon1),
-            41 => Ok(UpdateTxType::Defcon3),
+            41 => Ok(UpdateTxType::Defcon1),
+            43 => Ok(UpdateTxType::Defcon3),
             invalid => Err(invalid),
         }
     }
