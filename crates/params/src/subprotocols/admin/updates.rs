@@ -4,34 +4,47 @@ use crate::Role;
 
 /// The set of update transaction types within the Administration subprotocol.
 ///
-/// Discriminants are the on-the-wire SPS-50 byte values.
+/// Discriminants are the on-the-wire SPS-50 byte values. Only uniqueness is
+/// load-bearing, but by convention each authorizing role is assigned its own
+/// decade so the byte alone tells you which multisig must sign:
+///
+/// - `10..=19` — [`Role::StrataAdministrator`]
+/// - `20..=29` — [`Role::StrataSequencerManager`]
+/// - `30..=39` — [`Role::AlpenAdministrator`]
+/// - `40..=49` — [`Role::StrataSecurityCouncil`]
+///
+/// When adding a variant, place it in the band of the role that authorizes it
+/// (see [`UpdateTxType::authorized_role`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[repr(u8)]
 pub enum UpdateTxType {
     /// Update the strata admin multisignature configuration.
     StrataAdminMultisigUpdate = 10,
-    /// Update the strata seq manager multisignature configuration.
-    StrataSeqManagerMultisigUpdate = 11,
-    /// Update the alpen admin multisignature configuration.
-    AlpenAdminMultisigUpdate = 12,
-    /// Update the strata security council multisignature configuration.
-    StrataSecurityCouncilMultisigUpdate = 13,
+    /// Update the verifying key for the OL STF.
+    OlStfVkUpdate = 11,
+    /// Update the verifying key for the ASM STF.
+    AsmStfVkUpdate = 12,
     /// Update the set of authorized operators.
-    OperatorUpdate = 20,
+    OperatorUpdate = 13,
+    /// Update the safe harbour destination address on the bridge.
+    SafeHarbourAddressUpdate = 14,
+    /// Update the strata security council multisignature configuration.
+    StrataSecurityCouncilMultisigUpdate = 15,
+
+    /// Update the strata seq manager multisignature configuration.
+    StrataSeqManagerMultisigUpdate = 20,
     /// Update the sequencer configuration.
     SequencerUpdate = 21,
-    /// Update the verifying key for the OL STF.
-    OlStfVkUpdate = 30,
-    /// Update the verifying key for the ASM STF.
-    AsmStfVkUpdate = 31,
+
+    /// Update the alpen admin multisignature configuration.
+    AlpenAdminMultisigUpdate = 30,
     /// Update the verifying key for the EE STF.
-    EeStfVkUpdate = 32,
+    EeStfVkUpdate = 31,
+
     /// Authorize an immediate sweep of bridge funds to the Safe-Harbour.
-    Defcon1 = 40,
+    Defcon1 = 41,
     /// Authorize a sweep of bridge funds to the Safe-Harbour after timelock.
-    Defcon3 = 41,
-    /// Update the safe harbour destination address on the bridge.
-    SafeHarbourAddressUpdate = 42,
+    Defcon3 = 43,
 }
 
 impl UpdateTxType {
@@ -88,17 +101,17 @@ impl TryFrom<u8> for UpdateTxType {
     fn try_from(value: u8) -> Result<Self, Self::Error> {
         match value {
             10 => Ok(UpdateTxType::StrataAdminMultisigUpdate),
-            11 => Ok(UpdateTxType::StrataSeqManagerMultisigUpdate),
-            12 => Ok(UpdateTxType::AlpenAdminMultisigUpdate),
-            13 => Ok(UpdateTxType::StrataSecurityCouncilMultisigUpdate),
-            20 => Ok(UpdateTxType::OperatorUpdate),
+            11 => Ok(UpdateTxType::OlStfVkUpdate),
+            12 => Ok(UpdateTxType::AsmStfVkUpdate),
+            13 => Ok(UpdateTxType::OperatorUpdate),
+            14 => Ok(UpdateTxType::SafeHarbourAddressUpdate),
+            15 => Ok(UpdateTxType::StrataSecurityCouncilMultisigUpdate),
+            20 => Ok(UpdateTxType::StrataSeqManagerMultisigUpdate),
             21 => Ok(UpdateTxType::SequencerUpdate),
-            30 => Ok(UpdateTxType::OlStfVkUpdate),
-            31 => Ok(UpdateTxType::AsmStfVkUpdate),
-            32 => Ok(UpdateTxType::EeStfVkUpdate),
+            30 => Ok(UpdateTxType::AlpenAdminMultisigUpdate),
+            31 => Ok(UpdateTxType::EeStfVkUpdate),
             40 => Ok(UpdateTxType::Defcon1),
             41 => Ok(UpdateTxType::Defcon3),
-            42 => Ok(UpdateTxType::SafeHarbourAddressUpdate),
             invalid => Err(invalid),
         }
     }
