@@ -157,9 +157,9 @@ impl Subprotocol for BridgeV1Subproto {
                     state.apply_operator_set_update(add_members, remove_members);
                 }
 
-                BridgeIncomingMsg::UpdateSafeHarbourAddress(descriptor) => {
+                BridgeIncomingMsg::UpdateSafeHarbourAddress(address) => {
                     info!("Updating the safe harbour address from admin subprotocol");
-                    state.update_safe_harbour_address(descriptor.clone());
+                    state.update_safe_harbour_address(address.clone());
                 }
 
                 BridgeIncomingMsg::Defcon(_) => {
@@ -173,22 +173,14 @@ impl Subprotocol for BridgeV1Subproto {
 
 #[cfg(test)]
 mod tests {
-    use bitcoin_bosd::Descriptor;
     use strata_asm_common::Subprotocol;
     use strata_asm_proto_bridge_v1_msgs::{BridgeIncomingMsg, DefconPayload};
+    use strata_asm_proto_bridge_v1_types::SafeHarbourAddress;
     use strata_identifiers::L1BlockCommitment;
     use strata_test_utils_arb::ArbitraryGenerator;
 
     use super::BridgeV1Subproto;
     use crate::test_utils::create_test_state;
-
-    fn descriptor_a() -> Descriptor {
-        Descriptor::new_p2wpkh(&[0xAA; 20])
-    }
-
-    fn descriptor_b() -> Descriptor {
-        Descriptor::new_p2wpkh(&[0xBB; 20])
-    }
 
     /// The safe harbour must start deactivated so it has no effect until the
     /// admin subprotocol explicitly triggers a defcon signal.
@@ -204,7 +196,7 @@ mod tests {
         let (mut state, _privkeys) = create_test_state();
         let l1ref: L1BlockCommitment = ArbitraryGenerator::new().generate();
 
-        let new_address = descriptor_a();
+        let new_address: SafeHarbourAddress = ArbitraryGenerator::new().generate();
         let msgs = vec![BridgeIncomingMsg::UpdateSafeHarbourAddress(
             new_address.clone(),
         )];
@@ -241,9 +233,10 @@ mod tests {
 
         let original_address = state.safe_harbour().address().clone();
 
+        let rejected_address: SafeHarbourAddress = ArbitraryGenerator::new().generate();
         let msgs = vec![
             BridgeIncomingMsg::Defcon(DefconPayload::default()),
-            BridgeIncomingMsg::UpdateSafeHarbourAddress(descriptor_b()),
+            BridgeIncomingMsg::UpdateSafeHarbourAddress(rejected_address),
         ];
         BridgeV1Subproto::process_msgs(&mut state, &msgs, &l1ref);
 

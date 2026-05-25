@@ -1,5 +1,5 @@
-use bitcoin_bosd::Descriptor;
 use serde::{Deserialize, Serialize};
+use strata_asm_proto_bridge_v1_types::SafeHarbourAddress;
 use strata_btc_types::BitcoinAmount;
 use strata_crypto::EvenPublicKey;
 
@@ -20,9 +20,9 @@ pub struct BridgeV1InitConfig {
     pub recovery_delay: u16,
     /// Predefined safe harbour address. Deactivated at init; the strata security council
     /// toggles activation (via Defcon signals), and the strata administrator rotates the
-    /// destination descriptor — keeping the sweep trigger and the sweep destination under
+    /// destination address — keeping the sweep trigger and the sweep destination under
     /// separate authorities.
-    pub safe_harbour_address: Descriptor,
+    pub safe_harbour_address: SafeHarbourAddress,
 }
 
 #[cfg(feature = "arbitrary")]

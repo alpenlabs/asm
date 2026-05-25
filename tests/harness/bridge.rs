@@ -43,7 +43,9 @@ use strata_asm_proto_bridge_v1_txs::{
     },
     test_utils::create_test_operators,
 };
-use strata_asm_proto_bridge_v1_types::{OperatorSelection, BRIDGE_GATEWAY_ACCT_SERIAL};
+use strata_asm_proto_bridge_v1_types::{
+    OperatorSelection, SafeHarbourAddress, BRIDGE_GATEWAY_ACCT_SERIAL,
+};
 use strata_asm_proto_checkpoint::{CheckpointState, CheckpointSubprotocol};
 use strata_asm_proto_checkpoint_types::{CheckpointTip, OLLog, SimpleWithdrawalIntentLogData};
 use strata_btc_types::BitcoinAmount;
@@ -508,7 +510,7 @@ pub fn create_test_bridge_setup(num_operators: usize) -> (BridgeV1InitConfig, Br
     let denomination = BitcoinAmount::from_sat(1_000_000);
     let recovery_delay = 1008;
     let operator_fee = BitcoinAmount::from_sat(100_000);
-    let safe_harbour_address: Descriptor = ArbitraryGenerator::new().generate();
+    let safe_harbour_address: SafeHarbourAddress = ArbitraryGenerator::new().generate();
 
     let config = BridgeV1InitConfig {
         operators: pubkeys.clone(),

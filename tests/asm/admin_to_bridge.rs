@@ -19,7 +19,6 @@
     reason = "test dependencies shared across test suite"
 )]
 
-use bitcoin_bosd::Descriptor;
 use harness::{
     admin::{
         create_test_admin_setup, defcon1_update, defcon3_update, operator_set_update,
@@ -32,7 +31,9 @@ use integration_tests::harness;
 use strata_asm_params::Role;
 use strata_asm_proto_admin_txs::actions::MultisigAction;
 use strata_asm_proto_bridge_v1_txs::test_utils::create_test_operators;
+use strata_asm_proto_bridge_v1_types::SafeHarbourAddress;
 use strata_crypto::EvenPublicKey;
+use strata_test_utils_arb::ArbitraryGenerator;
 
 const CONFIRMATION_DEPTH: u16 = 2;
 const NUM_INITIAL_OPERATORS: usize = 3;
@@ -274,7 +275,7 @@ async fn test_safe_harbour_address_update_propagates_to_bridge() {
     let initial_address = initial.safe_harbour().address().clone();
     assert!(!initial.safe_harbour().is_activated());
 
-    let new_address = Descriptor::new_p2wpkh(&[0xCD; 20]);
+    let new_address: SafeHarbourAddress = ArbitraryGenerator::new().generate();
     assert_ne!(new_address, initial_address);
 
     submit_and_activate_action(
@@ -295,7 +296,7 @@ async fn test_safe_harbour_address_update_propagates_to_bridge() {
 /// administrator instead of the security council.
 #[tokio::test(flavor = "multi_thread")]
 async fn test_safe_harbour_address_update_signed_by_non_administrator_rejected() {
-    let new_address = Descriptor::new_p2wpkh(&[0xCD; 20]);
+    let new_address: SafeHarbourAddress = ArbitraryGenerator::new().generate();
     assert_only_required_role_can_send(safe_harbour_address_update(new_address)).await;
 }
 
@@ -321,7 +322,7 @@ async fn test_safe_harbour_address_update_after_activation_rejected() {
 
     // Attempt to rotate the address after activation — the update propagates through the
     // admin queue and the confirmation delay elapses, but the bridge must reject the change.
-    let new_address = Descriptor::new_p2wpkh(&[0xCD; 20]);
+    let new_address: SafeHarbourAddress = ArbitraryGenerator::new().generate();
     assert_ne!(new_address, activated_address);
     submit_and_activate_action(&harness, &mut ctx, safe_harbour_address_update(new_address)).await;
 

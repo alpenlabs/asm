@@ -6,11 +6,10 @@
 
 use std::any::Any;
 
-use bitcoin_bosd::Descriptor;
 use ssz_derive::{Decode, Encode};
 use strata_asm_common::{InterprotoMsg, SubprotocolId};
 use strata_asm_proto_bridge_v1_txs::BRIDGE_V1_SUBPROTOCOL_ID;
-use strata_asm_proto_bridge_v1_types::{OperatorIdx, WithdrawOutput};
+use strata_asm_proto_bridge_v1_types::{OperatorIdx, SafeHarbourAddress, WithdrawOutput};
 use strata_crypto::EvenPublicKey;
 
 /// Incoming message types received from other subprotocols.
@@ -29,8 +28,8 @@ pub enum BridgeIncomingMsg {
     UpdateOperatorSet(UpdateOperatorSetPayload),
 
     /// Emitted by the admin subprotocol to update the safe harbour destination
-    /// descriptor.
-    UpdateSafeHarbourAddress(Descriptor),
+    /// address.
+    UpdateSafeHarbourAddress(SafeHarbourAddress),
 
     /// Defcon signal raised by the admin subprotocol. The bridge must respond by
     /// activating the safe harbour. The admin subprotocol distinguishes between

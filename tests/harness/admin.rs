@@ -23,7 +23,6 @@ use bitcoin::{
     secp256k1::{PublicKey, Secp256k1, SecretKey},
     BlockHash,
 };
-use bitcoin_bosd::Descriptor;
 use ssz::Encode;
 use strata_asm_common::{AnchorState, Subprotocol};
 use strata_asm_params::{AdministrationInitConfig, ConfirmationDepths, Role};
@@ -41,6 +40,7 @@ use strata_asm_proto_admin_txs::{
     parser::SignedPayload,
     test_utils::create_signature_set,
 };
+use strata_asm_proto_bridge_v1_types::SafeHarbourAddress;
 use strata_crypto::{
     keys::compressed::CompressedPublicKey,
     threshold_signature::{ThresholdConfig, ThresholdConfigUpdate},
@@ -292,7 +292,7 @@ pub fn defcon3_update() -> MultisigAction {
 }
 
 /// Create a safe harbour address update action.
-pub fn safe_harbour_address_update(address: Descriptor) -> MultisigAction {
+pub fn safe_harbour_address_update(address: SafeHarbourAddress) -> MultisigAction {
     MultisigAction::Update(UpdateAction::SafeHarbourAddress(
         SafeHarbourAddressUpdate::new(address),
     ))

@@ -7,11 +7,12 @@
 //! its destination. Once activated, the address is frozen — further rotation
 //! is rejected so bridge nodes always observe a single destination.
 
+#[cfg(feature = "arbitrary")]
 use arbitrary::Arbitrary;
 #[cfg(feature = "arbitrary")]
 use bitcoin::secp256k1::{Keypair, SECP256K1, SecretKey};
 use bitcoin_bosd::{Descriptor, DescriptorType};
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize, de::Error as _};
 use ssz::{Decode as SszDecode, DecodeError};
 use ssz_derive::{Decode, Encode};
 /// A safe harbour [`Descriptor`] restricted to taproot (P2TR) outputs.
@@ -44,6 +45,11 @@ impl SafeHarbourAddress {
     pub fn as_descriptor(&self) -> &Descriptor {
         &self.0
     }
+
+    /// Consumes the wrapper and returns the underlying P2TR descriptor.
+    pub fn into_descriptor(self) -> Descriptor {
+        self.0
+    }
 }
 
 impl<'de> Deserialize<'de> for SafeHarbourAddress {
@@ -52,9 +58,8 @@ impl<'de> Deserialize<'de> for SafeHarbourAddress {
         D: serde::Deserializer<'de>,
     {
         let SafeHarbourAddressRaw(descriptor) = SafeHarbourAddressRaw::deserialize(deserializer)?;
-        SafeHarbourAddress::new(descriptor).ok_or_else(|| {
-            serde::de::Error::custom("safe harbour address must be a P2TR descriptor")
-        })
+        SafeHarbourAddress::new(descriptor)
+            .ok_or_else(|| D::Error::custom("safe harbour address must be a P2TR descriptor"))
     }
 }
 
@@ -99,15 +104,16 @@ impl SszDecode for SafeHarbourAddress {
 
 /// A safe harbour address with an activation flag. The address is mutable
 /// while deactivated and frozen once activated.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, Arbitrary, Encode, Decode)]
+#[cfg_attr(feature = "arbitrary", derive(Arbitrary))]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, Encode, Decode)]
 pub struct SafeHarbour {
-    address: Descriptor,
+    address: SafeHarbourAddress,
     activated: bool,
 }
 
 impl SafeHarbour {
     /// Creates a new deactivated safe harbour for the given address.
-    pub fn new(address: Descriptor) -> Self {
+    pub fn new(address: SafeHarbourAddress) -> Self {
         Self {
             address,
             activated: false,
@@ -115,12 +121,12 @@ impl SafeHarbour {
     }
 
     /// Returns the configured safe harbour address.
-    pub fn address(&self) -> &Descriptor {
+    pub fn address(&self) -> &SafeHarbourAddress {
         &self.address
     }
 
     /// Returns `Some(&address)` when activated, otherwise `None`.
-    pub fn active_address(&self) -> Option<&Descriptor> {
+    pub fn active_address(&self) -> Option<&SafeHarbourAddress> {
         self.activated.then_some(&self.address)
     }
 
@@ -140,7 +146,7 @@ impl SafeHarbour {
     /// rejected because the safe harbour is already activated. The address
     /// is frozen on activation so bridge nodes always observe a single
     /// destination.
-    pub fn update_address(&mut self, address: Descriptor) -> bool {
+    pub fn update_address(&mut self, address: SafeHarbourAddress) -> bool {
         if self.activated {
             return false;
         }
@@ -155,29 +161,49 @@ mod tests {
 
     use super::*;
 
-    fn descriptor_a() -> Descriptor {
+    fn non_p2tr_descriptor() -> Descriptor {
         Descriptor::new_p2wpkh(&[0xAA; 20])
     }
 
-    fn descriptor_b() -> Descriptor {
-        Descriptor::new_p2wpkh(&[0xBB; 20])
+    fn p2tr_descriptor_a() -> Descriptor {
+        // x-only public key for the generator point G.
+        let payload = [
+            0x79, 0xBE, 0x66, 0x7E, 0xF9, 0xDC, 0xBB, 0xAC, 0x55, 0xA0, 0x62, 0x95, 0xCE, 0x87,
+            0x0B, 0x07, 0x02, 0x9B, 0xFC, 0xDB, 0x2D, 0xCE, 0x28, 0xD9, 0x59, 0xF2, 0x81, 0x5B,
+            0x16, 0xF8, 0x17, 0x98,
+        ];
+        Descriptor::new_p2tr(&payload).expect("valid x-only public key")
+    }
+
+    fn p2tr_descriptor_b() -> Descriptor {
+        // `[2u8; 32]` happens to be a valid x-only pubkey on secp256k1; see
+        // the bitcoin-bosd `Descriptor::new_p2tr` doctest.
+        Descriptor::new_p2tr(&[2u8; 32]).expect("valid x-only public key")
+    }
+
+    fn safe_harbour_address_a() -> SafeHarbourAddress {
+        SafeHarbourAddress::new(p2tr_descriptor_a()).expect("p2tr accepted")
+    }
+
+    fn safe_harbour_address_b() -> SafeHarbourAddress {
+        SafeHarbourAddress::new(p2tr_descriptor_b()).expect("p2tr accepted")
     }
 
     #[test]
     fn new_is_deactivated() {
-        let sh = SafeHarbour::new(descriptor_a());
+        let sh = SafeHarbour::new(safe_harbour_address_a());
         assert!(!sh.is_activated());
-        assert_eq!(sh.address(), &descriptor_a());
+        assert_eq!(sh.address(), &safe_harbour_address_a());
         assert_eq!(sh.active_address(), None);
     }
 
     #[test]
     fn set_activated_toggles_flag_and_active_address() {
-        let mut sh = SafeHarbour::new(descriptor_a());
+        let mut sh = SafeHarbour::new(safe_harbour_address_a());
 
         sh.set_activated(true);
         assert!(sh.is_activated());
-        assert_eq!(sh.active_address(), Some(&descriptor_a()));
+        assert_eq!(sh.active_address(), Some(&safe_harbour_address_a()));
 
         sh.set_activated(false);
         assert!(!sh.is_activated());
@@ -186,27 +212,27 @@ mod tests {
 
     #[test]
     fn update_address_when_deactivated_succeeds() {
-        let mut sh = SafeHarbour::new(descriptor_a());
-        assert!(sh.update_address(descriptor_b()));
-        assert_eq!(sh.address(), &descriptor_b());
+        let mut sh = SafeHarbour::new(safe_harbour_address_a());
+        assert!(sh.update_address(safe_harbour_address_b()));
+        assert_eq!(sh.address(), &safe_harbour_address_b());
         assert!(!sh.is_activated());
     }
 
     #[test]
     fn update_address_when_activated_is_rejected() {
-        let mut sh = SafeHarbour::new(descriptor_a());
+        let mut sh = SafeHarbour::new(safe_harbour_address_a());
         sh.set_activated(true);
 
-        assert!(!sh.update_address(descriptor_b()));
+        assert!(!sh.update_address(safe_harbour_address_b()));
         // Address must remain unchanged when the update is rejected.
-        assert_eq!(sh.address(), &descriptor_a());
+        assert_eq!(sh.address(), &safe_harbour_address_a());
         assert!(sh.is_activated());
-        assert_eq!(sh.active_address(), Some(&descriptor_a()));
+        assert_eq!(sh.active_address(), Some(&safe_harbour_address_a()));
     }
 
     #[test]
     fn ssz_roundtrip() {
-        let mut sh = SafeHarbour::new(descriptor_a());
+        let mut sh = SafeHarbour::new(safe_harbour_address_a());
         sh.set_activated(true);
         let bytes = sh.as_ssz_bytes();
         let decoded = SafeHarbour::from_ssz_bytes(&bytes).expect("ssz decode");
@@ -218,7 +244,7 @@ mod tests {
     /// consume.
     #[test]
     fn json_serde_roundtrip() {
-        let mut sh = SafeHarbour::new(descriptor_a());
+        let mut sh = SafeHarbour::new(safe_harbour_address_a());
         sh.set_activated(true);
         let json = serde_json::to_string(&sh).expect("serialize");
         let decoded: SafeHarbour = serde_json::from_str(&json).expect("deserialize");
@@ -227,30 +253,20 @@ mod tests {
         assert!(json.contains("\"address\""));
     }
 
-    fn p2tr_descriptor() -> Descriptor {
-        // x-only public key for the generator point G.
-        let payload = [
-            0x79, 0xBE, 0x66, 0x7E, 0xF9, 0xDC, 0xBB, 0xAC, 0x55, 0xA0, 0x62, 0x95, 0xCE, 0x87,
-            0x0B, 0x07, 0x02, 0x9B, 0xFC, 0xDB, 0x2D, 0xCE, 0x28, 0xD9, 0x59, 0xF2, 0x81, 0x5B,
-            0x16, 0xF8, 0x17, 0x98,
-        ];
-        Descriptor::new_p2tr(&payload).expect("valid x-only public key")
-    }
-
     #[test]
     fn safe_harbour_address_rejects_non_p2tr() {
-        assert!(SafeHarbourAddress::new(descriptor_a()).is_none());
+        assert!(SafeHarbourAddress::new(non_p2tr_descriptor()).is_none());
     }
 
     #[test]
     fn safe_harbour_address_accepts_p2tr() {
-        let addr = SafeHarbourAddress::new(p2tr_descriptor()).expect("p2tr accepted");
-        assert_eq!(addr.as_descriptor(), &p2tr_descriptor());
+        let addr = SafeHarbourAddress::new(p2tr_descriptor_a()).expect("p2tr accepted");
+        assert_eq!(addr.as_descriptor(), &p2tr_descriptor_a());
     }
 
     #[test]
     fn safe_harbour_address_ssz_roundtrip() {
-        let addr = SafeHarbourAddress::new(p2tr_descriptor()).expect("p2tr accepted");
+        let addr = SafeHarbourAddress::new(p2tr_descriptor_a()).expect("p2tr accepted");
         let bytes = addr.as_ssz_bytes();
         let decoded = SafeHarbourAddress::from_ssz_bytes(&bytes).expect("ssz decode");
         assert_eq!(addr, decoded);
@@ -263,7 +279,7 @@ mod tests {
         #[derive(Encode)]
         struct NonP2tr(Descriptor);
 
-        let bytes = NonP2tr(descriptor_a()).as_ssz_bytes();
+        let bytes = NonP2tr(non_p2tr_descriptor()).as_ssz_bytes();
         let err = SafeHarbourAddress::from_ssz_bytes(&bytes)
             .expect_err("non-P2TR descriptor must be rejected");
         assert!(matches!(err, ssz::DecodeError::BytesInvalid(_)));
@@ -271,7 +287,7 @@ mod tests {
 
     #[test]
     fn safe_harbour_address_json_roundtrip() {
-        let addr = SafeHarbourAddress::new(p2tr_descriptor()).expect("p2tr accepted");
+        let addr = SafeHarbourAddress::new(p2tr_descriptor_a()).expect("p2tr accepted");
         let json = serde_json::to_string(&addr).expect("serialize");
         let decoded: SafeHarbourAddress = serde_json::from_str(&json).expect("deserialize");
         assert_eq!(addr, decoded);
@@ -281,7 +297,7 @@ mod tests {
     /// preserving the invariant against untrusted wire input.
     #[test]
     fn safe_harbour_address_json_rejects_non_p2tr() {
-        let json = serde_json::to_string(&descriptor_a()).expect("serialize");
+        let json = serde_json::to_string(&non_p2tr_descriptor()).expect("serialize");
         let err = serde_json::from_str::<SafeHarbourAddress>(&json)
             .expect_err("non-P2TR descriptor must be rejected");
         assert!(err.to_string().contains("P2TR"));

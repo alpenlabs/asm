@@ -1,10 +1,9 @@
-use bitcoin_bosd::Descriptor;
 use ssz_derive::{Decode, Encode};
 use strata_asm_common::logging::{info, warn};
 use strata_asm_params::BridgeV1InitConfig;
 use strata_asm_proto_bridge_v1_txs::{deposit::DepositInfo, errors::Mismatch};
 use strata_asm_proto_bridge_v1_types::{
-    OperatorIdx, SafeHarbour, WithdrawOutput, WithdrawalCommand,
+    OperatorIdx, SafeHarbour, SafeHarbourAddress, WithdrawOutput, WithdrawalCommand,
 };
 use strata_btc_types::BitcoinAmount;
 use strata_identifiers::L1BlockCommitment;
@@ -112,7 +111,7 @@ impl BridgeV1State {
 
     /// Updates the safe harbour address. Returns `false` if the safe harbour
     /// is already activated and the update was rejected.
-    pub fn update_safe_harbour_address(&mut self, new_address: Descriptor) -> bool {
+    pub fn update_safe_harbour_address(&mut self, new_address: SafeHarbourAddress) -> bool {
         let updated = self.safe_harbour.update_address(new_address);
         if !updated {
             warn!("Safe harbour address update rejected: already activated");

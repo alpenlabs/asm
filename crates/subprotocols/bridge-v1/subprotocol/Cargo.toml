@@ -9,7 +9,6 @@ workspace = true
 [dependencies]
 arbitrary.workspace = true
 bitcoin.workspace = true
-bitcoin-bosd.workspace = true
 rand_chacha.workspace = true
 serde.workspace = true
 ssz.workspace = true
@@ -30,6 +29,9 @@ strata-identifiers.workspace = true
 
 [dev-dependencies]
 bitcoin-bosd.workspace = true
+strata-asm-proto-bridge-v1-types = { workspace = true, features = [
+  "arbitrary",
+] }
 strata-test-utils-arb.workspace = true
 strata-asm-proto-bridge-v1-txs = { workspace = true, features = ["test-utils"] }
 proptest.workspace = true

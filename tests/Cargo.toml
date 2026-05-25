@@ -19,7 +19,9 @@ strata-asm-proto-admin.workspace = true
 strata-asm-proto-admin-txs = { workspace = true, features = ["test-utils"] }
 strata-asm-proto-bridge-v1.workspace = true
 strata-asm-proto-bridge-v1-txs = { workspace = true, features = ["test-utils"] }
-strata-asm-proto-bridge-v1-types.workspace = true
+strata-asm-proto-bridge-v1-types = { workspace = true, features = [
+  "arbitrary",
+] }
 strata-asm-proto-checkpoint.workspace = true
 strata-asm-proto-checkpoint-types.workspace = true
 strata-asm-spec.workspace = true

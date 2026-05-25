@@ -1,4 +1,3 @@
-use bitcoin_bosd::Descriptor;
 use strata_asm_common::{
     AsmLogEntry, MsgRelayer,
     logging::{debug, error, info},
@@ -10,6 +9,7 @@ use strata_asm_proto_admin_txs::{
     parser::SignedPayload,
 };
 use strata_asm_proto_bridge_v1_msgs::{BridgeIncomingMsg, DefconPayload, UpdateOperatorSetPayload};
+use strata_asm_proto_bridge_v1_types::SafeHarbourAddress;
 use strata_asm_proto_checkpoint_msgs::CheckpointIncomingMsg;
 use strata_crypto::threshold_signature::ThresholdConfigUpdate;
 use strata_identifiers::{AccountSerial, Buf32, L1Height, SYSTEM_RESERVED_ACCTS};
@@ -228,7 +228,10 @@ fn relay_bridge_defcon(relayer: &mut impl MsgRelayer) {
     info!("Forwarded Defcon signal to bridge subprotocol");
 }
 
-fn relay_bridge_safe_harbour_address_update(relayer: &mut impl MsgRelayer, address: Descriptor) {
+fn relay_bridge_safe_harbour_address_update(
+    relayer: &mut impl MsgRelayer,
+    address: SafeHarbourAddress,
+) {
     debug!(?address, "New safe harbour address");
     relayer.relay_msg(&BridgeIncomingMsg::UpdateSafeHarbourAddress(address));
     info!("Forwarded safe harbour address update to bridge subprotocol");
@@ -239,7 +242,6 @@ mod tests {
     use std::{any::Any, num::NonZero};
 
     use bitcoin::secp256k1::{PublicKey, Secp256k1, SecretKey};
-    use bitcoin_bosd::Descriptor;
     use rand::{rngs::OsRng, seq::SliceRandom, thread_rng};
     use strata_asm_common::{AsmLogEntry, InterprotoMsg, MsgRelayer};
     use strata_asm_logs::AsmStfUpdate;
@@ -256,6 +258,7 @@ mod tests {
         test_utils::create_signature_set,
     };
     use strata_asm_proto_bridge_v1_msgs::BridgeIncomingMsg;
+    use strata_asm_proto_bridge_v1_types::SafeHarbourAddress;
     use strata_asm_proto_checkpoint_msgs::CheckpointIncomingMsg;
     use strata_crypto::{
         keys::compressed::CompressedPublicKey, threshold_signature::ThresholdConfig,
@@ -661,9 +664,9 @@ mod tests {
         let mut state = AdministrationSubprotoState::new(&params);
         let mut relayer = MockRelayer::<BridgeIncomingMsg>::new();
 
-        let new_address = Descriptor::new_p2wpkh(&[0xCD; 20]);
-        let update =
-            UpdateAction::SafeHarbourAddress(SafeHarbourAddressUpdate::new(new_address.clone()));
+        let new_address: SafeHarbourAddress = ArbitraryGenerator::new().generate();
+        let expected_address = new_address.clone();
+        let update = UpdateAction::SafeHarbourAddress(SafeHarbourAddressUpdate::new(new_address));
         let update_id = state.next_update_id();
         let activation_height = 42;
         state.enqueue(QueuedUpdate::new(update_id, update, activation_height));
@@ -676,7 +679,7 @@ mod tests {
         assert!(
             matches!(
                 bridge_msgs.first(),
-                Some(BridgeIncomingMsg::UpdateSafeHarbourAddress(addr)) if addr == &new_address
+                Some(BridgeIncomingMsg::UpdateSafeHarbourAddress(addr)) if addr == &expected_address
             ),
             "expected UpdateSafeHarbourAddress message to bridge, got {:?}",
             bridge_msgs.first()

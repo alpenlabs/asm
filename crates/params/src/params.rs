@@ -170,7 +170,7 @@ mod tests {
         "assignment_duration": 0,
         "operator_fee": 0,
         "recovery_delay": 0,
-        "safe_harbour_address": "03671041727b982843f7e3db4669c2f542e05096fb"
+        "safe_harbour_address": "0479be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"
       }
     }
   ]
