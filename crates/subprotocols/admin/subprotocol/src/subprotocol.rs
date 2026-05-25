@@ -50,8 +50,10 @@ impl Subprotocol for AdministrationSubprotocol {
     ) {
         let current_height = l1ref.height();
 
-        // Phase 1: Execute any pending updates that have reached their activation height
-        handle_pending_updates(state, relayer, current_height);
+        // Phase 1: Execute any pending updates that have reached their activation height.
+        // These updates were queued in earlier blocks, so their inter-protocol messages must
+        // affect later subprotocol transaction processing in this activation block.
+        handle_pending_updates(state, relayer, current_height, l1ref);
 
         // Phase 2: Process incoming administration transactions
         for tx in txs {

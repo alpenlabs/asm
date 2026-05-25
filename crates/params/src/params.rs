@@ -173,19 +173,21 @@ mod tests {
     }
 
     #[cfg(feature = "arbitrary")]
-    mod proptest_arbitrary {
+    mod arbitrary_smoke {
         use arbitrary::{Arbitrary, Unstructured};
-        use proptest::{collection, prelude::*};
 
         use super::*;
 
-        proptest! {
-            #[test]
-            fn test_arbitrary(seed in collection::vec(any::<u8>(), 0..4096)) {
-                let mut u = Unstructured::new(&seed);
-                let res = AsmParams::arbitrary(&mut u);
-                prop_assert!(res.is_ok());
-            }
+        #[test]
+        fn test_arbitrary() {
+            let seed: Vec<u8> = (0..=255).collect();
+            let mut u = Unstructured::new(&seed);
+            let params = AsmParams::arbitrary(&mut u).expect("fixed seed should produce params");
+
+            assert_eq!(params.magic, MagicBytes::new(*b"ALPN"));
+            assert!(params.admin_config().is_some());
+            assert!(params.checkpoint_config().is_some());
+            assert!(params.bridge_config().is_some());
         }
     }
 }

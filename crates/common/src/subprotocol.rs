@@ -160,6 +160,15 @@ pub trait MsgRelayer: Any {
     /// Relays a message to the destination subprotocol.
     fn relay_msg(&mut self, m: &dyn InterprotoMsg);
 
+    /// Relays a message to the destination subprotocol and processes it immediately.
+    ///
+    /// Most subprotocol messages are consumed during the finish phase. Subprotocols may call this
+    /// after applying state changes that were queued before the current block's transactions, so
+    /// those newly relayed changes can affect later transaction processing in the same block.
+    fn relay_msg_and_process(&mut self, m: &dyn InterprotoMsg, _l1ref: &L1BlockCommitment) {
+        self.relay_msg(m);
+    }
+
     /// Emits an output log message.
     fn emit_log(&mut self, log: AsmLogEntry);
 
@@ -193,7 +202,7 @@ pub trait SubprotoHandler {
     );
 
     /// Accepts a message.  This is called while processing other subprotocols.
-    /// These should not be processed until we do the finalization.
+    /// These should not be processed until finalization.
     ///
     /// This MUST NOT act on any messages that were accepted before this was
     /// called.
@@ -202,6 +211,9 @@ pub trait SubprotoHandler {
     ///
     /// If an mismatched message type (behind the `dyn`) is provided.
     fn accept_msg(&mut self, msg: &dyn InterprotoMsg);
+
+    /// Processes a single message without adding it to the buffered message queue.
+    fn process_msg(&mut self, msg: &dyn InterprotoMsg, l1ref: &L1BlockCommitment);
 
     /// Processes the buffered messages stored in the handler.
     fn process_buffered_msgs(&mut self, l1ref: &L1BlockCommitment);

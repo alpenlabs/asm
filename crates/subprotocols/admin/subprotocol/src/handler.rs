@@ -1,5 +1,5 @@
 use strata_asm_common::{
-    AsmLogEntry, MsgRelayer,
+    AsmLogEntry, InterprotoMsg, MsgRelayer,
     logging::{debug, error, info},
 };
 use strata_asm_logs::{AsmStfUpdate, EePredicateKeyUpdate};
@@ -11,7 +11,9 @@ use strata_asm_proto_admin_txs::{
 use strata_asm_proto_bridge_v1_msgs::{BridgeIncomingMsg, UpdateOperatorSetPayload};
 use strata_asm_proto_checkpoint_msgs::CheckpointIncomingMsg;
 use strata_crypto::threshold_signature::ThresholdConfigUpdate;
-use strata_identifiers::{AccountSerial, Buf32, L1Height, SYSTEM_RESERVED_ACCTS};
+use strata_identifiers::{
+    AccountSerial, Buf32, L1BlockCommitment, L1Height, SYSTEM_RESERVED_ACCTS,
+};
 use strata_predicate::{PredicateKey, PredicateTypeId};
 
 use crate::{
@@ -30,13 +32,14 @@ pub(crate) fn handle_pending_updates(
     state: &mut AdministrationSubprotoState,
     relayer: &mut impl MsgRelayer,
     current_height: L1Height,
+    l1ref: &L1BlockCommitment,
 ) {
     // Get all the update actions that are ready to be enacted
     let queued_updates = state.process_queued(current_height);
     for queued in queued_updates {
         let (update_id, action) = queued.into_id_and_action();
         let tx_type = action.update_tx_type();
-        handle_update(state, relayer, action);
+        handle_update(state, relayer, action, Some(l1ref));
         info!(%update_id, %tx_type, "handled queued update");
     }
 }
@@ -87,7 +90,7 @@ pub(crate) fn handle_action(
                     state.enqueue(queued_update);
                 }
                 None => {
-                    handle_update(state, relayer, update);
+                    handle_update(state, relayer, update, None);
                 }
             }
 
@@ -130,6 +133,7 @@ fn handle_update(
     state: &mut AdministrationSubprotoState,
     relayer: &mut impl MsgRelayer,
     update: UpdateAction,
+    immediate_l1ref: Option<&L1BlockCommitment>,
 ) {
     match update {
         UpdateAction::StrataAdminMultisig(update) => {
@@ -143,14 +147,14 @@ fn handle_update(
         }
         UpdateAction::OperatorSet(update) => {
             let (add_members, remove_members) = update.into_inner();
-            relay_bridge_operator_set_update(relayer, add_members, remove_members);
+            relay_bridge_operator_set_update(relayer, add_members, remove_members, immediate_l1ref);
         }
         UpdateAction::Sequencer(update) => {
             let new_key = update.into_inner();
-            relay_checkpoint_sequencer_update(relayer, new_key);
+            relay_checkpoint_sequencer_update(relayer, new_key, immediate_l1ref);
         }
         UpdateAction::OlStfVk(update) => {
-            relay_checkpoint_predicate(relayer, update.into_key());
+            relay_checkpoint_predicate(relayer, update.into_key(), immediate_l1ref);
         }
         UpdateAction::AsmStfVk(update) => {
             let log_entry = AsmLogEntry::from_log(&AsmStfUpdate::new(update.into_key()))
@@ -184,20 +188,28 @@ fn relay_alpen_predicate_update(relayer: &mut impl MsgRelayer, key: PredicateKey
     info!(%ALPEN_EE_ACCOUNT_SERIAL, "Emitted EE predicate key update log");
 }
 
-fn relay_checkpoint_sequencer_update(relayer: &mut impl MsgRelayer, new_key: Buf32) {
+fn relay_checkpoint_sequencer_update(
+    relayer: &mut impl MsgRelayer,
+    new_key: Buf32,
+    immediate_l1ref: Option<&L1BlockCommitment>,
+) {
     let msg = CheckpointIncomingMsg::UpdateSequencerKey(PredicateKey::new(
         PredicateTypeId::Bip340Schnorr,
         new_key.0.to_vec(),
     ));
-    relayer.relay_msg(&msg);
+    relay_update_msg(relayer, &msg, immediate_l1ref);
     info!("Forwarded sequencer key update to checkpoint subprotocol");
     debug!(?new_key, "New sequencer key");
 }
 
-fn relay_checkpoint_predicate(relayer: &mut impl MsgRelayer, key: PredicateKey) {
+fn relay_checkpoint_predicate(
+    relayer: &mut impl MsgRelayer,
+    key: PredicateKey,
+    immediate_l1ref: Option<&L1BlockCommitment>,
+) {
     debug!(?key, "New checkpoint predicate");
     let msg = CheckpointIncomingMsg::UpdateCheckpointPredicate(key);
-    relayer.relay_msg(&msg);
+    relay_update_msg(relayer, &msg, immediate_l1ref);
     info!("Forwarded rollup verifying key update to checkpoint subprotocol");
 }
 
@@ -205,14 +217,27 @@ fn relay_bridge_operator_set_update(
     relayer: &mut impl MsgRelayer,
     add_members: Vec<strata_crypto::EvenPublicKey>,
     remove_members: Vec<u32>,
+    immediate_l1ref: Option<&L1BlockCommitment>,
 ) {
     debug!(?add_members, ?remove_members, "Bridge operator set update");
     let msg = BridgeIncomingMsg::UpdateOperatorSet(UpdateOperatorSetPayload {
         add_members,
         remove_members,
     });
-    relayer.relay_msg(&msg);
+    relay_update_msg(relayer, &msg, immediate_l1ref);
     info!("Forwarded operator set update to bridge subprotocol");
+}
+
+fn relay_update_msg(
+    relayer: &mut impl MsgRelayer,
+    msg: &dyn InterprotoMsg,
+    immediate_l1ref: Option<&L1BlockCommitment>,
+) {
+    if let Some(l1ref) = immediate_l1ref {
+        relayer.relay_msg_and_process(msg, l1ref);
+    } else {
+        relayer.relay_msg(msg);
+    }
 }
 
 #[cfg(test)]
@@ -236,6 +261,7 @@ mod tests {
     use strata_crypto::{
         keys::compressed::CompressedPublicKey, threshold_signature::ThresholdConfig,
     };
+    use strata_identifiers::{Buf32, L1BlockCommitment, L1BlockId};
     use strata_predicate::PredicateKey;
     use strata_test_utils_arb::ArbitraryGenerator;
 
@@ -247,6 +273,7 @@ mod tests {
     struct MockRelayer<M> {
         logs: Vec<AsmLogEntry>,
         messages: Vec<M>,
+        processed_messages: Vec<M>,
     }
 
     impl<M> MockRelayer<M> {
@@ -254,11 +281,16 @@ mod tests {
             Self {
                 logs: Vec::new(),
                 messages: Vec::new(),
+                processed_messages: Vec::new(),
             }
         }
 
         fn messages(&self) -> &[M] {
             &self.messages
+        }
+
+        fn processed_messages(&self) -> &[M] {
+            &self.processed_messages
         }
     }
 
@@ -269,6 +301,12 @@ mod tests {
         fn relay_msg(&mut self, m: &dyn InterprotoMsg) {
             if let Some(msg) = m.as_dyn_any().downcast_ref::<M>() {
                 self.messages.push(msg.clone());
+            }
+        }
+
+        fn relay_msg_and_process(&mut self, m: &dyn InterprotoMsg, _l1ref: &L1BlockCommitment) {
+            if let Some(msg) = m.as_dyn_any().downcast_ref::<M>() {
+                self.processed_messages.push(msg.clone());
             }
         }
 
@@ -318,6 +356,10 @@ mod tests {
         };
 
         (config, strata_admin_sks, strata_seq_manager_sks)
+    }
+
+    fn test_l1ref() -> L1BlockCommitment {
+        L1BlockCommitment::new(42, L1BlockId::from(Buf32::from([42u8; 32])))
     }
 
     fn uniform_confirmation_depths(depth: u16) -> ConfirmationDepths {
@@ -534,6 +576,29 @@ mod tests {
     }
 
     #[test]
+    fn test_queued_sequencer_update_processes_checkpoint_msg_immediately() {
+        let (params, _, _) = create_test_params();
+        let mut state = AdministrationSubprotoState::new(&params);
+        let mut relayer = MockRelayer::<CheckpointIncomingMsg>::new();
+
+        let update = UpdateAction::Sequencer(SequencerUpdate::new(Buf32::from([42u8; 32])));
+        let update_id = state.next_update_id();
+        let activation_height = 42;
+        state.enqueue(QueuedUpdate::new(update_id, update, activation_height));
+
+        handle_pending_updates(&mut state, &mut relayer, activation_height, &test_l1ref());
+
+        assert!(state.queued().is_empty());
+        assert!(relayer.messages().is_empty());
+        let checkpoint_msgs = relayer.processed_messages();
+        assert_eq!(checkpoint_msgs.len(), 1);
+        assert!(matches!(
+            checkpoint_msgs[0],
+            CheckpointIncomingMsg::UpdateSequencerKey(_)
+        ));
+    }
+
+    #[test]
     fn test_rollup_verifying_key_update_forwarded_to_checkpoint() {
         let (params, _, _) = create_test_params();
         let mut state = AdministrationSubprotoState::new(&params);
@@ -546,10 +611,11 @@ mod tests {
         let activation_height = 42;
         state.enqueue(QueuedUpdate::new(update_id, update, activation_height));
 
-        handle_pending_updates(&mut state, &mut relayer, activation_height);
+        handle_pending_updates(&mut state, &mut relayer, activation_height, &test_l1ref());
 
         assert!(state.queued().is_empty());
-        let checkpoint_msgs = relayer.messages();
+        assert!(relayer.messages().is_empty());
+        let checkpoint_msgs = relayer.processed_messages();
         assert_eq!(checkpoint_msgs.len(), 1);
         match checkpoint_msgs
             .first()
@@ -575,11 +641,12 @@ mod tests {
         let activation_height = 42;
         state.enqueue(QueuedUpdate::new(update_id, update, activation_height));
 
-        handle_pending_updates(&mut state, &mut relayer, activation_height);
+        handle_pending_updates(&mut state, &mut relayer, activation_height, &test_l1ref());
 
         assert!(state.queued().is_empty());
         // No inter-protocol messages should be sent for ASM updates
         assert!(relayer.messages().is_empty());
+        assert!(relayer.processed_messages().is_empty());
         // Exactly one log should be emitted
         assert_eq!(relayer.logs.len(), 1);
 

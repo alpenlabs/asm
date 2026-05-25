@@ -1,6 +1,6 @@
 //! Subprotocol handler.
 
-use std::{any::Any, collections::BTreeMap, marker};
+use std::{any::Any, collections::BTreeMap, marker, mem, slice};
 
 use strata_asm_common::{
     AsmError, AsmLogEntry, AuxRequestCollector, InterprotoMsg, MsgRelayer, SectionState,
@@ -40,6 +40,14 @@ impl<S: Subprotocol, R: MsgRelayer> SubprotoHandler for HandlerImpl<S, R> {
         self.interproto_msg_buf.push(m.clone());
     }
 
+    fn process_msg(&mut self, msg: &dyn InterprotoMsg, l1ref: &L1BlockCommitment) {
+        let m = msg
+            .as_dyn_any()
+            .downcast_ref::<S::Msg>()
+            .expect("asm: incorrect interproto msg type");
+        S::process_msgs(&mut self.state, slice::from_ref(m), l1ref)
+    }
+
     // TODO(STR-3065): make this just return the aux request
     fn pre_process_txs(&mut self, txs: &[TxInputRef<'_>], collector: &mut AuxRequestCollector) {
         S::pre_process_txs(&self.state, txs, collector);
@@ -62,7 +70,8 @@ impl<S: Subprotocol, R: MsgRelayer> SubprotoHandler for HandlerImpl<S, R> {
 
     fn process_buffered_msgs(&mut self, l1ref: &L1BlockCommitment) {
         // TODO(STR-2416): allow multi rounds of interproto msg passing
-        S::process_msgs(&mut self.state, &self.interproto_msg_buf, l1ref)
+        let msgs = mem::take(&mut self.interproto_msg_buf);
+        S::process_msgs(&mut self.state, &msgs, l1ref)
     }
 
     fn to_section(&self) -> Result<SectionState, AsmError> {
@@ -221,6 +230,13 @@ impl MsgRelayer for SubprotoManager {
             .get_handler_mut(m.id())
             .expect("asm: msg to unloaded subprotocol");
         h.accept_msg(m);
+    }
+
+    fn relay_msg_and_process(&mut self, m: &dyn InterprotoMsg, l1ref: &L1BlockCommitment) {
+        let h = self
+            .get_handler_mut(m.id())
+            .expect("asm: msg to unloaded subprotocol");
+        h.process_msg(m, l1ref);
     }
 
     fn emit_log(&mut self, log: AsmLogEntry) {
