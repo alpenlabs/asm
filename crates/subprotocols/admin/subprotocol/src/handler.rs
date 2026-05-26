@@ -232,7 +232,7 @@ fn relay_bridge_safe_harbour_address_update(
     relayer: &mut impl MsgRelayer,
     address: SafeHarbourAddress,
 ) {
-    debug!(?address, "New safe harbour address");
+    info!(?address, "New safe harbour address");
     relayer.relay_msg(&BridgeIncomingMsg::UpdateSafeHarbourAddress(address));
     info!("Forwarded safe harbour address update to bridge subprotocol");
 }
