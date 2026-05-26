@@ -407,15 +407,19 @@ async fn test_checkpoint_rejected_when_withdrawals_exceed_deposits() {
 /// deposit, each draws an independent ChaCha20 stream even though they share the L1 block.
 ///
 /// Flow:
-/// 1. Submit 4 deposits (indices 0..=3) with a 5-operator notary set.
-/// 2. Submit a single checkpoint containing 4 withdrawal intents, each `OperatorSelection::any()`.
-/// 3. Verify 4 assignments exist and at least 2 distinct operators are represented.
+/// 1. Submit 10 deposits (indices 0..=9) with a 10-operator notary set.
+/// 2. Submit a single checkpoint containing 10 withdrawal intents, each `OperatorSelection::any()`.
+/// 3. Verify 10 assignments exist and at least 2 distinct operators are represented.
+///
+/// Sizing rationale: 10 intents × 10 operators puts the probability of all draws
+/// colliding on a single operator at ~10^-8, so the test stays seed-agnostic without
+/// being flaky.
 #[tokio::test(flavor = "multi_thread")]
 async fn test_multiple_intents_in_one_checkpoint_spread_across_operators() {
     use std::collections::HashSet;
 
     let genesis_l1_height = AsmTestHarnessBuilder::DEFAULT_GENESIS_HEIGHT as u32;
-    let num_operators = 5;
+    let num_operators = 10;
     let (bridge_params, ctx) = create_test_bridge_setup(num_operators);
     let (checkpoint_params, mut checkpoint_harness) =
         create_test_checkpoint_setup(genesis_l1_height);
@@ -431,13 +435,13 @@ async fn test_multiple_intents_in_one_checkpoint_spread_across_operators() {
 
     harness.mine_block(None).await.unwrap();
 
-    let num_deposits = 4u32;
+    let num_deposits = 10u32;
     for i in 0..num_deposits {
         harness.submit_deposit(&ctx, i).await.unwrap();
     }
     harness.mine_block(None).await.unwrap();
 
-    // One checkpoint, four intents, each picking "any" operator.
+    // One checkpoint, ten intents, each picking "any" operator.
     let intents: Vec<(u64, OperatorSelection)> = (0..num_deposits)
         .map(|_| (denomination.to_sat(), OperatorSelection::any()))
         .collect();

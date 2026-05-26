@@ -901,12 +901,14 @@ mod tests {
         let reassign_seed: L1BlockId = arb.generate();
         let l1_block = L1BlockCommitment::new(current_height, reassign_seed);
 
-        // Five active operators shared by every deposit so all assignments draw from the
-        // same eligible pool.
-        let current_active_operators = OperatorBitmap::new_with_size(5, true);
+        // Ten active operators shared by every deposit so all assignments draw from the
+        // same eligible pool. With 10 entries reassigned independently over 10 operators,
+        // the probability of all draws colliding on a single operator is ~10^-8 — well
+        // below any practical flakiness threshold while keeping the test seed-agnostic.
+        let current_active_operators = OperatorBitmap::new_with_size(10, true);
 
         let expired_deadline: L1Height = 100;
-        let num_assignments = 4u32;
+        let num_assignments = 10u32;
         let mut deposit_indices = Vec::new();
 
         for idx in 0..num_assignments {
