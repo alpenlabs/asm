@@ -399,21 +399,21 @@ async fn test_checkpoint_rejected_when_withdrawals_exceed_deposits() {
     );
 }
 
-/// Demonstrates STR-3154: every withdrawal intent in a single checkpoint funnels onto
-/// the same operator when `OperatorSelection::any()` is used.
+/// Multiple `OperatorSelection::any()` withdrawal intents carried by a single checkpoint
+/// must spread across operators rather than all funnel onto one.
 ///
-/// `AssignmentEntry::create_with_random_assignment` re-seeds a fresh `ChaChaRng` from the
-/// L1 block id for each intent. Because every intent in one checkpoint is processed in
-/// the same L1 block, they share the same seed, draw the same `random_index`, and — since
-/// the notary set and `previous_assignees` (empty) are identical — they all land on the
-/// same operator.
+/// `AssignmentEntry::create_with_random_assignment` seeds `ChaChaRng` with the L1 block id
+/// and stream-separates by `deposit_idx`. Because each intent consumes a different oldest
+/// deposit, each draws an independent ChaCha20 stream even though they share the L1 block.
 ///
 /// Flow:
 /// 1. Submit 4 deposits (indices 0..=3) with a 5-operator notary set.
 /// 2. Submit a single checkpoint containing 4 withdrawal intents, each `OperatorSelection::any()`.
-/// 3. Verify 4 assignments exist and every `current_assignee` is identical.
+/// 3. Verify 4 assignments exist and at least 2 distinct operators are represented.
 #[tokio::test(flavor = "multi_thread")]
-async fn test_multiple_intents_in_one_checkpoint_collapse_to_single_operator() {
+async fn test_multiple_intents_in_one_checkpoint_spread_across_operators() {
+    use std::collections::HashSet;
+
     let genesis_l1_height = AsmTestHarnessBuilder::DEFAULT_GENESIS_HEIGHT as u32;
     let num_operators = 5;
     let (bridge_params, ctx) = create_test_bridge_setup(num_operators);
@@ -459,11 +459,10 @@ async fn test_multiple_intents_in_one_checkpoint_collapse_to_single_operator() {
         .iter()
         .map(|a| a.current_assignee())
         .collect();
-    let first = assignees[0];
+    let unique: HashSet<_> = assignees.iter().copied().collect();
     assert!(
-        assignees.iter().all(|a| *a == first),
-        "expected all intents in one checkpoint to collapse onto a single operator \
-         (STR-3154 bug demo), got {:?}",
+        unique.len() > 1,
+        "expected intents in one checkpoint to spread across multiple operators, got {:?}",
         assignees,
     );
 }

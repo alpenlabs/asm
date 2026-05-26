@@ -75,8 +75,10 @@ impl AssignmentEntry {
     /// Creates a new assignment entry by randomly selecting an eligible operator.
     ///
     /// Performs deterministic random selection of an operator from the deposit's notary set,
-    /// filtering by currently active operators. Uses the provided L1 block ID as a seed
-    /// for reproducible operator assignment across nodes.
+    /// filtering by currently active operators. The RNG is keyed by `(L1BlockId, deposit_idx)`
+    /// — the L1 block id seeds `ChaChaRng` and the deposit index sets the ChaCha20 stream id —
+    /// so multiple assignments created in the same block draw from independent streams
+    /// instead of collapsing onto a single operator.
     ///
     /// # Parameters
     ///
@@ -123,9 +125,11 @@ impl AssignmentEntry {
         {
             idx
         } else {
-            // Use ChaChaRng with L1 block ID as seed for deterministic random selection.
+            // Seed with the L1 block id and stream-separate by deposit index so concurrent
+            // assignments in the same block draw from independent ChaCha20 streams.
             let seed_bytes: [u8; 32] = Buf32::from(seed).into();
             let mut rng = ChaChaRng::from_seed(seed_bytes);
+            rng.set_stream(deposit_entry.idx() as u64);
             let random_index = (rng.next_u32() as usize) % active_count;
             eligible_operators
                 .active_indices()
@@ -190,9 +194,11 @@ impl AssignmentEntry {
             .try_set(self.current_assignee, true)
             .map_err(WithdrawalAssignmentError::BitmapError)?;
 
-        // Use ChaChaRng with L1 block ID as seed for deterministic random selection
+        // Seed with the L1 block id and stream-separate by deposit index so concurrent
+        // reassignments in the same block draw from independent ChaCha20 streams.
         let seed_bytes: [u8; 32] = Buf32::from(seed).into();
         let mut rng = ChaChaRng::from_seed(seed_bytes);
+        rng.set_stream(self.deposit_entry.idx() as u64);
 
         // Use the already cached bitmap from DepositEntry instead of converting from Vec
         let mut eligible_operators = filter_eligible_operators(
@@ -876,15 +882,17 @@ mod tests {
         );
     }
 
-    /// Demonstrates STR-3154: every expired assignment funnels onto the same operator.
+    /// Expired assignments reassigned in the same block must spread across operators,
+    /// not collapse onto a single one.
     ///
-    /// `reassign_expired_assignments` passes the same L1 block id as seed to every per-entry
-    /// `reassign` call, and each call builds a fresh `ChaChaRng` from that seed. When the
-    /// expired assignments share a notary set and previous-assignee state, the first
-    /// `rng.next_u32() % active_count` draw is identical for every entry — so they all land
-    /// on the same operator instead of being spread across the eligible set.
+    /// `reassign_expired_assignments` shares the same L1 block id across every per-entry
+    /// `reassign` call. The fix stream-separates the ChaCha20 RNG by `deposit_idx`, so each
+    /// reassignment draws an independent stream even when notary set and previous-assignee
+    /// state coincide.
     #[test]
-    fn test_reassign_expired_assignments_all_land_on_same_operator() {
+    fn test_reassign_expired_assignments_spread_across_operators() {
+        use std::collections::HashSet;
+
         let mut table = AssignmentTable::new(100);
         let mut arb = ArbitraryGenerator::new();
 
@@ -931,11 +939,10 @@ mod tests {
             .map(|idx| table.get_assignment(*idx).unwrap().current_assignee())
             .collect();
 
-        let first = assignees[0];
+        let unique: HashSet<OperatorIdx> = assignees.iter().copied().collect();
         assert!(
-            assignees.iter().all(|a| *a == first),
-            "expected all expired reassignments to collapse onto a single operator \
-             (STR-3154 bug demo), got {:?}",
+            unique.len() > 1,
+            "expected reassigned operators to spread across multiple choices, got {:?}",
             assignees,
         );
     }
