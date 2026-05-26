@@ -2,11 +2,10 @@
 
 use std::marker;
 
-use bitcoin::hashes::Hash;
 use serde::{Deserialize, Serialize};
 use strata_asm_common::AsmSpec;
 use strata_btc_types::BlockHashExt;
-use strata_identifiers::{Buf32, L1BlockCommitment};
+use strata_identifiers::L1BlockCommitment;
 use strata_service::{Response, Service, SyncService};
 use tracing::*;
 
@@ -122,52 +121,6 @@ where
 
     // Drop pivot span guard before next phase
     drop(pivot_span_guard);
-
-    // Special handling for genesis block - its anchor state was created during init
-    // but its manifest wasn't (because Bitcoin block wasn't available yet).
-    // We only store the manifest to L1 (for data consumers) but do NOT append it
-    // to the external MMR. The internal compact MMR in AnchorState is
-    // height-indexed: positions `0..=genesis_height` are prefilled with
-    // sentinel leaves so that the first appended manifest (the block at
-    // `genesis_height + 1`) lands at MMR leaf index `genesis_height + 1`.
-    // Appending the genesis manifest would consume that slot and shift every
-    // subsequent leaf one position past its L1 height.
-    // Idempotency: skip if the genesis manifest already exists in the L1 database.
-    if pivot_block.height() as u64 == genesis_height && !ctx.has_l1_manifest(pivot_block.blkid())? {
-        let genesis_span = info_span!("asm.genesis_manifest",
-            pivot_height = pivot_block.height(),
-            pivot_block = %pivot_block.blkid()
-        );
-        let _genesis_guard = genesis_span.enter();
-        // Fetch the genesis block (should work now since L1 reader processed it)
-        let genesis_block = ctx.get_l1_block(pivot_block.blkid())?;
-
-        // Compute wtxids_root and create manifest
-        let wtxids_root: Buf32 = genesis_block
-            .witness_root()
-            .map(|root| root.as_raw_hash().to_byte_array())
-            .unwrap_or_else(|| {
-                genesis_block
-                    .header
-                    .merkle_root
-                    .as_raw_hash()
-                    .to_byte_array()
-            })
-            .into();
-
-        let genesis_manifest = strata_asm_common::AsmManifest::new(
-            pivot_block.height(),
-            *pivot_block.blkid(),
-            wtxids_root.into(),
-            vec![], /* TODO(STR-2771): we shouldn't require a genesis manifest. The manifest
-                     * should start from the block after genesis. */
-        )
-        .expect("empty genesis manifest is within capacity");
-
-        ctx.store_l1_manifest(genesis_manifest)?;
-
-        info!(%pivot_block, "Created genesis manifest");
-    } // genesis_span drops here
 
     state.update_anchor_state(pivot_anchor.unwrap(), pivot_block);
 

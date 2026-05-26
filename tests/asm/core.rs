@@ -82,6 +82,46 @@ async fn test_single_block_processing() {
     assert_eq!(tip_height, harness.genesis_height + 1);
 }
 
+/// Verifies the worker does not produce or store a manifest for the genesis
+/// block, and that the first stored manifest is for `genesis_height + 1`.
+///
+/// The genesis MMR slot is occupied by the prefill sentinel; appending a
+/// genesis manifest would shift every subsequent leaf one position past its
+/// L1 height and break alignment between the proven and external MMRs.
+#[tokio::test(flavor = "multi_thread")]
+async fn test_genesis_manifest_not_stored() {
+    let harness = AsmTestHarnessBuilder::default()
+        .build()
+        .await
+        .expect("Failed to create test harness");
+
+    // Right after init: no blocks processed, no manifests stored.
+    assert!(
+        harness.get_stored_manifests().is_empty(),
+        "no manifest should be stored before any post-genesis block is processed"
+    );
+
+    // Mine one block on top of genesis and verify exactly one manifest is
+    // stored, at height `genesis_height + 1`.
+    harness
+        .mine_block(None)
+        .await
+        .expect("Failed to mine block");
+
+    let manifests = harness.get_stored_manifests();
+    assert_eq!(
+        manifests.len(),
+        1,
+        "mining one block should produce exactly one stored manifest, got {}",
+        manifests.len()
+    );
+    assert_eq!(
+        manifests[0].height() as u64,
+        harness.genesis_height + 1,
+        "first stored manifest should be for height `genesis_height + 1`"
+    );
+}
+
 /// Verifies ASM worker processes multiple mined blocks.
 #[tokio::test(flavor = "multi_thread")]
 async fn test_multiple_block_processing() {
@@ -170,8 +210,8 @@ async fn test_proven_and_external_mmr_index_alignment() {
 
     // After genesis processing, both MMRs are height-indexed and prefilled
     // with `MMR_PREFILL_LEAF` sentinels for every L1 height `0..=genesis_height`.
-    // The genesis manifest itself is stored for L1 data consumers but NOT
-    // appended (its slot is already the prefill sentinel).
+    // The worker never produces or stores a manifest for the genesis block;
+    // the first real manifest is for the block at `genesis_height + 1`.
     let prefill_count = genesis_height + 1;
     assert_eq!(
         harness.get_mmr_leaf_count() as u64,
@@ -262,20 +302,23 @@ async fn test_proven_and_external_mmr_index_alignment() {
         );
     }
 
-    // Verify the genesis manifest is not appended as a real leaf — its slot
-    // is occupied by the prefill sentinel.
-    if let Some(genesis_mf) = stored_manifests
-        .iter()
-        .find(|m| m.height() as u64 == genesis_height)
-    {
-        let genesis_hash: [u8; 32] = *genesis_mf.compute_hash().as_ref();
-        assert_eq!(
-            external_leaves[genesis_height as usize], sentinel,
-            "genesis slot must hold the prefill sentinel, not the genesis manifest hash"
-        );
-        assert_ne!(
-            external_leaves[genesis_height as usize], genesis_hash,
-            "genesis manifest hash must not appear at the genesis MMR slot"
-        );
-    }
+    // No manifest should ever be stored for the genesis block; the worker
+    // skips genesis entirely and only stores manifests for post-genesis blocks.
+    assert!(
+        stored_manifests
+            .iter()
+            .all(|m| (m.height() as u64) > genesis_height),
+        "no manifest should be stored for genesis (or earlier) heights; \
+         got heights {:?}",
+        stored_manifests
+            .iter()
+            .map(|m| m.height())
+            .collect::<Vec<_>>()
+    );
+
+    // The genesis MMR slot must remain the prefill sentinel.
+    assert_eq!(
+        external_leaves[genesis_height as usize], sentinel,
+        "genesis MMR slot must hold the prefill sentinel"
+    );
 }
