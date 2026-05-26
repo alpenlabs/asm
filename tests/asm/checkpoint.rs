@@ -398,3 +398,72 @@ async fn test_checkpoint_rejected_when_withdrawals_exceed_deposits() {
         "verified_tip epoch should remain 0 when checkpoint is rejected"
     );
 }
+
+/// Demonstrates STR-3154: every withdrawal intent in a single checkpoint funnels onto
+/// the same operator when `OperatorSelection::any()` is used.
+///
+/// `AssignmentEntry::create_with_random_assignment` re-seeds a fresh `ChaChaRng` from the
+/// L1 block id for each intent. Because every intent in one checkpoint is processed in
+/// the same L1 block, they share the same seed, draw the same `random_index`, and — since
+/// the notary set and `previous_assignees` (empty) are identical — they all land on the
+/// same operator.
+///
+/// Flow:
+/// 1. Submit 4 deposits (indices 0..=3) with a 5-operator notary set.
+/// 2. Submit a single checkpoint containing 4 withdrawal intents, each `OperatorSelection::any()`.
+/// 3. Verify 4 assignments exist and every `current_assignee` is identical.
+#[tokio::test(flavor = "multi_thread")]
+async fn test_multiple_intents_in_one_checkpoint_collapse_to_single_operator() {
+    let genesis_l1_height = AsmTestHarnessBuilder::DEFAULT_GENESIS_HEIGHT as u32;
+    let num_operators = 5;
+    let (bridge_params, ctx) = create_test_bridge_setup(num_operators);
+    let (checkpoint_params, mut checkpoint_harness) =
+        create_test_checkpoint_setup(genesis_l1_height);
+    let denomination = ctx.denomination();
+
+    let harness = AsmTestHarnessBuilder::default()
+        .with_bridge_config(bridge_params)
+        .with_checkpoint_config(checkpoint_params)
+        .with_txindex()
+        .build()
+        .await
+        .unwrap();
+
+    harness.mine_block(None).await.unwrap();
+
+    let num_deposits = 4u32;
+    for i in 0..num_deposits {
+        harness.submit_deposit(&ctx, i).await.unwrap();
+    }
+    harness.mine_block(None).await.unwrap();
+
+    // One checkpoint, four intents, each picking "any" operator.
+    let intents: Vec<(u64, OperatorSelection)> = (0..num_deposits)
+        .map(|_| (denomination.to_sat(), OperatorSelection::any()))
+        .collect();
+    harness
+        .submit_checkpoint_with_withdrawal_intents(&mut checkpoint_harness, &intents)
+        .await
+        .unwrap();
+
+    let bridge_state = harness.bridge_state().unwrap();
+    assert_eq!(
+        bridge_state.assignments().len(),
+        num_deposits,
+        "every intent should produce an assignment"
+    );
+
+    let assignees: Vec<_> = bridge_state
+        .assignments()
+        .assignments()
+        .iter()
+        .map(|a| a.current_assignee())
+        .collect();
+    let first = assignees[0];
+    assert!(
+        assignees.iter().all(|a| *a == first),
+        "expected all intents in one checkpoint to collapse onto a single operator \
+         (STR-3154 bug demo), got {:?}",
+        assignees,
+    );
+}

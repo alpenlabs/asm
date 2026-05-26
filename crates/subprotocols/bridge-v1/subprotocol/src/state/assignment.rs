@@ -875,4 +875,68 @@ mod tests {
             future_original_assignee
         );
     }
+
+    /// Demonstrates STR-3154: every expired assignment funnels onto the same operator.
+    ///
+    /// `reassign_expired_assignments` passes the same L1 block id as seed to every per-entry
+    /// `reassign` call, and each call builds a fresh `ChaChaRng` from that seed. When the
+    /// expired assignments share a notary set and previous-assignee state, the first
+    /// `rng.next_u32() % active_count` draw is identical for every entry — so they all land
+    /// on the same operator instead of being spread across the eligible set.
+    #[test]
+    fn test_reassign_expired_assignments_all_land_on_same_operator() {
+        let mut table = AssignmentTable::new(100);
+        let mut arb = ArbitraryGenerator::new();
+
+        let current_height: L1Height = 150;
+        let initial_seed: L1BlockId = arb.generate();
+        let reassign_seed: L1BlockId = arb.generate();
+        let l1_block = L1BlockCommitment::new(current_height, reassign_seed);
+
+        // Five active operators shared by every deposit so all assignments draw from the
+        // same eligible pool.
+        let current_active_operators = OperatorBitmap::new_with_size(5, true);
+
+        let expired_deadline: L1Height = 100;
+        let num_assignments = 4u32;
+        let mut deposit_indices = Vec::new();
+
+        for idx in 0..num_assignments {
+            let arb_entry: DepositEntry = arb.generate();
+            let deposit_entry =
+                DepositEntry::new(idx, current_active_operators.clone(), arb_entry.amt()).unwrap();
+
+            let withdrawal_cmd: WithdrawalCommand = arb.generate();
+            let assignment = AssignmentEntry::create_with_random_assignment(
+                deposit_entry,
+                withdrawal_cmd,
+                expired_deadline,
+                &current_active_operators,
+                initial_seed,
+                OperatorSelection::any(),
+            )
+            .unwrap();
+
+            deposit_indices.push(assignment.deposit_idx());
+            table.insert(assignment);
+        }
+
+        let reassigned = table
+            .reassign_expired_assignments(&current_active_operators, &l1_block)
+            .unwrap();
+        assert_eq!(reassigned.len(), num_assignments as usize);
+
+        let assignees: Vec<OperatorIdx> = deposit_indices
+            .iter()
+            .map(|idx| table.get_assignment(*idx).unwrap().current_assignee())
+            .collect();
+
+        let first = assignees[0];
+        assert!(
+            assignees.iter().all(|a| *a == first),
+            "expected all expired reassignments to collapse onto a single operator \
+             (STR-3154 bug demo), got {:?}",
+            assignees,
+        );
+    }
 }
