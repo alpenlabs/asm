@@ -302,10 +302,6 @@ mod tests {
             Ok(None)
         }
 
-        fn has_l1_manifest(&self, _blockid: &L1BlockId) -> WorkerResult<bool> {
-            Ok(false)
-        }
-
         fn store_aux_data(
             &self,
             _blockid: &L1BlockCommitment,

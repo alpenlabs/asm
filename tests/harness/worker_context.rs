@@ -276,16 +276,6 @@ impl WorkerContext for TestAsmWorkerContext {
     ) -> WorkerResult<Option<strata_asm_common::AuxData>> {
         Ok(None)
     }
-
-    fn has_l1_manifest(&self, blockid: &L1BlockId) -> WorkerResult<bool> {
-        Ok(self
-            .inner
-            .lock()
-            .unwrap()
-            .manifests
-            .iter()
-            .any(|m| m.blkid() == blockid))
-    }
 }
 
 /// Helper to construct [`L1Anchor`] from a block hash using the client.

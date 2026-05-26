@@ -261,10 +261,6 @@ impl WorkerContext for AsmWorkerContext {
             .get_aux_data(blockid)
             .map_err(|_| WorkerError::DbError)
     }
-
-    fn has_l1_manifest(&self, _blockid: &L1BlockId) -> WorkerResult<bool> {
-        Ok(true)
-    }
 }
 
 /// Seed the genesis [`MohoState`]: no prior state to chain forward from, so we

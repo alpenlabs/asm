@@ -66,7 +66,4 @@ pub trait WorkerContext {
 
     /// Retrieves [`AuxData`] for a given L1 block.
     fn get_aux_data(&self, blockid: &L1BlockCommitment) -> WorkerResult<Option<AuxData>>;
-
-    /// Checks whether an L1 manifest already exists for the given block ID.
-    fn has_l1_manifest(&self, blockid: &L1BlockId) -> WorkerResult<bool>;
 }
