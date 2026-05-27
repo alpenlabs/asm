@@ -8,7 +8,6 @@ use strata_asm_proto_checkpoint_types::{
     CheckpointClaim, CheckpointPayload, CheckpointSidecar, CheckpointTip, L2BlockRange, OLLog,
     SimpleWithdrawalIntentLogData,
 };
-use strata_codec::decode_buf_exact;
 use strata_crypto::hash;
 use strata_identifiers::L1Height;
 use strata_predicate::{PredicateKey, PredicateTypeId};
@@ -213,14 +212,19 @@ pub(crate) fn extract_withdrawal_intents(
 
     for log in logs
         .iter()
+        // Secondary guard: withdrawal-intent logs must come from the bridge gateway account.
+        // Type id is the primary dispatch key (below), but emitter and type must agree.
         .filter(|l| l.account_serial() == BRIDGE_GATEWAY_ACCT_SERIAL)
     {
-        // Attempt to decode as withdrawal intent log data
-        // Logs from this account may have other formats, so skip if decoding fails
-        let Ok(withdrawal_data) = decode_buf_exact::<SimpleWithdrawalIntentLogData>(log.payload())
-        else {
-            logging::trace!("Skipping log that is not a withdrawal intent");
-            continue;
+        // Dispatch on the log type id carried in the msg-fmt envelope, not the raw payload.
+        // The bridge gateway may emit other log types; skip anything that isn't a
+        // withdrawal-intent log, that isn't a valid envelope, or whose body fails to decode.
+        let withdrawal_data = match log.try_into_log::<SimpleWithdrawalIntentLogData>() {
+            Ok(data) => data,
+            Err(e) => {
+                logging::trace!(err = ?e, "skipping non-withdrawal-intent OL log");
+                continue;
+            }
         };
 
         // Parse destination descriptor; return error on malformed descriptors
@@ -243,11 +247,15 @@ pub(crate) fn extract_withdrawal_intents(
 
 #[cfg(test)]
 mod tests {
+    use bitcoin_bosd::Descriptor;
     use ssz_types::VariableList;
     use strata_asm_manifest_types::AsmManifestRangeHash;
-    use strata_asm_proto_bridge_v1_types::WithdrawOutput;
-    use strata_asm_proto_checkpoint_types::{CheckpointPayload, OLLog, TerminalHeaderComplement};
+    use strata_asm_proto_bridge_v1_types::{BRIDGE_GATEWAY_ACCT_SERIAL, WithdrawOutput};
+    use strata_asm_proto_checkpoint_types::{
+        CheckpointPayload, OLLog, SimpleWithdrawalIntentLogData, TerminalHeaderComplement,
+    };
     use strata_identifiers::AccountSerial;
+    use strata_msg_fmt::{Msg, OwnedMsg};
     use strata_predicate::PredicateKey;
     use strata_test_utils_checkpoint::CheckpointTestHarness;
 
@@ -257,7 +265,10 @@ mod tests {
             CheckpointValidationError, CheckpointValidationResult, InvalidCheckpointPayload,
             InvalidSequencerPredicate,
         },
-        verification::{CheckpointL1Range, verify_progression, verify_sequencer_predicate},
+        verification::{
+            CheckpointL1Range, extract_withdrawal_intents, verify_progression,
+            verify_sequencer_predicate,
+        },
     };
 
     fn test_setup() -> (CheckpointState, CheckpointTestHarness) {
@@ -472,6 +483,40 @@ mod tests {
                 InvalidCheckpointPayload::CheckpointPredicateVerification(_)
             )
         ));
+    }
+
+    /// Builds a well-formed withdrawal-intent log payload (valid descriptor dest).
+    fn sample_withdrawal_intent() -> SimpleWithdrawalIntentLogData {
+        // P2WPKH descriptor: type tag 0x00 + 20-byte hash = 21 bytes.
+        let dest = Descriptor::new_p2wpkh(&[0x14; 20]).to_bytes();
+        SimpleWithdrawalIntentLogData::new(100_000, dest, 0)
+            .expect("withdrawal intent creation should not fail")
+    }
+
+    #[test]
+    fn test_extract_dispatches_on_log_type() {
+        let withdrawal = sample_withdrawal_intent();
+
+        // 1. Well-formed withdrawal-intent log from the gateway account -> extracted.
+        let good = OLLog::from_log(BRIDGE_GATEWAY_ACCT_SERIAL, &withdrawal).unwrap();
+
+        // 2. A different OL log type id (e.g. snark account update 0x02) from the gateway ->
+        //    ignored.
+        let other_type = OLLog::new(
+            BRIDGE_GATEWAY_ACCT_SERIAL,
+            OwnedMsg::new(0x02, vec![1, 2, 3]).unwrap().to_vec(),
+        );
+
+        // 3. Withdrawal-intent type but emitted by a non-gateway account -> ignored (account
+        //    guard).
+        let wrong_account = OLLog::from_log(AccountSerial::zero(), &withdrawal).unwrap();
+
+        let logs = vec![good, other_type, wrong_account];
+        let outputs = extract_withdrawal_intents(&logs).expect("extraction should succeed");
+
+        // Only the well-formed gateway withdrawal-intent log produces an output.
+        assert_eq!(outputs.len(), 1);
+        assert_eq!(outputs[0].amt(), withdrawal.amt().into());
     }
 
     #[test]

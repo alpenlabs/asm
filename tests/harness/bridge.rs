@@ -452,8 +452,8 @@ fn build_trivial_script() -> ScriptBuf {
 
 /// Builds OL logs encoding withdrawal intents for the given (amount, selection) pairs.
 ///
-/// Each withdrawal intent is a [`SimpleWithdrawalIntentLogData`] encoded via `strata_codec`
-/// and wrapped in an [`OLLog`] from the bridge gateway account.
+/// Each withdrawal intent is a [`SimpleWithdrawalIntentLogData`] wrapped in a msg-fmt envelope
+/// (via [`OLLog::from_log`]) emitted from the bridge gateway account.
 fn build_withdrawal_ol_logs(intents: &[(u64, OperatorSelection)]) -> Vec<OLLog> {
     intents
         .iter()
@@ -465,10 +465,9 @@ fn build_withdrawal_ol_logs(intents: &[(u64, OperatorSelection)]) -> Vec<OLLog> 
 
             let withdrawal_data = SimpleWithdrawalIntentLogData::new(*amt, dest, sel.raw())
                 .expect("withdrawal intent creation should not fail");
-            let encoded_payload = strata_codec::encode_to_vec(&withdrawal_data)
-                .expect("withdrawal intent encoding should not fail");
 
-            OLLog::new(BRIDGE_GATEWAY_ACCT_SERIAL, encoded_payload)
+            OLLog::from_log(BRIDGE_GATEWAY_ACCT_SERIAL, &withdrawal_data)
+                .expect("withdrawal intent log encoding should not fail")
         })
         .collect()
 }

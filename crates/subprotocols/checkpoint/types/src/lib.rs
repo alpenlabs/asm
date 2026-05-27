@@ -58,7 +58,10 @@ mod ssz_generated {
 }
 
 // Re-export types from claim.ssz
-pub use log_payloads::SimpleWithdrawalIntentLogData;
+pub use log_payloads::{
+    OLLogDecodeError, OLLogType, SIMPLE_WITHDRAWAL_INTENT_LOG_TYPE_ID,
+    SimpleWithdrawalIntentLogData,
+};
 pub use ssz_generated::ssz::claim::{
     CheckpointClaim, CheckpointClaimRef, L2BlockRange, L2BlockRangeRef,
 };

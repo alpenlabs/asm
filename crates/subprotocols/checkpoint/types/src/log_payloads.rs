@@ -1,6 +1,55 @@
 //! Log payload types for orchestration layer logs.
 
 use strata_codec::{Codec, VarVec};
+use strata_msg_fmt::TypeId;
+
+/// OL log type-id namespace.
+///
+/// These identify OL log payload types inside the `strata_msg_fmt` envelope carried in
+/// [`OLLog::payload`](crate::OLLog). They are a **wire contract** and MUST stay in sync with
+/// strata `crates/ol/chain-types/src/log_payloads.rs`: if the values diverge, withdrawal intents
+/// silently vanish from checkpoints.
+///
+/// Note: this is a *different* namespace from the SPS-52 ASM log ids in `strata-asm-logs`; do not
+/// reuse those.
+///
+/// `0x02` (snark account update) also exists in this namespace but is not consumed by checkpoint
+/// verification.
+pub const SIMPLE_WITHDRAWAL_INTENT_LOG_TYPE_ID: TypeId = 0x01;
+
+/// Trait for OL log payload types carried in the `strata_msg_fmt` envelope.
+///
+/// Mirrors `AsmLog` (`strata-asm-manifest-types`): each OL log type has a unique [`TypeId`] used
+/// to dispatch on the log's interpretation independently of the emitting account.
+pub trait OLLogType: Codec {
+    /// Unique type identifier for this OL log type.
+    const TY: TypeId;
+}
+
+impl OLLogType for SimpleWithdrawalIntentLogData {
+    const TY: TypeId = SIMPLE_WITHDRAWAL_INTENT_LOG_TYPE_ID;
+}
+
+/// Error decoding a typed OL log from an [`OLLog`](crate::OLLog)'s msg-fmt envelope.
+#[derive(Debug, thiserror::Error)]
+pub enum OLLogDecodeError {
+    /// The envelope's type id did not match the requested log type.
+    #[error("ol log type mismatch: expected {expected}, found {found}")]
+    TypeMismatch {
+        /// Type id requested by the caller.
+        expected: TypeId,
+        /// Type id found in the envelope.
+        found: TypeId,
+    },
+
+    /// Failed to encode/decode the log body via the codec.
+    #[error("codec: {0}")]
+    Codec(#[from] strata_codec::CodecError),
+
+    /// Failed to parse the msg-fmt envelope.
+    #[error("msgfmt: {0:?}")]
+    Envelope(#[from] strata_msg_fmt::Error),
+}
 
 /// Payload for a simple withdrawal intent log.
 ///
