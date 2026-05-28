@@ -3,24 +3,29 @@ use std::error::Error;
 
 use strata_msg_fmt::TypeId;
 
-/// Wire-format type IDs for ASM log entries (SPS-52).
+/// ASM log type IDs (SPS-52 wire tags).
 ///
-/// `#[repr(u16)]` makes each discriminant a [`TypeId`]; convert with the
-/// [`From`] impl or `as TypeId` in const context. The compiler rejects
-/// duplicate discriminants, so uniqueness is enforced at build time.
+/// This enum represents all valid log type tags emitted by ASM subprotocols.
+/// Each variant corresponds to a specific log entry with its associated u16 value.
+///
+/// ## Tag ranges
+/// - `1-10`: logs consumed by the OL.
+/// - `11-20`: logs consumed by Moho.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u16)]
 pub enum AsmLogTypeId {
-    /// Tag for [`DepositLog`](crate::DepositLog).
+    /// Bridge mint instruction for the OL to credit the destination
     Deposit = 1,
-    /// Tag for [`AsmStfUpdate`](crate::AsmStfUpdate).
-    AsmStfUpdate = 5,
-    /// Tag for [`NewExportEntry`](crate::NewExportEntry).
-    NewExportEntry = 6,
-    /// Tag for [`CheckpointTipUpdate`](crate::CheckpointTipUpdate).
-    CheckpointTipUpdate = 7,
-    /// Tag for [`EePredicateKeyUpdate`](crate::EePredicateKeyUpdate).
-    EePredicateKeyUpdate = 8,
+    /// Forced inclusion - reserved wire tag;
+    ForcedInclusion = 2,
+    /// Verified checkpoint tip advance from the checkpoint subprotocol
+    CheckpointTipUpdate = 3,
+    /// Admin-driven rotation of a snark account's `update_vk`
+    EePredicateKeyUpdate = 4,
+    /// Admin-driven rotation of the ASM STF verification predicate
+    AsmStfUpdate = 11,
+    /// Subprotocol-published entry into the MohoState export MMR
+    NewExportEntry = 12,
 }
 
 // Pin the enum's `#[repr(u16)]` width to `TypeId`. If they ever drift
@@ -43,10 +48,11 @@ impl TryFrom<TypeId> for AsmLogTypeId {
     fn try_from(value: TypeId) -> Result<Self, Self::Error> {
         match value {
             1 => Ok(Self::Deposit),
-            5 => Ok(Self::AsmStfUpdate),
-            6 => Ok(Self::NewExportEntry),
-            7 => Ok(Self::CheckpointTipUpdate),
-            8 => Ok(Self::EePredicateKeyUpdate),
+            2 => Ok(Self::ForcedInclusion),
+            3 => Ok(Self::CheckpointTipUpdate),
+            4 => Ok(Self::EePredicateKeyUpdate),
+            11 => Ok(Self::AsmStfUpdate),
+            12 => Ok(Self::NewExportEntry),
             other => Err(UnknownLogTypeId(other)),
         }
     }
@@ -74,10 +80,11 @@ mod tests {
     fn type_id_roundtrip() {
         let all = [
             AsmLogTypeId::Deposit,
-            AsmLogTypeId::AsmStfUpdate,
-            AsmLogTypeId::NewExportEntry,
+            AsmLogTypeId::ForcedInclusion,
             AsmLogTypeId::CheckpointTipUpdate,
             AsmLogTypeId::EePredicateKeyUpdate,
+            AsmLogTypeId::AsmStfUpdate,
+            AsmLogTypeId::NewExportEntry,
         ];
         for variant in all {
             let raw: TypeId = variant.into();
@@ -87,7 +94,9 @@ mod tests {
 
     #[test]
     fn unknown_type_id_is_rejected() {
-        for raw in [0u16, 2, 3, 4, 9, 999] {
+        // Gaps inside the OL range (5..=10), inside the Moho range (13..=20),
+        // and outside both ranges should all reject.
+        for raw in [0u16, 5, 9, 10, 13, 20, 999] {
             assert_eq!(AsmLogTypeId::try_from(raw), Err(UnknownLogTypeId(raw)));
         }
     }
