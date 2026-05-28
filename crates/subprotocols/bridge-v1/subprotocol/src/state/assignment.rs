@@ -882,13 +882,8 @@ mod tests {
         );
     }
 
-    /// Expired assignments reassigned in the same block must spread across operators,
-    /// not collapse onto a single one.
-    ///
-    /// `reassign_expired_assignments` shares the same L1 block id across every per-entry
-    /// `reassign` call. The fix stream-separates the ChaCha20 RNG by `deposit_idx`, so each
-    /// reassignment draws an independent stream even when notary set and previous-assignee
-    /// state coincide.
+    /// Reassigning many expired assignments in one block distributes them across the
+    /// eligible operator set rather than funneling onto a single operator.
     #[test]
     fn test_reassign_expired_assignments_spread_across_operators() {
         use std::collections::HashSet;
@@ -903,7 +898,7 @@ mod tests {
 
         // Ten active operators shared by every deposit so all assignments draw from the
         // same eligible pool. With 10 entries reassigned independently over 10 operators,
-        // the probability of all draws colliding on a single operator is ~10^-8 — well
+        // the probability of all draws colliding on a single operator is ~10^-9 — well
         // below any practical flakiness threshold while keeping the test seed-agnostic.
         let current_active_operators = OperatorBitmap::new_with_size(10, true);
 

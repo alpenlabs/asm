@@ -400,11 +400,7 @@ async fn test_checkpoint_rejected_when_withdrawals_exceed_deposits() {
 }
 
 /// Multiple `OperatorSelection::any()` withdrawal intents carried by a single checkpoint
-/// must spread across operators rather than all funnel onto one.
-///
-/// `AssignmentEntry::create_with_random_assignment` seeds `ChaChaRng` with the L1 block id
-/// and stream-separates by `deposit_idx`. Because each intent consumes a different oldest
-/// deposit, each draws an independent ChaCha20 stream even though they share the L1 block.
+/// distribute across operators rather than all funneling onto one.
 ///
 /// Flow:
 /// 1. Submit 10 deposits (indices 0..=9) with a 10-operator notary set.
@@ -412,7 +408,7 @@ async fn test_checkpoint_rejected_when_withdrawals_exceed_deposits() {
 /// 3. Verify 10 assignments exist and at least 2 distinct operators are represented.
 ///
 /// Sizing rationale: 10 intents × 10 operators puts the probability of all draws
-/// colliding on a single operator at ~10^-8, so the test stays seed-agnostic without
+/// colliding on a single operator at ~10^-9, so the test stays seed-agnostic without
 /// being flaky.
 #[tokio::test(flavor = "multi_thread")]
 async fn test_multiple_intents_in_one_checkpoint_spread_across_operators() {
