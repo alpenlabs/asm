@@ -1,4 +1,5 @@
-use core::mem::size_of;
+use core::{fmt, mem::size_of};
+use std::error::Error;
 
 use strata_msg_fmt::TypeId;
 
@@ -33,5 +34,61 @@ impl From<AsmLogTypeId> for TypeId {
         // Lossless: the `size_of::<TypeId>() == size_of::<AsmLogTypeId>()`
         // assertion above guarantees the cast neither truncates nor extends.
         id as TypeId
+    }
+}
+
+impl TryFrom<TypeId> for AsmLogTypeId {
+    type Error = UnknownLogTypeId;
+
+    fn try_from(value: TypeId) -> Result<Self, Self::Error> {
+        match value {
+            1 => Ok(Self::Deposit),
+            5 => Ok(Self::AsmStfUpdate),
+            6 => Ok(Self::NewExportEntry),
+            7 => Ok(Self::CheckpointTipUpdate),
+            8 => Ok(Self::EePredicateKeyUpdate),
+            other => Err(UnknownLogTypeId(other)),
+        }
+    }
+}
+
+/// Returned by `TryFrom<TypeId> for AsmLogTypeId` when the value doesn't match
+/// any known variant.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct UnknownLogTypeId(pub TypeId);
+
+impl fmt::Display for UnknownLogTypeId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "unknown ASM log type id: {}", self.0)
+    }
+}
+
+impl Error for UnknownLogTypeId {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Guards against drift between the discriminants and the `TryFrom` match arms.
+    #[test]
+    fn type_id_roundtrip() {
+        let all = [
+            AsmLogTypeId::Deposit,
+            AsmLogTypeId::AsmStfUpdate,
+            AsmLogTypeId::NewExportEntry,
+            AsmLogTypeId::CheckpointTipUpdate,
+            AsmLogTypeId::EePredicateKeyUpdate,
+        ];
+        for variant in all {
+            let raw: TypeId = variant.into();
+            assert_eq!(AsmLogTypeId::try_from(raw).unwrap(), variant);
+        }
+    }
+
+    #[test]
+    fn unknown_type_id_is_rejected() {
+        for raw in [0u16, 2, 3, 4, 9, 999] {
+            assert_eq!(AsmLogTypeId::try_from(raw), Err(UnknownLogTypeId(raw)));
+        }
     }
 }
