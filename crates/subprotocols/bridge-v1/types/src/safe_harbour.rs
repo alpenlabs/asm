@@ -15,9 +15,11 @@ use bitcoin_bosd::{Descriptor, DescriptorType};
 use serde::{Deserialize, Serialize, de::Error as _};
 use ssz::{Decode as SszDecode, DecodeError};
 use ssz_derive::{Decode, Encode};
+use thiserror::Error;
+
 /// A safe harbour [`Descriptor`] restricted to taproot (P2TR) outputs.
 ///
-/// Constructible only via [`SafeHarbourAddress::new`]. Deserialization, SSZ
+/// Constructible only via [`TryFrom<Descriptor>`]. Deserialization, SSZ
 /// decoding, and the `arbitrary`-gated [`Arbitrary`] impl all enforce the
 /// P2TR check so the invariant cannot be bypassed by supplying arbitrary
 /// wire bytes.
@@ -27,20 +29,11 @@ pub struct SafeHarbourAddress(Descriptor);
 /// Wire-format wrapper that decodes a descriptor without imposing the P2TR
 /// invariant during parsing. The check happens after decoding so [`Deserialize`]
 /// and [`SszDecode`] for [`SafeHarbourAddress`] can share the validation in
-/// [`SafeHarbourAddress::new`].
+/// [`TryFrom<Descriptor>`].
 #[derive(Clone, Debug, Eq, PartialEq, Deserialize, Decode)]
 struct SafeHarbourAddressRaw(Descriptor);
 
 impl SafeHarbourAddress {
-    /// Wraps `descriptor` if its type tag is [`DescriptorType::P2tr`].
-    pub fn new(descriptor: Descriptor) -> Option<Self> {
-        if descriptor.type_tag() == DescriptorType::P2tr {
-            Some(SafeHarbourAddress(descriptor))
-        } else {
-            None
-        }
-    }
-
     /// Returns a reference to the underlying P2TR descriptor.
     pub fn as_descriptor(&self) -> &Descriptor {
         &self.0
@@ -52,14 +45,32 @@ impl SafeHarbourAddress {
     }
 }
 
+/// Error returned when constructing a [`SafeHarbourAddress`] from a descriptor
+/// whose type tag is not [`DescriptorType::P2tr`].
+#[derive(Debug, Error, PartialEq)]
+#[error("safe harbour address must be a P2TR descriptor, got {0:?}")]
+pub struct NotP2trDescriptor(DescriptorType);
+
+impl TryFrom<Descriptor> for SafeHarbourAddress {
+    type Error = NotP2trDescriptor;
+
+    fn try_from(descriptor: Descriptor) -> Result<Self, Self::Error> {
+        let type_tag = descriptor.type_tag();
+        if type_tag == DescriptorType::P2tr {
+            Ok(SafeHarbourAddress(descriptor))
+        } else {
+            Err(NotP2trDescriptor(type_tag))
+        }
+    }
+}
+
 impl<'de> Deserialize<'de> for SafeHarbourAddress {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: serde::Deserializer<'de>,
     {
         let SafeHarbourAddressRaw(descriptor) = SafeHarbourAddressRaw::deserialize(deserializer)?;
-        SafeHarbourAddress::new(descriptor)
-            .ok_or_else(|| D::Error::custom("safe harbour address must be a P2TR descriptor"))
+        SafeHarbourAddress::try_from(descriptor).map_err(D::Error::custom)
     }
 }
 
@@ -96,9 +107,8 @@ impl SszDecode for SafeHarbourAddress {
 
     fn from_ssz_bytes(bytes: &[u8]) -> Result<Self, DecodeError> {
         let SafeHarbourAddressRaw(descriptor) = SafeHarbourAddressRaw::from_ssz_bytes(bytes)?;
-        SafeHarbourAddress::new(descriptor).ok_or_else(|| {
-            DecodeError::BytesInvalid("safe harbour address must be a P2TR descriptor".to_string())
-        })
+        SafeHarbourAddress::try_from(descriptor)
+            .map_err(|e| DecodeError::BytesInvalid(e.to_string()))
     }
 }
 
@@ -182,11 +192,11 @@ mod tests {
     }
 
     fn safe_harbour_address_a() -> SafeHarbourAddress {
-        SafeHarbourAddress::new(p2tr_descriptor_a()).expect("p2tr accepted")
+        SafeHarbourAddress::try_from(p2tr_descriptor_a()).expect("p2tr accepted")
     }
 
     fn safe_harbour_address_b() -> SafeHarbourAddress {
-        SafeHarbourAddress::new(p2tr_descriptor_b()).expect("p2tr accepted")
+        SafeHarbourAddress::try_from(p2tr_descriptor_b()).expect("p2tr accepted")
     }
 
     #[test]
@@ -255,18 +265,21 @@ mod tests {
 
     #[test]
     fn safe_harbour_address_rejects_non_p2tr() {
-        assert!(SafeHarbourAddress::new(non_p2tr_descriptor()).is_none());
+        let descriptor = non_p2tr_descriptor();
+        let expected_tag = descriptor.type_tag();
+        let err = SafeHarbourAddress::try_from(descriptor).expect_err("non-p2tr rejected");
+        assert_eq!(err, NotP2trDescriptor(expected_tag));
     }
 
     #[test]
     fn safe_harbour_address_accepts_p2tr() {
-        let addr = SafeHarbourAddress::new(p2tr_descriptor_a()).expect("p2tr accepted");
+        let addr = SafeHarbourAddress::try_from(p2tr_descriptor_a()).expect("p2tr accepted");
         assert_eq!(addr.as_descriptor(), &p2tr_descriptor_a());
     }
 
     #[test]
     fn safe_harbour_address_ssz_roundtrip() {
-        let addr = SafeHarbourAddress::new(p2tr_descriptor_a()).expect("p2tr accepted");
+        let addr = SafeHarbourAddress::try_from(p2tr_descriptor_a()).expect("p2tr accepted");
         let bytes = addr.as_ssz_bytes();
         let decoded = SafeHarbourAddress::from_ssz_bytes(&bytes).expect("ssz decode");
         assert_eq!(addr, decoded);
@@ -287,7 +300,7 @@ mod tests {
 
     #[test]
     fn safe_harbour_address_json_roundtrip() {
-        let addr = SafeHarbourAddress::new(p2tr_descriptor_a()).expect("p2tr accepted");
+        let addr = SafeHarbourAddress::try_from(p2tr_descriptor_a()).expect("p2tr accepted");
         let json = serde_json::to_string(&addr).expect("serialize");
         let decoded: SafeHarbourAddress = serde_json::from_str(&json).expect("deserialize");
         assert_eq!(addr, decoded);

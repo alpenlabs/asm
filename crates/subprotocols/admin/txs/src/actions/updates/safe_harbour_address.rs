@@ -69,7 +69,7 @@ mod tests {
         ];
         let descriptor = Descriptor::new_p2tr(&payload).expect("valid x-only public key");
         let expected_hex = hex::encode(descriptor.to_bytes());
-        let address = SafeHarbourAddress::new(descriptor).expect("p2tr descriptor accepted");
+        let address = SafeHarbourAddress::try_from(descriptor).expect("p2tr descriptor accepted");
         let update = SafeHarbourAddressUpdate::new(address);
         let action = MultisigAction::Update(UpdateAction::SafeHarbourAddress(update));
 
