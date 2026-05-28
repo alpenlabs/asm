@@ -1,42 +1,37 @@
+use core::mem::size_of;
+
 use strata_msg_fmt::TypeId;
 
-/// Macro to define all type IDs and ensure they're included in uniqueness tests
-macro_rules! define_ids {
-    ($type:ty, $const_name:ident, $($name:ident = $value:expr),* $(,)?) => {
-        $(
-            pub const $name: $type = $value;
-        )*
-
-        /// Array containing all defined type IDs
-        pub const $const_name: &'static [$type] = &[$($name),*];
-    };
+/// Wire-format type IDs for ASM log entries (SPS-52).
+///
+/// `#[repr(u16)]` makes each discriminant a [`TypeId`]; convert with the
+/// [`From`] impl or `as TypeId` in const context. The compiler rejects
+/// duplicate discriminants, so uniqueness is enforced at build time.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u16)]
+pub enum AsmLogTypeId {
+    /// Tag for [`DepositLog`](crate::DepositLog).
+    Deposit = 1,
+    /// Tag for [`AsmStfUpdate`](crate::AsmStfUpdate).
+    AsmStfUpdate = 5,
+    /// Tag for [`NewExportEntry`](crate::NewExportEntry).
+    NewExportEntry = 6,
+    /// Tag for [`CheckpointTipUpdate`](crate::CheckpointTipUpdate).
+    CheckpointTipUpdate = 7,
+    /// Tag for [`EePredicateKeyUpdate`](crate::EePredicateKeyUpdate).
+    EePredicateKeyUpdate = 8,
 }
 
-// Define all log type IDs. Id 2 is reserved (formerly `FORCED_INCLUSION_LOG_TYPE_ID`,
-// removed in this branch); don't reuse without checking the SPS-52 wire-tag history.
-define_ids! {TypeId, LOG_TYPE_IDS,
-    DEPOSIT_LOG_TYPE_ID = 1,
-    OL_STF_UPDATE_LOG_TYPE = 4,
-    ASM_STF_UPDATE_LOG_TYPE = 5,
-    NEW_EXPORT_ENTRY_LOG_TYPE = 6,
-    CHECKPOINT_TIP_UPDATE_LOG_TYPE = 7,
-    EE_PREDICATE_KEY_UPDATE_LOG_TYPE = 8,
-}
+// Pin the enum's `#[repr(u16)]` width to `TypeId`. If they ever drift
+// (e.g., `TypeId` becomes `u8` or `u32`), the `as TypeId` cast at every
+// `AsmLog::TY` site would silently truncate or zero-extend — fail the
+// build so the `#[repr(...)]` gets updated alongside it.
+const _: () = assert!(size_of::<TypeId>() == size_of::<AsmLogTypeId>());
 
-#[cfg(test)]
-mod tests {
-    use std::collections::HashSet;
-
-    use super::*;
-
-    #[test]
-    fn test_all_type_ids_are_unique() {
-        let log_ids = LOG_TYPE_IDS;
-        let unique_ids: HashSet<_> = log_ids.iter().collect();
-        assert_eq!(
-            log_ids.len(),
-            unique_ids.len(),
-            "All type IDs must be unique"
-        );
+impl From<AsmLogTypeId> for TypeId {
+    fn from(id: AsmLogTypeId) -> Self {
+        // Lossless: the `size_of::<TypeId>() == size_of::<AsmLogTypeId>()`
+        // assertion above guarantees the cast neither truncates nor extends.
+        id as TypeId
     }
 }

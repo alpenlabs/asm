@@ -5,7 +5,7 @@ use strata_identifiers::AccountSerial;
 use strata_msg_fmt::TypeId;
 use strata_predicate::PredicateKey;
 
-use crate::constants::EE_PREDICATE_KEY_UPDATE_LOG_TYPE;
+use crate::constants::AsmLogTypeId;
 
 /// Records an update to a snark account's `update_vk` (predicate key) used to
 /// verify future updates to that account.
@@ -49,7 +49,7 @@ impl EePredicateKeyUpdate {
 }
 
 impl AsmLog for EePredicateKeyUpdate {
-    const TY: TypeId = EE_PREDICATE_KEY_UPDATE_LOG_TYPE;
+    const TY: TypeId = AsmLogTypeId::EePredicateKeyUpdate as TypeId;
 }
 
 #[cfg(test)]
@@ -113,14 +113,5 @@ mod tests {
 
         assert_eq!(decoded.account(), account);
         assert_eq!(decoded.new_predicate(), &new_predicate);
-    }
-
-    #[test]
-    fn ee_predicate_key_update_type_id() {
-        assert_eq!(
-            EePredicateKeyUpdate::TY,
-            EE_PREDICATE_KEY_UPDATE_LOG_TYPE,
-            "type ID must match the constant"
-        );
     }
 }

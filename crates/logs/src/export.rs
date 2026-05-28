@@ -3,7 +3,7 @@ use strata_codec::Codec;
 use strata_codec_utils::CodecSsz;
 use strata_msg_fmt::TypeId;
 
-use crate::constants::NEW_EXPORT_ENTRY_LOG_TYPE;
+use crate::constants::AsmLogTypeId;
 
 /// Details for an export state update event.
 #[derive(Debug, Clone, Codec)]
@@ -34,7 +34,7 @@ impl NewExportEntry {
 }
 
 impl AsmLog for NewExportEntry {
-    const TY: TypeId = NEW_EXPORT_ENTRY_LOG_TYPE;
+    const TY: TypeId = AsmLogTypeId::NewExportEntry as TypeId;
 }
 
 #[cfg(test)]

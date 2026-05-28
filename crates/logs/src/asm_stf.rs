@@ -4,7 +4,7 @@ use strata_codec_utils::CodecSsz;
 use strata_msg_fmt::TypeId;
 use strata_predicate::PredicateKey;
 
-use crate::constants::ASM_STF_UPDATE_LOG_TYPE;
+use crate::constants::AsmLogTypeId;
 
 /// Details for an execution environment verification key update.
 #[derive(Debug, Clone)]
@@ -40,7 +40,7 @@ impl Codec for AsmStfUpdate {
 }
 
 impl AsmLog for AsmStfUpdate {
-    const TY: TypeId = ASM_STF_UPDATE_LOG_TYPE;
+    const TY: TypeId = AsmLogTypeId::AsmStfUpdate as TypeId;
 }
 
 #[cfg(test)]

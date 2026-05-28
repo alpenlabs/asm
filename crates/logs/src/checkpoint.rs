@@ -4,7 +4,7 @@ use strata_codec::Codec;
 use strata_codec_utils::CodecSsz;
 use strata_msg_fmt::TypeId;
 
-use crate::constants::CHECKPOINT_TIP_UPDATE_LOG_TYPE;
+use crate::constants::AsmLogTypeId;
 
 /// Records a verified [`CheckpointTip`] update from the checkpoint subprotocol.
 #[derive(Debug, Clone, Codec)]
@@ -28,7 +28,7 @@ impl CheckpointTipUpdate {
 }
 
 impl AsmLog for CheckpointTipUpdate {
-    const TY: TypeId = CHECKPOINT_TIP_UPDATE_LOG_TYPE;
+    const TY: TypeId = AsmLogTypeId::CheckpointTipUpdate as TypeId;
 }
 
 #[cfg(test)]
@@ -80,14 +80,5 @@ mod tests {
         assert_eq!(decoded.tip().epoch, 7);
         assert_eq!(decoded.tip().l1_height, 100);
         assert_eq!(decoded.tip().l2_commitment(), update.tip().l2_commitment());
-    }
-
-    #[test]
-    fn checkpoint_tip_update_type_id() {
-        assert_eq!(
-            CheckpointTipUpdate::TY,
-            CHECKPOINT_TIP_UPDATE_LOG_TYPE,
-            "type ID must match the constant"
-        );
     }
 }

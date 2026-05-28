@@ -2,7 +2,7 @@ use strata_asm_common::AsmLog;
 use strata_codec::{Codec, VarVec};
 use strata_msg_fmt::TypeId;
 
-use crate::constants::DEPOSIT_LOG_TYPE_ID;
+use crate::constants::AsmLogTypeId;
 
 /// Details for a deposit operation.
 #[derive(Debug, Clone, Codec)]
@@ -24,7 +24,7 @@ impl DepositLog {
 }
 
 impl AsmLog for DepositLog {
-    const TY: TypeId = DEPOSIT_LOG_TYPE_ID;
+    const TY: TypeId = AsmLogTypeId::Deposit as TypeId;
 }
 
 #[cfg(test)]
