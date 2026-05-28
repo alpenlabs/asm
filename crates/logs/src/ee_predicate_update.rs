@@ -65,12 +65,8 @@ mod tests {
     // Local `PredicateKey` strategy — `strata_predicate::test_utils::predicate_key_strategy`
     // is `pub(crate)` upstream. Mirrors the one in `asm_stf.rs`.
     fn predicate_key_strategy() -> impl Strategy<Value = PredicateKey> {
-        prop_oneof![
-            Just(PredicateKey::always_accept()),
-            Just(PredicateKey::never_accept()),
-            prop::collection::vec(any::<u8>(), 0..=MAX_CONDITION_LEN as usize)
-                .prop_map(|c| PredicateKey::new(PredicateTypeId::AlwaysAccept, c)),
-        ]
+        prop::collection::vec(any::<u8>(), 0..=MAX_CONDITION_LEN as usize)
+            .prop_map(|c| PredicateKey::new(PredicateTypeId::AlwaysAccept, c))
     }
 
     fn ee_predicate_key_update_strategy() -> impl Strategy<Value = EePredicateKeyUpdate> {
@@ -88,7 +84,10 @@ mod tests {
     #[test]
     fn from_log_boundary_cases() {
         let cases = [
-            EePredicateKeyUpdate::new(AccountSerial::new(0), PredicateKey::always_accept()),
+            EePredicateKeyUpdate::new(
+                AccountSerial::new(0),
+                PredicateKey::new(PredicateTypeId::AlwaysAccept, vec![]),
+            ),
             EePredicateKeyUpdate::new(
                 AccountSerial::new(u32::MAX),
                 PredicateKey::new(
