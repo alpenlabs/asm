@@ -12,10 +12,10 @@ macro_rules! define_ids {
     };
 }
 
-// Define all log type IDs
+// Define all log type IDs. Id 2 is reserved (formerly `FORCED_INCLUSION_LOG_TYPE_ID`,
+// removed in this branch); don't reuse without checking the SPS-52 wire-tag history.
 define_ids! {TypeId, LOG_TYPE_IDS,
     DEPOSIT_LOG_TYPE_ID = 1,
-    FORCED_INCLUSION_LOG_TYPE_ID = 2,
     OL_STF_UPDATE_LOG_TYPE = 4,
     ASM_STF_UPDATE_LOG_TYPE = 5,
     NEW_EXPORT_ENTRY_LOG_TYPE = 6,
