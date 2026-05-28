@@ -33,11 +33,39 @@ impl AsmLog for CheckpointTipUpdate {
 
 #[cfg(test)]
 mod tests {
-    use strata_asm_proto_checkpoint_types::CheckpointTip;
+    use proptest::prelude::*;
+    use strata_asm_common::AsmLogEntry;
+    use strata_asm_proto_checkpoint_types::{test_utils::checkpoint_tip_strategy, CheckpointTip};
     use strata_codec::{decode_buf_exact, encode_to_vec};
     use strata_identifiers::{Buf32, OLBlockCommitment, OLBlockId};
 
     use super::*;
+
+    proptest! {
+        #[test]
+        fn from_log_is_infallible(tip in checkpoint_tip_strategy()) {
+            let update = CheckpointTipUpdate::new(tip);
+            prop_assert!(AsmLogEntry::from_log(&update).is_ok());
+        }
+    }
+
+    #[test]
+    fn from_log_boundary_cases() {
+        let zero_tip = CheckpointTip::new(
+            0,
+            0,
+            OLBlockCommitment::new(0, OLBlockId::from(Buf32::from([0u8; 32]))),
+        );
+        let max_tip = CheckpointTip::new(
+            u32::MAX,
+            u32::MAX,
+            OLBlockCommitment::new(u64::MAX, OLBlockId::from(Buf32::from([0xFFu8; 32]))),
+        );
+        for tip in [zero_tip, max_tip] {
+            let update = CheckpointTipUpdate::new(tip);
+            assert!(AsmLogEntry::from_log(&update).is_ok());
+        }
+    }
 
     #[test]
     fn checkpoint_tip_update_roundtrip() {

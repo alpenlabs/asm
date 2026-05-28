@@ -42,3 +42,47 @@ impl Codec for AsmStfUpdate {
 impl AsmLog for AsmStfUpdate {
     const TY: TypeId = ASM_STF_UPDATE_LOG_TYPE;
 }
+
+#[cfg(test)]
+mod tests {
+    use proptest::prelude::*;
+    use strata_asm_common::AsmLogEntry;
+    use strata_predicate::{PredicateKey, PredicateTypeId, MAX_CONDITION_LEN};
+
+    use super::*;
+
+    // `strata_predicate::test_utils::predicate_key_strategy` is `pub(crate)`, so we
+    // build a local equivalent. The third arm exercises the longest valid condition
+    // to confirm `PredicateKey` SSZ encoding stays within bounds at the boundary.
+    pub(super) fn predicate_key_strategy() -> impl Strategy<Value = PredicateKey> {
+        prop_oneof![
+            Just(PredicateKey::always_accept()),
+            Just(PredicateKey::never_accept()),
+            prop::collection::vec(any::<u8>(), 0..=MAX_CONDITION_LEN as usize)
+                .prop_map(|c| PredicateKey::new(PredicateTypeId::AlwaysAccept, c)),
+        ]
+    }
+
+    proptest! {
+        #[test]
+        fn from_log_is_infallible(key in predicate_key_strategy()) {
+            let log = AsmStfUpdate::new(key);
+            prop_assert!(AsmLogEntry::from_log(&log).is_ok());
+        }
+    }
+
+    #[test]
+    fn from_log_boundary_cases() {
+        let cases = [
+            AsmStfUpdate::new(PredicateKey::always_accept()),
+            AsmStfUpdate::new(PredicateKey::never_accept()),
+            AsmStfUpdate::new(PredicateKey::new(
+                PredicateTypeId::AlwaysAccept,
+                vec![0u8; MAX_CONDITION_LEN as usize],
+            )),
+        ];
+        for log in cases {
+            assert!(AsmLogEntry::from_log(&log).is_ok());
+        }
+    }
+}

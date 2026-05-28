@@ -7667,6 +7667,7 @@ dependencies = [
 name = "strata-asm-logs"
 version = "0.1.0"
 dependencies = [
+ "proptest",
  "strata-asm-common",
  "strata-asm-proto-checkpoint-types",
  "strata-codec",

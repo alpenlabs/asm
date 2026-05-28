@@ -16,4 +16,8 @@ strata-msg-fmt.workspace = true
 strata-predicate.workspace = true
 
 [dev-dependencies]
-strata-identifiers.workspace = true
+proptest.workspace = true
+strata-asm-proto-checkpoint-types = { workspace = true, features = [
+  "test-utils",
+] }
+strata-identifiers = { workspace = true, features = ["test-utils"] }

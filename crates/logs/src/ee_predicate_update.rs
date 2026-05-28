@@ -54,11 +54,53 @@ impl AsmLog for EePredicateKeyUpdate {
 
 #[cfg(test)]
 mod tests {
+    use proptest::prelude::*;
+    use strata_asm_common::AsmLogEntry;
     use strata_codec::{decode_buf_exact, encode_to_vec};
-    use strata_identifiers::AccountSerial;
-    use strata_predicate::PredicateKey;
+    use strata_identifiers::{test_utils::account_serial_strategy, AccountSerial};
+    use strata_predicate::{PredicateKey, PredicateTypeId, MAX_CONDITION_LEN};
 
     use super::*;
+
+    // Local `PredicateKey` strategy — `strata_predicate::test_utils::predicate_key_strategy`
+    // is `pub(crate)` upstream. Mirrors the one in `asm_stf.rs`.
+    fn predicate_key_strategy() -> impl Strategy<Value = PredicateKey> {
+        prop_oneof![
+            Just(PredicateKey::always_accept()),
+            Just(PredicateKey::never_accept()),
+            prop::collection::vec(any::<u8>(), 0..=MAX_CONDITION_LEN as usize)
+                .prop_map(|c| PredicateKey::new(PredicateTypeId::AlwaysAccept, c)),
+        ]
+    }
+
+    fn ee_predicate_key_update_strategy() -> impl Strategy<Value = EePredicateKeyUpdate> {
+        (account_serial_strategy(), predicate_key_strategy())
+            .prop_map(|(account, key)| EePredicateKeyUpdate::new(account, key))
+    }
+
+    proptest! {
+        #[test]
+        fn from_log_is_infallible(log in ee_predicate_key_update_strategy()) {
+            prop_assert!(AsmLogEntry::from_log(&log).is_ok());
+        }
+    }
+
+    #[test]
+    fn from_log_boundary_cases() {
+        let cases = [
+            EePredicateKeyUpdate::new(AccountSerial::new(0), PredicateKey::always_accept()),
+            EePredicateKeyUpdate::new(
+                AccountSerial::new(u32::MAX),
+                PredicateKey::new(
+                    PredicateTypeId::AlwaysAccept,
+                    vec![0u8; MAX_CONDITION_LEN as usize],
+                ),
+            ),
+        ];
+        for log in cases {
+            assert!(AsmLogEntry::from_log(&log).is_ok());
+        }
+    }
 
     #[test]
     fn ee_predicate_key_update_roundtrip() {

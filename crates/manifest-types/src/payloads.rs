@@ -96,10 +96,74 @@ impl AsmLog for CheckpointAckLogData {
 
 #[cfg(test)]
 mod tests {
+    use proptest::prelude::*;
     use strata_codec::{decode_buf_exact, encode_to_vec};
-    use strata_identifiers::{AccountSerial, Buf32, OLBlockId, SubjectId};
+    use strata_identifiers::{
+        AccountSerial, Buf32, OLBlockId, SubjectId,
+        test_utils::{account_serial_strategy, epoch_commitment_strategy},
+    };
 
     use super::*;
+    use crate::AsmLogEntry;
+
+    fn deposit_intent_log_data_strategy() -> impl Strategy<Value = DepositIntentLogData> {
+        (
+            account_serial_strategy(),
+            any::<[u8; 32]>().prop_map(SubjectId::from),
+            any::<u64>(),
+        )
+            .prop_map(|(serial, subject, amt)| DepositIntentLogData::new(serial, subject, amt))
+    }
+
+    fn checkpoint_ack_log_data_strategy() -> impl Strategy<Value = CheckpointAckLogData> {
+        epoch_commitment_strategy().prop_map(CheckpointAckLogData::new)
+    }
+
+    proptest! {
+        #[test]
+        fn deposit_intent_from_log_is_infallible(log in deposit_intent_log_data_strategy()) {
+            prop_assert!(AsmLogEntry::from_log(&log).is_ok());
+        }
+
+        #[test]
+        fn checkpoint_ack_from_log_is_infallible(log in checkpoint_ack_log_data_strategy()) {
+            prop_assert!(AsmLogEntry::from_log(&log).is_ok());
+        }
+    }
+
+    #[test]
+    fn deposit_intent_from_log_boundary_cases() {
+        let cases = [
+            DepositIntentLogData::new(AccountSerial::from(0), SubjectId::from([0u8; 32]), 0),
+            DepositIntentLogData::new(
+                AccountSerial::from(u32::MAX),
+                SubjectId::from([0xFFu8; 32]),
+                u64::MAX,
+            ),
+        ];
+        for log in cases {
+            assert!(AsmLogEntry::from_log(&log).is_ok());
+        }
+    }
+
+    #[test]
+    fn checkpoint_ack_from_log_boundary_cases() {
+        let cases = [
+            CheckpointAckLogData::new(EpochCommitment::new(
+                0,
+                0,
+                OLBlockId::from(Buf32::from([0u8; 32])),
+            )),
+            CheckpointAckLogData::new(EpochCommitment::new(
+                u32::MAX,
+                u64::MAX,
+                OLBlockId::from(Buf32::from([0xFFu8; 32])),
+            )),
+        ];
+        for log in cases {
+            assert!(AsmLogEntry::from_log(&log).is_ok());
+        }
+    }
 
     #[test]
     fn test_deposit_intent_log_data_codec() {
