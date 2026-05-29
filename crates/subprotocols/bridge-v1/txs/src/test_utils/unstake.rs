@@ -41,13 +41,19 @@ pub fn create_connected_stake_and_unstake_txs(
         .expect("stake transaction submission should succeed");
 
     // 2. Create the base unstake transaction using the provided metadata.
-    let unstake_info = UnstakeInfo::new(header_aux.clone(), nn_key);
-    let mut unstake_tx = create_dummy_unstake_tx(&unstake_info);
-
-    unstake_tx.input[0].previous_output = OutPoint {
+    let stake_outpoint = OutPoint {
         txid: stake_txid,
         vout: 0,
     };
+    let unstake_info = UnstakeInfo::new(
+        header_aux.clone(),
+        stake_outpoint.into(),
+        nn_key,
+        stake_hash,
+    );
+    let mut unstake_tx = create_dummy_unstake_tx(&unstake_info);
+
+    unstake_tx.input[0].previous_output = stake_outpoint;
 
     // Compute the script and sign with the correct leaf hash.
     let script = stake_connector_script(stake_hash, nn_key);

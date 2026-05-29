@@ -1,8 +1,11 @@
 use bitcoin::{
-    ScriptBuf, XOnlyPublicKey,
+    Address, Network, ScriptBuf, XOnlyPublicKey,
     opcodes::all::{OP_CHECKSIGVERIFY, OP_EQUAL, OP_EQUALVERIFY, OP_SHA256, OP_SIZE},
     script::Instruction,
+    secp256k1::SECP256K1,
+    taproot::TaprootBuilder,
 };
+use strata_crypto::keys::constants::UNSPENDABLE_PUBLIC_KEY;
 
 /// Instruction indices for the stake connector script
 const PUBKEY_INDEX: usize = 0;
@@ -31,6 +34,40 @@ pub fn stake_connector_script(stake_hash: [u8; 32], pubkey: XOnlyPublicKey) -> S
         .push_slice(stake_hash)
         .push_opcode(OP_EQUAL)
         .into_script()
+}
+
+/// Reconstructs the canonical `scriptPubKey` an honest stake connector commits to.
+///
+/// A stake connector is a P2TR output with the NUMS unspendable internal key and
+/// a single-leaf merkle tree whose only leaf is
+/// [`stake_connector_script`]`(stake_hash, nn_pubkey)`. Because the internal key
+/// is unspendable, the only way to spend the output is via that single
+/// script-path leaf, which Bitcoin will only accept after verifying a Schnorr
+/// signature for `nn_pubkey` and a preimage matching `stake_hash`.
+///
+/// Comparing the prevout's `scriptPubKey` against the value returned here is
+/// what binds ASM's witness-derived `(stake_hash, nn_pubkey)` to a real
+/// stake-connector UTXO. Without this binding, an attacker can spend any UTXO
+/// they control and shape the witness items to fool ASM's parser without
+/// Bitcoin ever executing the stake-connector script.
+pub fn expected_stake_connector_script_pubkey(
+    stake_hash: [u8; 32],
+    nn_pubkey: XOnlyPublicKey,
+) -> ScriptBuf {
+    let leaf_script = stake_connector_script(stake_hash, nn_pubkey);
+    let spend_info = TaprootBuilder::new()
+        .add_leaf(0, leaf_script)
+        .expect("single-leaf tree always fits")
+        .finalize(SECP256K1, *UNSPENDABLE_PUBLIC_KEY)
+        .expect("taproot finalize must succeed with the unspendable internal key");
+    // P2TR scriptPubKey is network-independent: only the bech32 encoding changes.
+    let address = Address::p2tr(
+        SECP256K1,
+        *UNSPENDABLE_PUBLIC_KEY,
+        spend_info.merkle_root(),
+        Network::Bitcoin,
+    );
+    address.script_pubkey()
 }
 
 /// Extracts the two dynamic parameters (pubkey and stake_hash) from a stake connector script.
@@ -252,5 +289,30 @@ mod tests {
                 "{name} must be rejected"
             );
         }
+    }
+
+    #[test]
+    fn expected_script_pubkey_is_deterministic() {
+        let pubkey = create_pubkey_from_secret([0x07u8; 32]);
+        let stake_hash = [0x55u8; 32];
+        let a = expected_stake_connector_script_pubkey(stake_hash, pubkey);
+        let b = expected_stake_connector_script_pubkey(stake_hash, pubkey);
+        assert_eq!(a, b);
+    }
+
+    #[test]
+    fn expected_script_pubkey_changes_with_inputs() {
+        let pk_a = create_pubkey_from_secret([0x07u8; 32]);
+        let pk_b = create_pubkey_from_secret([0x08u8; 32]);
+        let h = [0x55u8; 32];
+        assert_ne!(
+            expected_stake_connector_script_pubkey(h, pk_a),
+            expected_stake_connector_script_pubkey(h, pk_b),
+        );
+        let h2 = [0x66u8; 32];
+        assert_ne!(
+            expected_stake_connector_script_pubkey(h, pk_a),
+            expected_stake_connector_script_pubkey(h2, pk_a),
+        );
     }
 }

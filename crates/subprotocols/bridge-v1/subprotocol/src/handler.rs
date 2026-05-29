@@ -118,7 +118,14 @@ pub(crate) fn handle_parsed_tx(
             Ok(())
         }
         ParsedTx::Unstake(info) => {
-            validate_unstake_info(state, &info)?;
+            let outpoint = info.stake_inpoint().outpoint();
+            let stake_connector_txout = verified_aux_data
+                .get_bitcoin_txout(outpoint)
+                .unwrap_or_else(|e| {
+                    error!(error = %e, %outpoint, "invalid aux data for unstake tx");
+                    panic!("invalid aux: stake connector tx not provided");
+                });
+            validate_unstake_info(&info, &stake_connector_txout.script_pubkey)?;
             let operator_idx = info.header_aux().operator_idx();
             state.remove_operator(operator_idx);
 
@@ -150,7 +157,12 @@ pub(crate) fn preprocess_parsed_tx(
             // this information to verify the stake connector is locked to a known N/N multisig.
             collector.request_bitcoin_tx(info.stake_inpoint().0.txid);
         }
-        ParsedTx::Unstake(_) => {}
+        ParsedTx::Unstake(info) => {
+            // Request the Bitcoin transaction spent by the stake connector input. The handler
+            // compares its `scriptPubKey` against the canonical stake-connector commitment
+            // reconstructed from the witness
+            collector.request_bitcoin_tx(info.stake_inpoint().0.txid);
+        }
     }
 }
 

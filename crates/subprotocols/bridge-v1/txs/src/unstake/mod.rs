@@ -17,7 +17,8 @@
 //! duties and have its staked funds returned.
 //!
 //! ### Inputs
-//! - 1. **Stake connector**: Locked to the N-of-N multisig and hashlock.
+//! 1. **Stake connector**: P2TR(UNSPENDABLE, single-leaf tree containing
+//!    `stake_connector_script(stake_hash, NN_pk)`).
 //!
 //! ### Outputs
 //!
@@ -36,4 +37,7 @@ mod script;
 pub use aux::UnstakeTxHeaderAux;
 pub use info::UnstakeInfo;
 pub use parse::{STAKE_INPUT_INDEX, parse_unstake_tx};
-pub use script::{stake_connector_script, validate_and_extract_script_params};
+pub use script::{
+    expected_stake_connector_script_pubkey, stake_connector_script,
+    validate_and_extract_script_params,
+};

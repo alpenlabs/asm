@@ -45,6 +45,10 @@ pub fn parse_unstake_tx<'t>(tx: &TxInputRef<'t>) -> Result<UnstakeInfo, TxStruct
         )
     })?;
 
+    // Capture the outpoint so the handler can fetch the spent UTXO and verify
+    // its `scriptPubKey` matches the canonical stake-connector commitment.
+    let stake_inpoint = stake_input.previous_output.into();
+
     let witness = &stake_input.witness;
 
     let witness_len = witness.len();
@@ -64,7 +68,7 @@ pub fn parse_unstake_tx<'t>(tx: &TxInputRef<'t>) -> Result<UnstakeInfo, TxStruct
     // Validate the script and extract parameters in one step.
     // This extracts nn_pubkey and stake_hash, reconstructs the expected script,
     // and compares byte-for-byte. Returns parameters only if script is valid.
-    let (witness_pushed_pubkey, _stake_hash_bytes) = validate_and_extract_script_params(&script)
+    let (witness_pushed_pubkey, stake_hash) = validate_and_extract_script_params(&script)
         .ok_or_else(|| {
             TxStructureError::invalid_witness(
                 BridgeTxType::Unstake,
@@ -73,7 +77,7 @@ pub fn parse_unstake_tx<'t>(tx: &TxInputRef<'t>) -> Result<UnstakeInfo, TxStruct
             )
         })?;
 
-    let info = UnstakeInfo::new(header_aux, witness_pushed_pubkey);
+    let info = UnstakeInfo::new(header_aux, stake_inpoint, witness_pushed_pubkey, stake_hash);
 
     Ok(info)
 }
@@ -82,7 +86,10 @@ pub fn parse_unstake_tx<'t>(tx: &TxInputRef<'t>) -> Result<UnstakeInfo, TxStruct
 mod tests {
     use std::mem;
 
-    use bitcoin::Transaction;
+    use bitcoin::{
+        Transaction,
+        hashes::{Hash, sha256},
+    };
     use strata_crypto::test_utils::schnorr::create_agg_pubkey_from_privkeys;
     use strata_test_utils_arb::ArbitraryGenerator;
 
@@ -103,7 +110,10 @@ mod tests {
         let (sks, _) = create_test_operators(3);
         let (_stake_tx, unstake_tx) = create_connected_stake_and_unstake_txs(&header_aux, &sks);
         let nn_key = create_agg_pubkey_from_privkeys(&sks);
-        let info = UnstakeInfo::new(header_aux, nn_key);
+        // `create_connected_stake_and_unstake_txs` uses preimage = [1u8; 32].
+        let stake_hash = sha256::Hash::hash(&[1u8; 32]).to_byte_array();
+        let stake_inpoint = unstake_tx.input[0].previous_output.into();
+        let info = UnstakeInfo::new(header_aux, stake_inpoint, nn_key, stake_hash);
         (info, unstake_tx)
     }
 
