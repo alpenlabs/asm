@@ -8095,7 +8095,14 @@ dependencies = [
 name = "strata-asm-sp1-guest-builder"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
+ "borsh",
+ "serde_json",
  "sp1-build",
+ "sp1-sdk",
+ "sp1-verifier",
+ "strata-predicate",
+ "zkaleido-sp1-groth16-verifier 0.1.0 (git+https://github.com/alpenlabs/zkaleido?tag=v0.1-beta.3)",
 ]
 
 [[package]]
