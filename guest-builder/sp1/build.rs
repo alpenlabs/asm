@@ -34,7 +34,6 @@ fn main() {
     println!("cargo:rerun-if-env-changed=SP1_SKIP_PROGRAM_BUILD");
     println!("cargo:warning=exporting SP1 guest ELFs to {ELFS_DIR}");
 
-    
     // Mirror sp1-build's own skip predicates so `SP1_SKIP_PROGRAM_BUILD=true` and
     // `cargo clippy --release` work without provisioning input JSONs.
     if sp1_build_will_skip() {
@@ -80,8 +79,7 @@ fn emit_predicate(elf_name: &str, vk_json_name: &str) {
         .unwrap_or_else(|e| panic!("serialize predicate key for {elf_name}: {e}"));
 
     let out_path = Path::new(ELFS_DIR).join(vk_json_name);
-    fs::write(&out_path, json)
-        .unwrap_or_else(|e| panic!("write {}: {e}", out_path.display()));
+    fs::write(&out_path, json).unwrap_or_else(|e| panic!("write {}: {e}", out_path.display()));
     println!("cargo:warning=wrote {}", out_path.display());
 }
 
@@ -133,7 +131,6 @@ fn rustc_succinct(args: &[&str]) -> String {
         .trim()
         .to_owned()
 }
-
 
 fn sp1_build_will_skip() -> bool {
     let skip_env = std::env::var("SP1_SKIP_PROGRAM_BUILD")
