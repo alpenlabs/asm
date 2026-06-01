@@ -6,15 +6,12 @@
 //! # Example
 //!
 //! ```ignore
-//! use harness::bridge::{create_test_bridge_setup, BridgeExt};
-//! use harness::test_harness::AsmTestHarnessBuilder;
+//! use harness::bridge::{BridgeExt, DepositRequest};
+//! use harness::test_harness::{AsmTestHarnessBuilder, Setup};
 //!
-//! let (bridge_params, ctx) = create_test_bridge_setup();
-//! let harness = AsmTestHarnessBuilder::default()
-//!     .with_bridge_params(bridge_params)
-//!     .build()
-//!     .await?;
-//! harness.submit_deposit(&ctx, 0).await?;
+//! let Setup { harness, bridge, .. } =
+//!     AsmTestHarnessBuilder::default().with_txindex().build().await;
+//! harness.submit_deposit(&bridge, 0, &DepositRequest::random()).await?;
 //! ```
 
 use std::{future::Future, slice};
@@ -68,8 +65,6 @@ pub struct BridgeContext {
     operator_pubkeys: Vec<EvenPublicKey>,
     denomination: BitcoinAmount,
     recovery_delay: u16,
-    recovery_pk: [u8; 32],
-    destination: Vec<u8>,
 }
 
 impl BridgeContext {
@@ -89,6 +84,35 @@ impl BridgeContext {
     }
 }
 
+/// The depositor's choices for a deposit request: the recovery key and destination.
+///
+/// These are per-deposit inputs a depositor submits, not bridge configuration, so they are
+/// passed to [`BridgeExt::submit_deposit`] rather than living on the [`BridgeContext`]. Use
+/// [`DepositRequest::random`] for tests that don't care about the specific values.
+#[derive(Clone, Debug)]
+pub struct DepositRequest {
+    /// Depositor's recovery key; embedded as raw bytes in the DRT recovery tapscript.
+    pub recovery_pk: [u8; 32],
+    /// Withdrawal destination bytes carried in the DRT aux data.
+    pub destination: Vec<u8>,
+}
+
+impl DepositRequest {
+    /// A random recovery key and a short random destination, for tests that don't care about
+    /// the specific values (the recovery path is never exercised in these tests).
+    pub fn random() -> Self {
+        let mut rng = rand::thread_rng();
+        let mut recovery_pk = [0u8; 32];
+        rng.fill_bytes(&mut recovery_pk);
+        let mut destination = vec![0u8; 4];
+        rng.fill_bytes(&mut destination);
+        Self {
+            recovery_pk,
+            destination,
+        }
+    }
+}
+
 // ============================================================================
 // Bridge Extension Trait
 // ============================================================================
@@ -98,15 +122,17 @@ pub trait BridgeExt {
     /// Get bridge V1 subprotocol state.
     fn bridge_state(&self) -> anyhow::Result<BridgeV1State>;
 
-    /// Submit a deposit: build DRT + DT, submit both, mine, and wait.
+    /// Submit a deposit: build DRT + DT for `request`, submit both, mine, and wait.
     fn submit_deposit(
         &self,
         ctx: &BridgeContext,
         deposit_idx: u32,
+        request: &DepositRequest,
     ) -> impl Future<Output = anyhow::Result<BlockHash>>;
 
-    /// Submit `count` deposits (indices `0..count`), then mine one block so the bridge's
-    /// `DepositProcessed` messages are delivered to the checkpoint subprotocol.
+    /// Submit `count` deposits (indices `0..count`), each with a random [`DepositRequest`], then
+    /// mine one block so the bridge's `DepositProcessed` messages are delivered to the checkpoint
+    /// subprotocol. For control over the recovery key/destination, use [`Self::submit_deposit`].
     fn submit_deposits(
         &self,
         ctx: &BridgeContext,
@@ -126,9 +152,10 @@ impl BridgeExt for AsmTestHarness {
         &self,
         ctx: &BridgeContext,
         deposit_idx: u32,
+        request: &DepositRequest,
     ) -> anyhow::Result<BlockHash> {
         // 1. Build and submit the DRT (Deposit Request Transaction)
-        let drt_tx = self.build_drt_tx(ctx).await?;
+        let drt_tx = self.build_drt_tx(ctx, request).await?;
         let drt_txid = self.submit_transaction(&drt_tx).await?;
 
         // Mine the DRT so it's confirmed and fetchable as aux data
@@ -137,7 +164,13 @@ impl BridgeExt for AsmTestHarness {
         // 2. Build the DT (Deposit Transaction) referencing the DRT
         let drt_outpoint = OutPoint::new(drt_txid, 1); // DRT output index 1
         let drt_output = drt_tx.output[1].clone();
-        let dt_tx = self.build_dt_tx(ctx, deposit_idx, drt_outpoint, &drt_output)?;
+        let dt_tx = self.build_dt_tx(
+            ctx,
+            deposit_idx,
+            drt_outpoint,
+            &drt_output,
+            &request.recovery_pk,
+        )?;
 
         // 3. Submit and mine the DT
         let hash = self.submit_and_mine_tx(&dt_tx).await?;
@@ -147,7 +180,8 @@ impl BridgeExt for AsmTestHarness {
 
     async fn submit_deposits(&self, ctx: &BridgeContext, count: u32) -> anyhow::Result<()> {
         for i in 0..count {
-            self.submit_deposit(ctx, i).await?;
+            self.submit_deposit(ctx, i, &DepositRequest::random())
+                .await?;
         }
         // Mine one more block so the bridge's DepositProcessed messages are delivered.
         self.mine_block(None).await?;
@@ -178,13 +212,17 @@ impl AsmTestHarness {
     /// The DRT has:
     /// - Output 0: OP_RETURN with SPS-50 tag (subproto=2, tx_type=0, aux=recovery_pk+destination)
     /// - Output 1: P2TR deposit request output locked to operator multisig + recovery tapscript
-    async fn build_drt_tx(&self, ctx: &BridgeContext) -> anyhow::Result<Transaction> {
+    async fn build_drt_tx(
+        &self,
+        ctx: &BridgeContext,
+        request: &DepositRequest,
+    ) -> anyhow::Result<Transaction> {
         let fee = Self::DEFAULT_FEE;
 
         // Build the DRT header aux data
-        let destination = VarVec::from_vec(ctx.destination.clone())
+        let destination = VarVec::from_vec(request.destination.clone())
             .ok_or_else(|| anyhow::anyhow!("invalid destination length"))?;
-        let drt_aux = DrtHeaderAux::new(ctx.recovery_pk, destination)?;
+        let drt_aux = DrtHeaderAux::new(request.recovery_pk, destination)?;
 
         // Build the SPS-50 OP_RETURN tag
         let tag_data = drt_aux.build_tag_data();
@@ -194,7 +232,7 @@ impl AsmTestHarness {
         // Build the P2TR deposit request locking script
         let (_, internal_key) = derive_musig2_p2tr_address(ctx.operator_privkeys())?;
         let drt_locking_script = create_deposit_request_locking_script(
-            &ctx.recovery_pk,
+            &request.recovery_pk,
             internal_key,
             ctx.recovery_delay,
         );
@@ -263,6 +301,7 @@ impl AsmTestHarness {
         deposit_idx: u32,
         drt_outpoint: OutPoint,
         drt_output: &TxOut,
+        recovery_pk: &[u8; 32],
     ) -> anyhow::Result<Transaction> {
         // Build the SPS-50 OP_RETURN tag for deposit
         let dt_aux = DepositTxHeaderAux::new(deposit_idx);
@@ -303,7 +342,7 @@ impl AsmTestHarness {
         // The DRT P2TR has a merkle root from the recovery tapscript, so we need the
         // TaprootScript tweak.
         let spend_info =
-            build_deposit_request_spend_info(&ctx.recovery_pk, internal_key, ctx.recovery_delay);
+            build_deposit_request_spend_info(recovery_pk, internal_key, ctx.recovery_delay);
         let tweak = match spend_info.merkle_root() {
             Some(root) => Musig2Tweak::TaprootScript(root.to_raw_hash().to_byte_array()),
             None => Musig2Tweak::TaprootKeySpend,
@@ -383,17 +422,11 @@ pub fn create_test_bridge_setup(num_operators: usize) -> (BridgeV1InitConfig, Br
         safe_harbour_address,
     };
 
-    // Use a deterministic recovery key for test reproducibility
-    let recovery_pk = [42u8; 32];
-    let destination = vec![0xDE, 0xAD, 0xBE, 0xEF]; // dummy destination
-
     let ctx = BridgeContext {
         operator_privkeys: privkeys,
         operator_pubkeys: pubkeys,
         denomination,
         recovery_delay,
-        recovery_pk,
-        destination,
     };
 
     (config, ctx)
