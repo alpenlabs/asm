@@ -9,8 +9,8 @@
 )]
 
 use harness::{
-    admin::{asm_stf_vk_update, create_test_admin_setup, AdminExt},
-    test_harness::AsmTestHarnessBuilder,
+    admin::{asm_stf_vk_update, AdminExt, DEFAULT_CONFIRMATION_DEPTH},
+    test_harness::{AsmTestHarnessBuilder, Setup},
 };
 use integration_tests::harness;
 use moho_runtime_impl::RuntimeInput;
@@ -33,15 +33,11 @@ use strata_predicate::PredicateKey;
 /// 3. Verify the manifest contains an `AsmStfUpdate` log with the correct predicate
 #[tokio::test(flavor = "multi_thread")]
 async fn test_asm_predicate_update_emits_log() {
-    let (admin_config, mut ctx) = create_test_admin_setup(2);
-    let harness = AsmTestHarnessBuilder::default()
-        .with_admin_config(admin_config)
-        .build()
-        .await
-        .unwrap();
-
-    // Initialize subprotocols (genesis state has no sections)
-    harness.mine_block(None).await.unwrap();
+    let Setup {
+        harness,
+        admin: mut ctx,
+        ..
+    } = AsmTestHarnessBuilder::default().build().await;
 
     // Submit an ASM predicate update (gets queued for StrataAdministrator role)
     let new_predicate = PredicateKey::always_accept();
@@ -54,9 +50,11 @@ async fn test_asm_predicate_update_emits_log() {
     let state = harness.admin_state().unwrap();
     assert_eq!(state.queued().len(), 1, "Predicate update should be queued");
 
-    // Mine blocks to trigger activation (confirmation_depth=2)
-    harness.mine_block(None).await.unwrap();
-    harness.mine_block(None).await.unwrap();
+    // Mine blocks to trigger activation.
+    harness
+        .mine_blocks(DEFAULT_CONFIRMATION_DEPTH as usize)
+        .await
+        .unwrap();
 
     // Admin queue should be empty
     let final_state = harness.admin_state().unwrap();
@@ -96,15 +94,11 @@ async fn test_asm_predicate_update_emits_log() {
 /// 4. Verify the output attestation's post-state commitment reflects the new predicate
 #[tokio::test(flavor = "multi_thread")]
 async fn test_proof_program_reflects_predicate_update() {
-    let (admin_config, mut ctx) = create_test_admin_setup(2);
-    let harness = AsmTestHarnessBuilder::default()
-        .with_admin_config(admin_config)
-        .build()
-        .await
-        .unwrap();
-
-    // Initialize subprotocols (genesis state has no sections yet).
-    harness.mine_block(None).await.unwrap();
+    let Setup {
+        harness,
+        admin: mut ctx,
+        ..
+    } = AsmTestHarnessBuilder::default().build().await;
 
     // Submit an ASM predicate update (gets queued for StrataAdministrator role).
     let new_predicate = PredicateKey::never_accept();

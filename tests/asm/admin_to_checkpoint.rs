@@ -1,10 +1,16 @@
 //! Admin → Checkpoint subprotocol interaction tests
 //!
-//! Tests the propagation of admin updates to the checkpoint subprotocol.
+//! Tests the propagation of admin updates to the checkpoint subprotocol via interprotocol
+//! messaging.
 //!
 //! Key interactions tested:
-//! - Sequencer key updates → checkpoint sequencer_predicate
-//! - Predicate updates → checkpoint checkpoint_predicate (after activation)
+//! - Sequencer key update (depth 0) → checkpoint sequencer_predicate adopts the new Bip340Schnorr
+//!   key
+//! - Multiple sequential sequencer updates → checkpoint ends up with the latest key
+//! - Predicate (OL STF VK) update → queued first, then checkpoint checkpoint_predicate adopts it
+//!   after activation
+//! - Combined depth-0 sequencer + queued predicate → sequencer applies immediately, predicate after
+//!   activation
 
 #![allow(
     unused_crate_dependencies,
@@ -12,9 +18,9 @@
 )]
 
 use harness::{
-    admin::{create_test_admin_setup, ol_stf_vk_update, sequencer_update, AdminExt},
+    admin::{ol_stf_vk_update, sequencer_update, AdminExt, DEFAULT_CONFIRMATION_DEPTH},
     checkpoint::CheckpointExt,
-    test_harness::AsmTestHarnessBuilder,
+    test_harness::{AsmTestHarnessBuilder, Setup},
 };
 use integration_tests::harness;
 use strata_predicate::{PredicateKey, PredicateTypeId};
@@ -29,41 +35,41 @@ use strata_predicate::{PredicateKey, PredicateTypeId};
 /// without mining additional blocks for activation.
 #[tokio::test(flavor = "multi_thread")]
 async fn test_sequencer_update_propagates_to_checkpoint() {
-    let (mut admin_config, mut ctx) = create_test_admin_setup(2);
-    admin_config.confirmation_depths.sequencer_update = 0;
-    let harness = AsmTestHarnessBuilder::default()
-        .with_admin_config(admin_config)
+    let Setup {
+        harness,
+        admin: mut ctx,
+        ..
+    } = AsmTestHarnessBuilder::default()
+        .customize_admin(|c| c.confirmation_depths.sequencer_update = 0)
         .build()
-        .await
-        .unwrap();
+        .await;
 
-    // Initialize subprotocols (genesis state has no sections)
-    harness.mine_block(None).await.unwrap();
+    // Arrange: capture the initial checkpoint sequencer predicate.
+    let initial_sequencer_predicate = harness
+        .checkpoint_state()
+        .unwrap()
+        .sequencer_predicate()
+        .clone();
 
-    let initial_checkpoint_state = harness.checkpoint_state().unwrap();
-    let initial_sequencer_predicate = initial_checkpoint_state.sequencer_predicate().clone();
-
-    // Submit a sequencer key update
+    // Act: submit a (depth-0) sequencer key update.
     let new_key = [42u8; 32];
     harness
         .submit_admin_action(&mut ctx, sequencer_update(new_key))
         .await
         .unwrap();
 
+    // Assert: checkpoint adopts the new Bip340Schnorr sequencer predicate.
     let final_checkpoint_state = harness.checkpoint_state().unwrap();
-
     assert_ne!(
         final_checkpoint_state.sequencer_predicate(),
         &initial_sequencer_predicate,
-        "Checkpoint sequencer_predicate should be updated after sequencer key change"
+        "checkpoint sequencer_predicate should change after a sequencer key update"
     );
-
-    // Verify it's specifically a Bip340Schnorr predicate with our new key
     let expected = PredicateKey::new(PredicateTypeId::Bip340Schnorr, new_key.to_vec());
     assert_eq!(
         final_checkpoint_state.sequencer_predicate(),
         &expected,
-        "Checkpoint should have the new sequencer predicate"
+        "checkpoint should have the new sequencer predicate"
     );
 }
 
@@ -72,22 +78,19 @@ async fn test_sequencer_update_propagates_to_checkpoint() {
 /// Uses confirmation depth 0 for sequencer updates so each update is applied on inclusion.
 #[tokio::test(flavor = "multi_thread")]
 async fn test_multiple_sequencer_updates_checkpoint_has_latest() {
-    let (mut admin_config, mut ctx) = create_test_admin_setup(2);
-    admin_config.confirmation_depths.sequencer_update = 0;
-    let harness = AsmTestHarnessBuilder::default()
-        .with_admin_config(admin_config)
+    let Setup {
+        harness,
+        admin: mut ctx,
+        ..
+    } = AsmTestHarnessBuilder::default()
+        .customize_admin(|c| c.confirmation_depths.sequencer_update = 0)
         .build()
-        .await
-        .unwrap();
+        .await;
 
-    // Initialize subprotocols
-    harness.mine_block(None).await.unwrap();
-
-    // Submit 3 sequencer key updates in sequence
+    // Act: three sequencer key updates in sequence (each applies immediately at depth 0).
     let key1 = [1u8; 32];
     let key2 = [2u8; 32];
     let key3 = [3u8; 32];
-
     harness
         .submit_admin_action(&mut ctx, sequencer_update(key1))
         .await
@@ -101,21 +104,17 @@ async fn test_multiple_sequencer_updates_checkpoint_has_latest() {
         .await
         .unwrap();
 
-    // Checkpoint should have the latest key (key3)
-    let checkpoint_state = harness.checkpoint_state().unwrap();
+    // Assert: checkpoint holds the latest key, and all three updates were processed.
     let expected = PredicateKey::new(PredicateTypeId::Bip340Schnorr, key3.to_vec());
     assert_eq!(
-        checkpoint_state.sequencer_predicate(),
+        harness.checkpoint_state().unwrap().sequencer_predicate(),
         &expected,
-        "Checkpoint should have the latest sequencer predicate"
+        "checkpoint should have the latest sequencer predicate"
     );
-
-    // All 3 updates should have been processed
-    let state = harness.admin_state().unwrap();
     assert_eq!(
-        state.next_update_id(),
+        harness.admin_state().unwrap().next_update_id(),
         3,
-        "All 3 updates should be processed"
+        "all 3 updates should be processed"
     );
 }
 
@@ -127,60 +126,58 @@ async fn test_multiple_sequencer_updates_checkpoint_has_latest() {
 ///
 /// Flow:
 /// 1. Submit predicate update (gets queued)
-/// 2. Mine blocks to trigger activation (confirmation_depth=2)
+/// 2. Mine blocks to trigger activation
 /// 3. Verify checkpoint's predicate field is updated
 #[tokio::test(flavor = "multi_thread")]
 async fn test_predicate_update_propagates_to_checkpoint() {
-    let (admin_config, mut ctx) = create_test_admin_setup(2);
-    let harness = AsmTestHarnessBuilder::default()
-        .with_admin_config(admin_config)
-        .build()
-        .await
-        .unwrap();
+    let Setup {
+        harness,
+        admin: mut ctx,
+        ..
+    } = AsmTestHarnessBuilder::default().build().await;
 
-    // Initialize subprotocols
-    harness.mine_block(None).await.unwrap();
+    // Arrange.
+    let initial_predicate = harness
+        .checkpoint_state()
+        .unwrap()
+        .checkpoint_predicate()
+        .clone();
 
-    let initial_checkpoint_state = harness.checkpoint_state().unwrap();
-    let initial_predicate = initial_checkpoint_state.checkpoint_predicate().clone();
-
-    // Submit a predicate update (gets queued for StrataAdministrator role)
+    // Act: submit a predicate (OL STF VK) update — queued for StrataAdministrator.
     let new_predicate = PredicateKey::always_accept();
     harness
         .submit_admin_action(&mut ctx, ol_stf_vk_update(new_predicate.clone()))
         .await
         .unwrap();
 
-    // Verify it's queued, not applied yet
-    let state = harness.admin_state().unwrap();
-    assert_eq!(state.queued().len(), 1, "Predicate update should be queued");
-
-    // Checkpoint predicate should be unchanged while update is queued
-    let checkpoint_state = harness.checkpoint_state().unwrap();
+    // Assert: queued, checkpoint predicate unchanged until activation.
     assert_eq!(
-        checkpoint_state.checkpoint_predicate(),
+        harness.admin_state().unwrap().queued().len(),
+        1,
+        "predicate update should be queued"
+    );
+    assert_eq!(
+        harness.checkpoint_state().unwrap().checkpoint_predicate(),
         &initial_predicate,
-        "Checkpoint predicate should not change while update is queued"
+        "checkpoint predicate should not change while the update is queued"
     );
 
-    // Mine blocks to trigger activation (confirmation_depth=2)
-    harness.mine_block(None).await.unwrap();
-    harness.mine_block(None).await.unwrap();
+    // Act: mine through the activation window.
+    harness
+        .mine_blocks(DEFAULT_CONFIRMATION_DEPTH as usize)
+        .await
+        .unwrap();
 
-    // Now verify checkpoint's predicate has been updated
-    let final_checkpoint_state = harness.checkpoint_state().unwrap();
+    // Assert: checkpoint predicate updated, queue drained.
     assert_eq!(
-        final_checkpoint_state.checkpoint_predicate(),
+        harness.checkpoint_state().unwrap().checkpoint_predicate(),
         &new_predicate,
-        "Checkpoint predicate should be updated after activation"
+        "checkpoint predicate should be updated after activation"
     );
-
-    // And admin queue should be empty
-    let final_state = harness.admin_state().unwrap();
     assert_eq!(
-        final_state.queued().len(),
+        harness.admin_state().unwrap().queued().len(),
         0,
-        "Queue should be empty after activation"
+        "queue should be empty after activation"
     );
 }
 
@@ -194,81 +191,73 @@ async fn test_predicate_update_propagates_to_checkpoint() {
 /// non-zero-depth update (predicate, queued until activation).
 #[tokio::test(flavor = "multi_thread")]
 async fn test_zero_and_nonzero_depth_updates_both_apply() {
-    let (mut admin_config, mut ctx) = create_test_admin_setup(2);
-    admin_config.confirmation_depths.sequencer_update = 0;
-    let harness = AsmTestHarnessBuilder::default()
-        .with_admin_config(admin_config)
+    let Setup {
+        harness,
+        admin: mut ctx,
+        ..
+    } = AsmTestHarnessBuilder::default()
+        .customize_admin(|c| c.confirmation_depths.sequencer_update = 0)
         .build()
-        .await
-        .unwrap();
+        .await;
 
-    // Initialize subprotocols
-    harness.mine_block(None).await.unwrap();
+    let initial_predicate = harness
+        .checkpoint_state()
+        .unwrap()
+        .checkpoint_predicate()
+        .clone();
 
-    let initial_checkpoint_state = harness.checkpoint_state().unwrap();
-
-    // Submit sequencer update (zero depth, applies immediately)
+    // Act + Assert: depth-0 sequencer update applies immediately.
     let new_sequencer_key = [99u8; 32];
     harness
         .submit_admin_action(&mut ctx, sequencer_update(new_sequencer_key))
         .await
         .unwrap();
-
-    // Checkpoint should already have new sequencer key
     let expected_seq_predicate =
         PredicateKey::new(PredicateTypeId::Bip340Schnorr, new_sequencer_key.to_vec());
-    let mid_checkpoint_state = harness.checkpoint_state().unwrap();
     assert_eq!(
-        mid_checkpoint_state.sequencer_predicate(),
+        harness.checkpoint_state().unwrap().sequencer_predicate(),
         &expected_seq_predicate,
-        "Sequencer predicate should be updated immediately at confirmation depth 0"
+        "sequencer predicate should be updated immediately at confirmation depth 0"
     );
 
-    // Submit predicate update (gets queued with activation_height = current + confirmation_depth)
+    // Act: queue a predicate update (non-zero depth).
     let new_predicate = PredicateKey::always_accept();
     harness
         .submit_admin_action(&mut ctx, ol_stf_vk_update(new_predicate.clone()))
         .await
         .unwrap();
-
-    // Predicate should still be initial (update is queued)
-    let checkpoint_state = harness.checkpoint_state().unwrap();
     assert_eq!(
-        checkpoint_state.checkpoint_predicate(),
-        initial_checkpoint_state.checkpoint_predicate(),
-        "Checkpoint predicate should not change yet (update is queued)"
+        harness.checkpoint_state().unwrap().checkpoint_predicate(),
+        &initial_predicate,
+        "checkpoint predicate should not change yet (update is queued)"
     );
-
-    // Admin should have the update queued
-    let admin_state = harness.admin_state().unwrap();
     assert_eq!(
-        admin_state.queued().len(),
+        harness.admin_state().unwrap().queued().len(),
         1,
-        "Predicate update should be queued"
+        "predicate update should be queued"
     );
 
-    // Mine blocks to trigger activation (confirmation_depth=2)
-    harness.mine_block(None).await.unwrap();
-    harness.mine_block(None).await.unwrap();
+    // Act: mine through the activation window.
+    harness
+        .mine_blocks(DEFAULT_CONFIRMATION_DEPTH as usize)
+        .await
+        .unwrap();
 
-    // Admin queue should be empty (update activated)
-    let admin_state = harness.admin_state().unwrap();
+    // Assert: both updates now reflected in the checkpoint; queue drained.
     assert_eq!(
-        admin_state.queued().len(),
+        harness.admin_state().unwrap().queued().len(),
         0,
-        "Queue should be empty after activation"
+        "queue should be empty after activation"
     );
-
-    // Now both should be updated in checkpoint
     let final_checkpoint_state = harness.checkpoint_state().unwrap();
     assert_eq!(
         final_checkpoint_state.sequencer_predicate(),
         &expected_seq_predicate,
-        "Sequencer predicate should still be the new value"
+        "sequencer predicate should still be the new value"
     );
     assert_eq!(
         final_checkpoint_state.checkpoint_predicate(),
         &new_predicate,
-        "Checkpoint predicate should now be updated after activation"
+        "checkpoint predicate should be updated after activation"
     );
 }

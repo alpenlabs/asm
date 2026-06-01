@@ -14,8 +14,9 @@
 )]
 
 use harness::{
-    bridge::{create_test_bridge_setup, BridgeExt},
-    test_harness::AsmTestHarnessBuilder,
+    bridge::BridgeExt,
+    checkpoint::CheckpointExt,
+    test_harness::{AsmTestHarnessBuilder, Setup},
 };
 use integration_tests::harness;
 
@@ -28,57 +29,45 @@ use integration_tests::harness;
 /// 4. Verify checkpoint's `available_deposit_sum` equals the deposit denomination
 #[tokio::test(flavor = "multi_thread")]
 async fn test_deposit_updates_checkpoint_available_sum() {
-    let (bridge_params, ctx) = create_test_bridge_setup(3);
-    let denomination = ctx.denomination();
-
-    let harness = AsmTestHarnessBuilder::default()
-        .with_bridge_config(bridge_params)
+    let Setup {
+        harness,
+        bridge: ctx,
+        ..
+    } = AsmTestHarnessBuilder::default()
         .with_txindex()
         .build()
-        .await
-        .unwrap();
+        .await;
+    let denomination = ctx.denomination().to_sat();
 
-    // Initialize subprotocols (genesis block creates initial state)
-    harness.mine_block(None).await.unwrap();
-
-    // Verify initial state: no deposits tracked yet
-    let initial_checkpoint = harness.checkpoint_new_state().unwrap();
+    // Arrange: nothing tracked yet.
     assert_eq!(
-        initial_checkpoint.available_deposit_sum(),
+        harness.checkpoint_state().unwrap().available_deposit_sum(),
         0,
-        "Checkpoint should start with zero available deposits"
+        "checkpoint should start with zero available deposits"
+    );
+    assert_eq!(
+        harness.bridge_state().unwrap().deposits().len(),
+        0,
+        "bridge should start with no deposits"
     );
 
-    let initial_bridge = harness.bridge_state().unwrap();
-    assert_eq!(
-        initial_bridge.deposits().len(),
-        0,
-        "Bridge should start with no deposits"
-    );
+    // Act: one deposit (`submit_deposits` also mines the message-delivery block).
+    harness.submit_deposits(&ctx, 1).await.unwrap();
 
-    // Submit a deposit
-    harness.submit_deposit(&ctx, 0).await.unwrap();
-
-    // The deposit is processed by bridge in `process_txs`, which emits DepositProcessed.
-    // The checkpoint receives DepositProcessed in `process_msgs` of the same block.
-    // However, since bridge processes AFTER checkpoint in `process_txs`, the message
-    // is delivered in the same block's `process_msgs` phase.
-    // Mine one more block to ensure the message has been delivered.
-    harness.mine_block(None).await.unwrap();
-
-    // Verify bridge state: deposit should be recorded
-    let bridge_state = harness.bridge_state().unwrap();
+    // Assert: bridge records the deposit and the checkpoint sees the denomination.
     assert!(
-        bridge_state.deposits().get_deposit(0).is_some(),
-        "Bridge should have the deposit"
+        harness
+            .bridge_state()
+            .unwrap()
+            .deposits()
+            .get_deposit(0)
+            .is_some(),
+        "bridge should have the deposit"
     );
-
-    // Verify checkpoint state: available_deposit_sum should equal denomination
-    let checkpoint_state = harness.checkpoint_new_state().unwrap();
     assert_eq!(
-        checkpoint_state.available_deposit_sum(),
-        denomination.to_sat(),
-        "Checkpoint available_deposit_sum should equal deposit denomination"
+        harness.checkpoint_state().unwrap().available_deposit_sum(),
+        denomination,
+        "checkpoint available_deposit_sum should equal the deposit denomination"
     );
 }
 
@@ -87,41 +76,29 @@ async fn test_deposit_updates_checkpoint_available_sum() {
 /// Submits 3 deposits and verifies the sum equals 3 * denomination.
 #[tokio::test(flavor = "multi_thread")]
 async fn test_multiple_deposits_accumulate_in_checkpoint() {
-    let (bridge_params, ctx) = create_test_bridge_setup(3);
-    let denomination = ctx.denomination();
-
-    let harness = AsmTestHarnessBuilder::default()
-        .with_bridge_config(bridge_params)
+    let Setup {
+        harness,
+        bridge: ctx,
+        ..
+    } = AsmTestHarnessBuilder::default()
         .with_txindex()
         .build()
-        .await
-        .unwrap();
+        .await;
+    let denomination = ctx.denomination().to_sat();
 
-    // Initialize subprotocols
-    harness.mine_block(None).await.unwrap();
-
+    // Act: 3 deposits.
     let num_deposits = 3u32;
-    for i in 0..num_deposits {
-        harness.submit_deposit(&ctx, i).await.unwrap();
-    }
+    harness.submit_deposits(&ctx, num_deposits).await.unwrap();
 
-    // Mine an extra block to ensure all messages are delivered
-    harness.mine_block(None).await.unwrap();
-
-    // Verify bridge state
-    let bridge_state = harness.bridge_state().unwrap();
+    // Assert: bridge has all deposits; the checkpoint sum is the total.
     assert_eq!(
-        bridge_state.deposits().len(),
+        harness.bridge_state().unwrap().deposits().len(),
         num_deposits,
-        "Bridge should have all deposits"
+        "bridge should have all deposits"
     );
-
-    // Verify checkpoint accumulated sum
-    let checkpoint_state = harness.checkpoint_new_state().unwrap();
-    let expected_sum = denomination.to_sat() * num_deposits as u64;
     assert_eq!(
-        checkpoint_state.available_deposit_sum(),
-        expected_sum,
-        "Checkpoint available_deposit_sum should equal sum of all deposits"
+        harness.checkpoint_state().unwrap().available_deposit_sum(),
+        denomination * num_deposits as u64,
+        "checkpoint available_deposit_sum should equal the sum of all deposits"
     );
 }

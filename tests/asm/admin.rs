@@ -8,12 +8,8 @@
 //!
 //! These tests use the harness's ergonomic admin API:
 //! ```ignore
-//! let (admin_config, mut ctx) = create_test_admin_setup(2);
-//! let harness = AsmTestHarnessBuilder::default()
-//!     .with_admin_config(admin_config)
-//!     .build()
-//!     .await?;
-//! harness.submit_admin_action(&mut ctx, sequencer_update([1u8; 32])).await?;
+//! let Setup { harness, mut admin, .. } = AsmTestHarnessBuilder::default().build().await;
+//! harness.submit_admin_action(&mut admin, sequencer_update([1u8; 32])).await?;
 //! let state = harness.admin_state()?;
 //! ```
 
@@ -28,10 +24,11 @@ use bitcoin::secp256k1::{PublicKey, Secp256k1, SecretKey};
 use bitcoind_async_client::traits::Reader;
 use harness::{
     admin::{
-        cancel_update, create_test_admin_setup, ee_stf_vk_update, multisig_config_update,
-        ol_stf_vk_update, operator_set_update, sequencer_update, AdminExt,
+        assert_only_required_role_can_send, cancel_update, ee_stf_vk_update,
+        multisig_config_update, ol_stf_vk_update, operator_set_update, sequencer_update, AdminExt,
+        DEFAULT_CONFIRMATION_DEPTH,
     },
-    test_harness::AsmTestHarnessBuilder,
+    test_harness::{AsmTestHarnessBuilder, Setup},
 };
 use integration_tests::harness;
 use rand::rngs::OsRng;
@@ -56,13 +53,14 @@ use strata_predicate::PredicateKey;
 /// Verifies updates configured with confirmation depth zero apply immediately.
 #[tokio::test(flavor = "multi_thread")]
 async fn test_zero_depth_update_applies_immediately() {
-    let (mut admin_config, mut ctx) = create_test_admin_setup(2);
-    admin_config.confirmation_depths.sequencer_update = 0;
-    let harness = AsmTestHarnessBuilder::default()
-        .with_admin_config(admin_config)
+    let Setup {
+        harness,
+        admin: mut ctx,
+        ..
+    } = AsmTestHarnessBuilder::default()
+        .customize_admin(|c| c.confirmation_depths.sequencer_update = 0)
         .build()
-        .await
-        .unwrap();
+        .await;
 
     harness
         .submit_admin_action(&mut ctx, sequencer_update([1u8; 32]))
@@ -70,7 +68,6 @@ async fn test_zero_depth_update_applies_immediately() {
         .unwrap();
 
     let state = harness.admin_state().unwrap();
-
     assert_eq!(
         state.queued().len(),
         0,
@@ -90,12 +87,11 @@ async fn test_zero_depth_update_applies_immediately() {
 /// Verifies operator set updates are queued when their confirmation depth is non-zero.
 #[tokio::test(flavor = "multi_thread")]
 async fn test_operator_update_is_queued() {
-    let (admin_config, mut ctx) = create_test_admin_setup(2);
-    let harness = AsmTestHarnessBuilder::default()
-        .with_admin_config(admin_config)
-        .build()
-        .await
-        .unwrap();
+    let Setup {
+        harness,
+        admin: mut ctx,
+        ..
+    } = AsmTestHarnessBuilder::default().build().await;
 
     harness
         .submit_admin_action(
@@ -106,7 +102,6 @@ async fn test_operator_update_is_queued() {
         .unwrap();
 
     let state = harness.admin_state().unwrap();
-
     assert_eq!(
         state.queued().len(),
         1,
@@ -125,15 +120,11 @@ async fn test_operator_update_is_queued() {
 /// Verifies multisig config updates are queued when their confirmation depth is non-zero.
 #[tokio::test(flavor = "multi_thread")]
 async fn test_multisig_update_is_queued() {
-    let (admin_config, mut ctx) = create_test_admin_setup(2);
-    let harness = AsmTestHarnessBuilder::default()
-        .with_admin_config(admin_config)
-        .build()
-        .await
-        .unwrap();
-
-    // Initialize subprotocols
-    harness.mine_block(None).await.unwrap();
+    let Setup {
+        harness,
+        admin: mut ctx,
+        ..
+    } = AsmTestHarnessBuilder::default().build().await;
 
     let initial_state = harness.admin_state().unwrap();
     let initial_auth = initial_state
@@ -181,15 +172,11 @@ async fn test_multisig_update_is_queued() {
 /// Verifies predicate (verifying key) updates are queued.
 #[tokio::test(flavor = "multi_thread")]
 async fn test_predicate_update_is_queued() {
-    let (admin_config, mut ctx) = create_test_admin_setup(2);
-    let harness = AsmTestHarnessBuilder::default()
-        .with_admin_config(admin_config)
-        .build()
-        .await
-        .unwrap();
-
-    // Initialize subprotocols
-    harness.mine_block(None).await.unwrap();
+    let Setup {
+        harness,
+        admin: mut ctx,
+        ..
+    } = AsmTestHarnessBuilder::default().build().await;
 
     let new_predicate = PredicateKey::always_accept();
     harness
@@ -213,16 +200,11 @@ async fn test_predicate_update_is_queued() {
 /// Verifies queued updates activate after confirmation_depth blocks.
 #[tokio::test(flavor = "multi_thread")]
 async fn test_queued_update_activates() {
-    // confirmation_depth=2, so updates activate 2 blocks after submission
-    let (admin_config, mut ctx) = create_test_admin_setup(2);
-    let harness = AsmTestHarnessBuilder::default()
-        .with_admin_config(admin_config)
-        .build()
-        .await
-        .unwrap();
-
-    // Initialize subprotocols
-    harness.mine_block(None).await.unwrap();
+    let Setup {
+        harness,
+        admin: mut ctx,
+        ..
+    } = AsmTestHarnessBuilder::default().build().await;
 
     let initial_state = harness.admin_state().unwrap();
     let initial_auth = initial_state
@@ -257,9 +239,11 @@ async fn test_queued_update_activates() {
         "Member count should not change until activation"
     );
 
-    // Mine blocks to trigger activation (confirmation_depth=2)
-    harness.mine_block(None).await.unwrap();
-    harness.mine_block(None).await.unwrap();
+    // Mine blocks to trigger activation.
+    harness
+        .mine_blocks(DEFAULT_CONFIRMATION_DEPTH as usize)
+        .await
+        .unwrap();
 
     // Verify update has been activated
     let final_state = harness.admin_state().unwrap();
@@ -290,12 +274,11 @@ async fn test_queued_update_activates() {
 /// Verifies cancel action removes a queued update.
 #[tokio::test(flavor = "multi_thread")]
 async fn test_cancel_removes_queued_update() {
-    let (admin_config, mut ctx) = create_test_admin_setup(2);
-    let harness = AsmTestHarnessBuilder::default()
-        .with_admin_config(admin_config)
-        .build()
-        .await
-        .unwrap();
+    let Setup {
+        harness,
+        admin: mut ctx,
+        ..
+    } = AsmTestHarnessBuilder::default().build().await;
 
     // Create an operator set update that gets queued (ID=0)
     harness
@@ -330,12 +313,7 @@ async fn test_cancel_removes_queued_update() {
 /// Verifies transactions signed with wrong key are rejected.
 #[tokio::test(flavor = "multi_thread")]
 async fn test_wrong_key_rejected() {
-    let (admin_config, _ctx) = create_test_admin_setup(2);
-    let harness = AsmTestHarnessBuilder::default()
-        .with_admin_config(admin_config)
-        .build()
-        .await
-        .unwrap();
+    let Setup { harness, .. } = AsmTestHarnessBuilder::default().build().await;
 
     // Create a transaction signed with WRONG key (not the operator key)
     let secp = Secp256k1::new();
@@ -376,12 +354,11 @@ async fn test_wrong_key_rejected() {
 /// Verifies transactions with corrupted signatures are rejected.
 #[tokio::test(flavor = "multi_thread")]
 async fn test_corrupted_signature_rejected() {
-    let (admin_config, ctx) = create_test_admin_setup(2);
-    let harness = AsmTestHarnessBuilder::default()
-        .with_admin_config(admin_config)
-        .build()
-        .await
-        .unwrap();
+    let Setup {
+        harness,
+        admin: ctx,
+        ..
+    } = AsmTestHarnessBuilder::default().build().await;
 
     let action = sequencer_update([88u8; 32]);
     let seqno = 1;
@@ -424,95 +401,25 @@ async fn test_corrupted_signature_rejected() {
 // Role-Based Authorization
 // ============================================================================
 
-/// Verifies an OL STF VK update signed by the AlpenAdministrator is rejected.
+/// An OL STF VK update can only be authorized by the StrataAdministrator.
 ///
-/// OL STF VK updates require the StrataAdministrator role. The AlpenAdministrator's key
-/// is valid for its own role but does not satisfy the StrataAdministrator's threshold
-/// config — so the signature must fail verification, leaving all role seqnos at zero.
+/// Every other role is a valid signer for its own role but cannot satisfy the
+/// StrataAdministrator's threshold config, so the signature fails verification and the admin
+/// state is left untouched. The shared helper exercises all three non-required roles.
 #[tokio::test(flavor = "multi_thread")]
-async fn test_ol_stf_vk_signed_by_alpen_admin_rejected() {
-    let (admin_config, mut ctx) = create_test_admin_setup(2);
-    let harness = AsmTestHarnessBuilder::default()
-        .with_admin_config(admin_config)
-        .build()
-        .await
-        .unwrap();
+async fn test_ol_stf_vk_only_administrator_can_send() {
+    let Setup {
+        harness,
+        admin: mut ctx,
+        ..
+    } = AsmTestHarnessBuilder::default().build().await;
 
-    // Initialize subprotocols
-    harness.mine_block(None).await.unwrap();
-
-    // Sign an OL STF VK update (requires StrataAdministrator) with the AlpenAdministrator's
-    // keys. The handler resolves the required role from the action and verifies against
-    // StrataAdministrator's threshold config — which rejects the AlpenAdministrator's sig.
-    harness
-        .submit_admin_action_as_role(
-            &mut ctx,
-            ol_stf_vk_update(PredicateKey::always_accept()),
-            Role::AlpenAdministrator,
-        )
-        .await
-        .unwrap();
-
-    let state = harness.admin_state().unwrap();
-    assert_eq!(
-        state.queued().len(),
-        0,
-        "OL STF VK update signed by wrong role should not be queued"
-    );
-    assert_eq!(
-        state.next_update_id(),
-        0,
-        "Update ID should not increment for rejected tx"
-    );
-    // No role's seqno should advance — verification fails before the seqno update.
-    for role in [
-        Role::StrataAdministrator,
-        Role::StrataSequencerManager,
-        Role::AlpenAdministrator,
-    ] {
-        assert_eq!(
-            state.authority(role).unwrap().last_seqno(),
-            0,
-            "{role:?} seqno should not advance for rejected tx",
-        );
-    }
-}
-
-/// Verifies an OL STF VK update signed by the StrataSequencerManager is rejected.
-///
-/// Companion to the AlpenAdministrator case: a valid signer for some role still cannot
-/// authorize an action belonging to a different role.
-#[tokio::test(flavor = "multi_thread")]
-async fn test_ol_stf_vk_signed_by_seq_manager_rejected() {
-    let (admin_config, mut ctx) = create_test_admin_setup(2);
-    let harness = AsmTestHarnessBuilder::default()
-        .with_admin_config(admin_config)
-        .build()
-        .await
-        .unwrap();
-
-    harness.mine_block(None).await.unwrap();
-
-    harness
-        .submit_admin_action_as_role(
-            &mut ctx,
-            ol_stf_vk_update(PredicateKey::always_accept()),
-            Role::StrataSequencerManager,
-        )
-        .await
-        .unwrap();
-
-    let state = harness.admin_state().unwrap();
-    assert_eq!(
-        state.queued().len(),
-        0,
-        "OL STF VK update signed by wrong role should not be queued"
-    );
-    assert_eq!(
-        state.next_update_id(),
-        0,
-        "Update ID should not increment for rejected tx"
-    );
+    assert_only_required_role_can_send(
+        &harness,
+        &mut ctx,
+        ol_stf_vk_update(PredicateKey::always_accept()),
+    )
+    .await;
 }
 
 // ============================================================================
@@ -531,14 +438,11 @@ async fn test_ol_stf_vk_signed_by_seq_manager_rejected() {
 /// signature.
 #[tokio::test(flavor = "multi_thread")]
 async fn test_cancel_of_alpen_update_by_alpen_admin_succeeds() {
-    let (admin_config, mut ctx) = create_test_admin_setup(2);
-    let harness = AsmTestHarnessBuilder::default()
-        .with_admin_config(admin_config)
-        .build()
-        .await
-        .unwrap();
-
-    harness.mine_block(None).await.unwrap();
+    let Setup {
+        harness,
+        admin: mut ctx,
+        ..
+    } = AsmTestHarnessBuilder::default().build().await;
 
     // Queue an Alpen-authorized update; submit_admin_action auto-routes to alpen.
     harness
@@ -570,14 +474,11 @@ async fn test_cancel_of_alpen_update_by_alpen_admin_succeeds() {
 /// protection — which would otherwise mask a buggy role resolution.
 #[tokio::test(flavor = "multi_thread")]
 async fn test_cancel_of_alpen_update_by_strata_admin_rejected() {
-    let (admin_config, mut ctx) = create_test_admin_setup(2);
-    let harness = AsmTestHarnessBuilder::default()
-        .with_admin_config(admin_config)
-        .build()
-        .await
-        .unwrap();
-
-    harness.mine_block(None).await.unwrap();
+    let Setup {
+        harness,
+        admin: mut ctx,
+        ..
+    } = AsmTestHarnessBuilder::default().build().await;
 
     harness
         .submit_admin_action(&mut ctx, ee_stf_vk_update(PredicateKey::always_accept()))
@@ -612,14 +513,11 @@ async fn test_cancel_of_alpen_update_by_strata_admin_rejected() {
 /// cancel an Alpen-authorized queued update either.
 #[tokio::test(flavor = "multi_thread")]
 async fn test_cancel_of_alpen_update_by_seq_manager_rejected() {
-    let (admin_config, mut ctx) = create_test_admin_setup(2);
-    let harness = AsmTestHarnessBuilder::default()
-        .with_admin_config(admin_config)
-        .build()
-        .await
-        .unwrap();
-
-    harness.mine_block(None).await.unwrap();
+    let Setup {
+        harness,
+        admin: mut ctx,
+        ..
+    } = AsmTestHarnessBuilder::default().build().await;
 
     harness
         .submit_admin_action(&mut ctx, ee_stf_vk_update(PredicateKey::always_accept()))
@@ -649,15 +547,16 @@ async fn test_cancel_of_alpen_update_by_seq_manager_rejected() {
 /// Verifies replay attacks (reused sequence numbers) are rejected.
 #[tokio::test(flavor = "multi_thread")]
 async fn test_replay_attack_rejected() {
-    let (mut admin_config, mut ctx) = create_test_admin_setup(2);
     // Apply sequencer updates immediately so the queue stays empty and we can assert
     // purely on replay rejection without reasoning about activation height.
-    admin_config.confirmation_depths.sequencer_update = 0;
-    let harness = AsmTestHarnessBuilder::default()
-        .with_admin_config(admin_config)
+    let Setup {
+        harness,
+        admin: mut ctx,
+        ..
+    } = AsmTestHarnessBuilder::default()
+        .customize_admin(|c| c.confirmation_depths.sequencer_update = 0)
         .build()
-        .await
-        .unwrap();
+        .await;
 
     // Submit first transaction (seqno=0, auto-incremented to 1)
     harness
@@ -672,7 +571,6 @@ async fn test_replay_attack_rejected() {
         .unwrap();
 
     let state = harness.admin_state().unwrap();
-
     assert_eq!(
         state.next_update_id(),
         1,
@@ -691,14 +589,14 @@ async fn test_replay_attack_rejected() {
 /// non-zero depths would be queued instead, which is exercised by the queued-update tests.
 #[tokio::test(flavor = "multi_thread")]
 async fn test_multiple_zero_depth_updates_same_block() {
-    let (mut admin_config, mut ctx) = create_test_admin_setup(2);
-    admin_config.confirmation_depths.sequencer_update = 0;
-
-    let harness = AsmTestHarnessBuilder::default()
-        .with_admin_config(admin_config)
+    let Setup {
+        harness,
+        admin: mut ctx,
+        ..
+    } = AsmTestHarnessBuilder::default()
+        .customize_admin(|c| c.confirmation_depths.sequencer_update = 0)
         .build()
-        .await
-        .unwrap();
+        .await;
 
     // Build 3 transactions with sequential seqnos
     let action1 = sequencer_update([7u8; 32]);
@@ -771,15 +669,11 @@ async fn test_multiple_zero_depth_updates_same_block() {
 /// This gives us block H+1 to submit a cancel, making the test deterministic.
 #[tokio::test(flavor = "multi_thread")]
 async fn test_cancel_prevents_queued_update_activation() {
-    let (admin_config, mut ctx) = create_test_admin_setup(2);
-    let harness = AsmTestHarnessBuilder::default()
-        .with_admin_config(admin_config)
-        .build()
-        .await
-        .unwrap();
-
-    // Initialize subprotocols
-    harness.mine_block(None).await.unwrap();
+    let Setup {
+        harness,
+        admin: mut ctx,
+        ..
+    } = AsmTestHarnessBuilder::default().build().await;
 
     // Submit operator update (gets queued, will activate in current_height + 2)
     harness

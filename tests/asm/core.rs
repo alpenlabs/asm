@@ -8,7 +8,10 @@
 )]
 
 use bitcoin::Network;
-use harness::{test_harness::AsmTestHarnessBuilder, worker_context::TestAsmWorkerContext};
+use harness::{
+    test_harness::{AsmTestHarnessBuilder, Setup},
+    worker_context::TestAsmWorkerContext,
+};
 use integration_tests::harness;
 use strata_asm_worker::WorkerContext;
 use strata_btc_types::BlockHashExt;
@@ -65,10 +68,7 @@ async fn test_block_fetching_and_caching() {
 /// Verifies ASM worker processes a single mined block.
 #[tokio::test(flavor = "multi_thread")]
 async fn test_single_block_processing() {
-    let harness = AsmTestHarnessBuilder::default()
-        .build()
-        .await
-        .expect("Failed to create test harness");
+    let Setup { harness, .. } = AsmTestHarnessBuilder::default().build().await;
 
     harness
         .mine_block(None)
@@ -90,10 +90,7 @@ async fn test_single_block_processing() {
 /// L1 height and break alignment between the proven and external MMRs.
 #[tokio::test(flavor = "multi_thread")]
 async fn test_genesis_manifest_not_stored() {
-    let harness = AsmTestHarnessBuilder::default()
-        .build()
-        .await
-        .expect("Failed to create test harness");
+    let Setup { harness, .. } = AsmTestHarnessBuilder::default().build().await;
 
     // Right after init: no blocks processed, no manifests stored.
     assert!(
@@ -125,10 +122,7 @@ async fn test_genesis_manifest_not_stored() {
 /// Verifies ASM worker processes multiple mined blocks.
 #[tokio::test(flavor = "multi_thread")]
 async fn test_multiple_block_processing() {
-    let harness = AsmTestHarnessBuilder::default()
-        .build()
-        .await
-        .expect("Failed to create test harness");
+    let Setup { harness, .. } = AsmTestHarnessBuilder::default().build().await;
     let (l1, state) = harness.get_latest_asm_state().unwrap().unwrap();
     assert_eq!(l1, state.state().chain_view.pow_state.last_verified_block);
     assert_eq!(
@@ -201,10 +195,7 @@ async fn test_multiple_block_processing() {
 /// verify the invariant holds incrementally, not just at the end.
 #[tokio::test(flavor = "multi_thread")]
 async fn test_proven_and_external_mmr_index_alignment() {
-    let harness = AsmTestHarnessBuilder::default()
-        .build()
-        .await
-        .expect("Failed to create test harness");
+    let Setup { harness, .. } = AsmTestHarnessBuilder::default().build().await;
 
     let genesis_height = harness.genesis_height;
 

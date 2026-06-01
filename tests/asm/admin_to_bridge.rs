@@ -21,58 +21,16 @@
 
 use harness::{
     admin::{
-        create_test_admin_setup, defcon1_update, defcon3_update, operator_set_update,
-        safe_harbour_address_update, AdminContext, AdminExt,
+        assert_only_required_role_can_send, defcon1_update, defcon3_update, operator_set_update,
+        safe_harbour_address_update, submit_and_activate, AdminExt,
     },
-    bridge::{create_test_bridge_setup, BridgeExt},
-    test_harness::{AsmTestHarness, AsmTestHarnessBuilder},
+    bridge::BridgeExt,
+    test_harness::{AsmTestHarnessBuilder, Setup},
 };
 use integration_tests::harness;
-use strata_asm_params::Role;
-use strata_asm_proto_admin_txs::actions::MultisigAction;
 use strata_asm_proto_bridge_v1_txs::test_utils::create_test_operators;
 use strata_asm_proto_bridge_v1_types::SafeHarbourAddress;
-use strata_crypto::EvenPublicKey;
 use strata_test_utils_arb::ArbitraryGenerator;
-
-const CONFIRMATION_DEPTH: u16 = 2;
-const NUM_INITIAL_OPERATORS: usize = 3;
-
-/// Sets up an ASM harness with admin + bridge subprotocols and mines the init block.
-async fn setup() -> (AsmTestHarness, AdminContext) {
-    let (admin_config, admin_ctx) = create_test_admin_setup(CONFIRMATION_DEPTH);
-    let (bridge_config, _) = create_test_bridge_setup(NUM_INITIAL_OPERATORS);
-
-    let harness = AsmTestHarnessBuilder::default()
-        .with_admin_config(admin_config)
-        .with_bridge_config(bridge_config)
-        .build()
-        .await
-        .unwrap();
-
-    // Initialize subprotocols
-    harness.mine_block(None).await.unwrap();
-
-    (harness, admin_ctx)
-}
-
-/// Submits an operator set update and mines enough blocks to activate it.
-async fn submit_and_activate(
-    harness: &AsmTestHarness,
-    ctx: &mut AdminContext,
-    add: Vec<EvenPublicKey>,
-    remove: Vec<u32>,
-) {
-    harness
-        .submit_admin_action(ctx, operator_set_update(add, remove))
-        .await
-        .unwrap();
-
-    // Mine `CONFIRMATION_DEPTH` blocks to trigger activation
-    for _ in 0..CONFIRMATION_DEPTH {
-        harness.mine_block(None).await.unwrap();
-    }
-}
 
 // ============================================================================
 // Operator Set Updates → Bridge Operator Table
@@ -81,75 +39,145 @@ async fn submit_and_activate(
 /// Verifies that adding an operator via admin propagates to the bridge after activation.
 #[tokio::test(flavor = "multi_thread")]
 async fn test_operator_add_propagates_to_bridge() {
-    let (harness, mut ctx) = setup().await;
+    let Setup {
+        harness,
+        admin: mut ctx,
+        ..
+    } = AsmTestHarnessBuilder::default().build().await;
 
-    let initial_bridge = harness.bridge_state().unwrap();
-    assert_eq!(initial_bridge.operators().len(), 3);
+    assert_eq!(
+        harness.bridge_state().unwrap().operators().len(),
+        3,
+        "bridge should start with 3 operators"
+    );
 
     let (_, new_pubkeys) = create_test_operators(1);
-    submit_and_activate(&harness, &mut ctx, vec![new_pubkeys[0]], vec![]).await;
+    submit_and_activate(
+        &harness,
+        &mut ctx,
+        operator_set_update(vec![new_pubkeys[0]], vec![]),
+    )
+    .await;
 
     let bridge = harness.bridge_state().unwrap();
-    assert_eq!(bridge.operators().len(), 4);
-    assert!(bridge.operators().is_in_current_multisig(3));
+    assert_eq!(
+        bridge.operators().len(),
+        4,
+        "bridge should have 4 operators after the add activates"
+    );
+    assert!(
+        bridge.operators().is_in_current_multisig(3),
+        "the newly added operator (index 3) should be in the current multisig"
+    );
 }
 
 /// Verifies that removing an operator via admin propagates to the bridge after activation.
 #[tokio::test(flavor = "multi_thread")]
 async fn test_operator_remove_propagates_to_bridge() {
-    let (harness, mut ctx) = setup().await;
+    let Setup {
+        harness,
+        admin: mut ctx,
+        ..
+    } = AsmTestHarnessBuilder::default().build().await;
 
     let initial_agg_key = *harness.bridge_state().unwrap().operators().agg_key();
 
-    submit_and_activate(&harness, &mut ctx, vec![], vec![0]).await;
+    submit_and_activate(&harness, &mut ctx, operator_set_update(vec![], vec![0])).await;
 
     let bridge = harness.bridge_state().unwrap();
-    assert!(!bridge.operators().is_in_current_multisig(0));
-    assert!(bridge.operators().is_in_current_multisig(1));
-    assert!(bridge.operators().is_in_current_multisig(2));
-    assert_ne!(*bridge.operators().agg_key(), initial_agg_key);
+    assert!(
+        !bridge.operators().is_in_current_multisig(0),
+        "operator 0 should be removed from the current multisig"
+    );
+    assert!(
+        bridge.operators().is_in_current_multisig(1),
+        "operator 1 should remain"
+    );
+    assert!(
+        bridge.operators().is_in_current_multisig(2),
+        "operator 2 should remain"
+    );
+    assert_ne!(
+        *bridge.operators().agg_key(),
+        initial_agg_key,
+        "aggregate key should change after an operator is removed"
+    );
 }
 
 /// Verifies combined add and remove in a single operator set update.
 #[tokio::test(flavor = "multi_thread")]
 async fn test_operator_add_and_remove_propagates_to_bridge() {
-    let (harness, mut ctx) = setup().await;
+    let Setup {
+        harness,
+        admin: mut ctx,
+        ..
+    } = AsmTestHarnessBuilder::default().build().await;
 
     let initial_agg_key = *harness.bridge_state().unwrap().operators().agg_key();
 
     let (_, new_pubkeys) = create_test_operators(1);
-    submit_and_activate(&harness, &mut ctx, vec![new_pubkeys[0]], vec![1]).await;
+    submit_and_activate(
+        &harness,
+        &mut ctx,
+        operator_set_update(vec![new_pubkeys[0]], vec![1]),
+    )
+    .await;
 
     let bridge = harness.bridge_state().unwrap();
-    assert_eq!(bridge.operators().len(), 4);
-    assert!(bridge.operators().is_in_current_multisig(0));
-    assert!(!bridge.operators().is_in_current_multisig(1));
-    assert!(bridge.operators().is_in_current_multisig(2));
-    assert!(bridge.operators().is_in_current_multisig(3));
-    assert_ne!(*bridge.operators().agg_key(), initial_agg_key);
+    assert_eq!(
+        bridge.operators().len(),
+        4,
+        "bridge should have 4 operators after the combined add/remove activates"
+    );
+    assert!(
+        bridge.operators().is_in_current_multisig(0),
+        "operator 0 should remain"
+    );
+    assert!(
+        !bridge.operators().is_in_current_multisig(1),
+        "operator 1 should be removed"
+    );
+    assert!(
+        bridge.operators().is_in_current_multisig(2),
+        "operator 2 should remain"
+    );
+    assert!(
+        bridge.operators().is_in_current_multisig(3),
+        "the newly added operator (index 3) should be present"
+    );
+    assert_ne!(
+        *bridge.operators().agg_key(),
+        initial_agg_key,
+        "aggregate key should change after the combined update"
+    );
 }
 
 /// Verifies the update is queued and does not affect the bridge until activated.
 #[tokio::test(flavor = "multi_thread")]
 async fn test_operator_update_does_not_apply_before_activation() {
-    let (harness, mut ctx) = setup().await;
+    let Setup {
+        harness,
+        admin: mut ctx,
+        ..
+    } = AsmTestHarnessBuilder::default().build().await;
 
     let (_, new_pubkeys) = create_test_operators(1);
 
-    // Submit but do NOT mine enough blocks to activate
+    // Submit but do NOT mine enough blocks to activate.
     harness
         .submit_admin_action(&mut ctx, operator_set_update(vec![new_pubkeys[0]], vec![]))
         .await
         .unwrap();
 
-    let admin_state = harness.admin_state().unwrap();
-    assert_eq!(admin_state.queued().len(), 1, "Update should be queued");
-
-    let bridge = harness.bridge_state().unwrap();
     assert_eq!(
-        bridge.operators().len(),
+        harness.admin_state().unwrap().queued().len(),
+        1,
+        "operator update should be queued"
+    );
+    assert_eq!(
+        harness.bridge_state().unwrap().operators().len(),
         3,
-        "Bridge should be unchanged while update is queued"
+        "bridge should be unchanged while the update is queued"
     );
 }
 
@@ -167,11 +195,22 @@ async fn test_operator_update_does_not_apply_before_activation() {
 /// update is submitted — Defcon1 has no confirmation delay by definition.
 #[tokio::test(flavor = "multi_thread")]
 async fn test_defcon1_propagates_to_bridge_immediately() {
-    let (harness, mut ctx) = setup().await;
+    let Setup {
+        harness,
+        admin: mut ctx,
+        ..
+    } = AsmTestHarnessBuilder::default().build().await;
 
     let initial = harness.bridge_state().unwrap();
-    assert!(!initial.safe_harbour().is_activated());
-    assert_eq!(initial.safe_harbour().active_address(), None);
+    assert!(
+        !initial.safe_harbour().is_activated(),
+        "safe harbour should start deactivated"
+    );
+    assert_eq!(
+        initial.safe_harbour().active_address(),
+        None,
+        "there should be no active address before activation"
+    );
     let configured_address = initial.safe_harbour().address().clone();
 
     harness
@@ -179,37 +218,50 @@ async fn test_defcon1_propagates_to_bridge_immediately() {
         .await
         .unwrap();
 
-    let admin_state = harness.admin_state().unwrap();
     assert_eq!(
-        admin_state.queued().len(),
+        harness.admin_state().unwrap().queued().len(),
         0,
         "Defcon1 must bypass the queue and apply immediately",
     );
-
     let bridge = harness.bridge_state().unwrap();
-    assert!(bridge.safe_harbour().is_activated());
+    assert!(
+        bridge.safe_harbour().is_activated(),
+        "safe harbour should be activated by Defcon1"
+    );
     assert_eq!(
         bridge.safe_harbour().active_address(),
         Some(&configured_address),
+        "active address should be the configured safe harbour address"
     );
 }
 
 /// The bridge safe harbour activates after the security council's Defcon3 update is enacted.
 #[tokio::test(flavor = "multi_thread")]
 async fn test_defcon3_propagates_to_bridge() {
-    let (harness, mut ctx) = setup().await;
+    let Setup {
+        harness,
+        admin: mut ctx,
+        ..
+    } = AsmTestHarnessBuilder::default().build().await;
 
     let initial = harness.bridge_state().unwrap();
-    assert!(!initial.safe_harbour().is_activated());
+    assert!(
+        !initial.safe_harbour().is_activated(),
+        "safe harbour should start deactivated"
+    );
     let configured_address = initial.safe_harbour().address().clone();
 
-    submit_and_activate_action(&harness, &mut ctx, defcon3_update()).await;
+    submit_and_activate(&harness, &mut ctx, defcon3_update()).await;
 
     let bridge = harness.bridge_state().unwrap();
-    assert!(bridge.safe_harbour().is_activated());
+    assert!(
+        bridge.safe_harbour().is_activated(),
+        "safe harbour should activate once Defcon3 enacts"
+    );
     assert_eq!(
         bridge.safe_harbour().active_address(),
         Some(&configured_address),
+        "active address should be the configured safe harbour address"
     );
 }
 
@@ -218,24 +270,29 @@ async fn test_defcon3_propagates_to_bridge() {
 /// covered by [`test_defcon1_propagates_to_bridge_immediately`].
 #[tokio::test(flavor = "multi_thread")]
 async fn test_defcon3_does_not_apply_before_activation() {
-    let (harness, mut ctx) = setup().await;
+    let Setup {
+        harness,
+        admin: mut ctx,
+        ..
+    } = AsmTestHarnessBuilder::default().build().await;
 
     harness
         .submit_admin_action(&mut ctx, defcon3_update())
         .await
         .unwrap();
 
-    let admin_state = harness.admin_state().unwrap();
     assert_eq!(
-        admin_state.queued().len(),
+        harness.admin_state().unwrap().queued().len(),
         1,
         "Defcon3 should be queued, not applied immediately"
     );
-
-    let bridge = harness.bridge_state().unwrap();
     assert!(
-        !bridge.safe_harbour().is_activated(),
-        "Safe harbour must stay deactivated while defcon is still queued"
+        !harness
+            .bridge_state()
+            .unwrap()
+            .safe_harbour()
+            .is_activated(),
+        "safe harbour must stay deactivated while defcon is still queued"
     );
 }
 
@@ -244,14 +301,40 @@ async fn test_defcon3_does_not_apply_before_activation() {
 /// advance.
 #[tokio::test(flavor = "multi_thread")]
 async fn test_defcon1_signed_by_non_security_council_rejected() {
-    assert_only_required_role_can_send(defcon1_update()).await;
+    let Setup {
+        harness,
+        admin: mut ctx,
+        ..
+    } = AsmTestHarnessBuilder::default().build().await;
+    assert_only_required_role_can_send(&harness, &mut ctx, defcon1_update()).await;
+    assert!(
+        !harness
+            .bridge_state()
+            .unwrap()
+            .safe_harbour()
+            .is_activated(),
+        "safe harbour must stay deactivated when Defcon1 is signed by the wrong role",
+    );
 }
 
 /// Defcon3 signed by any role other than the security council is rejected — same guarantees
 /// as the Defcon1 case.
 #[tokio::test(flavor = "multi_thread")]
 async fn test_defcon3_signed_by_non_security_council_rejected() {
-    assert_only_required_role_can_send(defcon3_update()).await;
+    let Setup {
+        harness,
+        admin: mut ctx,
+        ..
+    } = AsmTestHarnessBuilder::default().build().await;
+    assert_only_required_role_can_send(&harness, &mut ctx, defcon3_update()).await;
+    assert!(
+        !harness
+            .bridge_state()
+            .unwrap()
+            .safe_harbour()
+            .is_activated(),
+        "safe harbour must stay deactivated when Defcon3 is signed by the wrong role",
+    );
 }
 
 // ============================================================================
@@ -269,16 +352,26 @@ async fn test_defcon3_signed_by_non_security_council_rejected() {
 /// toggle activation.
 #[tokio::test(flavor = "multi_thread")]
 async fn test_safe_harbour_address_update_propagates_to_bridge() {
-    let (harness, mut ctx) = setup().await;
+    let Setup {
+        harness,
+        admin: mut ctx,
+        ..
+    } = AsmTestHarnessBuilder::default().build().await;
 
     let initial = harness.bridge_state().unwrap();
     let initial_address = initial.safe_harbour().address().clone();
-    assert!(!initial.safe_harbour().is_activated());
+    assert!(
+        !initial.safe_harbour().is_activated(),
+        "safe harbour should start deactivated"
+    );
 
     let new_address: SafeHarbourAddress = ArbitraryGenerator::new().generate();
-    assert_ne!(new_address, initial_address);
+    assert_ne!(
+        new_address, initial_address,
+        "test setup: the new address must differ from the initial one"
+    );
 
-    submit_and_activate_action(
+    submit_and_activate(
         &harness,
         &mut ctx,
         safe_harbour_address_update(new_address.clone()),
@@ -286,9 +379,15 @@ async fn test_safe_harbour_address_update_propagates_to_bridge() {
     .await;
 
     let bridge = harness.bridge_state().unwrap();
-    assert_eq!(bridge.safe_harbour().address(), &new_address);
-    // Address rotation alone must not activate the safe harbour.
-    assert!(!bridge.safe_harbour().is_activated());
+    assert_eq!(
+        bridge.safe_harbour().address(),
+        &new_address,
+        "bridge should adopt the new safe harbour address"
+    );
+    assert!(
+        !bridge.safe_harbour().is_activated(),
+        "address rotation alone must not activate the safe harbour"
+    );
 }
 
 /// Safe harbour address rotation signed by any role other than the strata administrator is
@@ -296,8 +395,35 @@ async fn test_safe_harbour_address_update_propagates_to_bridge() {
 /// administrator instead of the security council.
 #[tokio::test(flavor = "multi_thread")]
 async fn test_safe_harbour_address_update_signed_by_non_administrator_rejected() {
+    let Setup {
+        harness,
+        admin: mut ctx,
+        ..
+    } = AsmTestHarnessBuilder::default().build().await;
+    let initial_address = harness
+        .bridge_state()
+        .unwrap()
+        .safe_harbour()
+        .address()
+        .clone();
+
     let new_address: SafeHarbourAddress = ArbitraryGenerator::new().generate();
-    assert_only_required_role_can_send(safe_harbour_address_update(new_address)).await;
+    assert_ne!(
+        new_address, initial_address,
+        "test setup: the new address must differ from the initial one"
+    );
+    assert_only_required_role_can_send(
+        &harness,
+        &mut ctx,
+        safe_harbour_address_update(new_address),
+    )
+    .await;
+
+    assert_eq!(
+        harness.bridge_state().unwrap().safe_harbour().address(),
+        &initial_address,
+        "safe harbour address must be unchanged when rotation is signed by the wrong role",
+    );
 }
 
 /// Once the safe harbour is activated, the address is frozen so bridge nodes always observe
@@ -305,102 +431,55 @@ async fn test_safe_harbour_address_update_signed_by_non_administrator_rejected()
 /// activated address must remain unchanged.
 #[tokio::test(flavor = "multi_thread")]
 async fn test_safe_harbour_address_update_after_activation_rejected() {
-    let (harness, mut ctx) = setup().await;
+    let Setup {
+        harness,
+        admin: mut ctx,
+        ..
+    } = AsmTestHarnessBuilder::default().build().await;
 
     let initial = harness.bridge_state().unwrap();
     let activated_address = initial.safe_harbour().address().clone();
-    assert!(!initial.safe_harbour().is_activated());
+    assert!(
+        !initial.safe_harbour().is_activated(),
+        "safe harbour should start deactivated"
+    );
 
     // Activate the safe harbour via Defcon1 (applies in the same block).
     harness
         .submit_admin_action(&mut ctx, defcon1_update())
         .await
         .unwrap();
-
-    let bridge = harness.bridge_state().unwrap();
-    assert!(bridge.safe_harbour().is_activated());
+    assert!(
+        harness
+            .bridge_state()
+            .unwrap()
+            .safe_harbour()
+            .is_activated(),
+        "Defcon1 should activate the safe harbour"
+    );
 
     // Attempt to rotate the address after activation — the update propagates through the
     // admin queue and the confirmation delay elapses, but the bridge must reject the change.
     let new_address: SafeHarbourAddress = ArbitraryGenerator::new().generate();
-    assert_ne!(new_address, activated_address);
-    submit_and_activate_action(&harness, &mut ctx, safe_harbour_address_update(new_address)).await;
+    assert_ne!(
+        new_address, activated_address,
+        "test setup: the new address must differ from the activated one"
+    );
+    submit_and_activate(&harness, &mut ctx, safe_harbour_address_update(new_address)).await;
 
     let bridge = harness.bridge_state().unwrap();
-    assert!(bridge.safe_harbour().is_activated());
-    assert_eq!(bridge.safe_harbour().address(), &activated_address);
+    assert!(
+        bridge.safe_harbour().is_activated(),
+        "safe harbour should remain activated"
+    );
+    assert_eq!(
+        bridge.safe_harbour().address(),
+        &activated_address,
+        "the address must remain frozen after activation"
+    );
     assert_eq!(
         bridge.safe_harbour().active_address(),
         Some(&activated_address),
-    );
-}
-
-/// Submits a single admin action and mines `CONFIRMATION_DEPTH` blocks so it activates.
-async fn submit_and_activate_action(
-    harness: &AsmTestHarness,
-    ctx: &mut AdminContext,
-    action: MultisigAction,
-) {
-    harness.submit_admin_action(ctx, action).await.unwrap();
-    for _ in 0..CONFIRMATION_DEPTH {
-        harness.mine_block(None).await.unwrap();
-    }
-}
-
-/// Submits `action` once per non-required role with that role's signing keys and asserts
-/// the handler rejects all of them.
-///
-/// The handler resolves the required role from the action itself, so signing with any
-/// *other* role's keys must fail signature verification — verified by checking that the
-/// bridge safe harbour stays deactivated, nothing is queued, and the required role's
-/// seqno doesn't advance.
-async fn assert_only_required_role_can_send(action: MultisigAction) {
-    let required_role = action.required_role();
-
-    let (harness, mut ctx) = setup().await;
-
-    for signing_role in [
-        Role::StrataAdministrator,
-        Role::StrataSequencerManager,
-        Role::AlpenAdministrator,
-        Role::StrataSecurityCouncil,
-    ] {
-        if signing_role == required_role {
-            continue;
-        }
-        harness
-            .submit_admin_action_as_role(&mut ctx, action.clone(), signing_role)
-            .await
-            .unwrap();
-    }
-
-    // No update should have been queued and the update id counter must not advance.
-    let admin_state = harness.admin_state().unwrap();
-    assert_eq!(
-        admin_state.queued().len(),
-        0,
-        "no update should be queued when signed by the wrong role",
-    );
-    assert_eq!(
-        admin_state.next_update_id(),
-        0,
-        "next_update_id must not advance for rejected txs",
-    );
-    // The required role's on-chain seqno must stay at 0 — the wrong-role payloads carry
-    // valid seqnos but the signature fails to verify against the required role's config.
-    assert_eq!(
-        admin_state.authority(required_role).unwrap().last_seqno(),
-        0,
-        "{required_role:?} seqno must not advance for rejected txs",
-    );
-
-    // Mine through the activation window to confirm nothing latent applies later.
-    for _ in 0..CONFIRMATION_DEPTH {
-        harness.mine_block(None).await.unwrap();
-    }
-    let bridge = harness.bridge_state().unwrap();
-    assert!(
-        !bridge.safe_harbour().is_activated(),
-        "safe harbour must stay deactivated when a privileged action is signed by the wrong role",
+        "the active address must remain the original activated address"
     );
 }

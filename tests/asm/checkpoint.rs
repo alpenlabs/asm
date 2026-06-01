@@ -14,8 +14,9 @@
 )]
 
 use harness::{
-    bridge::{create_test_bridge_setup, create_test_checkpoint_setup, BridgeExt},
-    test_harness::AsmTestHarnessBuilder,
+    bridge::{BridgeExt, DEFAULT_NUM_OPERATORS},
+    checkpoint::CheckpointExt,
+    test_harness::{AsmTestHarnessBuilder, Setup},
 };
 use integration_tests::harness;
 use strata_asm_proto_bridge_v1_types::OperatorSelection;
@@ -29,61 +30,42 @@ use strata_asm_proto_bridge_v1_types::OperatorSelection;
 /// 4. Verify `verified_tip.epoch` advanced to 1
 #[tokio::test(flavor = "multi_thread")]
 async fn test_withdrawal_deducts_from_deposit_sum() {
-    let genesis_l1_height = AsmTestHarnessBuilder::DEFAULT_GENESIS_HEIGHT as u32;
-    let (bridge_params, ctx) = create_test_bridge_setup(3);
-    let (checkpoint_params, mut checkpoint_harness) =
-        create_test_checkpoint_setup(genesis_l1_height);
-    let denomination = ctx.denomination();
-
-    let harness = AsmTestHarnessBuilder::default()
-        .with_bridge_config(bridge_params)
-        .with_checkpoint_config(checkpoint_params)
+    let Setup {
+        harness,
+        bridge: ctx,
+        checkpoint: mut checkpoint_harness,
+        ..
+    } = AsmTestHarnessBuilder::default()
         .with_txindex()
         .build()
-        .await
-        .unwrap();
+        .await;
+    let denomination = ctx.denomination().to_sat();
 
-    // Initialize subprotocols (genesis block)
-    harness.mine_block(None).await.unwrap();
-
-    // Submit 3 deposits
-    let num_deposits = 3u32;
-    for i in 0..num_deposits {
-        harness.submit_deposit(&ctx, i).await.unwrap();
-    }
-
-    // Mine extra block for message delivery
-    harness.mine_block(None).await.unwrap();
-
-    // Verify deposits accumulated
-    let checkpoint_state = harness.checkpoint_new_state().unwrap();
-    let expected_initial_sum = denomination.to_sat() * num_deposits as u64;
+    // Arrange: 3 deposits → available_deposit_sum == 3 * denomination.
+    harness.submit_deposits(&ctx, 3).await.unwrap();
     assert_eq!(
-        checkpoint_state.available_deposit_sum(),
-        expected_initial_sum,
+        harness.checkpoint_state().unwrap().available_deposit_sum(),
+        denomination * 3,
         "available_deposit_sum should equal 3 * denomination before withdrawal"
     );
 
-    // Submit a checkpoint with 1 withdrawal for denomination sats
+    // Act: one withdrawal for `denomination` sats.
     harness
-        .submit_checkpoint_with_withdrawals(&mut checkpoint_harness, &[denomination.to_sat()])
+        .submit_checkpoint_with_withdrawals(&mut checkpoint_harness, &[denomination])
         .await
         .unwrap();
 
-    // Verify: available_deposit_sum deducted by withdrawal amount
-    let checkpoint_state = harness.checkpoint_new_state().unwrap();
-    let expected_after = denomination.to_sat() * (num_deposits as u64 - 1);
+    // Assert: deducted by one denomination and the epoch advanced.
+    let checkpoint_state = harness.checkpoint_state().unwrap();
     assert_eq!(
         checkpoint_state.available_deposit_sum(),
-        expected_after,
-        "available_deposit_sum should be deducted by withdrawal amount"
+        denomination * 2,
+        "available_deposit_sum should be deducted by the withdrawal amount"
     );
-
-    // Verify: checkpoint epoch advanced
     assert_eq!(
         checkpoint_state.verified_tip().epoch,
         1,
-        "verified_tip epoch should advance to 1 after accepted checkpoint"
+        "verified_tip epoch should advance to 1 after an accepted checkpoint"
     );
 }
 
@@ -97,51 +79,42 @@ async fn test_withdrawal_deducts_from_deposit_sum() {
 /// 4. Verify `verified_tip.epoch` advanced to 1
 #[tokio::test(flavor = "multi_thread")]
 async fn test_multi_denomination_withdrawal_consumes_multiple_utxos() {
-    let genesis_l1_height = AsmTestHarnessBuilder::DEFAULT_GENESIS_HEIGHT as u32;
-    let (bridge_params, ctx) = create_test_bridge_setup(3);
-    let (checkpoint_params, mut checkpoint_harness) =
-        create_test_checkpoint_setup(genesis_l1_height);
-    let denomination = ctx.denomination();
-
-    let harness = AsmTestHarnessBuilder::default()
-        .with_bridge_config(bridge_params)
-        .with_checkpoint_config(checkpoint_params)
+    let Setup {
+        harness,
+        bridge: ctx,
+        checkpoint: mut checkpoint_harness,
+        ..
+    } = AsmTestHarnessBuilder::default()
         .with_txindex()
         .build()
-        .await
-        .unwrap();
+        .await;
+    let denomination = ctx.denomination().to_sat();
 
-    harness.mine_block(None).await.unwrap();
-
-    let num_deposits = 3u32;
-    for i in 0..num_deposits {
-        harness.submit_deposit(&ctx, i).await.unwrap();
-    }
-    harness.mine_block(None).await.unwrap();
-
-    let checkpoint_state = harness.checkpoint_new_state().unwrap();
+    // Arrange: 3 deposits.
+    harness.submit_deposits(&ctx, 3).await.unwrap();
     assert_eq!(
-        checkpoint_state.available_deposit_sum(),
-        denomination.to_sat() * num_deposits as u64,
+        harness.checkpoint_state().unwrap().available_deposit_sum(),
+        denomination * 3,
         "available_deposit_sum should equal 3 * denomination before withdrawal"
     );
 
-    // Single intent for 2 * denomination: should consume 2 UTXOs.
+    // Act: a single intent for 2 * denomination should consume 2 UTXOs.
     harness
-        .submit_checkpoint_with_withdrawals(&mut checkpoint_harness, &[denomination.to_sat() * 2])
+        .submit_checkpoint_with_withdrawals(&mut checkpoint_harness, &[denomination * 2])
         .await
         .unwrap();
 
-    let checkpoint_state = harness.checkpoint_new_state().unwrap();
+    // Assert.
+    let checkpoint_state = harness.checkpoint_state().unwrap();
     assert_eq!(
         checkpoint_state.available_deposit_sum(),
-        denomination.to_sat(),
+        denomination,
         "one 2x intent should consume two UTXOs, leaving one denomination available"
     );
     assert_eq!(
         checkpoint_state.verified_tip().epoch,
         1,
-        "verified_tip epoch should advance to 1 after accepted multi-denomination checkpoint"
+        "verified_tip epoch should advance to 1 after an accepted multi-denomination checkpoint"
     );
 }
 
@@ -156,43 +129,32 @@ async fn test_multi_denomination_withdrawal_consumes_multiple_utxos() {
 /// 4. Verify a single assignment exists referencing deposit 0 and assigned to operator 1.
 #[tokio::test(flavor = "multi_thread")]
 async fn test_withdrawal_assigns_to_specific_operator() {
-    let genesis_l1_height = AsmTestHarnessBuilder::DEFAULT_GENESIS_HEIGHT as u32;
-    let (bridge_params, ctx) = create_test_bridge_setup(3);
-    let (checkpoint_params, mut checkpoint_harness) =
-        create_test_checkpoint_setup(genesis_l1_height);
-    let denomination = ctx.denomination();
-
-    let harness = AsmTestHarnessBuilder::default()
-        .with_bridge_config(bridge_params)
-        .with_checkpoint_config(checkpoint_params)
+    let Setup {
+        harness,
+        bridge: ctx,
+        checkpoint: mut checkpoint_harness,
+        ..
+    } = AsmTestHarnessBuilder::default()
         .with_txindex()
         .build()
-        .await
-        .unwrap();
+        .await;
+    let denomination = ctx.denomination().to_sat();
 
-    harness.mine_block(None).await.unwrap();
+    // Arrange: 2 deposits (indices 0, 1).
+    harness.submit_deposits(&ctx, 2).await.unwrap();
 
-    for i in 0..2u32 {
-        harness.submit_deposit(&ctx, i).await.unwrap();
-    }
-    harness.mine_block(None).await.unwrap();
-
-    // Pin the withdrawal to operator index 1.
+    // Act: one withdrawal for `denomination`, pinned to operator 1.
     let pinned_operator = 1u32;
     harness
         .submit_checkpoint_with_withdrawal_intents(
             &mut checkpoint_harness,
-            &[(
-                denomination.to_sat(),
-                OperatorSelection::specific(pinned_operator),
-            )],
+            &[(denomination, OperatorSelection::specific(pinned_operator))],
         )
         .await
         .unwrap();
 
+    // Assert: deposit 0 consumed, deposit 1 remains, one assignment pinned to operator 1.
     let bridge_state = harness.bridge_state().unwrap();
-
-    // Deposit 0 (oldest) consumed; deposit 1 still present.
     assert_eq!(
         bridge_state.deposits().len(),
         1,
@@ -207,13 +169,20 @@ async fn test_withdrawal_assigns_to_specific_operator() {
         "deposit 1 should still be in the deposits table"
     );
 
-    // Exactly one assignment, referencing deposit 0, pinned to operator 1.
-    assert_eq!(bridge_state.assignments().len(), 1);
+    assert_eq!(
+        bridge_state.assignments().len(),
+        1,
+        "exactly one assignment should exist"
+    );
     let assignment = bridge_state
         .assignments()
         .get_assignment(0)
         .expect("assignment for deposit 0 should exist");
-    assert_eq!(assignment.deposit_idx(), 0);
+    assert_eq!(
+        assignment.deposit_idx(),
+        0,
+        "assignment should reference deposit 0"
+    );
     assert_eq!(
         assignment.current_assignee(),
         pinned_operator,
@@ -231,49 +200,51 @@ async fn test_withdrawal_assigns_to_specific_operator() {
 /// 4. Verify a single assignment exists with `current_assignee` within the notary set.
 #[tokio::test(flavor = "multi_thread")]
 async fn test_withdrawal_random_assignment_when_any_operator_selected() {
-    let genesis_l1_height = AsmTestHarnessBuilder::DEFAULT_GENESIS_HEIGHT as u32;
-    let num_operators = 3;
-    let (bridge_params, ctx) = create_test_bridge_setup(num_operators);
-    let (checkpoint_params, mut checkpoint_harness) =
-        create_test_checkpoint_setup(genesis_l1_height);
-    let denomination = ctx.denomination();
-
-    let harness = AsmTestHarnessBuilder::default()
-        .with_bridge_config(bridge_params)
-        .with_checkpoint_config(checkpoint_params)
+    let num_operators = DEFAULT_NUM_OPERATORS;
+    let Setup {
+        harness,
+        bridge: ctx,
+        checkpoint: mut checkpoint_harness,
+        ..
+    } = AsmTestHarnessBuilder::default()
+        .num_operators(num_operators)
         .with_txindex()
         .build()
-        .await
-        .unwrap();
+        .await;
+    let denomination = ctx.denomination().to_sat();
 
-    harness.mine_block(None).await.unwrap();
+    // Arrange: 1 deposit.
+    harness.submit_deposits(&ctx, 1).await.unwrap();
 
-    harness.submit_deposit(&ctx, 0).await.unwrap();
-    harness.mine_block(None).await.unwrap();
-
+    // Act: one withdrawal with no operator pin (random assignment).
     harness
         .submit_checkpoint_with_withdrawal_intents(
             &mut checkpoint_harness,
-            &[(denomination.to_sat(), OperatorSelection::any())],
+            &[(denomination, OperatorSelection::any())],
         )
         .await
         .unwrap();
 
+    // Assert: deposit consumed; one assignment drawn from the notary set.
     let bridge_state = harness.bridge_state().unwrap();
-
-    // Deposit consumed.
     assert!(
         bridge_state.deposits().is_empty(),
         "the only deposit should have been consumed by the withdrawal"
     );
-
-    // Exactly one assignment, drawn from the notary set.
-    assert_eq!(bridge_state.assignments().len(), 1);
+    assert_eq!(
+        bridge_state.assignments().len(),
+        1,
+        "exactly one assignment should exist"
+    );
     let assignment = bridge_state
         .assignments()
         .get_assignment(0)
         .expect("assignment for deposit 0 should exist");
-    assert_eq!(assignment.deposit_idx(), 0);
+    assert_eq!(
+        assignment.deposit_idx(),
+        0,
+        "assignment should reference deposit 0"
+    );
     assert!(
         (assignment.current_assignee() as usize) < num_operators,
         "random assignee {} should be within notary range 0..{num_operators}",
@@ -290,36 +261,29 @@ async fn test_withdrawal_random_assignment_when_any_operator_selected() {
 /// 3. Verify `available_deposit_sum` unchanged and `verified_tip.epoch` still 0
 #[tokio::test(flavor = "multi_thread")]
 async fn test_checkpoint_rejected_on_non_multiple_withdrawal() {
-    let genesis_l1_height = AsmTestHarnessBuilder::DEFAULT_GENESIS_HEIGHT as u32;
-    let (bridge_params, ctx) = create_test_bridge_setup(3);
-    let (checkpoint_params, mut checkpoint_harness) =
-        create_test_checkpoint_setup(genesis_l1_height);
-    let denomination = ctx.denomination();
-
-    let harness = AsmTestHarnessBuilder::default()
-        .with_bridge_config(bridge_params)
-        .with_checkpoint_config(checkpoint_params)
+    let Setup {
+        harness,
+        bridge: ctx,
+        checkpoint: mut checkpoint_harness,
+        ..
+    } = AsmTestHarnessBuilder::default()
         .with_txindex()
         .build()
-        .await
-        .unwrap();
+        .await;
+    let denomination = ctx.denomination().to_sat();
 
-    harness.mine_block(None).await.unwrap();
+    // Arrange: 3 deposits.
+    harness.submit_deposits(&ctx, 3).await.unwrap();
+    let initial_sum = denomination * 3;
 
-    let num_deposits = 3u32;
-    for i in 0..num_deposits {
-        harness.submit_deposit(&ctx, i).await.unwrap();
-    }
-    harness.mine_block(None).await.unwrap();
-
-    let initial_sum = denomination.to_sat() * num_deposits as u64;
-
+    // Act: a withdrawal that is not a multiple of the denomination → rejected.
     harness
-        .submit_checkpoint_with_withdrawals(&mut checkpoint_harness, &[denomination.to_sat() + 1])
+        .submit_checkpoint_with_withdrawals(&mut checkpoint_harness, &[denomination + 1])
         .await
         .unwrap();
 
-    let checkpoint_state = harness.checkpoint_new_state().unwrap();
+    // Assert: state unchanged.
+    let checkpoint_state = harness.checkpoint_state().unwrap();
     assert_eq!(
         checkpoint_state.available_deposit_sum(),
         initial_sum,
@@ -341,61 +305,43 @@ async fn test_checkpoint_rejected_on_non_multiple_withdrawal() {
 /// 4. Verify `verified_tip.epoch` still == 0 (checkpoint was rejected)
 #[tokio::test(flavor = "multi_thread")]
 async fn test_checkpoint_rejected_when_withdrawals_exceed_deposits() {
-    let genesis_l1_height = AsmTestHarnessBuilder::DEFAULT_GENESIS_HEIGHT as u32;
-    let (bridge_params, ctx) = create_test_bridge_setup(3);
-    let (checkpoint_params, mut checkpoint_harness) =
-        create_test_checkpoint_setup(genesis_l1_height);
-    let denomination = ctx.denomination();
-
-    let harness = AsmTestHarnessBuilder::default()
-        .with_bridge_config(bridge_params)
-        .with_checkpoint_config(checkpoint_params)
+    let Setup {
+        harness,
+        bridge: ctx,
+        checkpoint: mut checkpoint_harness,
+        ..
+    } = AsmTestHarnessBuilder::default()
         .with_txindex()
         .build()
-        .await
-        .unwrap();
+        .await;
+    let denomination = ctx.denomination().to_sat();
 
-    // Initialize subprotocols (genesis block)
-    harness.mine_block(None).await.unwrap();
-
-    // Submit 1 deposit
-    harness.submit_deposit(&ctx, 0).await.unwrap();
-
-    // Mine extra block for message delivery
-    harness.mine_block(None).await.unwrap();
-
-    // Verify single deposit tracked
-    let checkpoint_state = harness.checkpoint_new_state().unwrap();
+    // Arrange: 1 deposit.
+    harness.submit_deposits(&ctx, 1).await.unwrap();
     assert_eq!(
-        checkpoint_state.available_deposit_sum(),
-        denomination.to_sat(),
+        harness.checkpoint_state().unwrap().available_deposit_sum(),
+        denomination,
         "available_deposit_sum should equal denomination after 1 deposit"
     );
 
-    // Submit checkpoint with withdrawals exceeding available deposits (2 * denomination > 1 *
-    // denomination). The checkpoint should be rejected, so submit_checkpoint_with_withdrawals
-    // will still succeed (the tx is mined) but the ASM ignores the invalid checkpoint.
+    // Act: withdraw 2 * denomination (> available) → rejected. The tx is still mined, but the
+    // ASM ignores the invalid checkpoint.
     harness
-        .submit_checkpoint_with_withdrawals(
-            &mut checkpoint_harness,
-            &[denomination.to_sat(), denomination.to_sat()],
-        )
+        .submit_checkpoint_with_withdrawals(&mut checkpoint_harness, &[denomination, denomination])
         .await
         .unwrap();
 
-    // Verify: available_deposit_sum unchanged
-    let checkpoint_state = harness.checkpoint_new_state().unwrap();
+    // Assert: state unchanged.
+    let checkpoint_state = harness.checkpoint_state().unwrap();
     assert_eq!(
         checkpoint_state.available_deposit_sum(),
-        denomination.to_sat(),
-        "available_deposit_sum should be unchanged when checkpoint is rejected"
+        denomination,
+        "available_deposit_sum should be unchanged when the checkpoint is rejected"
     );
-
-    // Verify: epoch did not advance
     assert_eq!(
         checkpoint_state.verified_tip().epoch,
         0,
-        "verified_tip epoch should remain 0 when checkpoint is rejected"
+        "verified_tip epoch should remain 0 when the checkpoint is rejected"
     );
 }
 
@@ -414,45 +360,39 @@ async fn test_checkpoint_rejected_when_withdrawals_exceed_deposits() {
 async fn test_multiple_intents_in_one_checkpoint_spread_across_operators() {
     use std::collections::HashSet;
 
-    let genesis_l1_height = AsmTestHarnessBuilder::DEFAULT_GENESIS_HEIGHT as u32;
     let num_operators = 10;
-    let (bridge_params, ctx) = create_test_bridge_setup(num_operators);
-    let (checkpoint_params, mut checkpoint_harness) =
-        create_test_checkpoint_setup(genesis_l1_height);
-    let denomination = ctx.denomination();
-
-    let harness = AsmTestHarnessBuilder::default()
-        .with_bridge_config(bridge_params)
-        .with_checkpoint_config(checkpoint_params)
+    let Setup {
+        harness,
+        bridge: ctx,
+        checkpoint: mut checkpoint_harness,
+        ..
+    } = AsmTestHarnessBuilder::default()
+        .num_operators(num_operators)
         .with_txindex()
         .build()
-        .await
-        .unwrap();
+        .await;
+    let denomination = ctx.denomination().to_sat();
 
-    harness.mine_block(None).await.unwrap();
-
+    // Arrange: 10 deposits across a 10-operator notary set.
     let num_deposits = 10u32;
-    for i in 0..num_deposits {
-        harness.submit_deposit(&ctx, i).await.unwrap();
-    }
-    harness.mine_block(None).await.unwrap();
+    harness.submit_deposits(&ctx, num_deposits).await.unwrap();
 
-    // One checkpoint, ten intents, each picking "any" operator.
+    // Act: one checkpoint carrying 10 "any"-operator intents.
     let intents: Vec<(u64, OperatorSelection)> = (0..num_deposits)
-        .map(|_| (denomination.to_sat(), OperatorSelection::any()))
+        .map(|_| (denomination, OperatorSelection::any()))
         .collect();
     harness
         .submit_checkpoint_with_withdrawal_intents(&mut checkpoint_harness, &intents)
         .await
         .unwrap();
 
+    // Assert: every intent produced an assignment, spread across more than one operator.
     let bridge_state = harness.bridge_state().unwrap();
     assert_eq!(
         bridge_state.assignments().len(),
         num_deposits,
         "every intent should produce an assignment"
     );
-
     let assignees: Vec<_> = bridge_state
         .assignments()
         .assignments()
@@ -462,7 +402,6 @@ async fn test_multiple_intents_in_one_checkpoint_spread_across_operators() {
     let unique: HashSet<_> = assignees.iter().copied().collect();
     assert!(
         unique.len() > 1,
-        "expected intents in one checkpoint to spread across multiple operators, got {:?}",
-        assignees,
+        "expected intents in one checkpoint to spread across multiple operators, got {assignees:?}",
     );
 }
