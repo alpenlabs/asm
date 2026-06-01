@@ -30,11 +30,9 @@ use bitcoin::{
     Address, Amount, BlockHash, Network, OutPoint, ScriptBuf, Sequence, Transaction, TxIn, TxOut,
     Witness,
 };
-use bitcoin_bosd::Descriptor;
 use rand::RngCore;
 use strata_asm_common::{AnchorState, Subprotocol};
-use strata_asm_manifest_types::AsmManifestHash;
-use strata_asm_params::{BridgeV1InitConfig, CheckpointInitConfig};
+use strata_asm_params::BridgeV1InitConfig;
 use strata_asm_proto_bridge_v1::{BridgeV1State, BridgeV1Subproto};
 use strata_asm_proto_bridge_v1_txs::{
     deposit::DepositTxHeaderAux,
@@ -43,22 +41,18 @@ use strata_asm_proto_bridge_v1_txs::{
     },
     test_utils::create_test_operators,
 };
-use strata_asm_proto_bridge_v1_types::{
-    OperatorSelection, SafeHarbourAddress, BRIDGE_GATEWAY_ACCT_SERIAL,
-};
-use strata_asm_proto_checkpoint::{CheckpointState, CheckpointSubprotocol};
-use strata_asm_proto_checkpoint_types::{CheckpointTip, OLLog, SimpleWithdrawalIntentLogData};
+use strata_asm_proto_bridge_v1_types::SafeHarbourAddress;
 use strata_btc_types::BitcoinAmount;
-use strata_codec::{encode_to_vec, VarVec};
-use strata_codec_utils::CodecSsz;
+use strata_codec::VarVec;
 use strata_crypto::{test_utils::schnorr::Musig2Tweak, EvenPublicKey, EvenSecretKey};
-use strata_identifiers::{OLBlockCommitment, OLBlockId};
-use strata_l1_txfmt::{ParseConfig, TagData};
+use strata_l1_txfmt::ParseConfig;
 use strata_test_utils_arb::ArbitraryGenerator;
 use strata_test_utils_btcio::{address::derive_musig2_p2tr_address, signing::sign_musig2_keypath};
-use strata_test_utils_checkpoint::CheckpointTestHarness;
 
 use super::test_harness::AsmTestHarness;
+
+/// Default number of operators in the bridge notary set for tests.
+pub const DEFAULT_NUM_OPERATORS: usize = 3;
 
 // ============================================================================
 // Bridge Context
@@ -104,9 +98,6 @@ pub trait BridgeExt {
     /// Get bridge V1 subprotocol state.
     fn bridge_state(&self) -> anyhow::Result<BridgeV1State>;
 
-    /// Get checkpoint (ID=1) subprotocol state.
-    fn checkpoint_new_state(&self) -> anyhow::Result<CheckpointState>;
-
     /// Submit a deposit: build DRT + DT, submit both, mine, and wait.
     fn submit_deposit(
         &self,
@@ -114,27 +105,13 @@ pub trait BridgeExt {
         deposit_idx: u32,
     ) -> impl Future<Output = anyhow::Result<BlockHash>>;
 
-    /// Submit a checkpoint with withdrawal intents.
-    ///
-    /// Builds a valid checkpoint payload containing OL logs with withdrawal intents
-    /// for the given amounts (each with no specific operator selection), signs it,
-    /// and submits it as an SPS-50 envelope transaction.
-    fn submit_checkpoint_with_withdrawals(
+    /// Submit `count` deposits (indices `0..count`), then mine one block so the bridge's
+    /// `DepositProcessed` messages are delivered to the checkpoint subprotocol.
+    fn submit_deposits(
         &self,
-        checkpoint_harness: &mut CheckpointTestHarness,
-        withdrawal_amounts: &[u64],
-    ) -> impl Future<Output = anyhow::Result<BlockHash>>;
-
-    /// Submit a checkpoint with withdrawal intents that pin per-intent operator selection.
-    ///
-    /// Like [`submit_checkpoint_with_withdrawals`](Self::submit_checkpoint_with_withdrawals),
-    /// but each intent is `(amount, operator_selection)` so callers can request a specific
-    /// operator or fall back to the random "any" sentinel.
-    fn submit_checkpoint_with_withdrawal_intents(
-        &self,
-        checkpoint_harness: &mut CheckpointTestHarness,
-        intents: &[(u64, OperatorSelection)],
-    ) -> impl Future<Output = anyhow::Result<BlockHash>>;
+        ctx: &BridgeContext,
+        count: u32,
+    ) -> impl Future<Output = anyhow::Result<()>>;
 }
 
 impl BridgeExt for AsmTestHarness {
@@ -143,13 +120,6 @@ impl BridgeExt for AsmTestHarness {
             .get_latest_asm_state()?
             .ok_or_else(|| anyhow::anyhow!("No ASM state available"))?;
         extract_bridge_state(asm_state.state())
-    }
-
-    fn checkpoint_new_state(&self) -> anyhow::Result<CheckpointState> {
-        let (_, asm_state) = self
-            .get_latest_asm_state()?
-            .ok_or_else(|| anyhow::anyhow!("No ASM state available"))?;
-        extract_checkpoint_new_state(asm_state.state())
     }
 
     async fn submit_deposit(
@@ -175,69 +145,13 @@ impl BridgeExt for AsmTestHarness {
         Ok(hash)
     }
 
-    async fn submit_checkpoint_with_withdrawals(
-        &self,
-        checkpoint_harness: &mut CheckpointTestHarness,
-        withdrawal_amounts: &[u64],
-    ) -> anyhow::Result<BlockHash> {
-        let intents: Vec<(u64, OperatorSelection)> = withdrawal_amounts
-            .iter()
-            .map(|&amt| (amt, OperatorSelection::any()))
-            .collect();
-        self.submit_checkpoint_with_withdrawal_intents(checkpoint_harness, &intents)
-            .await
-    }
-
-    async fn submit_checkpoint_with_withdrawal_intents(
-        &self,
-        checkpoint_harness: &mut CheckpointTestHarness,
-        intents: &[(u64, OperatorSelection)],
-    ) -> anyhow::Result<BlockHash> {
-        let genesis_l1_height = self.genesis_height as u32;
-
-        // 1. Get manifest hashes from the live ASM MMR. The MMR is height-indexed: indices
-        //    `0..=genesis_l1_height` are sentinel prefill; real manifests start at index
-        //    `genesis_l1_height + 1`.
-        let mmr_leaves = self.get_mmr_leaves();
-        let prefill_count = genesis_l1_height as usize + 1;
-        let real_leaves: Vec<AsmManifestHash> = mmr_leaves
-            .iter()
-            .skip(prefill_count)
-            .copied()
-            .map(AsmManifestHash::from)
-            .collect();
-
-        // 2. Build the new checkpoint tip covering all processed L1 blocks
-        let new_l1_height = genesis_l1_height + real_leaves.len() as u32;
-        let new_epoch = checkpoint_harness.verified_tip().epoch + 1;
-        let new_ol_slot = checkpoint_harness.verified_tip().l2_commitment().slot() + 1;
-        let new_ol_blkid: OLBlockId = ArbitraryGenerator::new().generate();
-        let new_ol_commitment = OLBlockCommitment::new(new_ol_slot, new_ol_blkid);
-        let new_tip = CheckpointTip::new(new_epoch, new_l1_height, new_ol_commitment);
-
-        // 3. Build OL logs with withdrawal intents
-        let ol_logs = build_withdrawal_ol_logs(intents);
-
-        // 4. Build checkpoint payload with custom OL logs and live manifest hashes
-        let payload =
-            checkpoint_harness.build_payload_with_tip_and_logs(new_tip, ol_logs, &real_leaves);
-
-        // 5. Encode payload with CodecSsz and submit as envelope tx with sequencer keypair (SPS-51)
-        let codec_payload = CodecSsz::new(payload);
-        let payload_bytes = encode_to_vec(&codec_payload).expect("codec encoding should not fail");
-        let checkpoint_tag = TagData::new(1, 1, vec![]).expect("valid checkpoint tag");
-        let secp = Secp256k1::new();
-        let sequencer_keypair =
-            UntweakedKeypair::from_seckey_slice(&secp, checkpoint_harness.sequencer_secret_key())?;
-        let tx = self
-            .build_envelope_tx_with_keypair(checkpoint_tag, payload_bytes, &sequencer_keypair)
-            .await?;
-        let block_hash = self.submit_and_mine_tx(&tx).await?;
-
-        // 7. Update harness verified tip
-        checkpoint_harness.update_verified_tip(new_tip);
-
-        Ok(block_hash)
+    async fn submit_deposits(&self, ctx: &BridgeContext, count: u32) -> anyhow::Result<()> {
+        for i in 0..count {
+            self.submit_deposit(ctx, i).await?;
+        }
+        // Mine one more block so the bridge's DepositProcessed messages are delivered.
+        self.mine_block(None).await?;
+        Ok(())
     }
 }
 
@@ -252,15 +166,6 @@ pub fn extract_bridge_state(anchor_state: &AnchorState) -> anyhow::Result<Bridge
         .ok_or_else(|| anyhow::anyhow!("Bridge V1 section not found"))?;
     let bridge_state = section.try_to_state::<BridgeV1Subproto>()?;
     Ok(bridge_state)
-}
-
-/// Extract checkpoint (ID=1) subprotocol state from AnchorState.
-pub fn extract_checkpoint_new_state(anchor_state: &AnchorState) -> anyhow::Result<CheckpointState> {
-    let section = anchor_state
-        .find_section(CheckpointSubprotocol::ID)
-        .ok_or_else(|| anyhow::anyhow!("Checkpoint (ID=1) section not found"))?;
-    let checkpoint_state = section.try_to_state::<CheckpointSubprotocol>()?;
-    Ok(checkpoint_state)
 }
 
 // ============================================================================
@@ -456,48 +361,6 @@ fn build_trivial_script() -> ScriptBuf {
 // ============================================================================
 // Test Setup
 // ============================================================================
-
-/// Builds OL logs encoding withdrawal intents for the given (amount, selection) pairs.
-///
-/// Each withdrawal intent is a [`SimpleWithdrawalIntentLogData`] wrapped in a msg-fmt envelope
-/// (via [`OLLog::from_log`]) emitted from the bridge gateway account.
-fn build_withdrawal_ol_logs(intents: &[(u64, OperatorSelection)]) -> Vec<OLLog> {
-    intents
-        .iter()
-        .map(|(amt, sel)| {
-            // P2WPKH descriptor: type tag 0x00 + 20-byte hash = 21 bytes
-            let hash160 = [0x14; 20];
-            let descriptor = Descriptor::new_p2wpkh(&hash160);
-            let dest = descriptor.to_bytes();
-
-            let withdrawal_data = SimpleWithdrawalIntentLogData::new(*amt, dest, sel.raw())
-                .expect("withdrawal intent creation should not fail");
-
-            OLLog::from_log(BRIDGE_GATEWAY_ACCT_SERIAL, &withdrawal_data)
-                .expect("withdrawal intent log encoding should not fail")
-        })
-        .collect()
-}
-
-/// Creates matching checkpoint config and test harness for integration tests.
-///
-/// Generates signing keys and returns a [`CheckpointInitConfig`] (for the harness builder)
-/// and a [`CheckpointTestHarness`] (for building checkpoint payloads).
-pub fn create_test_checkpoint_setup(
-    genesis_l1_height: u32,
-) -> (CheckpointInitConfig, CheckpointTestHarness) {
-    let genesis_ol_blkid: OLBlockId = ArbitraryGenerator::new().generate();
-    let harness = CheckpointTestHarness::new_with_genesis(genesis_l1_height, genesis_ol_blkid);
-
-    let config = CheckpointInitConfig {
-        sequencer_predicate: harness.sequencer_predicate(),
-        checkpoint_predicate: harness.checkpoint_predicate(),
-        genesis_l1_height,
-        genesis_ol_blkid,
-    };
-
-    (config, harness)
-}
 
 /// Creates matching bridge config and context for integration tests.
 ///
