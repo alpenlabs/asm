@@ -5,14 +5,9 @@
 //! # Example
 //!
 //! ```ignore
-//! use harness::test_harness::AsmTestHarnessBuilder;
-//! use harness::admin::{create_test_admin_setup, sequencer_update, AdminExt};
+//! use harness::admin::{admin_harness, sequencer_update, AdminExt, DEFAULT_CONFIRMATION_DEPTH};
 //!
-//! let (admin_config, mut ctx) = create_test_admin_setup(2);
-//! let harness = AsmTestHarnessBuilder::default()
-//!     .with_admin_config(admin_config)
-//!     .build()
-//!     .await?;
+//! let (harness, mut ctx) = admin_harness(DEFAULT_CONFIRMATION_DEPTH).await;
 //! harness.submit_admin_action(&mut ctx, sequencer_update([1u8; 32])).await?;
 //! let state = harness.admin_state()?;
 //! ```
@@ -21,7 +16,7 @@ use std::{collections::HashMap, future::Future, num::NonZero};
 
 use bitcoin::{
     secp256k1::{PublicKey, Secp256k1, SecretKey},
-    BlockHash,
+    BlockHash, Transaction,
 };
 use ssz::Encode;
 use strata_asm_common::{AnchorState, Subprotocol};
@@ -53,6 +48,10 @@ use super::test_harness::AsmTestHarness;
 
 /// The default allowed seqno gap for admin subprotocol.
 const DEFAULT_MAX_SEQNO_GAP: NonZero<u8> = NonZero::new(10).expect("10 is non-zero");
+
+/// Default non-zero confirmation depth for admin updates in tests: large enough that updates
+/// queue rather than apply immediately, small enough to activate within a couple of blocks.
+pub const DEFAULT_CONFIRMATION_DEPTH: u16 = 2;
 
 /// Extension trait for admin subprotocol operations on the test harness.
 ///
@@ -102,6 +101,17 @@ pub trait AdminExt {
         signing_role: Role,
         seqno: u64,
     ) -> impl Future<Output = anyhow::Result<BlockHash>>;
+
+    /// Build (but do not submit or mine) an admin action transaction, signed with the
+    /// action's required role.
+    ///
+    /// Used to place an admin action in the same block as another transaction (e.g. a
+    /// checkpoint) via [`AsmTestHarness::mine_block_with_ordered_txs`].
+    fn build_admin_action_tx(
+        &self,
+        ctx: &mut AdminContext,
+        action: MultisigAction,
+    ) -> impl Future<Output = anyhow::Result<Transaction>>;
 }
 
 /// Signing material for a single role.
@@ -360,6 +370,111 @@ pub fn create_test_admin_setup(
     (params, ctx)
 }
 
+// ============================================================================
+// Action helpers
+// ============================================================================
+
+/// The number of blocks to mine after submitting `action` for it to take effect: the
+/// confirmation depth configured for the action's update type, read from the live admin state.
+///
+/// Mirrors the production handler's `confirmation_depths.get(update.update_tx_type())` — a depth
+/// of zero (an immediate-apply update) surfaces as `None`, and cancels apply immediately too, so
+/// both return `0` (nothing to wait for).
+fn activation_depth(harness: &AsmTestHarness, action: &MultisigAction) -> u16 {
+    match action {
+        MultisigAction::Update(update) => harness
+            .admin_state()
+            .expect("admin state should be available")
+            .confirmation_depth(update.update_tx_type())
+            .unwrap_or(0),
+        MultisigAction::Cancel(_) => 0,
+    }
+}
+
+/// Submits an admin action and mines until it activates: the confirmation depth configured for
+/// that action's update type (see `activation_depth`). Immediate-apply updates and cancels
+/// mine no extra blocks.
+pub async fn submit_and_activate(
+    harness: &AsmTestHarness,
+    ctx: &mut AdminContext,
+    action: MultisigAction,
+) {
+    let depth = activation_depth(harness, &action);
+    harness.submit_admin_action(ctx, action).await.unwrap();
+    harness.mine_blocks(depth as usize).await.unwrap();
+}
+
+/// Asserts that `action` can only be authorized by its required role.
+///
+/// Submits `action` once per *other* role (signing with that role's keys) and verifies the
+/// handler rejects every one: nothing new is queued, the update-id counter does not advance,
+/// and the required role's seqno does not advance — both immediately and after mining through
+/// `confirmation_depth` blocks (to confirm nothing latent activates later).
+///
+/// Baselines are captured from the live admin state, so this tolerates a harness that already
+/// has unrelated admin history. Subprotocol-specific "the effect did not happen" assertions
+/// (e.g. a checkpoint predicate or bridge safe harbour left unchanged) are left to the caller,
+/// which already holds the harness.
+///
+/// The activation window mined through is the action's own configured confirmation depth (see
+/// `activation_depth`), so it can't drift out of sync with how the admin config was built.
+pub async fn assert_only_required_role_can_send(
+    harness: &AsmTestHarness,
+    ctx: &mut AdminContext,
+    action: MultisigAction,
+) {
+    let confirmation_depth = activation_depth(harness, &action);
+    let required_role = action.required_role();
+
+    let before = harness.admin_state().unwrap();
+    let baseline_queued = before.queued().len();
+    let baseline_next_id = before.next_update_id();
+    let baseline_seqno = before.authority(required_role).unwrap().last_seqno();
+
+    let assert_unchanged = |stage: &str| {
+        let state = harness.admin_state().unwrap();
+        assert_eq!(
+            state.queued().len(),
+            baseline_queued,
+            "no update should be queued when signed by the wrong role ({stage})",
+        );
+        assert_eq!(
+            state.next_update_id(),
+            baseline_next_id,
+            "next_update_id must not advance for rejected txs ({stage})",
+        );
+        assert_eq!(
+            state.authority(required_role).unwrap().last_seqno(),
+            baseline_seqno,
+            "{required_role:?} seqno must not advance for rejected txs ({stage})",
+        );
+    };
+
+    for signing_role in [
+        Role::StrataAdministrator,
+        Role::StrataSequencerManager,
+        Role::AlpenAdministrator,
+        Role::StrataSecurityCouncil,
+    ] {
+        if signing_role == required_role {
+            continue;
+        }
+        harness
+            .submit_admin_action_as_role(ctx, action.clone(), signing_role)
+            .await
+            .unwrap();
+    }
+
+    assert_unchanged("after wrong-role submissions");
+
+    // Mine through the activation window to confirm nothing latent applies later.
+    harness
+        .mine_blocks(confirmation_depth as usize)
+        .await
+        .unwrap();
+    assert_unchanged("after mining the activation window");
+}
+
 /// Extract admin subprotocol state from AnchorState.
 pub fn extract_admin_state(
     anchor_state: &AnchorState,
@@ -423,5 +538,14 @@ impl AdminExt for AsmTestHarness {
         let payload = ctx.sign_as_role_with_seqno(&action, signing_role, seqno);
         let tx = self.build_envelope_tx(tag, payload).await?;
         self.submit_and_mine_tx(&tx).await
+    }
+
+    async fn build_admin_action_tx(
+        &self,
+        ctx: &mut AdminContext,
+        action: MultisigAction,
+    ) -> anyhow::Result<Transaction> {
+        let payload = ctx.sign(&action);
+        self.build_envelope_tx(action.tag(), payload).await
     }
 }
