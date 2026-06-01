@@ -8,12 +8,12 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use bitcoin::{block::Header, Block, BlockHash, Network, Txid};
+use bitcoin::{block::Header, params::Params, Block, BlockHash, Network, Txid};
 use bitcoind_async_client::{traits::Reader, Client};
 use strata_asm_manifest_types::AsmManifest;
 use strata_asm_worker::{AsmState, WorkerContext, WorkerError, WorkerResult};
 use strata_btc_types::{BitcoinTxid, BlockHashExt, L1BlockIdBitcoinExt, RawBitcoinTx};
-use strata_btc_verification::L1Anchor;
+use strata_btc_verification::{get_relative_difficulty_adjustment_height, L1Anchor};
 use strata_identifiers::{Buf32, Hash, L1BlockCommitment, L1BlockId};
 use strata_merkle::{MerkleProofB32, Mmr, Mmr64B32, MmrState, Sha256Hasher};
 use tokio::{runtime::Handle, task::block_in_place};
@@ -287,11 +287,20 @@ pub async fn get_l1_anchor(client: &Client, hash: &BlockHash) -> anyhow::Result<
     let blkid = header.block_hash().to_l1_block_id();
     let blk_commitment = L1BlockCommitment::new(height as u32, blkid);
 
-    // Create dummy/default values for other fields
-    let next_target = header.bits.to_consensus();
-    let epoch_start_timestamp = header.time;
-
     let network = client.network().await?;
+    let params = Params::from(network);
+
+    // `epoch_start_timestamp` is the timestamp of the *first* block of the current difficulty
+    // epoch (Bitcoin retargets every `difficulty_adjustment_interval` blocks), not this block's
+    // own timestamp. Regtest never retargets so it doesn't affect these tests, but model it
+    // correctly regardless.
+    let epoch_start_height = get_relative_difficulty_adjustment_height(0, height as u32, &params);
+    let epoch_start_hash = client.get_block_hash(epoch_start_height as u64).await?;
+    let epoch_start_timestamp = client.get_block_header(&epoch_start_hash).await?.time;
+
+    // `next_target` only changes at a retarget boundary, which these tests never cross; off a
+    // boundary the next target is just this block's target.
+    let next_target = header.bits.to_consensus();
 
     Ok(L1Anchor {
         block: blk_commitment,
