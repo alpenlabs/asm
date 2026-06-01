@@ -1,0 +1,85 @@
+name: Release Guest Artifacts
+
+on:
+  push:
+    tags:
+      - "v*"
+
+env:
+  CARGO_TERM_COLOR: always
+
+concurrency:
+  group: release-${{ github.ref_name }}
+  cancel-in-progress: false
+
+permissions: {}
+
+jobs:
+  publish-guest-artifacts:
+    name: Build and publish SP1 guest ELFs + vk JSONs
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    permissions:
+      contents: write # create the release (if missing) and upload assets via the GitHub Releases API
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v4
+        with:
+          persist-credentials: false
+
+      - name: Install Rust toolchain
+        run: |
+          RUST_TOOLCHAIN="$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)"
+          rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal
+          rustup default "$RUST_TOOLCHAIN"
+
+      - name: Install SP1 toolchain
+        run: |
+          curl -fsSL --proto '=https' --tlsv1.2 https://sp1.succinct.xyz | bash
+          ~/.sp1/bin/sp1up
+          echo "$HOME/.sp1/bin" >> "$GITHUB_PATH"
+
+      - name: Check SP1 toolchain
+        run: cargo prove --version
+
+      - name: Install protoc
+        uses: arduino/setup-protoc@c65c819552d16ad3c9b72d9dfd5ba5237b9c906b # v3.0.0
+
+      - name: Build guest ELFs and vk JSONs
+        run: cargo build --locked -p strata-asm-sp1-guest-builder --features docker-build
+
+      - name: Stage release artifacts
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          ELF_DIR=guest-builder/sp1/elfs
+          for prog in asm moho; do
+            cp "$ELF_DIR/$prog.elf" "dist/$prog.elf"
+            cp "$ELF_DIR/$prog-vk.json" "dist/$prog-vk.json"
+            (cd dist && sha256sum "$prog-vk.json" > "$prog-vk.json.sha256")
+          done
+          ls -la dist/
+
+      - name: Publish to GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          # All expected assets must exist locally before any upload — failing here keeps
+          # us from publishing a partial release if a prior step silently produced nothing.
+          assets=(
+            dist/asm.elf dist/asm-vk.json dist/asm-vk.json.sha256
+            dist/moho.elf dist/moho-vk.json dist/moho-vk.json.sha256
+          )
+          for f in "${assets[@]}"; do
+            [ -f "$f" ] || { echo "::error::missing artifact: $f"; exit 1; }
+          done
+          # Create the release if it doesn't already exist. Tags with a hyphen
+          # (e.g. v0.1.0-rc1, v0.1-alpha.10) are treated as prereleases.
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            prerelease_flag=""
+            case "$TAG" in *-*) prerelease_flag="--prerelease" ;; esac
+            gh release create "$TAG" $prerelease_flag --title "$TAG" --generate-notes
+          fi
+          gh release upload "$TAG" --clobber "${assets[@]}"
