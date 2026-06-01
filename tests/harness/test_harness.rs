@@ -29,11 +29,12 @@
 //! harness.submit_admin_action(&mut ctx, sequencer_update([1u8; 32])).await?;
 //! ```
 
-use std::sync::Arc;
+use std::{fmt, sync::Arc};
 
 use bitcoin::{
     absolute::LockTime,
     blockdata::script,
+    consensus::encode::serialize_hex,
     hashes::Hash,
     key::UntweakedKeypair,
     secp256k1::{All, Message, Secp256k1, XOnlyPublicKey, SECP256K1},
@@ -49,10 +50,7 @@ use bitcoind_async_client::{
 };
 use corepc_node::Node;
 use rand::RngCore;
-use strata_asm_params::{
-    AdministrationInitConfig, AsmParams, BridgeV1InitConfig, CheckpointInitConfig,
-    SubprotocolInstance,
-};
+use strata_asm_params::{AdministrationInitConfig, AsmParams, SubprotocolInstance};
 use strata_asm_spec::StrataAsmSpec;
 use strata_asm_worker::{AsmState, AsmWorkerBuilder, AsmWorkerHandle, WorkerContext};
 use strata_btc_types::BlockHashExt;
@@ -61,10 +59,15 @@ use strata_l1_envelope_fmt::builder::{build_envelope_script, EnvelopeScriptBuild
 use strata_l1_txfmt::{ParseConfig, TagData};
 use strata_tasks::{TaskExecutor, TaskManager};
 use strata_test_utils_arb::ArbitraryGenerator;
+use strata_test_utils_checkpoint::CheckpointTestHarness;
 use tokio::{runtime::Handle, task::block_in_place};
 
-use super::worker_context::TestAsmWorkerContext;
-use crate::harness::worker_context::get_l1_anchor;
+use super::{
+    admin::{create_test_admin_setup, AdminContext, DEFAULT_CONFIRMATION_DEPTH},
+    bridge::{create_test_bridge_setup, BridgeContext, DEFAULT_NUM_OPERATORS},
+    checkpoint::create_test_checkpoint_setup,
+    worker_context::{get_l1_anchor, TestAsmWorkerContext},
+};
 
 // Test Harness
 
@@ -162,6 +165,39 @@ impl AsmTestHarness {
         Ok(hashes)
     }
 
+    /// Mine a single block containing exactly `txs`, in the given order, then process it.
+    ///
+    /// `generate_to_address` gives no ordering guarantee for independent transactions, so
+    /// tests that depend on intra-block ordering (e.g. two checkpoints that must be
+    /// validated epoch-by-epoch) use this instead. It relies on Bitcoin Core's
+    /// `generateblock` RPC, which includes the listed transactions in the exact order given.
+    ///
+    /// `txs` must be reveal transactions whose funding parents are already in the mempool
+    /// (as produced by [`Self::build_envelope_tx`]); a normal block is mined first to confirm
+    /// those parents so the ordered block only carries the supplied transactions.
+    pub async fn mine_block_with_ordered_txs(
+        &self,
+        txs: &[Transaction],
+    ) -> anyhow::Result<BlockHash> {
+        // Confirm the supplied txs' funding parents (still unconfirmed in the mempool).
+        self.mine_block(None).await?;
+
+        let output = self.client.get_new_address().await?.to_string();
+        let raw: Vec<String> = txs.iter().map(serialize_hex).collect();
+
+        let result = self.bitcoind.client.generate_block(&output, &raw, true)?;
+        let block_hash: BlockHash = result.hash.parse()?;
+
+        // Same post-steps as `mine_block`: cache the block and feed it to the ASM worker.
+        let _block = self.context.fetch_and_cache_block(block_hash).await?;
+        let height = self.client.get_block_height(&block_hash).await?;
+        let block_id = block_hash.to_l1_block_id();
+        let block_commitment = L1BlockCommitment::new(height as u32, block_id);
+        block_in_place(|| self.asm_handle.submit_block(block_commitment))?;
+
+        Ok(block_hash)
+    }
+
     // Transaction Submission
 
     /// Submit a transaction to Bitcoin regtest mempool.
@@ -212,6 +248,16 @@ impl AsmTestHarness {
             .get_latest_asm_state()?
             .ok_or_else(|| anyhow::anyhow!("No ASM state available"))?;
         Ok(commitment.height() as u64)
+    }
+
+    /// Mine blocks until the ASM has processed at least up to `target_height`.
+    ///
+    /// No-op if the processed height already meets or exceeds `target_height`.
+    pub async fn mine_until_processed(&self, target_height: u64) -> anyhow::Result<()> {
+        while self.get_processed_height()? < target_height {
+            self.mine_block(None).await?;
+        }
+        Ok(())
     }
 
     /// Get the latest ASM state from the worker context.
@@ -473,25 +519,82 @@ fn create_taproot_spend_info(
 
 // Builder
 
-/// Builder for [`AsmTestHarness`] with optional subprotocol config overrides.
+/// A fully-configured test harness plus the contexts needed to drive each subprotocol.
 ///
-/// Any subprotocol configs not explicitly set will use arbitrary-generated defaults.
+/// [`AsmTestHarnessBuilder::build`] sets up the admin, bridge, and checkpoint subprotocols with
+/// deterministic test configs and returns this bundle. Destructure the fields a test needs and
+/// ignore the rest with `..`:
+///
+/// ```ignore
+/// let Setup { harness, mut admin, .. } = AsmTestHarnessBuilder::default().build().await;
+/// ```
+///
+/// The contexts are separate bindings (not fields on the harness) so a test can call
+/// `harness.submit_admin_action(&mut admin, ..)` — borrowing the harness and a context at once.
+#[expect(
+    missing_debug_implementations,
+    reason = "CheckpointTestHarness (a field) does not implement Debug"
+)]
+pub struct Setup {
+    /// The running harness (Bitcoin regtest + ASM worker).
+    pub harness: AsmTestHarness,
+    /// Signing context for admin actions (mutable: tracks per-role sequence numbers).
+    pub admin: AdminContext,
+    /// Operator keys and denomination for building bridge deposits.
+    pub bridge: BridgeContext,
+    /// Builder for checkpoint payloads (mutable: tracks the verified tip).
+    pub checkpoint: CheckpointTestHarness,
+}
+
+/// Builder for a [`Setup`]: a harness with all three subprotocols configured deterministically.
+///
+/// Defaults give an admin at [`DEFAULT_CONFIRMATION_DEPTH`], a [`DEFAULT_NUM_OPERATORS`]-operator
+/// bridge, and a checkpoint anchored at the genesis height — override only what a test needs.
+/// The genesis anchor state already carries every subprotocol section, so subprotocol state is
+/// queryable immediately after `build()`; no init block is mined.
 ///
 /// # Example
 ///
 /// ```ignore
-/// let harness = AsmTestHarnessBuilder::default()
-///     .with_admin_config(my_admin_config)
-///     .build()
-///     .await?;
+/// let Setup { harness, bridge, mut checkpoint, .. } =
+///     AsmTestHarnessBuilder::default().with_txindex().build().await;
+/// harness.submit_deposits(&bridge, 3).await?;
 /// ```
-#[derive(Debug, Default)]
+/// A one-shot tweak applied to the generated admin config before genesis.
+type AdminConfigCustomizer = Box<dyn FnOnce(&mut AdministrationInitConfig)>;
+
 pub struct AsmTestHarnessBuilder {
-    genesis_height: Option<u64>,
-    admin_config: Option<AdministrationInitConfig>,
-    bridge_config: Option<BridgeV1InitConfig>,
-    checkpoint_config: Option<CheckpointInitConfig>,
+    genesis_height: u64,
+    admin_confirmation_depth: u16,
+    admin_customize: Option<AdminConfigCustomizer>,
+    num_operators: usize,
     txindex: bool,
+}
+
+impl Default for AsmTestHarnessBuilder {
+    fn default() -> Self {
+        Self {
+            genesis_height: Self::DEFAULT_GENESIS_HEIGHT,
+            admin_confirmation_depth: DEFAULT_CONFIRMATION_DEPTH,
+            admin_customize: None,
+            num_operators: DEFAULT_NUM_OPERATORS,
+            txindex: false,
+        }
+    }
+}
+
+// Manual `Debug` because `admin_customize` holds a boxed closure (not `Debug`); report only
+// whether one is set.
+impl fmt::Debug for AsmTestHarnessBuilder {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("AsmTestHarnessBuilder")
+            .field("genesis_height", &self.genesis_height)
+            .field("admin_confirmation_depth", &self.admin_confirmation_depth)
+            .field("admin_customize", &self.admin_customize.is_some())
+            .field("num_operators", &self.num_operators)
+            .field("txindex", &self.txindex)
+            .finish()
+    }
 }
 
 impl AsmTestHarnessBuilder {
@@ -500,25 +603,35 @@ impl AsmTestHarnessBuilder {
 
     /// Sets the genesis block height (default: [`Self::DEFAULT_GENESIS_HEIGHT`]).
     pub fn with_genesis_height(mut self, height: u64) -> Self {
-        self.genesis_height = Some(height);
+        self.genesis_height = height;
         self
     }
 
-    /// Overrides the admin subprotocol config.
-    pub fn with_admin_config(mut self, config: AdministrationInitConfig) -> Self {
-        self.admin_config = Some(config);
+    /// Sets the confirmation depth applied to every admin update type
+    /// (default: [`DEFAULT_CONFIRMATION_DEPTH`]).
+    pub fn admin_confirmation_depth(mut self, depth: u16) -> Self {
+        self.admin_confirmation_depth = depth;
         self
     }
 
-    /// Overrides the bridge subprotocol config.
-    pub fn with_bridge_config(mut self, config: BridgeV1InitConfig) -> Self {
-        self.bridge_config = Some(config);
+    /// Tweaks the generated admin config before genesis — e.g. set one update type's confirmation
+    /// depth to `0` so it applies immediately:
+    ///
+    /// ```ignore
+    /// .customize_admin(|c| c.confirmation_depths.sequencer_update = 0)
+    /// ```
+    pub fn customize_admin(
+        mut self,
+        f: impl FnOnce(&mut AdministrationInitConfig) + 'static,
+    ) -> Self {
+        self.admin_customize = Some(Box::new(f));
         self
     }
 
-    /// Overrides the checkpoint subprotocol config.
-    pub fn with_checkpoint_config(mut self, config: CheckpointInitConfig) -> Self {
-        self.checkpoint_config = Some(config);
+    /// Sets the number of operators in the bridge notary set
+    /// (default: [`DEFAULT_NUM_OPERATORS`]).
+    pub fn num_operators(mut self, n: usize) -> Self {
+        self.num_operators = n;
         self
     }
 
@@ -531,9 +644,16 @@ impl AsmTestHarnessBuilder {
         self
     }
 
-    /// Builds the test harness, applying any subprotocol config overrides.
-    pub async fn build(self) -> anyhow::Result<AsmTestHarness> {
-        let genesis_height = self.genesis_height.unwrap_or(Self::DEFAULT_GENESIS_HEIGHT);
+    /// Builds the harness and returns it alongside the per-subprotocol contexts. Panics on
+    /// failure (test setup); see [`Setup`].
+    pub async fn build(self) -> Setup {
+        self.try_build()
+            .await
+            .expect("failed to build test harness")
+    }
+
+    async fn try_build(self) -> anyhow::Result<Setup> {
+        let genesis_height = self.genesis_height;
 
         // 1. Start Bitcoin regtest (with txindex if requested)
         let (bitcoind, client) = if self.txindex {
@@ -548,34 +668,29 @@ impl AsmTestHarnessBuilder {
             .await?;
 
         let genesis_hash = client.get_block_hash(genesis_height).await?;
-
-        // 3. Setup parameters
         let genesis_view = get_l1_anchor(&client, &genesis_hash).await?;
 
-        // 4. Build AsmParams via arbitrary, then apply overrides
+        // 3. Generate deterministic per-subprotocol configs and the contexts tests drive them
+        // with. `build()` owns this so a plain `AsmTestHarnessBuilder::default()` yields a known,
+        // ready-to-use setup rather than the arbitrary defaults the params carry otherwise.
+        let (mut admin_config, admin_ctx) = create_test_admin_setup(self.admin_confirmation_depth);
+        if let Some(customize) = self.admin_customize {
+            customize(&mut admin_config);
+        }
+        let (bridge_config, bridge_ctx) = create_test_bridge_setup(self.num_operators);
+        let (checkpoint_config, checkpoint_harness) =
+            create_test_checkpoint_setup(genesis_height as u32);
+
+        // 4. Build AsmParams (arbitrary for non-subprotocol fields) and install our configs.
         let mut asm_params: AsmParams = ArbitraryGenerator::new().generate();
         asm_params.anchor = genesis_view;
-
         for instance in &mut asm_params.subprotocols {
             match instance {
-                SubprotocolInstance::Admin(ref mut cfg) => {
-                    if let Some(ref override_cfg) = self.admin_config {
-                        *cfg = override_cfg.clone();
-                    }
-                }
-                SubprotocolInstance::Bridge(ref mut cfg) => {
-                    if let Some(ref override_cfg) = self.bridge_config {
-                        *cfg = override_cfg.clone();
-                    }
-                }
-                SubprotocolInstance::Checkpoint(ref mut cfg) => {
-                    if let Some(ref override_cfg) = self.checkpoint_config {
-                        *cfg = override_cfg.clone();
-                    }
-                }
+                SubprotocolInstance::Admin(cfg) => *cfg = admin_config.clone(),
+                SubprotocolInstance::Bridge(cfg) => *cfg = bridge_config.clone(),
+                SubprotocolInstance::Checkpoint(cfg) => *cfg = checkpoint_config.clone(),
             }
         }
-
         let asm_params = Arc::new(asm_params);
 
         // 5. Create worker context. The MMR is height-indexed: prefill it with
@@ -616,6 +731,11 @@ impl AsmTestHarnessBuilder {
         // Submit genesis block and wait for processing to complete
         block_in_place(|| harness.asm_handle.submit_block(genesis_commitment))?;
 
-        Ok(harness)
+        Ok(Setup {
+            harness,
+            admin: admin_ctx,
+            bridge: bridge_ctx,
+            checkpoint: checkpoint_harness,
+        })
     }
 }
