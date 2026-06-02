@@ -294,6 +294,11 @@ where
     state.context.store_anchor_state(block_id, &new_state)?;
     state.update_anchor_state(new_state, *block_id);
 
+    // Notify subscribers only after the anchor is durably committed, so any
+    // consumer that reads `AsmStateDb` for this commitment is guaranteed a
+    // hit. Non-blocking: an unbounded fan-out, never awaited.
+    state.subscribers.emit(*block_id);
+
     Ok(())
 }
 
@@ -331,6 +336,7 @@ mod tests {
     use super::*;
     use crate::{
         AnchorStateStore, AuxDataResolver, ManifestMmrStore, WorkerError,
+        subscription::AsmSubscribers,
         test_utils::{
             TestAsmWorkerContext,
             fixtures::{self, TestAsmSpec},
@@ -559,7 +565,9 @@ mod tests {
         // ...so a restart over the same store resumes there, not at the stale tip.
         let context = fx.state.context.clone();
         let params = fixtures::genesis_params(&fx.client, 101).await;
-        let reloaded = AsmWorkerServiceState::new(context, TestAsmSpec, params).unwrap();
+        let reloaded =
+            AsmWorkerServiceState::new(context, TestAsmSpec, params, AsmSubscribers::default())
+                .unwrap();
         assert_eq!(
             reloaded.blkid, earlier,
             "restart resumes from the rollback target",

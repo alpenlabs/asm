@@ -19,13 +19,14 @@ strata-tasks.workspace = true
 # Optional deps, enabled by the `test-utils` feature for `test_utils::TestAsmWorkerContext`.
 bitcoind-async-client = { workspace = true, optional = true }
 strata-merkle-node-store = { workspace = true, optional = true }
-tokio = { workspace = true, optional = true }
 
 anyhow.workspace = true
 bitcoin.workspace = true
 borsh.workspace = true
+futures.workspace = true
 serde.workspace = true
 thiserror.workspace = true
+tokio.workspace = true
 tracing.workspace = true
 
 [features]
@@ -34,7 +35,6 @@ tracing.workspace = true
 test-utils = [
   "dep:bitcoind-async-client",
   "dep:strata-merkle-node-store",
-  "dep:tokio",
 ]
 
 [dev-dependencies]
@@ -44,4 +44,3 @@ strata-test-utils-btcio.workspace = true
 bitcoind-async-client.workspace = true
 corepc-node.workspace = true
 strata-merkle-node-store.workspace = true
-tokio.workspace = true

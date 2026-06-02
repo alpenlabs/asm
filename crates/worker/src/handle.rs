@@ -4,25 +4,44 @@ use bitcoin::BlockHash;
 use strata_identifiers::L1BlockCommitment;
 use strata_service::{CommandHandle, ServiceError, ServiceMonitor};
 
-use crate::{AsmWorkerStatus, WorkerError, message::AsmWorkerMessage};
+use crate::{
+    AsmWorkerStatus, Subscription, WorkerError, message::AsmWorkerMessage,
+    subscription::AsmSubscribers,
+};
 
 /// Handle for interacting with the ASM worker service.
 #[derive(Debug)]
 pub struct AsmWorkerHandle {
     command_handle: CommandHandle<AsmWorkerMessage>,
     monitor: ServiceMonitor<AsmWorkerStatus>,
+    subscribers: AsmSubscribers,
 }
 
 impl AsmWorkerHandle {
     /// Create a new ASM worker handle from a service command handle.
-    pub fn new(
+    ///
+    /// `subscribers` is the same registry the service state emits into, so
+    /// handles created here can hand out [`Subscription`]s wired to the worker.
+    pub(crate) fn new(
         command_handle: CommandHandle<AsmWorkerMessage>,
         monitor: ServiceMonitor<AsmWorkerStatus>,
+        subscribers: AsmSubscribers,
     ) -> Self {
         Self {
             command_handle,
             monitor,
+            subscribers,
         }
+    }
+
+    /// Subscribes to per-block notifications.
+    ///
+    /// Returns a [`Subscription`] that yields each [`L1BlockCommitment`] the
+    /// worker commits, starting from the next commit after this call. There is
+    /// no replay: register before the worker begins processing the blocks you
+    /// care about (the bootstrap order enforces this).
+    pub fn subscribe_blocks(&self) -> Subscription<L1BlockCommitment> {
+        self.subscribers.subscribe()
     }
 
     /// Sends an L1 block hash to the ASM service and waits for processing to

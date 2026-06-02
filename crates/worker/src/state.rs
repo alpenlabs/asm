@@ -8,6 +8,7 @@ use tracing::field::Empty;
 
 use crate::{
     AsmState, WorkerContext, WorkerError, WorkerResult, aux_resolver::AuxDataResolver, constants,
+    subscription::AsmSubscribers,
 };
 
 /// Service state for the ASM worker.
@@ -33,6 +34,11 @@ pub struct AsmWorkerServiceState<W, S: AsmSpec> {
     /// sentinels for heights `0..=genesis_height`, so this is the height just
     /// below the first real manifest.
     pub(crate) genesis_height: u64,
+
+    /// Registry of ASM-commit subscribers. After each successful anchor commit
+    /// the service fans the new commitment out to these; see
+    /// [`crate::AsmWorkerHandle::subscribe_blocks`].
+    pub(crate) subscribers: AsmSubscribers,
 }
 
 impl<W, S> AsmWorkerServiceState<W, S>
@@ -42,7 +48,15 @@ where
     S::Params: Send + Sync + 'static,
 {
     /// Creates a new service state, loading the latest anchor or creating genesis.
-    pub fn new(context: W, spec: S, params: S::Params) -> WorkerResult<Self> {
+    ///
+    /// Construction goes through [`crate::AsmWorkerBuilder`], which owns the
+    /// shared [`AsmSubscribers`] registry — hence `pub(crate)`.
+    pub(crate) fn new(
+        context: W,
+        spec: S,
+        params: S::Params,
+        subscribers: AsmSubscribers,
+    ) -> WorkerResult<Self> {
         let genesis_height = spec.genesis_l1_height(&params);
 
         // Align the manifest MMR with L1 heights before processing any block:
@@ -74,6 +88,7 @@ where
             anchor,
             blkid,
             genesis_height,
+            subscribers,
         })
     }
 
@@ -209,7 +224,9 @@ mod tests {
             .unwrap();
 
         let params = fixtures::genesis_params(&seed.client, 101).await;
-        let reloaded = AsmWorkerServiceState::new(context, TestAsmSpec, params).unwrap();
+        let reloaded =
+            AsmWorkerServiceState::new(context, TestAsmSpec, params, AsmSubscribers::default())
+                .unwrap();
 
         assert_eq!(
             reloaded.blkid, advanced,
@@ -227,7 +244,8 @@ mod tests {
 
         let context = fx.state.context.clone();
         let params = fixtures::genesis_params(&fx.client, 101).await;
-        AsmWorkerServiceState::new(context, TestAsmSpec, params).unwrap();
+        AsmWorkerServiceState::new(context, TestAsmSpec, params, AsmSubscribers::default())
+            .unwrap();
 
         assert_eq!(
             fx.state.context.mmr_leaf_count(),

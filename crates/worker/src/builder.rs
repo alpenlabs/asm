@@ -4,7 +4,7 @@ use strata_tasks::TaskExecutor;
 
 use crate::{
     constants, errors::WorkerError, handle::AsmWorkerHandle, service::AsmWorkerService,
-    state::AsmWorkerServiceState, traits::WorkerContext,
+    state::AsmWorkerServiceState, subscription::AsmSubscribers, traits::WorkerContext,
 };
 
 /// Builder for constructing and launching an ASM worker service.
@@ -74,8 +74,13 @@ impl<W, S: AsmSpec> AsmWorkerBuilder<W, S> {
             .ok_or(WorkerError::MissingDependency("params"))?;
         let spec = self.spec.ok_or(WorkerError::MissingDependency("spec"))?;
 
+        // Shared between the service state (which emits) and the handle (which
+        // hands out subscriptions), so a `subscribe_blocks()` on the handle
+        // registers into the same list the service fans out to.
+        let subscribers = AsmSubscribers::default();
+
         // Create the service state.
-        let service_state = AsmWorkerServiceState::new(context, spec, params)?;
+        let service_state = AsmWorkerServiceState::new(context, spec, params, subscribers.clone())?;
 
         // Create the service builder and get command handle.
         let mut service_builder =
@@ -88,7 +93,7 @@ impl<W, S: AsmSpec> AsmWorkerBuilder<W, S> {
         let service_monitor = service_builder.launch_sync(constants::SERVICE_NAME, executor)?;
 
         // Create and return the handle.
-        let handle = AsmWorkerHandle::new(command_handle, service_monitor);
+        let handle = AsmWorkerHandle::new(command_handle, service_monitor, subscribers);
 
         Ok(handle)
     }

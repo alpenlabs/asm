@@ -309,7 +309,7 @@ pub(crate) mod fixtures {
     };
 
     use super::{TestAsmWorkerContext, get_l1_anchor};
-    use crate::AsmWorkerServiceState;
+    use crate::{AsmWorkerServiceState, subscription::AsmSubscribers};
 
     /// Minimal [`AsmSpec::Params`] for the worker's own tests: just the L1 anchor
     /// the genesis state pins to, plus a magic. The production `AsmParams` also
@@ -372,7 +372,8 @@ pub(crate) mod fixtures {
         let params = genesis_params(&client, genesis_height).await;
         let context = TestAsmWorkerContext::new((*client).clone());
         let state =
-            AsmWorkerServiceState::new(context, TestAsmSpec, params).expect("create service state");
+            AsmWorkerServiceState::new(context, TestAsmSpec, params, AsmSubscribers::default())
+                .expect("create service state");
 
         StateFixture {
             node,
