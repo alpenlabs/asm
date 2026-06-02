@@ -105,7 +105,18 @@ mod tests {
         let mut withdrawal_info = create_withdrawal_info_from_assignment(assignment);
 
         let correct_withdrawal_destination = withdrawal_info.withdrawal_destination().clone();
-        withdrawal_info.set_withdrawal_destination(arb.generate::<Descriptor>().to_script());
+        // A bare `arb.generate::<Descriptor>()` can collide with the assignment's
+        // destination -- most plausibly when both land on a degenerate empty
+        // OP_RETURN -- which makes validation succeed and the `unwrap_err` below
+        // panic. Generate until the script is guaranteed different so the
+        // mismatch path is exercised deterministically.
+        let mismatched_destination = loop {
+            let candidate = arb.generate::<Descriptor>().to_script();
+            if candidate != correct_withdrawal_destination {
+                break candidate;
+            }
+        };
+        withdrawal_info.set_withdrawal_destination(mismatched_destination);
         let err =
             validate_withdrawal_fulfillment_info(&bridge_state, &withdrawal_info).unwrap_err();
 
