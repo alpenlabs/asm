@@ -35,9 +35,10 @@ fn main() {
     println!("cargo:rerun-if-env-changed=SKIP_VKEY_BUILD");
     println!("cargo:warning=exporting SP1 guest ELFs to {ELFS_DIR}");
 
-    // Mirror sp1-build's own skip predicates so `SP1_SKIP_PROGRAM_BUILD=true` and
-    // `cargo clippy --release` work without provisioning input JSONs.
-    if sp1_build_will_skip() {
+    if skip_elf_build() {
+        println!(
+            "cargo:warning=SP1_SKIP_PROGRAM_BUILD set or clippy detected; skipping guest build"
+        );
         return;
     }
 
@@ -60,12 +61,6 @@ fn main() {
     for (_, elf_name, vk_json_name) in GUESTS {
         emit_predicate(elf_name, vk_json_name);
     }
-}
-
-fn skip_vkey_build() -> bool {
-    std::env::var("SKIP_VKEY_BUILD")
-        .map(|v| v.eq_ignore_ascii_case("true") || v == "1")
-        .unwrap_or(false)
 }
 
 fn build_guest(guest_dir: &str, elf_name: &str) {
@@ -147,7 +142,16 @@ fn rustc_succinct(args: &[&str]) -> String {
         .to_owned()
 }
 
-fn sp1_build_will_skip() -> bool {
+/// Returns `true` when `SKIP_VKEY_BUILD` is set, suppressing vk emission.
+fn skip_vkey_build() -> bool {
+    std::env::var("SKIP_VKEY_BUILD")
+        .map(|v| v.eq_ignore_ascii_case("true") || v == "1")
+        .unwrap_or(false)
+}
+
+/// Returns `true` when sp1-build itself would skip the build — under
+/// `SP1_SKIP_PROGRAM_BUILD=true` or `cargo clippy`.
+fn skip_elf_build() -> bool {
     let skip_env = std::env::var("SP1_SKIP_PROGRAM_BUILD")
         .map(|v| v.eq_ignore_ascii_case("true"))
         .unwrap_or(false);
