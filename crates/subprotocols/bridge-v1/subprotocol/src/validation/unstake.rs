@@ -2,28 +2,55 @@ use bitcoin::ScriptBuf;
 use strata_asm_proto_bridge_v1_txs::unstake::{
     UnstakeInfo, expected_stake_connector_script_pubkey,
 };
+use strata_btc_types::BitcoinXOnlyPublicKey;
 
-use crate::errors::UnstakeValidationError;
+use crate::{
+    errors::UnstakeValidationError,
+    state::{BridgeV1State, operator::build_nn_script},
+};
 
 /// Validates a parsed unstake transaction against the prevout it claims to spend.
 ///
-/// The check binds the witness-derived `(stake_hash, witness_pushed_pubkey)` to a
-/// real stake-connector UTXO: a P2TR output with the NUMS unspendable internal
-/// key whose only leaf is `stake_connector_script(stake_hash, NN_pk)`. The
-/// resulting `scriptPubKey` is a deterministic function of `(stake_hash, NN_pk)`,
-/// so reconstructing it locally and comparing against the actually-spent output
-/// is equivalent to asking Bitcoin "did the canonical stake-connector script
-/// authorize this spend?" — which Bitcoin can only answer yes for after running
-/// `OP_CHECKSIGVERIFY` against the N/N aggregated key.
+/// Two independent bindings are required; only their conjunction is safe:
+///
+/// 1. **Key legitimacy.** The witness-pushed pubkey must be an aggregated N/N key the operator set
+///    actually used at some point in its history. Without this, an attacker could mint their *own*
+///    stake connector under a key they control, spend it (Bitcoin will happily run
+///    `OP_CHECKSIGVERIFY` against the attacker key), and have ASM remove any operator named in the
+///    SPS-50 tag.
+///
+/// 2. **Spend authenticity.** The actually-spent prevout must equal the canonical stake-connector
+///    `scriptPubKey` reconstructed from `(stake_hash, NN_pk)` — a P2TR output with the NUMS
+///    unspendable internal key whose only leaf is `stake_connector_script(stake_hash, NN_pk)`.
+///    Because the internal key is unspendable, a match is only possible if Bitcoin authorized the
+///    spend by running `OP_CHECKSIGVERIFY` against `NN_pk`. Without this, the original
+///    witness-layout bypass lets an attacker present a real N/N key at `witness[2]` while actually
+///    spending a trivially-spendable UTXO.
 pub(crate) fn validate_unstake_info(
+    state: &BridgeV1State,
     info: &UnstakeInfo,
     stake_connector_script_pubkey: &ScriptBuf,
 ) -> Result<(), UnstakeValidationError> {
+    // The witness-pushed pubkey must be a historical N/N aggregated key. We don't store
+    // historical pubkeys directly, only their key-path P2TR representation, so reconstruct
+    // that and check membership.
+    let witness_pubkey = BitcoinXOnlyPublicKey::from(*info.witness_pushed_pubkey());
+    let nn_keypath_script = build_nn_script(&witness_pubkey);
+    if !state
+        .operators()
+        .historical_nn_scripts()
+        .any(|script| script == nn_keypath_script.inner())
+    {
+        return Err(UnstakeValidationError::UnknownNnKey);
+    }
+
+    // The spent prevout must be the canonical stake connector committing to that key.
     let expected =
         expected_stake_connector_script_pubkey(*info.stake_hash(), *info.witness_pushed_pubkey());
     if stake_connector_script_pubkey != &expected {
-        return Err(UnstakeValidationError::InvalidStakeConnectorScript);
+        return Err(UnstakeValidationError::StakeConnectorMismatch);
     }
+
     Ok(())
 }
 
@@ -31,10 +58,12 @@ pub(crate) fn validate_unstake_info(
 mod tests {
     use bitcoin::ScriptBuf;
     use strata_asm_common::VerifiedAuxData;
-    use strata_asm_proto_bridge_v1_txs::unstake::UnstakeInfo;
+    use strata_asm_proto_bridge_v1_txs::{test_utils::create_test_operators, unstake::UnstakeInfo};
 
     use crate::{
-        UnstakeValidationError, test_utils::setup_unstake_test, validation::validate_unstake_info,
+        UnstakeValidationError,
+        test_utils::{create_test_state, setup_unstake_test},
+        validation::validate_unstake_info,
     };
 
     fn stake_connector_script_from_aux(info: &UnstakeInfo, aux: &VerifiedAuxData) -> ScriptBuf {
@@ -46,25 +75,33 @@ mod tests {
 
     #[test]
     fn test_unstake_tx_validation_success() {
-        let (info, aux) = setup_unstake_test_with_operators();
+        let (state, operators) = create_test_state();
+        let (info, aux) = setup_unstake_test(1, &operators);
         let spk = stake_connector_script_from_aux(&info, &aux);
-        validate_unstake_info(&info, &spk).expect("valid unstake info should pass validation");
+        validate_unstake_info(&state, &info, &spk)
+            .expect("valid unstake info should pass validation");
     }
 
     #[test]
-    fn test_unstake_tx_wrong_script_pubkey() {
-        let (info, _aux) = setup_unstake_test_with_operators();
+    fn test_unstake_tx_rejects_non_canonical_stake_connector() {
+        let (state, operators) = create_test_state();
+        let (info, _aux) = setup_unstake_test(1, &operators);
         let bogus = ScriptBuf::from_bytes(vec![0x00; 34]);
-        let err = validate_unstake_info(&info, &bogus).unwrap_err();
+        let err = validate_unstake_info(&state, &info, &bogus).unwrap_err();
         assert!(matches!(
             err,
-            UnstakeValidationError::InvalidStakeConnectorScript
+            UnstakeValidationError::StakeConnectorMismatch
         ));
     }
 
-    fn setup_unstake_test_with_operators() -> (UnstakeInfo, VerifiedAuxData) {
-        use crate::test_utils::create_test_state;
-        let (_, operators) = create_test_state();
-        setup_unstake_test(1, &operators)
+    #[test]
+    fn test_unstake_tx_rejects_attacker_owned_stake_connector() {
+        let (state, _operators) = create_test_state();
+        // Keys the attacker controls — generated independently of `state`'s operators.
+        let (attacker_keys, _) = create_test_operators(3);
+        let (info, aux) = setup_unstake_test(1, &attacker_keys);
+        let spk = stake_connector_script_from_aux(&info, &aux);
+        let err = validate_unstake_info(&state, &info, &spk).unwrap_err();
+        assert!(matches!(err, UnstakeValidationError::UnknownNnKey));
     }
 }

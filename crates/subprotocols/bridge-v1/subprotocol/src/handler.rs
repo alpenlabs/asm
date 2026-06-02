@@ -125,7 +125,7 @@ pub(crate) fn handle_parsed_tx(
                     error!(error = %e, %outpoint, "invalid aux data for unstake tx");
                     panic!("invalid aux: stake connector tx not provided");
                 });
-            validate_unstake_info(&info, &stake_connector_txout.script_pubkey)?;
+            validate_unstake_info(state, &info, &stake_connector_txout.script_pubkey)?;
             let operator_idx = info.header_aux().operator_idx();
             state.remove_operator(operator_idx);
 

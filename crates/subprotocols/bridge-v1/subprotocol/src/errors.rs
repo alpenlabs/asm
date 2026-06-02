@@ -102,9 +102,14 @@ pub enum SlashValidationError {
 
 #[derive(Debug, Error)]
 pub enum UnstakeValidationError {
-    /// Stake connector input is not locked to the expected N/N multisig script
-    #[error("stake connector not locked to N/N multisig script")]
-    InvalidStakeConnectorScript,
+    /// The witness-pushed pubkey is not a historical N/N aggregated key of the operator set.
+    #[error("unstake witness pubkey is not a historical N/N aggregated key")]
+    UnknownNnKey,
+
+    /// The spent prevout is not the canonical stake connector committing to the witness-derived
+    /// `(stake_hash, N/N pubkey)`.
+    #[error("spent prevout does not match the canonical stake connector scriptPubKey")]
+    StakeConnectorMismatch,
 }
 
 /// Errors that can occur when processing withdrawal commands.

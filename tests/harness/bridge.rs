@@ -18,15 +18,16 @@ use std::{future::Future, slice};
 
 use bitcoin::{
     absolute::LockTime,
-    hashes::Hash,
+    hashes::{sha256, Hash},
     key::UntweakedKeypair,
     opcodes::all::{OP_DROP, OP_PUSHNUM_1},
     script,
-    secp256k1::{Secp256k1, XOnlyPublicKey, SECP256K1},
-    taproot::{LeafVersion, TaprootBuilder, TaprootSpendInfo},
+    secp256k1::{Message, Secp256k1, XOnlyPublicKey, SECP256K1},
+    sighash::{Prevouts, SighashCache},
+    taproot::{LeafVersion, TapLeafHash, TaprootBuilder, TaprootSpendInfo},
     transaction::Version,
-    Address, Amount, BlockHash, Network, OutPoint, ScriptBuf, Sequence, Transaction, TxIn, TxOut,
-    Witness,
+    Address, Amount, BlockHash, Network, OutPoint, ScriptBuf, Sequence, TapSighashType,
+    Transaction, TxIn, TxOut, Witness,
 };
 use bitcoind_async_client::traits::Wallet;
 use rand::RngCore;
@@ -44,7 +45,10 @@ use strata_asm_proto_bridge_v1_txs::{
 use strata_asm_proto_bridge_v1_types::{OperatorIdx, SafeHarbourAddress};
 use strata_btc_types::BitcoinAmount;
 use strata_codec::VarVec;
-use strata_crypto::{test_utils::schnorr::Musig2Tweak, EvenPublicKey, EvenSecretKey};
+use strata_crypto::{
+    keys::constants::UNSPENDABLE_PUBLIC_KEY, test_utils::schnorr::Musig2Tweak, EvenPublicKey,
+    EvenSecretKey,
+};
 use strata_l1_txfmt::ParseConfig;
 use strata_test_utils_arb::ArbitraryGenerator;
 use strata_test_utils_btcio::{address::derive_musig2_p2tr_address, signing::sign_musig2_keypath};
@@ -490,6 +494,110 @@ pub async fn submit_forged_unstake_tx(
             change_output,
         ],
     };
+
+    harness.submit_and_mine_tx(&exploit_tx).await
+}
+
+/// Submits an unstake that spends a *genuine* stake connector the attacker minted under a key
+/// they control.
+///
+/// Unlike [`submit_forged_unstake_tx`] (which fakes the layout with a trivial P2WSH script),
+/// this is a real taproot script-path spend of
+/// `P2TR(NUMS, stake_connector_script(stake_hash, attacker_key))`. Bitcoin runs the actual
+/// `OP_CHECKSIGVERIFY` against `attacker_key`, and the prevout's `scriptPubKey` is byte-for-byte
+/// the canonical stake-connector commitment. So both "is this a real stake connector?" and "did
+/// Bitcoin authorize the spend?" answer yes — the only thing that can reject it is the check that
+/// `attacker_key` was a historical N/N aggregated key of the operator set, which it never was.
+///
+/// Returns the block hash containing the exploit transaction.
+pub async fn submit_attacker_keyed_unstake_tx(
+    harness: &AsmTestHarness,
+    victim_idx: OperatorIdx,
+) -> anyhow::Result<BlockHash> {
+    // 1. Attacker's own key — never part of the operator set, but the attacker holds its secret.
+    let mut key_bytes = [0u8; 32];
+    rand::thread_rng().fill_bytes(&mut key_bytes);
+    let attacker_keypair = UntweakedKeypair::from_seckey_slice(SECP256K1, &key_bytes)?;
+    let (attacker_xonly, _) = XOnlyPublicKey::from_keypair(&attacker_keypair);
+
+    // 2. Canonical stake connector committing to (stake_hash, attacker_key): P2TR(NUMS, single
+    //    leaf). Its scriptPubKey is what an honest stake connector for this key would have, so the
+    //    prevout-binding check passes.
+    let preimage = [0xABu8; 32];
+    let stake_hash = sha256::Hash::hash(&preimage).to_byte_array();
+    let leaf_script = stake_connector_script(stake_hash, attacker_xonly);
+    let spend_info = TaprootBuilder::new()
+        .add_leaf(0, leaf_script.clone())?
+        .finalize(SECP256K1, *UNSPENDABLE_PUBLIC_KEY)
+        .map_err(|_| anyhow::anyhow!("failed to finalize stake-connector taproot"))?;
+    let stake_connector_address = Address::p2tr(
+        SECP256K1,
+        *UNSPENDABLE_PUBLIC_KEY,
+        spend_info.merkle_root(),
+        Network::Regtest,
+    );
+
+    // 3. Fund and confirm the stake connector so the exploit tx has a spendable prevout.
+    let funding_amount = Amount::from_sat(10_000);
+    let (funding_txid, funding_vout) = harness
+        .create_funding_utxo(&stake_connector_address, funding_amount)
+        .await?;
+    harness.mine_block(None).await?;
+
+    // 4. SPS-50 OP_RETURN naming the victim, plus a change output so the tx pays a fee.
+    let aux = UnstakeTxHeaderAux::new(victim_idx);
+    let tag_data = aux.build_tag_data();
+    let op_return_script =
+        ParseConfig::new(harness.asm_params.magic).encode_script_buf(&tag_data.as_ref())?;
+    let fee = AsmTestHarness::DEFAULT_FEE;
+    let change_address = harness.client.get_new_address().await?;
+
+    let prevout = TxOut {
+        value: funding_amount,
+        script_pubkey: stake_connector_address.script_pubkey(),
+    };
+    let mut exploit_tx = Transaction {
+        version: Version::TWO,
+        lock_time: LockTime::ZERO,
+        input: vec![TxIn {
+            previous_output: OutPoint::new(funding_txid, funding_vout),
+            script_sig: ScriptBuf::new(),
+            sequence: Sequence::ENABLE_RBF_NO_LOCKTIME,
+            witness: Witness::new(),
+        }],
+        output: vec![
+            TxOut {
+                value: Amount::ZERO,
+                script_pubkey: op_return_script,
+            },
+            TxOut {
+                value: funding_amount - fee,
+                script_pubkey: change_address.script_pubkey(),
+            },
+        ],
+    };
+
+    // 5. Real taproot script-path spend: sign the leaf with the attacker key, then assemble the
+    //    witness in the same [preimage, sig, script, control_block] layout ASM parses.
+    let leaf_hash = TapLeafHash::from_script(&leaf_script, LeafVersion::TapScript);
+    let sighash = SighashCache::new(&exploit_tx).taproot_script_spend_signature_hash(
+        0,
+        &Prevouts::All(slice::from_ref(&prevout)),
+        leaf_hash,
+        TapSighashType::Default,
+    )?;
+    let message = Message::from_digest(*sighash.as_ref());
+    let signature = SECP256K1.sign_schnorr_no_aux_rand(&message, &attacker_keypair);
+    let control_block = spend_info
+        .control_block(&(leaf_script.clone(), LeafVersion::TapScript))
+        .ok_or_else(|| anyhow::anyhow!("control block must exist for stake-connector leaf"))?;
+
+    let mut witness = Witness::new();
+    witness.push(preimage);
+    witness.push(signature.serialize());
+    witness.push(leaf_script.as_bytes());
+    witness.push(control_block.serialize());
+    exploit_tx.input[0].witness = witness;
 
     harness.submit_and_mine_tx(&exploit_tx).await
 }
