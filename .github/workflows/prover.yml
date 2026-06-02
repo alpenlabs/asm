@@ -69,6 +69,7 @@ jobs:
         env:
           ZKVM_MOCK: "1"
           ZKVM_PROFILING: "1"
+          SKIP_VKEY_BUILD: "1"
         run: |
           cargo run --release -p strata-asm-prover-perf -- \
             --post-to-gh \
@@ -83,5 +84,6 @@ jobs:
         env:
           ZKVM_MOCK: "1"
           ZKVM_PROFILING: "1"
+          SKIP_VKEY_BUILD: "1"
         run: |
           cargo run --release -p strata-asm-prover-perf -- --programs asm-stf

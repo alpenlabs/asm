@@ -32,6 +32,7 @@ const GUESTS: &[(&str, &str, &str)] = &[
 
 fn main() {
     println!("cargo:rerun-if-env-changed=SP1_SKIP_PROGRAM_BUILD");
+    println!("cargo:rerun-if-env-changed=SKIP_VKEY_BUILD");
     println!("cargo:warning=exporting SP1 guest ELFs to {ELFS_DIR}");
 
     // Mirror sp1-build's own skip predicates so `SP1_SKIP_PROGRAM_BUILD=true` and
@@ -47,10 +48,24 @@ fn main() {
     #[cfg(target_os = "macos")]
     export_sp1_ar();
 
-    for (guest_dir, elf_name, vk_json_name) in GUESTS {
+    for (guest_dir, elf_name, _) in GUESTS {
         build_guest(guest_dir, elf_name);
+    }
+
+    if skip_vkey_build() {
+        println!("cargo:warning=SKIP_VKEY_BUILD set; skipping vk JSON emission");
+        return;
+    }
+
+    for (_, elf_name, vk_json_name) in GUESTS {
         emit_predicate(elf_name, vk_json_name);
     }
+}
+
+fn skip_vkey_build() -> bool {
+    std::env::var("SKIP_VKEY_BUILD")
+        .map(|v| v.eq_ignore_ascii_case("true") || v == "1")
+        .unwrap_or(false)
 }
 
 fn build_guest(guest_dir: &str, elf_name: &str) {
