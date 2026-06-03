@@ -8,7 +8,7 @@ use bitcoin::{ScriptBuf, secp256k1::SECP256K1};
 use serde::{Deserialize, Serialize};
 use ssz::{Decode as SszDecode, DecodeError, Encode as SszEncode};
 use ssz_derive::{Decode, Encode};
-use strata_asm_common::sorted_vec::SortedVec;
+use strata_asm_common::{logging::warn, sorted_vec::SortedVec};
 use strata_asm_proto_bridge_v1_types::{OperatorBitmap, OperatorIdx};
 use strata_btc_types::{BitcoinScriptBuf, BitcoinXOnlyPublicKey};
 use strata_crypto::{EvenPublicKey, aggregate_schnorr_keys};
@@ -378,7 +378,7 @@ impl OperatorTable {
             // Check if it already exists in the table (which handles both existing operators
             // and internal duplicates in the input list, as the first occurrence is added)
             if self.operators.iter().any(|op| op.musig2_pk() == musig2_pk) {
-                eprintln!("Skipping duplicate operator: {:?}", musig2_pk);
+                warn!(?musig2_pk, "Skipping duplicate operator");
                 continue;
             }
 

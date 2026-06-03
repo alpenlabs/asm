@@ -109,7 +109,7 @@ where
 
     // We reached the height before genesis (while traversing), but didn't find genesis state.
     if (pivot_block.height() as u64) < genesis_height {
-        warn!("ASM hasn't found pivot anchor state at genesis.");
+        warn!(%incoming_block, genesis_height, "ASM hasn't found pivot anchor state at genesis");
         return Err(crate::WorkerError::MissingGenesisState);
     }
 

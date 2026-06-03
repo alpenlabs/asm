@@ -54,11 +54,19 @@ impl Subprotocol for DebugSubproto {
             match parse_debug_tx(tx_ref) {
                 Ok(parsed_tx) => {
                     if let Err(e) = process_parsed_debug_tx(parsed_tx, relayer) {
-                        logging::warn!("Failed to process debug transaction: {}", e);
+                        logging::warn!(
+                            tx_type = tx_ref.tag().tx_type(),
+                            error = %e,
+                            "Failed to process debug transaction"
+                        );
                     }
                 }
                 Err(e) => {
-                    logging::warn!("Failed to parse debug transaction: {}", e);
+                    logging::warn!(
+                        tx_type = tx_ref.tag().tx_type(),
+                        error = %e,
+                        "Failed to parse debug transaction"
+                    );
                 }
             }
         }
@@ -83,7 +91,7 @@ fn process_parsed_debug_tx(
             let log_entry = match AsmLogEntry::from_raw(log_info.bytes) {
                 Ok(entry) => entry,
                 Err(err) => {
-                    logging::warn!("Skipping ASM log injection: {err}");
+                    logging::warn!(error = %err, "Skipping ASM log injection");
                     return Ok(());
                 }
             };

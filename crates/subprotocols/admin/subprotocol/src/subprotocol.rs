@@ -5,6 +5,7 @@
 
 use strata_asm_common::{
     MsgRelayer, NullMsg, Subprotocol, SubprotocolId, TxInputRef, VerifiedAuxData,
+    logging::{debug, warn},
 };
 use strata_asm_params::AdministrationInitConfig;
 use strata_asm_proto_admin_txs::{constants::ADMINISTRATION_SUBPROTOCOL_ID, parser::parse_tx};
@@ -55,10 +56,18 @@ impl Subprotocol for AdministrationSubprotocol {
 
         // Phase 2: Process incoming administration transactions
         for tx in txs {
-            if let Ok(signed_payload) = parse_tx(tx) {
-                let _ = handle_action(state, signed_payload, current_height, relayer);
+            match parse_tx(tx) {
+                Ok(signed_payload) => {
+                    if let Err(e) = handle_action(state, signed_payload, current_height, relayer) {
+                        warn!(tx_id = %tx.tx().compute_txid(), error = %e, "Failed to handle admin action");
+                    }
+                }
+                // Parsing failures are skipped to maintain system resilience, but logged so a
+                // malformed governance tx isn't completely invisible.
+                Err(e) => {
+                    debug!(tx_id = %tx.tx().compute_txid(), error = %e, "Skipping unparseable admin tx");
+                }
             }
-            // Transaction parsing failures are silently ignored to maintain system resilience
         }
     }
 

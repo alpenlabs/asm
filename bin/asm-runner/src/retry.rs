@@ -63,14 +63,17 @@ where
             Ok(value) => return Ok(value),
             Err(err) if attempt < max_retries => {
                 warn!(
-                    "Attempt {} failed with {err:?} while running {name}. Retrying in {delay:?}ms",
-                    attempt + 1,
+                    attempt = attempt + 1,
+                    %name,
+                    delay_ms = delay,
+                    ?err,
+                    "operation failed, retrying"
                 );
                 async_sleep(Duration::from_millis(delay)).await;
                 delay = backoff.next_delay_ms(delay);
             }
             Err(err) => {
-                error!("Max retries exceeded while running {name}, returning with the last error");
+                error!(%name, max_retries, ?err, "max retries exceeded, returning last error");
                 return Err(err);
             }
         }

@@ -29,7 +29,10 @@ pub(crate) fn handle_checkpoint_tx(
     relayer: &mut impl MsgRelayer,
 ) {
     let Ok(envelope) = extract_checkpoint_from_envelope(tx) else {
-        logging::warn!("failed to extract checkpoint payload from envelope, ignoring");
+        logging::warn!(
+            txid = %tx.tx().compute_txid(),
+            "failed to extract checkpoint payload from envelope, ignoring"
+        );
         return;
     };
     let epoch = envelope.payload.new_tip().epoch;

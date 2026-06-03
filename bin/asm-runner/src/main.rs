@@ -64,10 +64,7 @@ fn main() {
     // 5. Initialize logging.
     init_logging(runtime.handle(), &config.logging);
 
-    info!(
-        "Starting ASM RPC server with config: {:?}, params: {:?}",
-        config, params
-    );
+    info!(?config, ?params, "starting ASM RPC server");
 
     // 6. Create task manager and start signal listeners
     let task_manager = TaskManager::new(runtime.handle().clone());
@@ -88,7 +85,7 @@ fn main() {
             finalize();
         }
         Err(e) => {
-            error!("ASM RPC server crashed: {e:?}");
+            error!(?e, "ASM RPC server crashed");
             finalize();
             panic!("ASM RPC server crashed: {e:?}");
         }

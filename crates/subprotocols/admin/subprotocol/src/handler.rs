@@ -177,7 +177,7 @@ fn apply_multisig(
     config: &ThresholdConfigUpdate,
 ) {
     if let Err(e) = state.apply_multisig_update(role, config) {
-        error!("Failed to apply multisig update to role {:?}: {}", role, e);
+        error!(?role, error = %e, "Failed to apply multisig update");
     }
 }
 

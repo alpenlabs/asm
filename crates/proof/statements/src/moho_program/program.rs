@@ -83,7 +83,7 @@ impl MohoProgram for AsmStfProgram {
             input.aux_data(),
             input.coinbase_inclusion_proof(),
         )
-        .expect("asm: compute transition")
+        .unwrap_or_else(|e| panic!("asm: compute transition failed: {e}"))
     }
 
     fn extract_post_state(output: &Self::StepOutput) -> &Self::State {

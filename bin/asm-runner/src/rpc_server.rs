@@ -26,7 +26,7 @@ use strata_asm_worker::{AsmState, AsmWorkerHandle, AsmWorkerStatus};
 use strata_btc_types::BlockHashExt;
 use strata_identifiers::L1BlockCommitment;
 use strata_tasks::ShutdownGuard;
-use tracing::info;
+use tracing::{info, warn};
 
 /// Convert any error to an RPC error
 fn to_rpc_error(e: impl Display) -> ErrorObjectOwned {
@@ -329,12 +329,14 @@ pub(crate) async fn run_rpc_server(
     let rpc_handle_for_shutdown = rpc_handle.clone();
     let rpc_handle_for_stop = rpc_handle.clone();
 
-    info!("ASM RPC server listening on {}:{}", rpc_host, rpc_port);
+    info!(%rpc_host, %rpc_port, "ASM RPC server listening");
 
     tokio::select! {
         _ = shutdown.wait_for_shutdown() => {
             info!("ASM RPC server shutting down");
-            let _ = rpc_handle.stop();
+            if let Err(err) = rpc_handle.stop() {
+                warn!(?err, "failed to stop ASM RPC server handle");
+            }
             rpc_handle_for_shutdown.stopped().await;
         }
         _ = rpc_handle_for_stop.stopped() => {}

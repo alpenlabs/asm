@@ -228,12 +228,15 @@ pub(crate) fn extract_withdrawal_intents(
         };
 
         // Parse destination descriptor; return error on malformed descriptors
-        let Ok(destination) = Descriptor::from_bytes(withdrawal_data.dest()) else {
-            // CRITICAL: User funds are destroyed on L2 but cannot be withdrawn on L1.
-            // Since the extraction is done after the proof verification, this should have been a
-            // proper descriptor.
-            logging::error!("Failed to parse withdrawal destination descriptor");
-            return Err(InvalidCheckpointPayload::MalformedWithdrawalDestDesc.into());
+        let destination = match Descriptor::from_bytes(withdrawal_data.dest()) {
+            Ok(destination) => destination,
+            Err(e) => {
+                // CRITICAL: User funds are destroyed on L2 but cannot be withdrawn on L1.
+                // Since the extraction is done after the proof verification, this should have been
+                // a proper descriptor.
+                logging::error!(error = %e, "Failed to parse withdrawal destination descriptor");
+                return Err(InvalidCheckpointPayload::MalformedWithdrawalDestDesc.into());
+            }
         };
 
         let selected_operator = OperatorSelection::from_raw(withdrawal_data.selected_operator);

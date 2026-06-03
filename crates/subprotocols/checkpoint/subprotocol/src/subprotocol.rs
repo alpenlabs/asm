@@ -60,8 +60,8 @@ impl Subprotocol for CheckpointSubprotocol {
                     }
                     Err(e) => {
                         logging::warn!(
-                            txid = ?tx.tx().compute_txid(),
-                            error = ?e,
+                            txid = %tx.tx().compute_txid(),
+                            error = %e,
                             "Failed to parse checkpoint transaction in pre_process_txs"
                         );
                     }
