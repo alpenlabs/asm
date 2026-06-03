@@ -74,7 +74,7 @@ check-github-actions-security:
 
 # Generate reports and profiling data for proofs
 prover-eval: prover-clean
-  cd {{prover_perf_eval_dir}} && RUST_LOG=info ZKVM_MOCK=1 ZKVM_PROFILING=1 cargo run --release -- --programs {{prover_programs}}
+  cd {{prover_perf_eval_dir}} && RUST_LOG=info ZKVM_MOCK=1 ZKVM_PROFILING=1 SKIP_VKEY_BUILD=1 cargo run --release -- --programs {{prover_programs}}
 
 # Generate proofs
 prover-proof:
