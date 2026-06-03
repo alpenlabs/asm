@@ -14,5 +14,5 @@ borsh = { workspace = true }
 serde_json = { workspace = true }
 sp1-sdk = { workspace = true, features = ["blocking"] }
 sp1-verifier = { workspace = true }
-strata-predicate = { workspace = true }
+strata-predicate = { workspace = true, features = ["serde"] }
 zkaleido-sp1-groth16-verifier = { workspace = true }
