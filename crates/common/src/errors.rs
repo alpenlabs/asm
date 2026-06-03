@@ -23,7 +23,7 @@ pub enum AsmError {
     InvalidSubprotocol(SubprotocolId),
 
     /// The requested subprotocol state ID was not found.
-    #[error("subproto {0:?} does not exist")]
+    #[error("subproto {0:?} state does not exist")]
     InvalidSubprotocolState(SubprotocolId),
 
     /// Failed to deserialize the state of the given subprotocol.
@@ -31,11 +31,11 @@ pub enum AsmError {
     Deserialization(SubprotocolId, #[source] DecodeError),
 
     /// Block body integrity check failed.
-    #[error("block integrity check failed")]
+    #[error("block integrity check failed: {0}")]
     InvalidL1Body(#[from] L1BodyError),
 
     /// L1Header do not follow consensus rules.
-    #[error("L1Header do not follow consensus rules")]
+    #[error("L1Header do not follow consensus rules: {0}")]
     InvalidL1Header(#[source] L1VerificationError),
 
     /// Missing genesis configuration for subprotocol
@@ -51,7 +51,7 @@ pub enum AsmError {
     ManifestError(#[from] AsmManifestError),
 
     /// Failed to verify auxiliary data.
-    #[error("invalid auxiliary data")]
+    #[error("invalid auxiliary data: {0}")]
     InvalidAuxData(#[from] AuxError),
 
     /// Serialised subprotocol state exceeds the section-data capacity

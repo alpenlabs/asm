@@ -8,16 +8,16 @@ use thiserror::Error;
 
 #[derive(Debug, Error)]
 pub enum BridgeSubprotocolError {
-    #[error("failed to process deposit tx")]
+    #[error("failed to process deposit tx: {0}")]
     DepositTxProcess(#[from] DepositValidationError),
 
-    #[error("failed to parse withdrawal fulfillment tx")]
+    #[error("failed to parse withdrawal fulfillment tx: {0}")]
     WithdrawalTxProcess(#[from] WithdrawalValidationError),
 
-    #[error("failed to validate slash tx")]
+    #[error("failed to validate slash tx: {0}")]
     SlashTxValidation(#[from] SlashValidationError),
 
-    #[error("failed to validate slash tx")]
+    #[error("failed to validate unstake tx: {0}")]
     UnstakeTxValidation(#[from] UnstakeValidationError),
 }
 
@@ -28,15 +28,15 @@ pub enum BridgeSubprotocolError {
 #[derive(Debug, Error)]
 pub enum DepositValidationError {
     /// The deposit output is not locked to the expected aggregated operator key.
-    #[error("Deposit output lock mismatch")]
+    #[error("Deposit output lock mismatch {0}")]
     WrongOutputLock(Mismatch<ScriptBuf>),
 
     /// Deposit output lock validation failed.
-    #[error("Deposit output lock validation failed")]
+    #[error("Deposit output lock validation failed: {0}")]
     DepositOutput(#[from] DepositOutputError),
 
     /// The deposit amount does not match the expected amount for this bridge configuration.
-    #[error("Invalid deposit amount")]
+    #[error("Invalid deposit amount {0}")]
     MismatchDepositAmount(Mismatch<u64>),
 
     /// A deposit with this index already exists in the deposits table.
@@ -50,11 +50,11 @@ pub enum DepositValidationError {
     EmptyOperators,
 
     /// The DRT output script does not match the expected locking script.
-    #[error("DRT output script mismatch")]
+    #[error("DRT output script mismatch {0}")]
     DrtOutputScriptMismatch(Mismatch<ScriptBuf>),
 
     /// Failed to parse the Deposit Request Transaction.
-    #[error("failed to parse DRT")]
+    #[error("failed to parse DRT: {0}")]
     DrtParseError(#[from] TxStructureError),
 }
 
@@ -127,7 +127,7 @@ pub enum WithdrawalCommandError {
     DepositWithdrawalAmountMismatch(Mismatch<u64>),
 
     /// Withdrawal assignment operation failed
-    #[error("Withdrawal assignment failed")]
+    #[error("Withdrawal assignment failed: {0}")]
     AssignmentError(#[from] WithdrawalAssignmentError),
 }
 
@@ -144,6 +144,6 @@ pub enum WithdrawalAssignmentError {
     NoEligibleOperators { deposit_idx: u32 },
 
     /// Bitmap operation failed
-    #[error("Bitmap operation failed")]
+    #[error("Bitmap operation failed: {0}")]
     BitmapError(#[from] OperatorBitmapError),
 }
