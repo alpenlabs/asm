@@ -55,7 +55,7 @@ impl Subprotocol for DebugSubproto {
                 Ok(parsed_tx) => {
                     if let Err(e) = process_parsed_debug_tx(parsed_tx, relayer) {
                         logging::warn!(
-                            tx_type = tx_ref.tag().tx_type(),
+                            tx_type = %tx_ref.tag().tx_type(),
                             error = %e,
                             "Failed to process debug transaction"
                         );
@@ -63,7 +63,7 @@ impl Subprotocol for DebugSubproto {
                 }
                 Err(e) => {
                     logging::warn!(
-                        tx_type = tx_ref.tag().tx_type(),
+                        tx_type = %tx_ref.tag().tx_type(),
                         error = %e,
                         "Failed to parse debug transaction"
                     );
