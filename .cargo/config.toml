@@ -1,0 +1,8 @@
+# Skip SP1 Groth16 vk JSON derivation in guest-builder/sp1/build.rs by default.
+#
+# Deriving the vk runs `ProverClient::setup()` per guest at build time, which is
+# slow and only the release workflow consumes the resulting *-vk.json files. The
+# `[env]` table here does NOT override the variable when it's already set in the
+# environment, so the release job sets `SKIP_VKEY_BUILD=0` to re-enable emission.
+[env]
+SKIP_VKEY_BUILD = "1"
