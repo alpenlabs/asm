@@ -104,9 +104,8 @@ fn program_vkey_hash(elf: &[u8]) -> [u8; 32] {
 fn sp1_groth16_predicate_key(vkey_hash: [u8; 32]) -> PredicateKey {
     let verifier = SP1Groth16Verifier::load(&GROTH16_VK_BYTES, vkey_hash, *VK_ROOT_BYTES, true)
         .unwrap_or_else(|e| panic!("load SP1 Groth16 verifier: {e}"));
-    let condition =
-        borsh::to_vec(&verifier).expect("borsh-encoding SP1 Groth16 verifier is infallible");
-    PredicateKey::new(PredicateTypeId::Sp1Groth16, condition)
+    let condition_bytes = verifier.to_uncompressed_bytes();
+    PredicateKey::new(PredicateTypeId::Sp1Groth16, condition_bytes)
 }
 
 #[cfg(target_os = "macos")]

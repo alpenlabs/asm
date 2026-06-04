@@ -45,7 +45,6 @@ bincode = { workspace = true, optional = true }
 bitcoin.workspace = true
 bitcoincore-zmq = { version = "1.5.2", features = ["async"] }
 bitcoind-async-client.workspace = true
-borsh = { workspace = true, optional = true }
 clap.workspace = true
 futures.workspace = true
 hex.workspace = true
@@ -77,5 +76,4 @@ sp1 = [
   "dep:sp1-verifier",
   "dep:sp1-sdk",
   "dep:bincode",
-  "dep:borsh",
 ]
