@@ -1,25 +1,78 @@
 //! Sled-backed index of per-container export entries.
 //!
 //! `MohoState` keeps only each container's compact MMR (peaks), so the
-//! original 32-byte leaves can't be recovered from it. We mirror them here
-//! so the RPC can rebuild inclusion proofs on demand.
+//! original 32-byte leaves can't be recovered from it. We mirror them here so
+//! the RPC can rebuild inclusion proofs on demand.
+//!
+//! Backed by [`strata_merkle_node_store`]: every MMR node is persisted, so a
+//! proof is `O(log n)` with no leaf replay. Containers share one node tree,
+//! namespaced by `container_id`. Alongside the nodes we keep two small indexes
+//! the MMR itself does not carry: the insertion height per leaf, and a reverse
+//! `hash → index` map for lookups and append idempotency.
 
-use std::mem::size_of;
+use anyhow::{Context, Result};
+use strata_merkle::{MerkleProofB32, Sha256Hasher};
+use strata_merkle_node_store::{MmrNodeStore, NodePos, StoredMmr};
 
-use anyhow::{Context, Result, bail};
-use strata_identifiers::L1Height;
-use strata_merkle::{MerkleProofB32, Mmr, Mmr64B32, MmrState, Sha256Hasher};
+/// Decodes a stored 32-byte node value into a hash.
+///
+/// The store only ever writes 32-byte values, so a wrong length is disk
+/// corruption rather than a recoverable condition.
+fn decode_node(value: sled::IVec) -> [u8; 32] {
+    value
+        .as_ref()
+        .try_into()
+        .expect("mmr node value must be 32 bytes")
+}
 
-/// Stored value layout: big-endian `height` followed by `entry_hash`.
-const HEIGHT_BYTES: usize = size_of::<L1Height>();
-const HASH_BYTES: usize = 32;
-const VALUE_LEN: usize = HEIGHT_BYTES + HASH_BYTES;
+/// One container's view onto the shared node tree, namespacing every key with
+/// `container_id` so each container is an independent MMR.
+#[derive(Debug)]
+struct ContainerNodes<'a> {
+    tree: &'a sled::Tree,
+    container_id: u8,
+}
 
-/// Forward `(container_id, mmr_index) → (height, hash)` tree, plus a
-/// reverse `(container_id, hash) → mmr_index` tree for O(log N) lookups.
+impl ContainerNodes<'_> {
+    /// `container_id || NodePos::to_key()`.
+    fn key(&self, pos: NodePos) -> [u8; 10] {
+        let mut key = [0u8; 10];
+        key[0] = self.container_id;
+        key[1..].copy_from_slice(&pos.to_key());
+        key
+    }
+}
+
+impl MmrNodeStore for ContainerNodes<'_> {
+    type Hash = [u8; 32];
+    type Error = sled::Error;
+
+    fn get_node(&self, pos: NodePos) -> Result<Option<[u8; 32]>, sled::Error> {
+        Ok(self.tree.get(self.key(pos))?.map(decode_node))
+    }
+
+    fn put_node(&self, pos: NodePos, value: [u8; 32]) -> Result<(), sled::Error> {
+        self.tree.insert(self.key(pos), value.as_slice())?;
+        Ok(())
+    }
+
+    fn commit(&self, writes: &[(NodePos, [u8; 32])]) -> Result<(), sled::Error> {
+        let mut batch = sled::Batch::default();
+        for (pos, value) in writes {
+            let key = self.key(*pos);
+            batch.insert(key.as_slice(), value.as_slice());
+        }
+        self.tree.apply_batch(batch)
+    }
+}
+
+/// Per-container export-entry store: a namespaced MMR node tree plus a
+/// `(container_id, index) → height` map and a reverse
+/// `(container_id, hash) → index` map.
 #[derive(Debug, Clone)]
 pub struct ExportEntriesDb {
-    entries: sled::Tree,
+    nodes: sled::Tree,
+    heights: sled::Tree,
     index_by_hash: sled::Tree,
 }
 
@@ -27,9 +80,28 @@ impl ExportEntriesDb {
     /// Opens or creates the export entries trees in the given sled instance.
     pub fn open(db: &sled::Db) -> Result<Self> {
         Ok(Self {
-            entries: db.open_tree("export_entries")?,
+            nodes: db.open_tree("export_entry_nodes")?,
+            heights: db.open_tree("export_entry_heights")?,
             index_by_hash: db.open_tree("export_entries_by_hash")?,
         })
+    }
+
+    /// The MMR view for `container_id`.
+    fn container(&self, container_id: u8) -> ContainerNodes<'_> {
+        ContainerNodes {
+            tree: &self.nodes,
+            container_id,
+        }
+    }
+
+    /// Reads the insertion height stored for `(container_id, mmr_index)`.
+    fn height_at(&self, container_id: u8, mmr_index: u64) -> Result<Option<u32>> {
+        match self.heights.get(encode_key(container_id, mmr_index))? {
+            Some(bytes) => Ok(Some(u32::from_be_bytes(
+                bytes.as_ref().try_into().context("invalid height bytes")?,
+            ))),
+            None => Ok(None),
+        }
     }
 
     /// Appends an entry for `container_id` and returns its `mmr_index`.
@@ -43,20 +115,22 @@ impl ExportEntriesDb {
             return decode_idx(existing.as_ref());
         }
 
-        let index = self.num_entries(container_id)?;
-        let mut value = [0u8; VALUE_LEN];
-        value[..HEIGHT_BYTES].copy_from_slice(&height.to_be_bytes());
-        value[HEIGHT_BYTES..].copy_from_slice(&entry);
-
-        self.entries
-            .insert(encode_key(container_id, index), &value[..])?;
+        // Append the leaf (and its recomputed ancestors) to the node store,
+        // then record its height and reverse index. The reverse index is the
+        // dedup gate, so it is written last: a crash before it leaves the
+        // block uncommitted and the worker reprocesses it on restart.
+        let index = StoredMmr::<Sha256Hasher>::append_leaf(&self.container(container_id), entry)?;
+        self.heights
+            .insert(encode_key(container_id, index), &height.to_be_bytes())?;
         self.index_by_hash.insert(hash_key, &index.to_be_bytes())?;
         Ok(index)
     }
 
     /// Returns the number of entries currently stored for `container_id`.
     pub fn num_entries(&self, container_id: u8) -> Result<u64> {
-        Ok(self.entries.scan_prefix([container_id]).count() as u64)
+        Ok(StoredMmr::<Sha256Hasher>::leaf_count(
+            &self.container(container_id),
+        )?)
     }
 
     /// Reverse lookup: returns `(mmr_index, insertion_height)` for `hash`
@@ -67,65 +141,44 @@ impl ExportEntriesDb {
             return Ok(None);
         };
         let mmr_index = decode_idx(idx_bytes.as_ref())?;
-        let (height, _hash) = self
-            .get(container_id, mmr_index)?
+        let height = self
+            .height_at(container_id, mmr_index)?
             .context("secondary index points at missing primary entry")?;
         Ok(Some((mmr_index, height)))
     }
 
     /// Fetches `(insertion_height, entry_hash)` at `(container_id, mmr_index)`.
     pub fn get(&self, container_id: u8, mmr_index: u64) -> Result<Option<(u32, [u8; 32])>> {
-        match self.entries.get(encode_key(container_id, mmr_index))? {
-            Some(bytes) => {
-                let bytes = bytes.as_ref();
-                if bytes.len() != VALUE_LEN {
-                    bail!("invalid export entry value length: {}", bytes.len());
-                }
-                let height = u32::from_be_bytes(
-                    bytes[..HEIGHT_BYTES]
-                        .try_into()
-                        .context("invalid height bytes in export entry")?,
-                );
-                let entry: [u8; HASH_BYTES] = bytes[HEIGHT_BYTES..]
-                    .try_into()
-                    .context("invalid hash bytes in export entry")?;
-                Ok(Some((height, entry)))
-            }
-            None => Ok(None),
-        }
+        let Some(hash) =
+            StoredMmr::<Sha256Hasher>::get_leaf(&self.container(container_id), mmr_index)?
+        else {
+            return Ok(None);
+        };
+        let height = self
+            .height_at(container_id, mmr_index)?
+            .context("leaf present but its height is missing")?;
+        Ok(Some((height, hash)))
     }
 
     /// Generates an inclusion proof for `mmr_index` against the container's
-    /// MMR at size `at_leaf_count`, by replaying its first `at_leaf_count`
-    /// stored leaves. Cost is O(at_leaf_count · log at_leaf_count).
+    /// MMR at size `at_leaf_count`.
+    ///
+    /// `O(log n)`: walks the stored sibling path rather than replaying leaves.
+    /// The store yields a generic [`MerkleProof`](strata_merkle::MerkleProof);
+    /// it is repacked as a [`MerkleProofB32`] so the store's public API and the
+    /// accumulators it verifies against are unchanged.
     pub fn generate_proof(
         &self,
         container_id: u8,
         mmr_index: u64,
         at_leaf_count: u64,
     ) -> Result<MerkleProofB32> {
-        let mut compact = Mmr64B32::new_empty();
-        let mut proof_list = Vec::with_capacity(at_leaf_count as usize);
-
-        for i in 0..at_leaf_count {
-            let (_height, hash) = self.get(container_id, i)?.with_context(|| {
-                format!("missing export entry at container {container_id} index {i}")
-            })?;
-
-            let proof = Mmr::<Sha256Hasher>::add_leaf_updating_proof_list(
-                &mut compact,
-                hash,
-                &mut proof_list,
-            )
-            .map_err(|e| anyhow::anyhow!("MMR proof generation failed: {e}"))?;
-
-            proof_list.push(proof);
-        }
-
-        proof_list
-            .get(mmr_index as usize)
-            .map(MerkleProofB32::from_generic)
-            .with_context(|| format!("no proof for index {mmr_index}"))
+        let proof = StoredMmr::<Sha256Hasher>::generate_proof_at_size(
+            &self.container(container_id),
+            mmr_index,
+            at_leaf_count,
+        )?;
+        Ok(MerkleProofB32::from_generic(&proof))
     }
 }
 
@@ -152,6 +205,7 @@ fn decode_idx(bytes: &[u8]) -> Result<u64> {
 #[cfg(test)]
 mod tests {
     use ssz::{Decode, Encode};
+    use strata_merkle::{Mmr, Mmr64B32, MmrState, Sha256Hasher};
 
     use super::*;
 
@@ -160,8 +214,13 @@ mod tests {
         sled::open(dir.path()).unwrap()
     }
 
+    /// A distinct, non-zero entry hash for `seed`. The non-zero marker matters:
+    /// the compact-peaks MMR these proofs verify against treats an all-zero
+    /// hash as an empty-peak sentinel, so `[0; 32]` is not a representable leaf.
     fn hash(seed: u8) -> [u8; 32] {
-        [seed; 32]
+        let mut bytes = [seed; 32];
+        bytes[31] = 0xAB;
+        bytes
     }
 
     #[test]
@@ -242,6 +301,8 @@ mod tests {
         assert_eq!(store.get(1, idx1).unwrap().unwrap(), (11, hash(0xa1)));
     }
 
+    /// Reference compact-peaks MMR built by replaying the first `size` leaves
+    /// of `container_id`, matching the accumulators that proofs verify against.
     fn rebuild_compact_mmr(store: &ExportEntriesDb, container_id: u8, size: u64) -> Mmr64B32 {
         let mut compact = Mmr64B32::new_empty();
         for i in 0..size {
@@ -271,10 +332,12 @@ mod tests {
             store.append(5, 1000 + i as u32, hash(i)).unwrap();
         }
 
+        let compact = rebuild_compact_mmr(&store, 5, 8);
         for i in 0u64..8 {
-            store
+            let proof = store
                 .generate_proof(5, i, 8)
                 .unwrap_or_else(|e| panic!("proof generation failed for leaf {i}: {e}"));
+            assert!(compact.verify(&proof, &hash(i as u8)));
         }
     }
 

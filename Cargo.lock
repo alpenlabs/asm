@@ -774,6 +774,7 @@ dependencies = [
  "strata-asm-worker",
  "strata-identifiers",
  "strata-merkle",
+ "strata-merkle-node-store",
  "tempfile",
 ]
 

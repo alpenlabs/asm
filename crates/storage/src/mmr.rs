@@ -1,129 +1,111 @@
 //! Sled-backed Merkle Mountain Range for manifest hashes.
+//!
+//! Backed by [`strata_merkle_node_store`]: every MMR node (leaves and internal
+//! nodes) is persisted, so an inclusion proof is generated in `O(log n)` by
+//! walking the stored sibling path — no replay of the whole MMR from leaf 0.
 
-use anyhow::{Context, Result};
-use ssz::{Decode, Encode};
+use anyhow::Result;
 use strata_identifiers::Buf32;
-use strata_merkle::{MerkleProofB32, Mmr, Mmr64B32, MmrState, Sha256Hasher};
+use strata_merkle::{MerkleProofB32, Sha256Hasher};
+use strata_merkle_node_store::{MmrNodeStore, NodePos, StoredMmr};
+
+/// Decodes a stored 32-byte node value into a hash.
+///
+/// The store only ever writes 32-byte values, so a wrong length is disk
+/// corruption rather than a recoverable condition.
+fn decode_node(value: sled::IVec) -> [u8; 32] {
+    value
+        .as_ref()
+        .try_into()
+        .expect("mmr node value must be 32 bytes")
+}
+
+/// Sled-backed [`MmrNodeStore`] for the manifest-hash MMR.
+///
+/// One MMR per store, so nodes are keyed directly by [`NodePos::to_key`] with
+/// no namespacing.
+#[derive(Debug, Clone)]
+struct ManifestNodes {
+    nodes: sled::Tree,
+}
+
+impl MmrNodeStore for ManifestNodes {
+    type Hash = [u8; 32];
+    type Error = sled::Error;
+
+    fn get_node(&self, pos: NodePos) -> Result<Option<[u8; 32]>, sled::Error> {
+        Ok(self.nodes.get(pos.to_key())?.map(decode_node))
+    }
+
+    fn put_node(&self, pos: NodePos, value: [u8; 32]) -> Result<(), sled::Error> {
+        self.nodes.insert(pos.to_key(), value.as_slice())?;
+        Ok(())
+    }
+
+    fn commit(&self, writes: &[(NodePos, [u8; 32])]) -> Result<(), sled::Error> {
+        let mut batch = sled::Batch::default();
+        for (pos, value) in writes {
+            let key = pos.to_key();
+            batch.insert(key.as_slice(), value.as_slice());
+        }
+        self.nodes.apply_batch(batch)
+    }
+}
 
 /// Sled-backed MMR for manifest hashes.
 ///
-/// Stores individual leaves (manifest hashes) and the compact MMR state.
-/// Proof generation rebuilds a full MMR from stored leaves on demand.
+/// Stores every MMR node so inclusion proofs are `O(log n)` and need no leaf
+/// replay. The compact peaks are not persisted: proofs are assembled directly
+/// from the stored sibling path and verify against the compact-peaks
+/// accumulators the rest of the system already holds.
 #[derive(Debug, Clone)]
 pub struct MmrDb {
-    leaves: sled::Tree,
-    meta: sled::Tree,
+    inner: ManifestNodes,
 }
 
-const MMR_STATE_KEY: &[u8] = b"mmr_compact";
-const LEAF_COUNT_KEY: &[u8] = b"leaf_count";
-
 impl MmrDb {
-    /// Opens or creates the MMR database in the given sled instance.
+    /// Opens or creates the MMR node tree in the given sled instance.
     pub fn open(db: &sled::Db) -> Result<Self> {
         Ok(Self {
-            leaves: db.open_tree("mmr_leaves")?,
-            meta: db.open_tree("mmr_meta")?,
+            inner: ManifestNodes {
+                nodes: db.open_tree("mmr_nodes")?,
+            },
         })
     }
 
     /// Returns the current leaf count.
     pub fn leaf_count(&self) -> Result<u64> {
-        match self.meta.get(LEAF_COUNT_KEY)? {
-            Some(bytes) => {
-                let count = u64::from_le_bytes(
-                    bytes
-                        .as_ref()
-                        .try_into()
-                        .context("invalid leaf count bytes")?,
-                );
-                Ok(count)
-            }
-            None => Ok(0),
-        }
+        Ok(StoredMmr::<Sha256Hasher>::leaf_count(&self.inner)?)
     }
 
     /// Appends a manifest hash as a new leaf. Returns the leaf index.
     pub fn append_leaf(&self, hash: Buf32) -> Result<u64> {
-        let index = self.leaf_count()?;
-
-        // Store the leaf.
-        self.leaves.insert(index.to_le_bytes(), hash.0.as_slice())?;
-
-        // Update compact MMR.
-        let mut compact = self.load_compact_mmr()?;
-        Mmr::<Sha256Hasher>::add_leaf(&mut compact, hash.0)
-            .map_err(|e| anyhow::anyhow!("MMR append failed: {e}"))?;
-        self.save_compact_mmr(&compact)?;
-
-        // Update leaf count.
-        self.meta
-            .insert(LEAF_COUNT_KEY, &(index + 1).to_le_bytes())?;
-
-        Ok(index)
+        Ok(StoredMmr::<Sha256Hasher>::append_leaf(&self.inner, hash.0)?)
     }
 
     /// Retrieves a manifest hash by its leaf index.
     pub fn get_leaf(&self, index: u64) -> Result<Option<Buf32>> {
-        match self.leaves.get(index.to_le_bytes())? {
-            Some(bytes) => {
-                let arr: [u8; 32] = bytes
-                    .as_ref()
-                    .try_into()
-                    .context("invalid leaf hash bytes")?;
-                Ok(Some(Buf32::new(arr)))
-            }
-            None => Ok(None),
-        }
+        Ok(StoredMmr::<Sha256Hasher>::get_leaf(&self.inner, index)?.map(Buf32::new))
     }
 
-    /// Generates an MMR inclusion proof for a leaf at a specific MMR size.
+    /// Generates an MMR inclusion proof for the leaf at `index` against an MMR
+    /// of exactly `at_leaf_count` leaves.
     ///
-    /// Rebuilds the MMR from stored leaves up to `at_leaf_count`, then
-    /// extracts the proof for the given index.
+    /// `O(log n)`: walks the stored sibling path rather than replaying leaves.
+    /// The store yields a generic [`MerkleProof`](strata_merkle::MerkleProof);
+    /// it is repacked as a [`MerkleProofB32`] so the store's public API and the
+    /// accumulators it verifies against are unchanged.
     pub fn generate_proof(&self, index: u64, at_leaf_count: u64) -> Result<MerkleProofB32> {
-        let mut compact = Mmr64B32::new_empty();
-        let mut proof_list = Vec::with_capacity(at_leaf_count as usize);
-
-        for i in 0..at_leaf_count {
-            let hash = self
-                .get_leaf(i)?
-                .context(format!("missing leaf at index {i}"))?;
-
-            let proof = Mmr::<Sha256Hasher>::add_leaf_updating_proof_list(
-                &mut compact,
-                hash.0,
-                &mut proof_list,
-            )
-            .map_err(|e| anyhow::anyhow!("MMR proof generation failed: {e}"))?;
-
-            proof_list.push(proof);
-        }
-
-        proof_list
-            .get(index as usize)
-            .map(MerkleProofB32::from_generic)
-            .context(format!("no proof for index {index}"))
-    }
-
-    fn load_compact_mmr(&self) -> Result<Mmr64B32> {
-        match self.meta.get(MMR_STATE_KEY)? {
-            Some(bytes) => Mmr64B32::from_ssz_bytes(bytes.as_ref())
-                .context("failed to deserialize compact MMR"),
-            None => Ok(Mmr64B32::new_empty()),
-        }
-    }
-
-    fn save_compact_mmr(&self, mmr: &Mmr64B32) -> Result<()> {
-        let bytes = mmr.as_ssz_bytes();
-        self.meta.insert(MMR_STATE_KEY, bytes)?;
-        Ok(())
+        let proof =
+            StoredMmr::<Sha256Hasher>::generate_proof_at_size(&self.inner, index, at_leaf_count)?;
+        Ok(MerkleProofB32::from_generic(&proof))
     }
 }
 
 #[cfg(test)]
 mod tests {
     use strata_identifiers::Buf32;
+    use strata_merkle::{Mmr, Mmr64B32, MmrState, Sha256Hasher};
 
     use super::*;
 
@@ -132,8 +114,24 @@ mod tests {
         sled::open(dir.path()).unwrap()
     }
 
+    /// A distinct, non-zero leaf for `seed`. The non-zero marker matters: the
+    /// compact-peaks MMR these proofs verify against treats an all-zero hash as
+    /// an empty-peak sentinel, so `[0; 32]` is not a representable leaf.
     fn make_leaf(seed: u8) -> Buf32 {
-        Buf32::new([seed; 32])
+        let mut bytes = [seed; 32];
+        bytes[31] = 0xAB;
+        Buf32::new(bytes)
+    }
+
+    /// Reference compact-peaks MMR built by replaying the first `size` leaves
+    /// of `mmr_db`, matching the accumulators that proofs verify against.
+    fn rebuild_compact_mmr(mmr_db: &MmrDb, size: u64) -> Mmr64B32 {
+        let mut compact = Mmr64B32::new_empty();
+        for i in 0..size {
+            let leaf = mmr_db.get_leaf(i).unwrap().unwrap();
+            Mmr::<Sha256Hasher>::add_leaf(&mut compact, leaf.0).unwrap();
+        }
+        compact
     }
 
     #[test]
@@ -190,7 +188,7 @@ mod tests {
         mmr_db.append_leaf(leaf).unwrap();
 
         let proof = mmr_db.generate_proof(0, 1).unwrap();
-        let compact = mmr_db.load_compact_mmr().unwrap();
+        let compact = rebuild_compact_mmr(&mmr_db, 1);
         assert!(compact.verify(&proof, &leaf.0));
     }
 
@@ -203,11 +201,12 @@ mod tests {
             mmr_db.append_leaf(make_leaf(i)).unwrap();
         }
 
-        // Generating a proof for each leaf should succeed.
+        let compact = rebuild_compact_mmr(&mmr_db, 8);
         for i in 0u64..8 {
-            mmr_db
+            let proof = mmr_db
                 .generate_proof(i, 8)
                 .unwrap_or_else(|e| panic!("proof generation failed for leaf {i}: {e}"));
+            assert!(compact.verify(&proof, &make_leaf(i as u8).0));
         }
     }
 
@@ -220,7 +219,7 @@ mod tests {
         for i in 0u8..4 {
             mmr_db.append_leaf(make_leaf(i)).unwrap();
         }
-        let compact_at_4 = mmr_db.load_compact_mmr().unwrap();
+        let compact_at_4 = rebuild_compact_mmr(&mmr_db, 4);
 
         // Append 4 more.
         for i in 4u8..8 {

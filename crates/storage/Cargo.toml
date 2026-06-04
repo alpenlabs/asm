@@ -11,11 +11,12 @@ strata-asm-common.workspace = true
 strata-asm-worker.workspace = true
 strata-identifiers.workspace = true
 strata-merkle = { workspace = true, features = ["ssz"] }
+strata-merkle-node-store.workspace = true
 
 anyhow.workspace = true
 borsh.workspace = true
 sled.workspace = true
-ssz.workspace = true
 
 [dev-dependencies]
+ssz.workspace = true
 tempfile.workspace = true
