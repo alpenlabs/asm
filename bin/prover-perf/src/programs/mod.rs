@@ -85,9 +85,8 @@ fn save_proof(proof: &ProofReceiptWithMetadata, program_name: &str) {
 }
 
 pub(crate) fn compute_sp1_predicate_key(program_vk_hash: [u8; 32]) -> PredicateKey {
-    let sp1_verifier =
+    let sp1_verifier: SP1Groth16Verifier =
         SP1Groth16Verifier::load(&GROTH16_VK_BYTES, program_vk_hash, *VK_ROOT_BYTES, true).unwrap();
-    let condition_bytes =
-        borsh::to_vec(&sp1_verifier).expect("borsh serialization of sp1 verifier is infalliable");
+    let condition_bytes = sp1_verifier.to_uncompressed_bytes();
     PredicateKey::new(Sp1Groth16, condition_bytes)
 }
