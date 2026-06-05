@@ -60,9 +60,6 @@ pub enum WorkerError {
     #[error("MMR proof generation failed for index {index}")]
     MmrProofFailed { index: u64 },
 
-    #[error("manifest MMR misaligned: leaf for height {height} would land at index {index}")]
-    ManifestMmrMisaligned { height: u64, index: u64 },
-
     #[error("Manifest hash out of bound (max {max}, requested {index})")]
     ManifestIndexOutOfBound { index: u64, max: u64 },
 

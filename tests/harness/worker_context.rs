@@ -193,12 +193,7 @@ impl ManifestMmrStore for TestAsmWorkerContext {
 
     fn put_manifest_hash(&self, height: u64, hash: AsmManifestHash) -> WorkerResult<()> {
         let inner = self.inner.lock().unwrap();
-        let index = StoredMmr::<Sha256Hasher>::leaf_count(&inner.manifest_mmr)
-            .map_err(|_| WorkerError::DbError)?;
-        if index != height {
-            return Err(WorkerError::ManifestMmrMisaligned { height, index });
-        }
-        StoredMmr::<Sha256Hasher>::append_leaf(&inner.manifest_mmr, *hash.as_ref())
+        StoredMmr::<Sha256Hasher>::put_leaf(&inner.manifest_mmr, height, *hash.as_ref())
             .map_err(|_| WorkerError::DbError)?;
         Ok(())
     }

@@ -242,10 +242,6 @@ impl ManifestMmrStore for AsmWorkerContext {
     }
 
     fn put_manifest_hash(&self, height: u64, hash: AsmManifestHash) -> WorkerResult<()> {
-        let index = self.mmr_db.leaf_count().map_err(|_| WorkerError::DbError)?;
-        if index != height {
-            return Err(WorkerError::ManifestMmrMisaligned { height, index });
-        }
         self.mmr_db
             .put_leaf(height, hash)
             .map_err(|_| WorkerError::DbError)
