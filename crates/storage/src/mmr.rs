@@ -78,12 +78,15 @@ impl AsmManifestMmrDb {
         Ok(StoredMmr::<Sha256Hasher>::leaf_count(&self.inner)?)
     }
 
-    /// Appends a manifest hash as a new leaf. Returns the leaf index.
-    pub fn append_leaf(&self, hash: AsmManifestHash) -> Result<u64> {
-        Ok(StoredMmr::<Sha256Hasher>::append_leaf(
-            &self.inner,
-            *hash.as_ref(),
-        )?)
+    /// Writes a manifest `hash` as the leaf at `height`.
+    ///
+    /// The MMR is height-indexed, so the leaf for the L1 block at `height`
+    /// lands at leaf index `height`. `height` must be the current end (an
+    /// append) or an existing index (an overwrite); a gap past the end is
+    /// rejected.
+    pub fn put_leaf(&self, height: u64, hash: AsmManifestHash) -> Result<()> {
+        StoredMmr::<Sha256Hasher>::put_leaf(&self.inner, height, *hash.as_ref())?;
+        Ok(())
     }
 
     /// Retrieves a manifest hash by its leaf index.
@@ -145,13 +148,12 @@ mod tests {
     }
 
     #[test]
-    fn append_and_retrieve_leaf() {
+    fn put_and_retrieve_leaf() {
         let db = test_db();
         let mmr = AsmManifestMmrDb::open(&db).unwrap();
         let leaf = make_leaf(0xaa);
 
-        let idx = mmr.append_leaf(leaf).unwrap();
-        assert_eq!(idx, 0);
+        mmr.put_leaf(0, leaf).unwrap();
         assert_eq!(mmr.leaf_count().unwrap(), 1);
 
         let retrieved = mmr.get_leaf(0).unwrap().unwrap();
@@ -159,13 +161,12 @@ mod tests {
     }
 
     #[test]
-    fn append_multiple_leaves() {
+    fn put_multiple_leaves() {
         let db = test_db();
         let mmr = AsmManifestMmrDb::open(&db).unwrap();
 
         for i in 0u8..5 {
-            let idx = mmr.append_leaf(make_leaf(i)).unwrap();
-            assert_eq!(idx, i as u64);
+            mmr.put_leaf(i as u64, make_leaf(i)).unwrap();
         }
 
         assert_eq!(mmr.leaf_count().unwrap(), 5);
@@ -174,6 +175,14 @@ mod tests {
             let leaf = mmr.get_leaf(i as u64).unwrap().unwrap();
             assert_eq!(leaf, make_leaf(i));
         }
+    }
+
+    #[test]
+    fn put_leaf_rejects_gap() {
+        let db = test_db();
+        let mmr = AsmManifestMmrDb::open(&db).unwrap();
+        // Leaf index 1 skips index 0, which would leave a hole.
+        assert!(mmr.put_leaf(1, make_leaf(0)).is_err());
     }
 
     #[test]
@@ -188,7 +197,7 @@ mod tests {
         let db = test_db();
         let mmr_db = AsmManifestMmrDb::open(&db).unwrap();
         let leaf = make_leaf(0x01);
-        mmr_db.append_leaf(leaf).unwrap();
+        mmr_db.put_leaf(0, leaf).unwrap();
 
         let proof = mmr_db.generate_proof(0, 1).unwrap();
         let compact = rebuild_compact_mmr(&mmr_db, 1);
@@ -201,7 +210,7 @@ mod tests {
         let mmr_db = AsmManifestMmrDb::open(&db).unwrap();
 
         for i in 0u8..8 {
-            mmr_db.append_leaf(make_leaf(i)).unwrap();
+            mmr_db.put_leaf(i as u64, make_leaf(i)).unwrap();
         }
 
         let compact = rebuild_compact_mmr(&mmr_db, 8);
@@ -218,15 +227,15 @@ mod tests {
         let db = test_db();
         let mmr_db = AsmManifestMmrDb::open(&db).unwrap();
 
-        // Append 4 leaves, snapshot the compact state.
+        // Put 4 leaves, snapshot the compact state.
         for i in 0u8..4 {
-            mmr_db.append_leaf(make_leaf(i)).unwrap();
+            mmr_db.put_leaf(i as u64, make_leaf(i)).unwrap();
         }
         let compact_at_4 = rebuild_compact_mmr(&mmr_db, 4);
 
-        // Append 4 more.
+        // Put 4 more.
         for i in 4u8..8 {
-            mmr_db.append_leaf(make_leaf(i)).unwrap();
+            mmr_db.put_leaf(i as u64, make_leaf(i)).unwrap();
         }
 
         // Proof at size 4 should verify against the snapshot.
