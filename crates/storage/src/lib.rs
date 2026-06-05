@@ -5,7 +5,7 @@
 //!
 //! Three storage backends:
 //! - [`AsmStateDb`] — anchor states + aux data, keyed by L1 block commitment
-//! - [`MmrDb`] — manifest hash MMR (append, prove, query)
+//! - [`AsmManifestMmrDb`] — manifest hash MMR (append, prove, query)
 //! - [`ExportEntriesDb`] — per-container export entries, indexed for proof generation
 
 mod export_entries;
@@ -13,5 +13,5 @@ mod mmr;
 mod state;
 
 pub use export_entries::ExportEntriesDb;
-pub use mmr::MmrDb;
+pub use mmr::AsmManifestMmrDb;
 pub use state::AsmStateDb;

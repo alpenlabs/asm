@@ -17,7 +17,7 @@
 
 use std::sync::Arc;
 
-use asm_storage::{AsmStateDb, ExportEntriesDb, MmrDb};
+use asm_storage::{AsmManifestMmrDb, AsmStateDb, ExportEntriesDb};
 use bitcoin::{Block, BlockHash, Network};
 use bitcoind_async_client::{Client, error::ClientError, traits::Reader};
 use moho_runtime_interface::MohoProgram;
@@ -61,7 +61,7 @@ pub(crate) struct AsmWorkerContext {
     /// Maximum retry attempts per Bitcoin RPC call.
     rpc_max_retries: u16,
     state_db: Arc<AsmStateDb>,
-    mmr_db: Arc<MmrDb>,
+    mmr_db: Arc<AsmManifestMmrDb>,
     export_entries_db: Option<ExportEntriesDb>,
     moho_storage: Option<MohoStorage>,
     /// L1 height of the chain genesis (anchor) block.
@@ -78,7 +78,7 @@ impl AsmWorkerContext {
         bitcoin_client: Arc<Client>,
         retry: &RetryConfig,
         state_db: Arc<AsmStateDb>,
-        mmr_db: Arc<MmrDb>,
+        mmr_db: Arc<AsmManifestMmrDb>,
         export_entries_db: Option<ExportEntriesDb>,
         moho_storage: Option<MohoStorage>,
         genesis_height: u64,
@@ -244,7 +244,7 @@ impl ManifestMmrStore for AsmWorkerContext {
     fn put_manifest_hash(&self, height: u64, hash: AsmManifestHash) -> WorkerResult<()> {
         let index = self
             .mmr_db
-            .append_leaf(hash.into())
+            .append_leaf(hash)
             .map_err(|_| WorkerError::DbError)?;
         if index != height {
             return Err(WorkerError::ManifestMmrMisaligned { height, index });
@@ -270,7 +270,6 @@ impl ManifestMmrStore for AsmWorkerContext {
         self.mmr_db
             .get_leaf(index)
             .map_err(|_| WorkerError::DbError)?
-            .map(AsmManifestHash::from)
             .ok_or(WorkerError::ManifestHashNotFound { index })
     }
 }
