@@ -70,9 +70,9 @@ pub trait ManifestMmrStore {
     /// block at an already-seen height. A `height` past the end is rejected,
     /// since it would leave a gap in the height-to-index mapping.
     ///
-    /// The worker only ever calls this in forward order: `process_block`
-    /// replays from the pivot (the most recent ancestor with a stored anchor
-    /// state, i.e. the reorg fork point) through the incoming block, oldest
+    /// The worker only ever calls this in forward order: `sync_to_block`
+    /// processes from the base (the most recent ancestor with a stored anchor
+    /// state, i.e. the reorg fork point) through the target block, oldest
     /// first, so `height` arrives contiguously and never skips ahead. On a
     /// reorg this overwrites each superseded leaf from the fork point forward
     /// before any later height is written, so a stale leaf never outlives the

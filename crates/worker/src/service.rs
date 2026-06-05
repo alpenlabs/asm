@@ -48,8 +48,8 @@ where
         input: AsmWorkerMessage,
     ) -> anyhow::Result<Response> {
         match input {
-            AsmWorkerMessage::SubmitBlock(incoming_block, completion) => {
-                let result = process_block(state, &incoming_block);
+            AsmWorkerMessage::SubmitBlock(target, completion) => {
+                let result = sync_to_block(state, &target);
                 let should_exit = result.is_err();
                 completion.send_blocking(result);
                 if should_exit {
@@ -61,107 +61,183 @@ where
     }
 }
 
-/// Processes an L1 block through the ASM state transition.
-fn process_block<W, S>(
+/// Synchronizes the ASM state up to `target`, processing every L1 block between
+/// the last already-processed ancestor and `target`.
+///
+/// `target` is a block submitted to the worker; it may extend the current chain
+/// or, on an L1 reorg, switch to a different branch (even one whose tip is at a
+/// lower height). Runs in two phases:
+///
+/// 1. **Plan** (backward): from `target`, follow parent links via each block's `prev_blockhash`
+///    back to the base — the most recent ancestor with a stored `AsmState` — collecting the
+///    unprocessed blocks in between. This walks `target`'s own ancestry, so on an L1 reorg the base
+///    is the fork point and the abandoned branch is never visited. Only block headers are read
+///    here, so a deep reorg does not load every intervening block into memory at once. See
+///    [`plan_block_processing`].
+///
+/// 2. **Process** (forward): from the base forward (oldest first, so heights are contiguous and
+///    strictly increasing), fetch each full block, run the STF, then persist its manifest into the
+///    height-indexed MMR, its aux data, and its anchor state, advancing the in-memory anchor as it
+///    goes. Processing a height already handled on the old branch overwrites that branch's leaf in
+///    place, which is why the manifest MMR supports leaf replacement. See [`apply_block`].
+///
+/// A `target` before genesis is ignored (returns `Ok`). If the backward walk
+/// descends below genesis without finding a stored anchor state, returns
+/// `WorkerError::MissingGenesisState`. Any fetch, transition, or storage error
+/// is propagated; the caller treats it as fatal and shuts the worker down.
+fn sync_to_block<W, S>(
     state: &mut AsmWorkerServiceState<W, S>,
-    incoming_block: &L1BlockCommitment,
+    target: &L1BlockCommitment,
 ) -> crate::WorkerResult<()>
 where
     W: WorkerContext + Send + Sync + 'static,
     S: AsmSpec + Send + Sync + 'static,
     S::Params: Send + Sync + 'static,
 {
-    let ctx = &state.context;
-
-    // Handle pre-genesis: if the block is before genesis we don't care about it.
+    // Ignore blocks before genesis.
     let genesis_height = state.genesis_height();
-    let height = incoming_block.height();
+    let height = target.height();
     if height < genesis_height as u32 {
         warn!(height, "ignoring unexpected L1 block before genesis");
         return Ok(());
     }
 
-    // Traverse back the chain of l1 blocks until we find an l1 block which has AnchorState.
-    // Remember all the blocks along the way and pass it (in the reverse order) to process.
-    let pivot_span = debug_span!("asm.pivot_lookup",
+    // Phase 1: plan the work — the base state and the blocks to process onto it.
+    let plan_span = debug_span!("asm.processing_plan",
         target_height = height,
-        target_block = %incoming_block.blkid()
+        target_block = %target.blkid()
     );
-    let pivot_span_guard = pivot_span.enter();
+    let plan_span_guard = plan_span.enter();
 
-    let mut skipped_blocks = vec![];
-    let mut pivot_block = *incoming_block;
-    let mut pivot_anchor = ctx.get_anchor_state(&pivot_block);
+    let ProcessingPlan {
+        base_state,
+        base_block,
+        pending,
+    } = plan_block_processing(&state.context, target, genesis_height as u64)?;
 
-    while pivot_anchor.is_err() && pivot_block.height() as u64 >= genesis_height {
-        // Walking back the chain only needs each block's `prev_blockhash`, so
-        // read just the header: a deep reorg can span many blocks, and holding
-        // every full block in memory until the forward pass could OOM. The full
-        // block is fetched per-height while processing below.
-        let header = ctx.get_l1_block_header(pivot_block.blkid())?;
-        let parent_height = pivot_block.height() - 1;
-        let parent_block_id =
-            L1BlockCommitment::new(parent_height, header.prev_blockhash.to_l1_block_id());
-
-        // Remember the unprocessed block by commitment only.
-        skipped_blocks.push(pivot_block);
-
-        // Update the loop state.
-        pivot_anchor = ctx.get_anchor_state(&parent_block_id);
-        pivot_block = parent_block_id;
-    }
-
-    // We reached the height before genesis (while traversing), but didn't find genesis state.
-    if (pivot_block.height() as u64) < genesis_height {
-        warn!(%incoming_block, genesis_height, "ASM hasn't found pivot anchor state at genesis");
-        return Err(crate::WorkerError::MissingGenesisState);
-    }
-
-    // Found pivot anchor state - our starting point.
-    info!(%pivot_block,
-        skipped_blocks = skipped_blocks.len(),
-        "ASM found pivot anchor state"
+    info!(%base_block,
+        pending_blocks = pending.len(),
+        "ASM found processing base"
     );
+    drop(plan_span_guard);
 
-    // Drop pivot span guard before next phase
-    drop(pivot_span_guard);
+    state.update_anchor_state(base_state, base_block);
 
-    state.update_anchor_state(pivot_anchor.unwrap(), pivot_block);
-
-    // Process the whole chain of unprocessed blocks, starting from older blocks till
-    // incoming_block.
-    for block_id in skipped_blocks.iter().rev() {
+    // Phase 2: process the pending blocks oldest first.
+    for block_id in pending.iter().rev() {
         let transition_span = debug_span!("asm.block_transition",
             height = block_id.height(),
             block_id = %block_id.blkid()
         );
         let _transition_guard = transition_span.enter();
 
-        // Fetch the full block now, one height at a time, so only a single
-        // block is resident at any point during the forward pass.
-        let block = state.context.get_l1_block(block_id.blkid())?;
-
         info!(%block_id, "ASM transition attempt");
-        let (asm_stf_out, aux_data) = state.transition(&block)?;
-
-        let storage_span = debug_span!("asm.manifest_storage");
-        let _storage_guard = storage_span.enter();
-
-        // Persist the manifest and record its hash in the height-indexed MMR.
-        state
-            .context
-            .record_manifest(asm_stf_out.manifest.clone())?;
-
-        // Store auxiliary data for prover consumption
-        state.context.store_aux_data(block_id, &aux_data)?;
-
-        let new_state = AsmState::from_output(asm_stf_out);
-        // Store and update anchor.
-        state.context.store_anchor_state(block_id, &new_state)?;
-        state.update_anchor_state(new_state, *block_id);
-
+        apply_block(state, block_id)?;
         info!(%block_id, %height, "ASM transition complete, manifest and state stored");
-    } // transition_span drops here
+    }
+
+    Ok(())
+}
+
+/// The work needed to bring the ASM state up to a target block, produced by
+/// [`plan_block_processing`]: the base state to build on plus the blocks to
+/// process onto it.
+struct ProcessingPlan {
+    /// Stored anchor state at [`base_block`](Self::base_block) — the state
+    /// processing builds on.
+    base_state: AsmState,
+    /// The most recent ancestor of the target block with a stored anchor state
+    /// (the reorg fork point, when there is a reorg).
+    base_block: L1BlockCommitment,
+    /// Unprocessed blocks between the base and the target, newest first.
+    /// Process them in reverse to apply them oldest first.
+    pending: Vec<L1BlockCommitment>,
+}
+
+/// Walks back from `target` along parent links to build a [`ProcessingPlan`]:
+/// the base — the most recent ancestor with a stored anchor state — and the
+/// unprocessed blocks between it and `target`.
+///
+/// Reads only block headers, so a deep reorg does not load every intervening
+/// block into memory. Errors with
+/// [`MissingGenesisState`](crate::WorkerError::MissingGenesisState) if the walk
+/// reaches genesis without finding a stored anchor.
+fn plan_block_processing<W: WorkerContext>(
+    ctx: &W,
+    target: &L1BlockCommitment,
+    genesis_height: u64,
+) -> crate::WorkerResult<ProcessingPlan> {
+    let mut pending = vec![];
+    let mut cursor = *target;
+
+    loop {
+        if let Ok(anchor) = ctx.get_anchor_state(&cursor) {
+            return Ok(ProcessingPlan {
+                base_state: anchor,
+                base_block: cursor,
+                pending,
+            });
+        }
+
+        if cursor.height() as u64 <= genesis_height {
+            error!(%target, genesis_height, "ASM hasn't found base anchor state at genesis");
+            return Err(crate::WorkerError::MissingGenesisState);
+        }
+
+        // Walking back the chain only needs each block's `prev_blockhash`, so
+        // read just the header: a deep reorg can span many blocks, and holding
+        // every full block in memory until the forward pass could OOM. The full
+        // block is fetched per-height while processing.
+        let header = ctx.get_l1_block_header(cursor.blkid())?;
+        pending.push(cursor);
+
+        let parent_height = cursor.height() - 1;
+        cursor = L1BlockCommitment::new(parent_height, header.prev_blockhash.to_l1_block_id());
+    }
+}
+
+/// Runs the STF for `block_id`, then persists the results in a deliberate
+/// order — the manifest (into the height-indexed MMR) and the prover aux data
+/// first, the anchor state last — before advancing the in-memory anchor.
+///
+/// The order is the crash-safety contract. The anchor state is this block's
+/// commit point: [`plan_block_processing`] treats a block as processed only
+/// once its anchor state is stored, so it is written after everything derived
+/// from the block. If an error aborts after the manifest or aux data write but
+/// before the anchor state, the block stays uncommitted and the next sync
+/// re-runs its STF. That re-run is safe: every write on this path is an
+/// idempotent, block-keyed overwrite (the MMR leaf is replaced by height, aux
+/// data and anchor state are keyed by block id, and the STF is deterministic,
+/// so it reproduces identical values.
+fn apply_block<W, S>(
+    state: &mut AsmWorkerServiceState<W, S>,
+    block_id: &L1BlockCommitment,
+) -> crate::WorkerResult<()>
+where
+    W: WorkerContext + Send + Sync + 'static,
+    S: AsmSpec + Send + Sync + 'static,
+    S::Params: Send + Sync + 'static,
+{
+    // Fetch the full block now, one height at a time, so only a single block is
+    // resident at any point during the forward pass.
+    let block = state.context.get_l1_block(block_id.blkid())?;
+    let (asm_stf_out, aux_data) = state.transition(&block)?;
+
+    let storage_span = debug_span!("asm.manifest_storage");
+    let _storage_guard = storage_span.enter();
+
+    // Persist the manifest and record its hash in the height-indexed MMR.
+    state
+        .context
+        .record_manifest(asm_stf_out.manifest.clone())?;
+    // Store auxiliary data for prover consumption.
+    state.context.store_aux_data(block_id, &aux_data)?;
+
+    // Anchor state last: it is the block's commit point (see fn docs), so a
+    // crash before it leaves the block uncommitted to be safely re-run.
+    let new_state = AsmState::from_output(asm_stf_out);
+    state.context.store_anchor_state(block_id, &new_state)?;
+    state.update_anchor_state(new_state, *block_id);
 
     Ok(())
 }
