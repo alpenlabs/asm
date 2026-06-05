@@ -94,13 +94,17 @@ where
     let mut pivot_anchor = ctx.get_anchor_state(&pivot_block);
 
     while pivot_anchor.is_err() && pivot_block.height() as u64 >= genesis_height {
-        let block = ctx.get_l1_block(pivot_block.blkid())?;
+        // Walking back the chain only needs each block's `prev_blockhash`, so
+        // read just the header: a deep reorg can span many blocks, and holding
+        // every full block in memory until the forward pass could OOM. The full
+        // block is fetched per-height while processing below.
+        let header = ctx.get_l1_block_header(pivot_block.blkid())?;
         let parent_height = pivot_block.height() - 1;
         let parent_block_id =
-            L1BlockCommitment::new(parent_height, block.header.prev_blockhash.to_l1_block_id());
+            L1BlockCommitment::new(parent_height, header.prev_blockhash.to_l1_block_id());
 
-        // Push the unprocessed block.
-        skipped_blocks.push((block, pivot_block));
+        // Remember the unprocessed block by commitment only.
+        skipped_blocks.push(pivot_block);
 
         // Update the loop state.
         pivot_anchor = ctx.get_anchor_state(&parent_block_id);
@@ -126,15 +130,19 @@ where
 
     // Process the whole chain of unprocessed blocks, starting from older blocks till
     // incoming_block.
-    for (block, block_id) in skipped_blocks.iter().rev() {
+    for block_id in skipped_blocks.iter().rev() {
         let transition_span = debug_span!("asm.block_transition",
             height = block_id.height(),
             block_id = %block_id.blkid()
         );
         let _transition_guard = transition_span.enter();
 
+        // Fetch the full block now, one height at a time, so only a single
+        // block is resident at any point during the forward pass.
+        let block = state.context.get_l1_block(block_id.blkid())?;
+
         info!(%block_id, "ASM transition attempt");
-        let (asm_stf_out, aux_data) = state.transition(block)?;
+        let (asm_stf_out, aux_data) = state.transition(&block)?;
 
         let storage_span = debug_span!("asm.manifest_storage");
         let _storage_guard = storage_span.enter();

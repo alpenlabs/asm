@@ -13,7 +13,7 @@
 //! `WorkerContext` for free; consumers that only need one concern can depend on
 //! the narrower trait instead of the whole context.
 
-use bitcoin::{Block, Network};
+use bitcoin::{Block, Network, block::Header};
 use strata_asm_common::{AsmManifest, AsmManifestHash, AuxData, MMR_SENTINEL_DUMMY_LEAF};
 use strata_btc_types::{BitcoinTxid, RawBitcoinTx};
 use strata_identifiers::{L1BlockCommitment, L1BlockId};
@@ -25,6 +25,9 @@ use crate::{AsmState, WorkerResult};
 pub trait L1DataProvider {
     /// Fetches a Bitcoin [`Block`] at a given height.
     fn get_l1_block(&self, blockid: &L1BlockId) -> WorkerResult<Block>;
+
+    /// Fetches a Bitcoin block [`Header`], without the block's transactions.
+    fn get_l1_block_header(&self, blockid: &L1BlockId) -> WorkerResult<Header>;
 
     /// Fetches a raw Bitcoin transaction by txid.
     ///

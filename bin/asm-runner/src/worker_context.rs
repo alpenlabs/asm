@@ -18,7 +18,7 @@
 use std::sync::Arc;
 
 use asm_storage::{AsmManifestMmrDb, AsmStateDb, ExportEntriesDb};
-use bitcoin::{Block, BlockHash, Network};
+use bitcoin::{Block, BlockHash, Network, block::Header};
 use bitcoind_async_client::{Client, error::ClientError, traits::Reader};
 use moho_runtime_interface::MohoProgram;
 use moho_types::{ExportState, MohoState};
@@ -150,6 +150,21 @@ impl L1DataProvider for AsmWorkerContext {
                 || async { client.get_block(&block_hash).await },
             ))
             .map_err(|e: ClientError| WorkerError::BtcRpc(format!("get_block({block_hash}): {e}")))
+    }
+
+    fn get_l1_block_header(&self, blockid: &L1BlockId) -> WorkerResult<Header> {
+        let block_hash: BlockHash = blockid.to_block_hash();
+        let client = &self.bitcoin_client;
+        self.runtime_handle
+            .block_on(retry_with_backoff_async(
+                "btc_get_block_header",
+                self.rpc_max_retries,
+                &self.rpc_backoff,
+                || async { client.get_block_header(&block_hash).await },
+            ))
+            .map_err(|e: ClientError| {
+                WorkerError::BtcRpc(format!("get_block_header({block_hash}): {e}"))
+            })
     }
 
     fn get_network(&self) -> WorkerResult<Network> {

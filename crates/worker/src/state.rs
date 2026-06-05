@@ -253,6 +253,10 @@ mod tests {
                 .ok_or(WorkerError::MissingL1Block(*blockid))
         }
 
+        fn get_l1_block_header(&self, blockid: &L1BlockId) -> WorkerResult<Header> {
+            Ok(self.get_l1_block(blockid)?.header)
+        }
+
         fn get_network(&self) -> WorkerResult<Network> {
             Ok(Network::Regtest)
         }

@@ -137,6 +137,26 @@ impl L1DataProvider for TestAsmWorkerContext {
         Ok(block)
     }
 
+    fn get_l1_block_header(&self, blockid: &L1BlockId) -> WorkerResult<Header> {
+        // Serve from the block cache when the full block is already present.
+        if let Some(block) = self.inner.lock().unwrap().block_cache.get(blockid).cloned() {
+            return Ok(block.header);
+        }
+
+        // See `get_l1_block` for the two-context branching rationale.
+        let block_hash = blockid.to_block_hash();
+        let client = self.client.clone();
+        let fetch = || async { client.get_block_header(&block_hash).await };
+        let header = if Handle::try_current().is_ok() {
+            block_in_place(|| self.tokio_handle.block_on(fetch()))
+        } else {
+            self.tokio_handle.block_on(fetch())
+        }
+        .map_err(|_| WorkerError::MissingL1Block(*blockid))?;
+
+        Ok(header)
+    }
+
     fn get_network(&self) -> WorkerResult<Network> {
         Ok(Network::Regtest)
     }
