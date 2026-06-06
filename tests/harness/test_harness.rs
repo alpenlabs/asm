@@ -53,6 +53,7 @@ use rand::RngCore;
 use strata_asm_params::{AdministrationInitConfig, AsmParams, SubprotocolInstance};
 use strata_asm_spec::StrataAsmSpec;
 use strata_asm_worker::{
+    test_utils::{get_l1_anchor, TestAsmWorkerContext},
     AnchorStateStore, AsmState, AsmWorkerBuilder, AsmWorkerHandle, ManifestMmrStore,
 };
 use strata_btc_types::BlockHashExt;
@@ -68,7 +69,6 @@ use super::{
     admin::{create_test_admin_setup, AdminContext, DEFAULT_CONFIRMATION_DEPTH},
     bridge::{create_test_bridge_setup, BridgeContext, DEFAULT_NUM_OPERATORS},
     checkpoint::create_test_checkpoint_setup,
-    worker_context::{get_l1_anchor, TestAsmWorkerContext},
 };
 
 // Test Harness
@@ -133,9 +133,6 @@ impl AsmTestHarness {
 
         let block_hash = block_hashes[0];
 
-        // Fetch and cache the block
-        let _block = self.context.fetch_and_cache_block(block_hash).await?;
-
         // Get block height
         let height = self.client.get_block_height(&block_hash).await?;
 
@@ -190,8 +187,7 @@ impl AsmTestHarness {
         let result = self.bitcoind.client.generate_block(&output, &raw, true)?;
         let block_hash: BlockHash = result.hash.parse()?;
 
-        // Same post-steps as `mine_block`: cache the block and feed it to the ASM worker.
-        let _block = self.context.fetch_and_cache_block(block_hash).await?;
+        // Same post-step as `mine_block`: feed the block to the ASM worker.
         let height = self.client.get_block_height(&block_hash).await?;
         let block_id = block_hash.to_l1_block_id();
         let block_commitment = L1BlockCommitment::new(height as u32, block_id);
@@ -226,7 +222,7 @@ impl AsmTestHarness {
         // Mine blocks until tx is confirmed
         for _ in 0..10 {
             let block_hash = self.mine_block(None).await?;
-            let block = self.context.fetch_and_cache_block(block_hash).await?;
+            let block = self.get_block(block_hash).await?;
 
             // Check if our tx is in this block
             if block.txdata.iter().any(|t| t.compute_txid() == txid) {
@@ -272,9 +268,9 @@ impl AsmTestHarness {
         Ok(self.context.get_anchor_state(blockid)?)
     }
 
-    /// Get a block from the cache or Bitcoin.
+    /// Fetch a block from Bitcoin by hash.
     pub async fn get_block(&self, block_hash: BlockHash) -> anyhow::Result<Block> {
-        self.context.fetch_and_cache_block(block_hash).await
+        Ok(self.context.client.get_block(&block_hash).await?)
     }
 
     /// Get the number of MMR leaves (manifest hashes) stored.
@@ -729,9 +725,6 @@ impl AsmTestHarnessBuilder {
         // Submit genesis block to ASM worker
         let genesis_block_id = genesis_hash.to_l1_block_id();
         let genesis_commitment = L1BlockCommitment::new(genesis_height as u32, genesis_block_id);
-
-        // Fetch and cache genesis block
-        let _genesis_block = harness.context.fetch_and_cache_block(genesis_hash).await?;
 
         // Submit genesis block and wait for processing to complete
         block_in_place(|| harness.asm_handle.submit_block(genesis_commitment))?;

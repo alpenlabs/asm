@@ -12,6 +12,8 @@ mod handle;
 mod message;
 mod service;
 mod state;
+#[cfg(any(test, feature = "test-utils"))]
+pub mod test_utils;
 mod traits;
 
 pub use asm_state::AsmState;

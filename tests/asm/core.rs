@@ -8,12 +8,9 @@
 )]
 
 use bitcoin::Network;
-use harness::{
-    test_harness::{AsmTestHarnessBuilder, Setup},
-    worker_context::TestAsmWorkerContext,
-};
+use harness::test_harness::{AsmTestHarnessBuilder, Setup};
 use integration_tests::harness;
-use strata_asm_worker::{AnchorStateStore, L1DataProvider};
+use strata_asm_worker::{test_utils::TestAsmWorkerContext, AnchorStateStore, L1DataProvider};
 use strata_btc_types::BlockHashExt;
 use strata_test_utils_btcio::{get_bitcoind_and_client, mine_blocks};
 
@@ -31,9 +28,9 @@ async fn test_worker_context_initialization() {
     assert!(context.get_latest_asm_state().unwrap().is_none());
 }
 
-/// Verifies blocks are fetched from regtest and cached.
+/// Verifies blocks are fetched from regtest by hash.
 #[tokio::test(flavor = "multi_thread")]
-async fn test_block_fetching_and_caching() {
+async fn test_block_fetching() {
     let (bitcoind, client) = get_bitcoind_and_client();
     let context = TestAsmWorkerContext::new(client);
 
@@ -42,23 +39,14 @@ async fn test_block_fetching_and_caching() {
         .await
         .expect("Failed to mine blocks");
 
-    // Fetch each block through the context
+    // Fetch each block through the context and confirm it round-trips by hash.
     for block_hash in block_hashes.iter() {
         let block_id = block_hash.to_l1_block_id();
-        context
+        let block = context
             .get_l1_block(&block_id)
             .expect("Failed to get block");
+        assert_eq!(block.block_hash(), *block_hash);
     }
-
-    // Verify blocks are cached
-    assert_eq!(context.inner.lock().unwrap().block_cache.len(), 5);
-
-    // Fetch again - should come from cache
-    let block_id = block_hashes[0].to_l1_block_id();
-    let block = context
-        .get_l1_block(&block_id)
-        .expect("Failed to get cached block");
-    assert_eq!(block.block_hash(), block_hashes[0]);
 }
 
 // ============================================================================

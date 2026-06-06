@@ -1,26 +1,30 @@
-//! ASM worker context implementation for integration tests.
+//! Test utilities for the ASM worker.
 //!
-//! Provides `TestAsmWorkerContext` which implements the `WorkerContext` trait,
-//! allowing the ASM worker to fetch blocks and store state during tests.
+//! Provides [`TestAsmWorkerContext`], a [`WorkerContext`](crate::WorkerContext)
+//! implementation backed by a Bitcoin regtest node (for L1 data) and in-memory
+//! stores (for anchor state, the manifest-hash MMR, and aux data). The worker's
+//! own unit tests use it via `cfg(test)`; downstream integration tests pull it in
+//! with the `test-utils` feature.
 
 use std::{
     collections::HashMap,
     sync::{Arc, Mutex},
 };
 
-use bitcoin::{block::Header, params::Params, Block, BlockHash, Network, Txid};
-use bitcoind_async_client::{traits::Reader, Client};
-use strata_asm_manifest_types::{AsmManifest, AsmManifestHash};
-use strata_asm_worker::{
-    AnchorStateStore, AsmState, AuxDataStore, L1DataProvider, ManifestMmrStore, WorkerError,
-    WorkerResult,
-};
+use bitcoin::{Block, BlockHash, Network, Txid, block::Header, params::Params};
+use bitcoind_async_client::{Client, traits::Reader};
+use strata_asm_common::{AsmManifest, AsmManifestHash};
 use strata_btc_types::{BitcoinTxid, BlockHashExt, L1BlockIdBitcoinExt, RawBitcoinTx};
-use strata_btc_verification::{get_relative_difficulty_adjustment_height, L1Anchor};
+use strata_btc_verification::{L1Anchor, get_relative_difficulty_adjustment_height};
 use strata_identifiers::{L1BlockCommitment, L1BlockId};
 use strata_merkle::{MerkleProofB32, Sha256Hasher};
 use strata_merkle_node_store::{MemMmr, StoredMmr};
 use tokio::{runtime::Handle, task::block_in_place};
+
+use crate::{
+    AnchorStateStore, AsmState, AuxDataStore, L1DataProvider, ManifestMmrStore, WorkerError,
+    WorkerResult,
+};
 
 /// Shared mutable state for the test worker context.
 ///
@@ -29,8 +33,6 @@ use tokio::{runtime::Handle, task::block_in_place};
 /// insertion order) close together.
 #[derive(Debug, Default)]
 pub struct TestWorkerStateInner {
-    /// Block cache (optional - fetches from client if not cached)
-    pub block_cache: HashMap<L1BlockId, Block>,
     /// ASM states indexed by L1 block commitment
     pub asm_states: HashMap<L1BlockCommitment, AsmState>,
     /// Latest ASM state
@@ -90,27 +92,10 @@ impl TestAsmWorkerContext {
             })
             .collect()
     }
-
-    /// Fetch a block from regtest by hash, caching it for future use
-    pub async fn fetch_and_cache_block(&self, block_hash: BlockHash) -> anyhow::Result<Block> {
-        let block = self.client.get_block(&block_hash).await?;
-        let block_id = block_hash.to_l1_block_id();
-        self.inner
-            .lock()
-            .unwrap()
-            .block_cache
-            .insert(block_id, block.clone());
-        Ok(block)
-    }
 }
 
 impl L1DataProvider for TestAsmWorkerContext {
     fn get_l1_block(&self, blockid: &L1BlockId) -> WorkerResult<Block> {
-        // Try cache first
-        if let Some(block) = self.inner.lock().unwrap().block_cache.get(blockid).cloned() {
-            return Ok(block);
-        }
-
         // Fetch from regtest. We must handle two calling contexts:
         // 1. From within a tokio runtime (test thread) — use `block_in_place` to avoid "cannot
         //    start a runtime from within a runtime" panic.
@@ -127,22 +112,10 @@ impl L1DataProvider for TestAsmWorkerContext {
         }
         .map_err(|_| WorkerError::MissingL1Block(*blockid))?;
 
-        // Cache for future use
-        self.inner
-            .lock()
-            .unwrap()
-            .block_cache
-            .insert(*blockid, block.clone());
-
         Ok(block)
     }
 
     fn get_l1_block_header(&self, blockid: &L1BlockId) -> WorkerResult<Header> {
-        // Serve from the block cache when the full block is already present.
-        if let Some(block) = self.inner.lock().unwrap().block_cache.get(blockid).cloned() {
-            return Ok(block.header);
-        }
-
         // See `get_l1_block` for the two-context branching rationale.
         let block_hash = blockid.to_block_hash();
         let client = self.client.clone();
