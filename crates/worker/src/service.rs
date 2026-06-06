@@ -261,3 +261,266 @@ impl AsmWorkerStatus {
             .unwrap_or(&[])
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use bitcoind_async_client::traits::Reader;
+    use strata_identifiers::{Buf32, L1BlockId};
+
+    use super::*;
+    use crate::{AnchorStateStore, WorkerError, test_utils::fixtures};
+
+    /// Pending block heights in the order they're processed (oldest first).
+    ///
+    /// `plan.pending` is stored newest-first; reversing here keeps the test
+    /// expectations ascending, which is easier to read.
+    fn pending_heights(plan: &ProcessingPlan) -> Vec<u32> {
+        plan.pending.iter().rev().map(|b| b.height()).collect()
+    }
+
+    /// A target extending the stored chain: the base is the genesis anchor and
+    /// every block above it is pending, applied oldest first.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn plan_linear_extension() {
+        let fx = fixtures::setup_state(101).await;
+        let mined = fixtures::mine(&fx.node, &fx.client, 3).await; // 102, 103, 104
+        let target = *mined.last().unwrap();
+
+        let plan = plan_block_processing(&fx.state.context, &target, fx.state.genesis_height())
+            .expect("plan should succeed");
+
+        assert_eq!(plan.base_block, fx.state.blkid);
+        assert_eq!(plan.base_state, fx.state.anchor);
+        assert_eq!(pending_heights(&plan), vec![102, 103, 104]);
+    }
+
+    /// A target that already has a stored anchor is its own base, with nothing
+    /// left to process.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn plan_target_already_processed() {
+        let fx = fixtures::setup_state(101).await;
+        let mined = fixtures::mine(&fx.node, &fx.client, 2).await; // 102, 103
+        let target = mined[0]; // 102
+
+        fx.state
+            .context
+            .store_anchor_state(&target, &fx.state.anchor)
+            .unwrap();
+
+        let plan = plan_block_processing(&fx.state.context, &target, fx.state.genesis_height())
+            .expect("plan should succeed");
+
+        assert_eq!(plan.base_block, target);
+        assert!(plan.pending.is_empty());
+    }
+
+    /// On an L1 reorg, planning walks the *target's* ancestry, so the base is
+    /// the fork point — even though the abandoned branch's tip still has a
+    /// stored anchor — and the abandoned blocks are never visited.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn plan_reorg_uses_fork_point() {
+        let fx = fixtures::setup_state(101).await;
+
+        // Branch A, fully "processed": 102 (the eventual fork point) and 103a.
+        let fork_point = fixtures::mine(&fx.node, &fx.client, 1).await[0]; // 102
+        let old_tip = fixtures::mine(&fx.node, &fx.client, 1).await[0]; // 103a
+        for blk in [fork_point, old_tip] {
+            fx.state
+                .context
+                .store_anchor_state(&blk, &fx.state.anchor)
+                .unwrap();
+        }
+
+        // Reorg away 103a and mine a longer branch B: 103b, 104b.
+        let branch_b = fixtures::reorg(&fx.node, &fx.client, old_tip.height() as u64, 2).await;
+        let new_tip = *branch_b.last().unwrap(); // 104b
+
+        let plan = plan_block_processing(&fx.state.context, &new_tip, fx.state.genesis_height())
+            .expect("plan should succeed");
+
+        assert_eq!(plan.base_block, fork_point);
+        assert!(!plan.pending.contains(&old_tip));
+        assert_eq!(pending_heights(&plan), vec![103, 104]);
+    }
+
+    /// When the backward walk reaches the genesis floor without finding a stored
+    /// anchor, planning fails with `MissingGenesisState`.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn plan_missing_genesis_state() {
+        let fx = fixtures::setup_context(104).await;
+        let tip = fx.client.get_block_hash(104).await.unwrap();
+        let target = L1BlockCommitment::new(104, tip.to_l1_block_id());
+
+        let result = plan_block_processing(&fx.context, &target, 101);
+
+        assert!(
+            matches!(result, Err(WorkerError::MissingGenesisState)),
+            "expected MissingGenesisState",
+        );
+    }
+
+    /// A target below the genesis height is ignored: no error, no state change.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn sync_before_genesis_ignored() {
+        let mut fx = fixtures::setup_state(101).await;
+        let genesis = fx.state.blkid;
+        let leaves_before = fx.state.context.mmr_leaf_count();
+
+        let below = fx.client.get_block_hash(100).await.unwrap();
+        let target = L1BlockCommitment::new(100, below.to_l1_block_id());
+
+        sync_to_block(&mut fx.state, &target).expect("pre-genesis target is ignored, not an error");
+
+        assert_eq!(fx.state.blkid, genesis, "anchor must not move");
+        assert_eq!(
+            fx.state.context.mmr_leaf_count(),
+            leaves_before,
+            "nothing stored",
+        );
+    }
+
+    /// Syncing a chain extension processes every block above the base: the anchor
+    /// reaches the target, each height gets a stored anchor state, and one
+    /// manifest leaf lands per height.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn sync_linear_advances_anchor() {
+        let mut fx = fixtures::setup_state(101).await;
+        let mined = fixtures::mine(&fx.node, &fx.client, 3).await; // 102, 103, 104
+        let target = *mined.last().unwrap();
+
+        sync_to_block(&mut fx.state, &target).expect("sync should succeed");
+
+        assert_eq!(fx.state.blkid, target, "anchor advanced to target");
+        for blk in &mined {
+            assert!(
+                fx.state.context.get_anchor_state(blk).is_ok(),
+                "anchor stored for {blk}",
+            );
+        }
+        // Sentinels 0..=101 (102 leaves) plus one manifest per processed height.
+        assert_eq!(fx.state.context.mmr_leaf_count(), 105);
+    }
+
+    /// Re-submitting an already-processed block repositions the in-memory anchor
+    /// to it but stores nothing new (the plan has no pending blocks).
+    #[tokio::test(flavor = "multi_thread")]
+    async fn sync_resync_repositions_anchor_without_reprocessing() {
+        let mut fx = fixtures::setup_state(101).await;
+        let mined = fixtures::mine(&fx.node, &fx.client, 2).await; // 102, 103
+        let earlier = mined[0];
+        let tip = mined[1];
+
+        sync_to_block(&mut fx.state, &tip).expect("initial sync");
+        let leaves_after_sync = fx.state.context.mmr_leaf_count();
+        assert_eq!(fx.state.blkid, tip);
+
+        sync_to_block(&mut fx.state, &earlier).expect("resync");
+
+        assert_eq!(
+            fx.state.blkid, earlier,
+            "anchor repositions to the resynced block",
+        );
+        assert_eq!(
+            fx.state.context.mmr_leaf_count(),
+            leaves_after_sync,
+            "no reprocessing: leaf count unchanged",
+        );
+    }
+
+    /// On a reorg, the heights shared with the old branch have their manifest
+    /// leaves overwritten in place (not appended), while the common fork point
+    /// below the divergence is left untouched.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn sync_reorg_overwrites_leaves() {
+        let mut fx = fixtures::setup_state(101).await;
+
+        // Branch A: process 102, 103, 104.
+        let branch_a = fixtures::mine(&fx.node, &fx.client, 3).await;
+        sync_to_block(&mut fx.state, branch_a.last().unwrap()).expect("sync branch A");
+        let leaves_a = fx.state.context.mmr_leaves();
+
+        // Reorg below 103 and process a longer branch B: 103b, 104b, 105b.
+        let branch_b = fixtures::reorg(&fx.node, &fx.client, 103, 3).await;
+        let new_tip = *branch_b.last().unwrap();
+        sync_to_block(&mut fx.state, &new_tip).expect("sync branch B");
+        let leaves_b = fx.state.context.mmr_leaves();
+
+        assert_eq!(fx.state.blkid, new_tip, "anchor on the new branch");
+        // Heights 103, 104 overwritten in place; 105 appended — not 108 leaves.
+        assert_eq!(leaves_b.len(), 106, "overwrite, not append");
+        assert_ne!(
+            leaves_b[103], leaves_a[103],
+            "leaf 103 now reflects branch B"
+        );
+        assert_eq!(leaves_b[102], leaves_a[102], "the fork point is untouched");
+    }
+
+    /// A fetch failure during the backward walk (block the node cannot serve)
+    /// propagates out of `sync_to_block` rather than being swallowed.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn sync_propagates_fetch_error() {
+        let mut fx = fixtures::setup_state(101).await;
+        // Above genesis, so the walk tries to fetch — but the id is not a real block.
+        let bogus = L1BlockId::from(Buf32::from([0xab; 32]));
+        let target = L1BlockCommitment::new(102, bogus);
+
+        let result = sync_to_block(&mut fx.state, &target);
+
+        assert!(matches!(result, Err(WorkerError::MissingL1Block(_))));
+    }
+
+    /// `apply_block` runs the STF for a single block, records its manifest, and
+    /// advances the in-memory anchor.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn apply_block_stores_manifest_and_advances() {
+        let mut fx = fixtures::setup_state(101).await;
+        let block = fixtures::mine(&fx.node, &fx.client, 1).await[0]; // 102, child of genesis
+
+        apply_block(&mut fx.state, &block).expect("apply_block should succeed");
+
+        assert_eq!(fx.state.blkid, block, "in-memory anchor advanced");
+        assert!(
+            fx.state.context.get_anchor_state(&block).is_ok(),
+            "anchor persisted",
+        );
+        // Sentinels 0..=101 (102 leaves) plus the one manifest just recorded.
+        assert_eq!(fx.state.context.mmr_leaf_count(), 103);
+    }
+
+    /// Re-running `apply_block` for the same block reproduces identical results
+    /// and overwrites in place — the idempotency the crash-safety contract leans
+    /// on when a sync re-runs an uncommitted block.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn apply_block_rerun_is_idempotent() {
+        let mut fx = fixtures::setup_state(101).await;
+        let genesis_state = fx.state.anchor.clone();
+        let genesis_blk = fx.state.blkid;
+        let block = fixtures::mine(&fx.node, &fx.client, 1).await[0]; // 102
+
+        apply_block(&mut fx.state, &block).expect("first apply");
+        let first_leaf = fx.state.context.mmr_leaves()[102];
+        let first_state = fx.state.context.get_anchor_state(&block).unwrap();
+        let first_count = fx.state.context.mmr_leaf_count();
+
+        // Rewind the in-memory anchor to the parent (as a crash before the
+        // anchor-state commit would leave it) and re-run the block.
+        fx.state.update_anchor_state(genesis_state, genesis_blk);
+        apply_block(&mut fx.state, &block).expect("re-apply");
+
+        assert_eq!(
+            fx.state.context.mmr_leaves()[102],
+            first_leaf,
+            "manifest reproduced",
+        );
+        assert_eq!(
+            fx.state.context.get_anchor_state(&block).unwrap(),
+            first_state,
+            "anchor reproduced",
+        );
+        assert_eq!(
+            fx.state.context.mmr_leaf_count(),
+            first_count,
+            "overwrite, no extra append",
+        );
+    }
+}

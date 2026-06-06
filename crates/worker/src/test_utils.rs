@@ -268,3 +268,131 @@ pub async fn get_l1_anchor(client: &Client, hash: &BlockHash) -> anyhow::Result<
         network,
     })
 }
+
+/// Regtest-backed fixtures for the worker's own unit tests.
+///
+/// Gated on `cfg(test)` (not the `test-utils` feature), so this scaffolding —
+/// and its heavier dev-dependencies (a real ASM spec, params, the regtest node)
+/// — never leaks to downstream `test-utils` consumers.
+#[cfg(test)]
+pub(crate) mod fixtures {
+    use std::sync::Arc;
+
+    use bitcoin::BlockHash;
+    use bitcoind_async_client::{Client, traits::Reader};
+    use corepc_node::Node;
+    use strata_asm_params::AsmParams;
+    use strata_asm_spec::StrataAsmSpec;
+    use strata_btc_types::BlockHashExt;
+    use strata_identifiers::L1BlockCommitment;
+    use strata_test_utils_arb::ArbitraryGenerator;
+    use strata_test_utils_btcio::{get_bitcoind_and_client, mine_blocks};
+
+    use super::{TestAsmWorkerContext, get_l1_anchor};
+    use crate::AsmWorkerServiceState;
+
+    /// A running regtest node, its client, and a worker state whose genesis
+    /// anchor sits at the chain tip.
+    pub(crate) struct StateFixture {
+        /// Kept alive for the test's duration; dropping it stops `bitcoind`.
+        pub node: Node,
+        pub client: Arc<Client>,
+        pub state: AsmWorkerServiceState<TestAsmWorkerContext, StrataAsmSpec>,
+    }
+
+    /// Builds a worker state with genesis at `genesis_height`: mine that many
+    /// blocks, point the ASM params' anchor at the tip, and run
+    /// [`AsmWorkerServiceState::new`] (which stores the genesis anchor and
+    /// prefills the manifest MMR).
+    pub(crate) async fn setup_state(genesis_height: u64) -> StateFixture {
+        let (node, client) = get_bitcoind_and_client();
+        let client = Arc::new(client);
+        mine_blocks(&node, &client, genesis_height as usize, None)
+            .await
+            .expect("mine genesis blocks");
+
+        let tip = client
+            .get_block_hash(genesis_height)
+            .await
+            .expect("genesis tip hash");
+        let mut params: AsmParams = ArbitraryGenerator::new().generate();
+        params.anchor = get_l1_anchor(&client, &tip).await.expect("genesis anchor");
+
+        let context = TestAsmWorkerContext::new((*client).clone());
+        let state = AsmWorkerServiceState::new(context, StrataAsmSpec, params)
+            .expect("create service state");
+
+        StateFixture {
+            node,
+            client,
+            state,
+        }
+    }
+
+    /// A running regtest node with a bare worker context (no anchors stored, no
+    /// params). For tests that drive the context directly.
+    pub(crate) struct ContextFixture {
+        /// Kept alive for the test's duration; dropping it stops `bitcoind`.
+        pub _node: Node,
+        pub client: Arc<Client>,
+        pub context: TestAsmWorkerContext,
+    }
+
+    /// Mines `height` blocks and wraps the node in a fresh, empty context.
+    pub(crate) async fn setup_context(height: u64) -> ContextFixture {
+        let (node, client) = get_bitcoind_and_client();
+        let client = Arc::new(client);
+        mine_blocks(&node, &client, height as usize, None)
+            .await
+            .expect("mine blocks");
+        let context = TestAsmWorkerContext::new((*client).clone());
+        ContextFixture {
+            _node: node,
+            client,
+            context,
+        }
+    }
+
+    /// Mines `n` blocks on the active chain and returns their commitments,
+    /// oldest first.
+    pub(crate) async fn mine(node: &Node, client: &Client, n: usize) -> Vec<L1BlockCommitment> {
+        let hashes = mine_blocks(node, client, n, None)
+            .await
+            .expect("mine blocks");
+        commitments(client, &hashes).await
+    }
+
+    /// Forces a reorg: invalidate the block at `invalidate_height` (dropping it
+    /// and every block above it), then mine `new_len` blocks on the resulting
+    /// tip. Returns the new branch's commitments, oldest first.
+    ///
+    /// `invalidate_block` is forceful — it marks the abandoned branch *invalid*,
+    /// not merely shorter — so the newly mined branch becomes the active chain
+    /// regardless of its length. Unlike a natural reorg, `new_len` need not
+    /// exceed the abandoned branch: the new tip may land below, at, or above the
+    /// old one (use a lower `new_len` to test a reorg to a lower height). The
+    /// only requirement is `new_len >= 1`, so there is a new tip to target.
+    pub(crate) async fn reorg(
+        node: &Node,
+        client: &Client,
+        invalidate_height: u64,
+        new_len: usize,
+    ) -> Vec<L1BlockCommitment> {
+        let bad = client
+            .get_block_hash(invalidate_height)
+            .await
+            .expect("hash to invalidate");
+        node.client.invalidate_block(bad).expect("invalidate block");
+        mine(node, client, new_len).await
+    }
+
+    /// Resolves each block hash to its height-tagged commitment.
+    async fn commitments(client: &Client, hashes: &[BlockHash]) -> Vec<L1BlockCommitment> {
+        let mut out = Vec::with_capacity(hashes.len());
+        for hash in hashes {
+            let height = client.get_block_height(hash).await.expect("block height");
+            out.push(L1BlockCommitment::new(height as u32, hash.to_l1_block_id()));
+        }
+        out
+    }
+}
