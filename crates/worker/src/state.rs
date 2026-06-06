@@ -143,234 +143,87 @@ where
 
 #[cfg(test)]
 mod tests {
-    use std::{
-        collections::HashMap,
-        sync::{Arc, Mutex},
-    };
-
-    use bitcoin::{BlockHash, Network, block::Header};
-    use bitcoind_async_client::{
-        Client,
-        traits::{Reader, Wallet},
-    };
-    use corepc_node::Node;
-    use strata_asm_common::{AsmManifest, AsmManifestHash};
-    use strata_asm_params::AsmParams;
+    use bitcoind_async_client::traits::Reader;
     use strata_asm_spec::StrataAsmSpec;
-    use strata_btc_types::{BitcoinTxid, BlockHashExt, RawBitcoinTx};
-    use strata_btc_verification::L1Anchor;
-    use strata_identifiers::L1BlockId;
-    use strata_test_utils_arb::ArbitraryGenerator;
-    use strata_test_utils_btcio::{get_bitcoind_and_client, mine_blocks};
+    use strata_test_utils_btcio::mine_blocks;
 
     use super::*;
-    use crate::{AnchorStateStore, AuxDataStore, L1DataProvider, ManifestMmrStore};
+    use crate::{AnchorStateStore, test_utils::fixtures};
 
-    struct TestEnv {
-        pub _node: Node, // Keep node alive
-        pub client: Arc<Client>,
-        pub service_state: AsmWorkerServiceState<MockWorkerContext, StrataAsmSpec>,
-    }
-
-    async fn setup_env() -> TestEnv {
-        // 1. Setup Bitcoin Regtest
-        let (node, client) = get_bitcoind_and_client();
-        let client = Arc::new(client);
-
-        // Mine some initial blocks to have funds and chain height.
-        let _ = mine_blocks(&node, &client, 101, None)
-            .await
-            .expect("Failed to mine initial blocks");
-
-        // Pick the current tip as our "genesis" for the ASM.
-        let tip_hash = client.get_block_hash(101).await.unwrap();
-
-        // 2. Setup Params
-        let mut asm_params: AsmParams = ArbitraryGenerator::new().generate();
-        // Sync parameters with the actual bitcoind state
-        let l1_anchor = get_l1_anchor(&client, &tip_hash)
-            .await
-            .expect("Failed to fetch genesis view");
-        asm_params.anchor = l1_anchor;
-
-        // 3. Set worker context and initialize service state
-        let context = MockWorkerContext::new();
-        let service_state = AsmWorkerServiceState::new(context.clone(), StrataAsmSpec, asm_params)
-            .expect("Failed to create service state");
-
-        println!("Service initialized with genesis at height 101");
-
-        TestEnv {
-            _node: node,
-            client,
-            service_state,
-        }
-    }
-
-    /// Helper to construct [`L1Anchor`] from a block hash using the client.
-    async fn get_l1_anchor(client: &Client, hash: &BlockHash) -> anyhow::Result<L1Anchor> {
-        let header: Header = client.get_block_header(hash).await?;
-        let height = client.get_block_height(hash).await?;
-
-        // Construct L1BlockCommitment
-        let blkid = header.block_hash().to_l1_block_id();
-        let blk_commitment = L1BlockCommitment::new(height as u32, blkid);
-
-        // Create dummy/default values for other fields
-        let next_target = header.bits.to_consensus();
-        let epoch_start_timestamp = header.time;
-
-        let network = client.network().await?;
-
-        Ok(L1Anchor {
-            block: blk_commitment,
-            next_target,
-            epoch_start_timestamp,
-            network,
-        })
-    }
-
-    #[derive(Clone, Default)]
-    struct MockWorkerContext {
-        pub blocks: Arc<Mutex<HashMap<L1BlockId, Block>>>,
-        pub asm_states: Arc<Mutex<HashMap<L1BlockCommitment, AsmState>>>,
-        pub latest_asm_state: Arc<Mutex<Option<(L1BlockCommitment, AsmState)>>>,
-    }
-
-    impl MockWorkerContext {
-        fn new() -> Self {
-            Self::default()
-        }
-    }
-
-    impl L1DataProvider for MockWorkerContext {
-        fn get_l1_block(&self, blockid: &L1BlockId) -> WorkerResult<Block> {
-            self.blocks
-                .lock()
-                .unwrap()
-                .get(blockid)
-                .cloned()
-                .ok_or(WorkerError::MissingL1Block(*blockid))
-        }
-
-        fn get_l1_block_header(&self, blockid: &L1BlockId) -> WorkerResult<Header> {
-            Ok(self.get_l1_block(blockid)?.header)
-        }
-
-        fn get_network(&self) -> WorkerResult<Network> {
-            Ok(Network::Regtest)
-        }
-
-        fn get_bitcoin_tx(&self, _txid: &BitcoinTxid) -> WorkerResult<RawBitcoinTx> {
-            Err(WorkerError::Unimplemented)
-        }
-    }
-
-    impl AnchorStateStore for MockWorkerContext {
-        fn get_anchor_state(&self, blockid: &L1BlockCommitment) -> WorkerResult<AsmState> {
-            self.asm_states
-                .lock()
-                .unwrap()
-                .get(blockid)
-                .cloned()
-                .ok_or(WorkerError::MissingAsmState(*blockid.blkid()))
-        }
-
-        fn get_latest_asm_state(&self) -> WorkerResult<Option<(L1BlockCommitment, AsmState)>> {
-            Ok(self.latest_asm_state.lock().unwrap().clone())
-        }
-
-        fn store_anchor_state(
-            &self,
-            blockid: &L1BlockCommitment,
-            state: &AsmState,
-        ) -> WorkerResult<()> {
-            self.asm_states
-                .lock()
-                .unwrap()
-                .insert(*blockid, state.clone());
-            *self.latest_asm_state.lock().unwrap() = Some((*blockid, state.clone()));
-            Ok(())
-        }
-    }
-
-    impl ManifestMmrStore for MockWorkerContext {
-        fn put_manifest(&self, _manifest: AsmManifest) -> WorkerResult<()> {
-            // Mock implementation - no-op for tests
-            Ok(())
-        }
-
-        fn put_manifest_hash(&self, _height: u64, _hash: AsmManifestHash) -> WorkerResult<()> {
-            Ok(())
-        }
-
-        fn manifest_mmr_leaf_count(&self) -> WorkerResult<u64> {
-            Ok(0)
-        }
-
-        fn generate_mmr_proof_at(
-            &self,
-            _index: u64,
-            _at_leaf_count: u64,
-        ) -> WorkerResult<strata_merkle::MerkleProofB32> {
-            Err(WorkerError::Unimplemented)
-        }
-
-        fn get_manifest_hash(&self, index: u64) -> WorkerResult<AsmManifestHash> {
-            Err(WorkerError::ManifestHashNotFound { index })
-        }
-    }
-
-    impl AuxDataStore for MockWorkerContext {
-        fn store_aux_data(
-            &self,
-            _blockid: &L1BlockCommitment,
-            _data: &AuxData,
-        ) -> WorkerResult<()> {
-            Ok(())
-        }
-
-        fn get_aux_data(&self, blockid: &L1BlockCommitment) -> WorkerResult<AuxData> {
-            Err(WorkerError::MissingAuxData(*blockid))
-        }
-    }
-
+    /// `transition` runs the STF for a child of the current anchor.
     #[tokio::test(flavor = "multi_thread")]
-    async fn test_asm_transition() {
-        // 1. Setup Environment
-        let env = setup_env().await;
-        let client = env.client;
-        let node = env._node;
-        let service_state = env.service_state;
+    async fn transition_processes_child_of_anchor() {
+        let fx = fixtures::setup_state(101).await;
+        // A child of the genesis anchor: height 102, parent 101.
+        let hashes = mine_blocks(&fx.node, &fx.client, 1, None)
+            .await
+            .expect("mine child block");
+        let block = fx.client.get_block(&hashes[0]).await.expect("fetch block");
 
-        // 2. Create a new block to test transition
-        // We mine 1 block on top of tip (which is our genesis).
-        let address = client.get_new_address().await.unwrap();
-        let new_block_hashes = mine_blocks(&node, &client, 1, Some(address)).await.unwrap();
-        let new_block_hash = new_block_hashes[0];
+        fx.state
+            .transition(&block)
+            .expect("transition of the anchor's child should succeed");
+    }
 
-        let new_block = client.get_block(&new_block_hash).await.unwrap();
+    /// Over an empty store, `new` constructs and persists the genesis anchor.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn new_creates_genesis_when_store_empty() {
+        let fx = fixtures::setup_state(101).await;
 
-        println!("Mined new block: {}", new_block_hash);
+        assert_eq!(
+            fx.state.blkid.height(),
+            101,
+            "genesis sits at the anchor height",
+        );
+        assert!(
+            fx.state.context.get_anchor_state(&fx.state.blkid).is_ok(),
+            "genesis anchor persisted",
+        );
+        let latest = fx.state.context.get_latest_asm_state().unwrap();
+        assert_eq!(latest.map(|(blk, _)| blk), Some(fx.state.blkid));
+    }
 
-        // 6. Call Transition
-        // The transition function expects the block to be a child of the current anchor.
-        // Current anchor is at 101. New block is at 102, parent is 101.
-        // This should work.
+    /// When the store already holds a latest anchor, `new` adopts it — a worker
+    /// restart resumes from the DB rather than reconstructing genesis.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn new_adopts_stored_latest() {
+        let seed = fixtures::setup_state(101).await;
+        let context = seed.state.context.clone(); // shares the in-memory store
 
-        let result = service_state.transition(&new_block);
+        // Simulate prior progress: a later block becomes the latest anchor.
+        let advanced = *fixtures::mine(&seed.node, &seed.client, 4)
+            .await
+            .last()
+            .unwrap(); // 105
+        context
+            .store_anchor_state(&advanced, &seed.state.anchor)
+            .unwrap();
 
-        match result {
-            Ok(_output) => {
-                println!("Transition successful!");
-                // Verify output if needed.
-                // Since block is empty (coinbase only), `compute_asm_transition` should return a
-                // state that reflects an empty transition or just L1 updates.
-                // We mainly care that it didn't error.
-            }
-            Err(e) => {
-                panic!("Transition failed: {:?}", e);
-            }
-        }
+        let params = fixtures::genesis_params(&seed.client, 101).await;
+        let reloaded = AsmWorkerServiceState::new(context, StrataAsmSpec, params).unwrap();
+
+        assert_eq!(
+            reloaded.blkid, advanced,
+            "adopted the stored latest, not genesis",
+        );
+    }
+
+    /// `new` prefills the manifest MMR with one sentinel per height up to genesis,
+    /// and re-running it on the same store is a no-op (restart safety).
+    #[tokio::test(flavor = "multi_thread")]
+    async fn new_prefills_mmr_to_genesis_height() {
+        let fx = fixtures::setup_state(101).await;
+        // Sentinels for heights 0..=101.
+        assert_eq!(fx.state.context.mmr_leaf_count(), 102);
+
+        let context = fx.state.context.clone();
+        let params = fixtures::genesis_params(&fx.client, 101).await;
+        AsmWorkerServiceState::new(context, StrataAsmSpec, params).unwrap();
+
+        assert_eq!(
+            fx.state.context.mmr_leaf_count(),
+            102,
+            "prefill is idempotent across restart",
+        );
     }
 }

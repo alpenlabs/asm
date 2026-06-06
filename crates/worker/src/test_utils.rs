@@ -311,13 +311,7 @@ pub(crate) mod fixtures {
             .await
             .expect("mine genesis blocks");
 
-        let tip = client
-            .get_block_hash(genesis_height)
-            .await
-            .expect("genesis tip hash");
-        let mut params: AsmParams = ArbitraryGenerator::new().generate();
-        params.anchor = get_l1_anchor(&client, &tip).await.expect("genesis anchor");
-
+        let params = genesis_params(&client, genesis_height).await;
         let context = TestAsmWorkerContext::new((*client).clone());
         let state = AsmWorkerServiceState::new(context, StrataAsmSpec, params)
             .expect("create service state");
@@ -327,6 +321,18 @@ pub(crate) mod fixtures {
             client,
             state,
         }
+    }
+
+    /// Arbitrary [`AsmParams`] with the anchor pinned to the block at
+    /// `genesis_height`, so [`AsmWorkerServiceState::new`] genesis lands there.
+    pub(crate) async fn genesis_params(client: &Client, genesis_height: u64) -> AsmParams {
+        let tip = client
+            .get_block_hash(genesis_height)
+            .await
+            .expect("genesis tip hash");
+        let mut params: AsmParams = ArbitraryGenerator::new().generate();
+        params.anchor = get_l1_anchor(client, &tip).await.expect("genesis anchor");
+        params
     }
 
     /// A running regtest node with a bare worker context (no anchors stored, no
