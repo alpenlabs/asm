@@ -42,7 +42,6 @@ where
     S: AsmSpec + Send + Sync + 'static,
     S::Params: Send + Sync + 'static,
 {
-    // TODO(STR-1928): add tests.
     fn process_input(
         state: &mut AsmWorkerServiceState<W, S>,
         input: AsmWorkerMessage,
@@ -264,11 +263,19 @@ impl AsmWorkerStatus {
 
 #[cfg(test)]
 mod tests {
+    use std::thread;
+
     use bitcoind_async_client::traits::Reader;
+    use strata_asm_spec::StrataAsmSpec;
     use strata_identifiers::{Buf32, L1BlockId};
+    use strata_service::CommandCompletionSender;
+    use tokio::{sync::oneshot, task::block_in_place};
 
     use super::*;
-    use crate::{AnchorStateStore, WorkerError, test_utils::fixtures};
+    use crate::{
+        AnchorStateStore, WorkerError,
+        test_utils::{TestAsmWorkerContext, fixtures},
+    };
 
     /// Pending block heights in the order they're processed (oldest first).
     ///
@@ -522,5 +529,59 @@ mod tests {
             first_count,
             "overwrite, no extra append",
         );
+    }
+
+    /// Runs `process_input` the way the service framework does — on a plain OS
+    /// thread off the async runtime. `send_blocking` (and any block fetch the
+    /// context drives via its captured handle) panic in an async context, so the
+    /// dedicated thread is load-bearing, not incidental. `block_in_place` keeps
+    /// the runtime free to serve that fetch while this thread blocks on it.
+    fn process_input_off_runtime(
+        mut state: AsmWorkerServiceState<TestAsmWorkerContext, StrataAsmSpec>,
+        msg: AsmWorkerMessage,
+    ) -> (
+        anyhow::Result<Response>,
+        AsmWorkerServiceState<TestAsmWorkerContext, StrataAsmSpec>,
+    ) {
+        block_in_place(|| {
+            thread::spawn(move || {
+                let response = AsmWorkerService::process_input(&mut state, msg);
+                (response, state)
+            })
+            .join()
+            .unwrap()
+        })
+    }
+
+    /// A block that syncs cleanly: `process_input` returns `Continue`, hands the
+    /// caller `Ok`, and the anchor advances.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn process_input_success_continues() {
+        let fx = fixtures::setup_state(101).await;
+        let target = fixtures::mine(&fx.node, &fx.client, 1).await[0]; // 102
+        let (tx, rx) = oneshot::channel();
+        let msg = AsmWorkerMessage::SubmitBlock(target, CommandCompletionSender::new(tx));
+
+        let (response, state) = process_input_off_runtime(fx.state, msg);
+
+        assert!(matches!(response.unwrap(), Response::Continue));
+        assert!(rx.await.unwrap().is_ok(), "caller received Ok");
+        assert_eq!(state.blkid, target, "anchor advanced");
+    }
+
+    /// A failing sync shuts the worker down: `process_input` returns `ShouldExit`
+    /// and the error reaches the caller. The genesis-height bogus id errors in the
+    /// plan's genesis check, before any fetch.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn process_input_failure_exits() {
+        let fx = fixtures::setup_state(101).await;
+        let bogus = L1BlockCommitment::new(101, L1BlockId::from(Buf32::from([0xcd; 32])));
+        let (tx, rx) = oneshot::channel();
+        let msg = AsmWorkerMessage::SubmitBlock(bogus, CommandCompletionSender::new(tx));
+
+        let (response, _state) = process_input_off_runtime(fx.state, msg);
+
+        assert!(matches!(response.unwrap(), Response::ShouldExit));
+        assert!(rx.await.unwrap().is_err(), "caller received the error");
     }
 }
