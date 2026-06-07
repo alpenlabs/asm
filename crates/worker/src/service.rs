@@ -80,6 +80,11 @@ where
 ///    goes. Processing a height already handled on the old branch overwrites that branch's leaf in
 ///    place, which is why the manifest MMR supports leaf replacement. See [`apply_block`].
 ///
+/// When `target` is already processed (a resync, or a reorg back to an
+/// already-stored ancestor) the plan has no blocks to apply, so the base itself
+/// is committed as the latest anchor — moving the durable pointer so the
+/// rollback, not the abandoned higher branch, survives a restart.
+///
 /// A `target` before genesis is ignored (returns `Ok`). If the backward walk
 /// descends below genesis without finding a stored anchor state, returns
 /// `WorkerError::MissingGenesisState`. Any fetch, transition, or storage error
@@ -119,6 +124,17 @@ where
         "ASM found processing base"
     );
     drop(plan_span_guard);
+
+    // When the target is already processed (`pending` empty — a resync, or a
+    // reorg that rolls the active tip back to an already-stored ancestor), the
+    // forward pass below applies no block, so it never moves the durable
+    // `latest` anchor pointer off the prior — possibly higher — branch. Without
+    // this, a restart would reload that stale branch from `get_latest_asm_state`
+    // instead of resuming from the rollback target. Re-commit the base as the
+    // latest anchor; the write is an idempotent overwrite (see `apply_block`).
+    if pending.is_empty() {
+        state.context.store_anchor_state(&base_block, &base_state)?;
+    }
 
     state.update_anchor_state(base_state, base_block);
 
@@ -446,6 +462,52 @@ mod tests {
             fx.state.context.mmr_leaf_count(),
             leaves_after_sync,
             "no reprocessing: leaf count unchanged",
+        );
+    }
+
+    /// Rolling the tip back to an already-processed block must move the
+    /// *durable* latest pointer, not just the in-memory anchor — the plan has no
+    /// pending blocks, so nothing in the forward pass advances it. Reloading the
+    /// state over the same store confirms a restart resumes from the rollback
+    /// target rather than the stale higher branch left behind.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn sync_resync_persists_latest_across_restart() {
+        let mut fx = fixtures::setup_state(101).await;
+        let mined = fixtures::mine(&fx.node, &fx.client, 2).await; // 102, 103
+        let earlier = mined[0];
+        let tip = mined[1];
+
+        sync_to_block(&mut fx.state, &tip).expect("initial sync");
+        assert_eq!(
+            fx.state
+                .context
+                .get_latest_asm_state()
+                .unwrap()
+                .map(|(b, _)| b),
+            Some(tip),
+            "latest tracks the higher branch after the initial sync",
+        );
+
+        sync_to_block(&mut fx.state, &earlier).expect("resync to the earlier block");
+
+        // The durable pointer follows the rollback...
+        assert_eq!(
+            fx.state
+                .context
+                .get_latest_asm_state()
+                .unwrap()
+                .map(|(b, _)| b),
+            Some(earlier),
+            "latest moved to the rollback target",
+        );
+
+        // ...so a restart over the same store resumes there, not at the stale tip.
+        let context = fx.state.context.clone();
+        let params = fixtures::genesis_params(&fx.client, 101).await;
+        let reloaded = AsmWorkerServiceState::new(context, TestAsmSpec, params).unwrap();
+        assert_eq!(
+            reloaded.blkid, earlier,
+            "restart resumes from the rollback target",
         );
     }
 
