@@ -17,7 +17,7 @@
 
 use std::sync::Arc;
 
-use asm_storage::{AsmManifestMmrDb, AsmStateDb, ExportEntriesDb};
+use asm_storage::{AsmStateDb, ExportEntriesDb, SledAsmManifestMmrDb};
 use bitcoin::{Block, BlockHash, Network, block::Header};
 use bitcoind_async_client::{Client, error::ClientError, traits::Reader};
 use moho_runtime_interface::MohoProgram;
@@ -61,7 +61,7 @@ pub(crate) struct AsmWorkerContext {
     /// Maximum retry attempts per Bitcoin RPC call.
     rpc_max_retries: u16,
     state_db: Arc<AsmStateDb>,
-    mmr_db: Arc<AsmManifestMmrDb>,
+    mmr_db: Arc<SledAsmManifestMmrDb>,
     export_entries_db: Option<ExportEntriesDb>,
     moho_storage: Option<MohoStorage>,
     /// L1 height of the chain genesis (anchor) block.
@@ -78,7 +78,7 @@ impl AsmWorkerContext {
         bitcoin_client: Arc<Client>,
         retry: &RetryConfig,
         state_db: Arc<AsmStateDb>,
-        mmr_db: Arc<AsmManifestMmrDb>,
+        mmr_db: Arc<SledAsmManifestMmrDb>,
         export_entries_db: Option<ExportEntriesDb>,
         moho_storage: Option<MohoStorage>,
         genesis_height: u64,

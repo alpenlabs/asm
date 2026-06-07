@@ -1,4 +1,4 @@
-//! Sled-backed Merkle Mountain Range for manifest hashes.
+//! [`AsmManifestMmrDb`] implementation backed by sled.
 //!
 //! Backed by [`strata_merkle_node_store`]: every MMR node (leaves and internal
 //! nodes) is persisted, so an inclusion proof is generated in `O(log n)` by
@@ -8,6 +8,8 @@ use anyhow::Result;
 use strata_asm_common::AsmManifestHash;
 use strata_merkle::{MerkleProofB32, Sha256Hasher};
 use strata_merkle_node_store::{MmrNodeStore, NodePos, StoredMmr};
+
+use crate::AsmManifestMmrDb;
 
 /// Decodes a stored 32-byte node value into a hash.
 ///
@@ -52,18 +54,18 @@ impl MmrNodeStore for AsmManifestMmrNodeStore {
     }
 }
 
-/// Sled-backed MMR for manifest hashes.
+/// Sled-backed [`AsmManifestMmrDb`] for manifest hashes.
 ///
 /// Stores every MMR node so inclusion proofs are `O(log n)` and need no leaf
 /// replay. The compact peaks are not persisted: proofs are assembled directly
 /// from the stored sibling path and verify against the compact-peaks
 /// accumulators the rest of the system already holds.
 #[derive(Debug, Clone)]
-pub struct AsmManifestMmrDb {
+pub struct SledAsmManifestMmrDb {
     inner: AsmManifestMmrNodeStore,
 }
 
-impl AsmManifestMmrDb {
+impl SledAsmManifestMmrDb {
     /// Opens or creates the MMR node tree in the given sled instance.
     pub fn open(db: &sled::Db) -> Result<Self> {
         Ok(Self {
@@ -73,12 +75,12 @@ impl AsmManifestMmrDb {
         })
     }
 
-    /// Returns the current leaf count.
+    /// Synchronous variant of [`AsmManifestMmrDb::leaf_count`].
     pub fn leaf_count(&self) -> Result<u64> {
         Ok(StoredMmr::<Sha256Hasher>::leaf_count(&self.inner)?)
     }
 
-    /// Writes a manifest `hash` as the leaf at `height`.
+    /// Synchronous variant of [`AsmManifestMmrDb::put_leaf`].
     ///
     /// The MMR is height-indexed, so the leaf for the L1 block at `height`
     /// lands at leaf index `height`. `height` must be the current end (an
@@ -89,13 +91,12 @@ impl AsmManifestMmrDb {
         Ok(())
     }
 
-    /// Retrieves a manifest hash by its leaf index.
+    /// Synchronous variant of [`AsmManifestMmrDb::get_leaf`].
     pub fn get_leaf(&self, index: u64) -> Result<Option<AsmManifestHash>> {
         Ok(StoredMmr::<Sha256Hasher>::get_leaf(&self.inner, index)?.map(AsmManifestHash::from))
     }
 
-    /// Generates an MMR inclusion proof for the leaf at `index` against an MMR
-    /// of exactly `at_leaf_count` leaves.
+    /// Synchronous variant of [`AsmManifestMmrDb::generate_proof`].
     ///
     /// `O(log n)`: walks the stored sibling path rather than replaying leaves.
     /// The store yields a generic [`MerkleProof`](strata_merkle::MerkleProof);
@@ -105,6 +106,26 @@ impl AsmManifestMmrDb {
         let proof =
             StoredMmr::<Sha256Hasher>::generate_proof_at_size(&self.inner, index, at_leaf_count)?;
         Ok(MerkleProofB32::from_generic(&proof))
+    }
+}
+
+impl AsmManifestMmrDb for SledAsmManifestMmrDb {
+    type Error = anyhow::Error;
+
+    async fn leaf_count(&self) -> Result<u64> {
+        self.leaf_count()
+    }
+
+    async fn put_leaf(&self, height: u64, hash: AsmManifestHash) -> Result<()> {
+        self.put_leaf(height, hash)
+    }
+
+    async fn get_leaf(&self, index: u64) -> Result<Option<AsmManifestHash>> {
+        self.get_leaf(index)
+    }
+
+    async fn generate_proof(&self, index: u64, at_leaf_count: u64) -> Result<MerkleProofB32> {
+        self.generate_proof(index, at_leaf_count)
     }
 }
 
@@ -131,7 +152,7 @@ mod tests {
 
     /// Reference compact-peaks MMR built by replaying the first `size` leaves
     /// of `mmr_db`, matching the accumulators that proofs verify against.
-    fn rebuild_compact_mmr(mmr_db: &AsmManifestMmrDb, size: u64) -> Mmr64B32 {
+    fn rebuild_compact_mmr(mmr_db: &SledAsmManifestMmrDb, size: u64) -> Mmr64B32 {
         let mut compact = Mmr64B32::new_empty();
         for i in 0..size {
             let leaf = mmr_db.get_leaf(i).unwrap().unwrap();
@@ -143,14 +164,14 @@ mod tests {
     #[test]
     fn empty_mmr_has_zero_leaves() {
         let db = test_db();
-        let mmr = AsmManifestMmrDb::open(&db).unwrap();
+        let mmr = SledAsmManifestMmrDb::open(&db).unwrap();
         assert_eq!(mmr.leaf_count().unwrap(), 0);
     }
 
     #[test]
     fn put_and_retrieve_leaf() {
         let db = test_db();
-        let mmr = AsmManifestMmrDb::open(&db).unwrap();
+        let mmr = SledAsmManifestMmrDb::open(&db).unwrap();
         let leaf = make_leaf(0xaa);
 
         mmr.put_leaf(0, leaf).unwrap();
@@ -163,7 +184,7 @@ mod tests {
     #[test]
     fn put_multiple_leaves() {
         let db = test_db();
-        let mmr = AsmManifestMmrDb::open(&db).unwrap();
+        let mmr = SledAsmManifestMmrDb::open(&db).unwrap();
 
         for i in 0u8..5 {
             mmr.put_leaf(i as u64, make_leaf(i)).unwrap();
@@ -180,7 +201,7 @@ mod tests {
     #[test]
     fn put_leaf_rejects_gap() {
         let db = test_db();
-        let mmr = AsmManifestMmrDb::open(&db).unwrap();
+        let mmr = SledAsmManifestMmrDb::open(&db).unwrap();
         // Leaf index 1 skips index 0, which would leave a hole.
         assert!(mmr.put_leaf(1, make_leaf(0)).is_err());
     }
@@ -188,14 +209,14 @@ mod tests {
     #[test]
     fn get_missing_leaf_returns_none() {
         let db = test_db();
-        let mmr = AsmManifestMmrDb::open(&db).unwrap();
+        let mmr = SledAsmManifestMmrDb::open(&db).unwrap();
         assert!(mmr.get_leaf(0).unwrap().is_none());
     }
 
     #[test]
     fn generate_and_verify_proof_single_leaf() {
         let db = test_db();
-        let mmr_db = AsmManifestMmrDb::open(&db).unwrap();
+        let mmr_db = SledAsmManifestMmrDb::open(&db).unwrap();
         let leaf = make_leaf(0x01);
         mmr_db.put_leaf(0, leaf).unwrap();
 
@@ -207,7 +228,7 @@ mod tests {
     #[test]
     fn generate_proofs_for_all_leaves() {
         let db = test_db();
-        let mmr_db = AsmManifestMmrDb::open(&db).unwrap();
+        let mmr_db = SledAsmManifestMmrDb::open(&db).unwrap();
 
         for i in 0u8..8 {
             mmr_db.put_leaf(i as u64, make_leaf(i)).unwrap();
@@ -225,7 +246,7 @@ mod tests {
     #[test]
     fn proof_at_earlier_size_is_valid() {
         let db = test_db();
-        let mmr_db = AsmManifestMmrDb::open(&db).unwrap();
+        let mmr_db = SledAsmManifestMmrDb::open(&db).unwrap();
 
         // Put 4 leaves, snapshot the compact state.
         for i in 0u8..4 {
