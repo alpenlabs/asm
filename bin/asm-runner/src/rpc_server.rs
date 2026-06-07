@@ -3,7 +3,7 @@
 use std::{fmt::Display, sync::Arc, time::Instant};
 
 use anyhow::Result;
-use asm_storage::{AsmStateDb, ExportEntriesDb};
+use asm_storage::{ExportEntriesDb, SledAsmStateDb};
 use async_trait::async_trait;
 use bitcoin::BlockHash;
 use bitcoind_async_client::{Client, traits::Reader};
@@ -45,7 +45,7 @@ async fn to_block_commitment(
 /// Always-on ASM RPC handlers backed by the ASM state DB and worker status.
 #[derive(Clone)]
 pub(crate) struct AsmRpcServer {
-    state_db: Arc<AsmStateDb>,
+    state_db: Arc<SledAsmStateDb>,
     asm_worker: Arc<AsmWorkerHandle>,
     bitcoin_client: Arc<Client>,
     /// Monotonic start instant, used to compute uptime for the control API.
@@ -54,7 +54,7 @@ pub(crate) struct AsmRpcServer {
 
 impl AsmRpcServer {
     pub(crate) fn new(
-        state_db: Arc<AsmStateDb>,
+        state_db: Arc<SledAsmStateDb>,
         asm_worker: Arc<AsmWorkerHandle>,
         bitcoin_client: Arc<Client>,
     ) -> Self {
@@ -74,7 +74,6 @@ impl AsmRpcServer {
         match state {
             Some(state) => {
                 let bridge_state = state
-                    .state()
                     .find_section(BRIDGE_V1_SUBPROTOCOL_ID)
                     .expect("bridge subprotocol should be enabled");
 
@@ -98,7 +97,6 @@ impl AsmRpcServer {
         match state {
             Some(state) => {
                 let checkpoint_state = state
-                    .state()
                     .find_section(CHECKPOINT_SUBPROTOCOL_ID)
                     .expect("checkpoint subprotocol should be enabled");
 
@@ -158,7 +156,13 @@ impl AsmStateApiServer for AsmRpcServer {
             .await
             .map_err(to_rpc_error)?;
 
-        self.state_db.get(&commitment).map_err(to_rpc_error)
+        // The state store keeps only the `AnchorState`; logs live in the manifest
+        // store, so the returned `AsmState` carries empty logs.
+        Ok(self
+            .state_db
+            .get(&commitment)
+            .map_err(to_rpc_error)?
+            .map(|anchor| AsmState::new(anchor, vec![])))
     }
 }
 
@@ -304,7 +308,7 @@ fn build_export_entry_mmr_proof(
 
 /// Run the RPC server.
 pub(crate) async fn run_rpc_server(
-    state_db: Arc<AsmStateDb>,
+    state_db: Arc<SledAsmStateDb>,
     asm_worker: Arc<AsmWorkerHandle>,
     bitcoin_client: Arc<Client>,
     proof_deps: Option<AsmProofRpcDeps>,

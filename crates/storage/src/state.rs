@@ -1,144 +1,55 @@
-//! Sled-backed storage for ASM anchor states and auxiliary data.
+//! Storage trait for ASM anchor states.
+//!
+//! Each entry records the [`AnchorState`] computed after processing the L1 block
+//! identified by the given [`L1BlockCommitment`]. The worker's `AsmState`
+//! umbrella (anchor state plus logs) is deliberately not stored here: only the
+//! anchor state is persistent state; the logs live in the manifest store.
 
-use anyhow::{Context, Result};
-use strata_asm_common::AuxData;
-use strata_asm_worker::AsmState;
+use std::fmt::Debug;
+
+use strata_asm_common::AnchorState;
 use strata_identifiers::L1BlockCommitment;
 
-/// Sled-backed store for ASM anchor states and auxiliary data.
+/// Persistence interface for ASM anchor-state storage.
 ///
-/// Uses two sled trees:
-/// - `states` — `L1BlockCommitment` → `AsmState` (borsh)
-/// - `aux` — `L1BlockCommitment` → `AuxData` (borsh)
-///
-/// Also maintains a `latest` key pointing to the most recently stored state.
-#[derive(Debug, Clone)]
-pub struct AsmStateDb {
-    states: sled::Tree,
-    aux: sled::Tree,
-    meta: sled::Tree,
-}
+/// Async methods with an associated error type.
+pub trait AsmStateDb {
+    /// The error type returned by database operations.
+    type Error: Debug;
 
-const LATEST_KEY: &[u8] = b"latest";
+    /// Stores the anchor state, keyed by its own block commitment
+    /// (`chain_view.pow_state.last_verified_block`).
+    fn put(&self, state: AnchorState) -> impl Future<Output = Result<(), Self::Error>> + Send;
 
-impl AsmStateDb {
-    /// Opens or creates the state database in the given sled instance.
-    pub fn open(db: &sled::Db) -> Result<Self> {
-        Ok(Self {
-            states: db.open_tree("asm_states")?,
-            aux: db.open_tree("asm_aux")?,
-            meta: db.open_tree("asm_meta")?,
-        })
-    }
+    /// Retrieves the anchor state for the given L1 block commitment, if any.
+    fn get(
+        &self,
+        block: L1BlockCommitment,
+    ) -> impl Future<Output = Result<Option<AnchorState>, Self::Error>> + Send;
 
-    /// Returns the most recently stored state and its block commitment.
-    pub fn get_latest(&self) -> Result<Option<(L1BlockCommitment, AsmState)>> {
-        let Some(key_bytes) = self.meta.get(LATEST_KEY)? else {
-            return Ok(None);
-        };
-        let commitment = borsh::from_slice::<L1BlockCommitment>(&key_bytes)
-            .context("failed to deserialize latest commitment")?;
-        let state = self
-            .get(&commitment)?
-            .context("latest key points to missing state")?;
-        Ok(Some((commitment, state)))
-    }
+    /// Returns the highest-height stored anchor state.
+    ///
+    /// NOTE: multiple anchor states can exist at the same height (e.g. due to
+    /// reorgs). In that case the entry returned is determined by the underlying
+    /// key ordering (height, then block-id bytes), which may be arbitrary.
+    /// Callers that need a specific canonical block should use [`get`](Self::get)
+    /// with the exact commitment.
+    fn get_latest(&self) -> impl Future<Output = Result<Option<AnchorState>, Self::Error>> + Send;
 
-    /// Returns the anchor state for a specific block.
-    pub fn get(&self, block: &L1BlockCommitment) -> Result<Option<AsmState>> {
-        let key = borsh::to_vec(block)?;
-        match self.states.get(&key)? {
-            Some(bytes) => {
-                let state = borsh::from_slice::<AsmState>(&bytes)
-                    .context("failed to deserialize AsmState")?;
-                Ok(Some(state))
-            }
-            None => Ok(None),
-        }
-    }
+    /// Prunes all anchor states for blocks with height strictly below
+    /// `before_height` — routine storage cleanup of old state.
+    fn prune_before(
+        &self,
+        before_height: u32,
+    ) -> impl Future<Output = Result<(), Self::Error>> + Send;
 
-    /// Stores an anchor state for the given block and updates the latest pointer.
-    pub fn put(&self, block: &L1BlockCommitment, state: &AsmState) -> Result<()> {
-        let key = borsh::to_vec(block)?;
-        let value = borsh::to_vec(state)?;
-        self.states.insert(&key, value)?;
-        self.meta.insert(LATEST_KEY, key)?;
-        Ok(())
-    }
-
-    /// Stores auxiliary data for a given L1 block.
-    pub fn put_aux_data(&self, block: &L1BlockCommitment, data: &AuxData) -> Result<()> {
-        let key = borsh::to_vec(block)?;
-        let value = borsh::to_vec(data)?;
-        self.aux.insert(&key, value)?;
-        Ok(())
-    }
-
-    /// Retrieves auxiliary data for a given L1 block.
-    pub fn get_aux_data(&self, block: &L1BlockCommitment) -> Result<Option<AuxData>> {
-        let key = borsh::to_vec(block)?;
-        match self.aux.get(&key)? {
-            Some(bytes) => {
-                let data = borsh::from_slice::<AuxData>(&bytes)
-                    .context("failed to deserialize AuxData")?;
-                Ok(Some(data))
-            }
-            None => Ok(None),
-        }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use strata_asm_common::AuxData;
-    use strata_identifiers::{Buf32, L1BlockCommitment, L1BlockId};
-
-    use super::*;
-
-    fn test_db() -> sled::Db {
-        let dir = tempfile::tempdir().unwrap();
-        sled::open(dir.path()).unwrap()
-    }
-
-    fn make_commitment(height: u32, seed: u8) -> L1BlockCommitment {
-        L1BlockCommitment::new(height, L1BlockId::from(Buf32::new([seed; 32])))
-    }
-
-    #[test]
-    fn get_missing_state_returns_none() {
-        let db = test_db();
-        let store = AsmStateDb::open(&db).unwrap();
-        let commitment = make_commitment(1, 0xaa);
-        assert!(store.get(&commitment).unwrap().is_none());
-    }
-
-    #[test]
-    fn get_latest_on_empty_returns_none() {
-        let db = test_db();
-        let store = AsmStateDb::open(&db).unwrap();
-        assert!(store.get_latest().unwrap().is_none());
-    }
-
-    #[test]
-    fn put_aux_data_roundtrip() {
-        let db = test_db();
-        let store = AsmStateDb::open(&db).unwrap();
-        let commitment = make_commitment(100, 0xbb);
-        let aux = AuxData::default();
-
-        store.put_aux_data(&commitment, &aux).unwrap();
-        let retrieved = store.get_aux_data(&commitment).unwrap().unwrap();
-        assert_eq!(
-            borsh::to_vec(&retrieved).unwrap(),
-            borsh::to_vec(&aux).unwrap()
-        );
-    }
-
-    #[test]
-    fn get_missing_aux_data_returns_none() {
-        let db = test_db();
-        let store = AsmStateDb::open(&db).unwrap();
-        let commitment = make_commitment(1, 0xcc);
-        assert!(store.get_aux_data(&commitment).unwrap().is_none());
-    }
+    /// Removes all anchor states for blocks with height strictly above
+    /// `after_height` (which is kept).
+    ///
+    /// For manual intervention — e.g. rolling state back to a known-good height
+    /// so the worker reprocesses from there.
+    fn prune_after(
+        &self,
+        after_height: u32,
+    ) -> impl Future<Output = Result<(), Self::Error>> + Send;
 }

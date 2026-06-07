@@ -771,7 +771,6 @@ dependencies = [
  "sled",
  "ssz",
  "strata-asm-common",
- "strata-asm-worker",
  "strata-identifiers",
  "strata-merkle",
  "strata-merkle-node-store",

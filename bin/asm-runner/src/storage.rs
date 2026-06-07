@@ -3,17 +3,25 @@
 use std::sync::Arc;
 
 use anyhow::Result;
-use asm_storage::{AsmStateDb, ExportEntriesDb, SledAsmManifestMmrDb};
+use asm_storage::{ExportEntriesDb, SledAsmAuxDataDb, SledAsmManifestMmrDb, SledAsmStateDb};
 
 use crate::config::DatabaseConfig;
 
+/// Storage backends for the ASM runner, all opened on a single sled database.
+pub(crate) struct Storage {
+    pub state_db: Arc<SledAsmStateDb>,
+    pub aux_db: Arc<SledAsmAuxDataDb>,
+    pub mmr_db: Arc<SledAsmManifestMmrDb>,
+    pub export_entries_db: ExportEntriesDb,
+}
+
 /// Create storage backends for the ASM runner.
-pub(crate) fn create_storage(
-    config: &DatabaseConfig,
-) -> Result<(Arc<AsmStateDb>, Arc<SledAsmManifestMmrDb>, ExportEntriesDb)> {
+pub(crate) fn create_storage(config: &DatabaseConfig) -> Result<Storage> {
     let db = sled::open(&config.path)?;
-    let state_db = Arc::new(AsmStateDb::open(&db)?);
-    let mmr_db = Arc::new(SledAsmManifestMmrDb::open(&db)?);
-    let export_entries_db = ExportEntriesDb::open(&db)?;
-    Ok((state_db, mmr_db, export_entries_db))
+    Ok(Storage {
+        state_db: Arc::new(SledAsmStateDb::open(&db)?),
+        aux_db: Arc::new(SledAsmAuxDataDb::open(&db)?),
+        mmr_db: Arc::new(SledAsmManifestMmrDb::open(&db)?),
+        export_entries_db: ExportEntriesDb::open(&db)?,
+    })
 }

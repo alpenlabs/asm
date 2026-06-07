@@ -5,7 +5,7 @@
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
-use asm_storage::AsmStateDb;
+use asm_storage::{SledAsmAuxDataDb, SledAsmStateDb};
 use bitcoind_async_client::{Client, traits::Reader};
 use moho_recursive_proof::{MohoRecursiveInput, MohoRecursiveOutput};
 use moho_runtime_impl::RuntimeInput;
@@ -23,7 +23,8 @@ use tree_hash::{Sha256Hasher as TreeSha256Hasher, TreeHash};
 
 /// Builds [`RuntimeInput`] for proof generation, dispatching by proof type.
 pub(crate) struct InputBuilder {
-    state_db: Arc<AsmStateDb>,
+    state_db: Arc<SledAsmStateDb>,
+    aux_db: Arc<SledAsmAuxDataDb>,
     bitcoin_client: Arc<Client>,
     proof_db: SledProofDb,
     moho_state_db: SledMohoStateDb,
@@ -38,8 +39,13 @@ pub(crate) struct MohoPrerequisite {
 }
 
 impl InputBuilder {
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "constructor wires every dependency proof input building needs; one call site"
+    )]
     pub(crate) fn new(
-        state_db: Arc<AsmStateDb>,
+        state_db: Arc<SledAsmStateDb>,
+        aux_db: Arc<SledAsmAuxDataDb>,
         bitcoin_client: Arc<Client>,
         proof_db: SledProofDb,
         moho_state_db: SledMohoStateDb,
@@ -49,6 +55,7 @@ impl InputBuilder {
     ) -> Self {
         Self {
             state_db,
+            aux_db,
             bitcoin_client,
             proof_db,
             moho_state_db,
@@ -146,8 +153,8 @@ impl InputBuilder {
 
         // 2. Fetch the auxiliary data stored during STF execution.
         let aux_data = self
-            .state_db
-            .get_aux_data(&commitment)
+            .aux_db
+            .get(&commitment)
             .context("failed to fetch aux data")?
             .context("aux data not found for block")?;
 
@@ -162,12 +169,11 @@ impl InputBuilder {
         // 4. Fetch the pre-state (anchor state for the parent block).
         let parent_commitment = self.get_parent_commitment(commitment).await?;
 
-        let asm_state = self
+        let anchor_state = self
             .state_db
             .get(&parent_commitment)
             .context("failed to fetch parent anchor state")?
             .context("parent anchor state not found")?;
-        let anchor_state = asm_state.state();
 
         // 5. Compute the Moho pre-state from the anchor state.
         let moho_pre_state = self.get_moho_state(parent_commitment).await?;
