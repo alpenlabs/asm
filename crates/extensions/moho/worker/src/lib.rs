@@ -7,14 +7,16 @@
 //! ([`Subscription<L1BlockCommitment>`](strata_asm_worker::Subscription)) and,
 //! for each committed block, derives the Moho state from the ASM anchor state
 //! the ASM worker already persisted, chained onto the Moho state of the block's
-//! parent, then stores it. It runs no chain view of its own: it folds each
-//! commit onto its resolved parent, so it follows L1 reorgs rather than assuming
-//! the commits arrive in unbroken height order.
+//! parent, then stores it — together with the per-container export-entry leaves
+//! the state's `ExportState` MMR commits to. It runs no chain view of its own:
+//! it folds each commit onto its resolved parent, so it follows L1 reorgs rather
+//! than assuming the commits arrive in unbroken height order.
 //!
 //! Storage is supplied by the caller through [`MohoWorkerContext`] — read access
 //! to ASM anchor states ([`AsmStateProvider`]), L1 block ancestry
-//! ([`L1ProviderContext`]), and persistence for the derived Moho states
-//! ([`MohoStateStore`]) — mirroring how `strata-asm-worker` takes a
+//! ([`L1ProviderContext`]), persistence for the derived Moho states
+//! ([`MohoStateStore`]), and persistence for the export-entry leaves
+//! ([`ExportEntryStore`]) — mirroring how `strata-asm-worker` takes a
 //! [`WorkerContext`](strata_asm_worker::WorkerContext).
 
 mod builder;
@@ -31,4 +33,6 @@ pub use errors::{MohoWorkerError, MohoWorkerResult};
 pub use handle::MohoWorkerHandle;
 pub use service::{MohoWorkerService, MohoWorkerStatus};
 pub use state::MohoWorkerServiceState;
-pub use traits::{AsmStateProvider, L1ProviderContext, MohoStateStore, MohoWorkerContext};
+pub use traits::{
+    AsmStateProvider, ExportEntryStore, L1ProviderContext, MohoStateStore, MohoWorkerContext,
+};

@@ -769,7 +769,6 @@ dependencies = [
  "anyhow",
  "borsh",
  "sled",
- "ssz",
  "strata-asm-common",
  "strata-identifiers",
  "strata-merkle",
@@ -7711,11 +7710,14 @@ dependencies = [
 name = "strata-asm-moho-storage"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "moho-types",
  "proptest",
  "sled",
  "ssz",
  "strata-identifiers",
+ "strata-merkle",
+ "strata-merkle-node-store",
  "strata-predicate",
  "tempfile",
  "tokio",
@@ -7730,6 +7732,7 @@ dependencies = [
  "moho-types",
  "serde",
  "strata-asm-common",
+ "strata-asm-logs",
  "strata-asm-params",
  "strata-asm-proof-impl",
  "strata-asm-spec",
@@ -8098,7 +8101,6 @@ dependencies = [
  "sp1-verifier",
  "ssz",
  "strata-asm-common",
- "strata-asm-logs",
  "strata-asm-moho-storage",
  "strata-asm-moho-worker",
  "strata-asm-params",

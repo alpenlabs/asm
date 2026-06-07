@@ -14,7 +14,6 @@ strata-asm-rpc.workspace = true
 strata-btc-verification.workspace = true
 
 strata-asm-common.workspace = true
-strata-asm-logs.workspace = true
 strata-asm-moho-storage.workspace = true
 strata-asm-moho-worker.workspace = true
 strata-asm-params.workspace = true

@@ -9,6 +9,7 @@
 use moho_runtime_interface::MohoProgram;
 use moho_types::{ExportState, MohoState};
 use strata_asm_common::{AnchorState, AsmLogEntry};
+use strata_asm_logs::NewExportEntry;
 use strata_asm_proof_impl::moho_program::program::{
     AsmStfProgram, advance_export_state_with_logs, extract_next_predicate_from_logs,
 };
@@ -39,4 +40,17 @@ pub(crate) fn construct_next_moho_state(
     let next_export_state = advance_export_state_with_logs(prev.export_state().clone(), logs);
     let inner = AsmStfProgram::compute_state_commitment(anchor_state);
     MohoState::new(inner, next_predicate, next_export_state)
+}
+
+/// Extracts the `(container_id, entry)` leaves a block's [`NewExportEntry`] logs
+/// append to the `ExportState` MMR, in log order.
+///
+/// These are the same leaves [`advance_export_state_with_logs`] folds into the
+/// state's compact per-container MMR; the worker persists them so the RPC can
+/// rebuild inclusion proofs the compact MMR no longer carries.
+pub(crate) fn export_entries_from_logs(logs: &[AsmLogEntry]) -> Vec<(u8, [u8; 32])> {
+    logs.iter()
+        .filter_map(|log| log.try_into_log::<NewExportEntry>().ok())
+        .map(|entry| (entry.container_id(), *entry.entry_data()))
+        .collect()
 }

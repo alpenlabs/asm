@@ -17,5 +17,4 @@ borsh.workspace = true
 sled.workspace = true
 
 [dev-dependencies]
-ssz.workspace = true
 tempfile.workspace = true

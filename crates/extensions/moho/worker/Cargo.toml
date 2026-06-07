@@ -8,6 +8,7 @@ workspace = true
 
 [dependencies]
 strata-asm-common.workspace = true
+strata-asm-logs.workspace = true
 strata-asm-proof-impl.workspace = true
 strata-asm-worker.workspace = true
 strata-identifiers.workspace = true

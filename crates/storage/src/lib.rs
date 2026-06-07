@@ -20,20 +20,19 @@
 //! keyed by L1 height instead, and *does* replace a leaf with a different value
 //! when a reorg swaps the block at that height.)
 //!
-//! The remaining store is concrete (no trait):
-//! - [`ExportEntriesDb`] — per-container export entries, indexed for proof generation
+//! Per-container export entries moved to `strata-asm-moho-storage`, persisted
+//! by the Moho worker alongside the `MohoState` whose `ExportState` MMR they
+//! mirror.
 //!
 //! [`L1BlockCommitment`]: strata_identifiers::L1BlockCommitment
 
 mod aux;
-mod export_entries;
 mod manifest;
 mod manifest_mmr;
 mod sled;
 mod state;
 
 pub use aux::AsmAuxDataDb;
-pub use export_entries::ExportEntriesDb;
 pub use manifest::AsmManifestDb;
 pub use manifest_mmr::AsmManifestMmrDb;
 pub use sled::{SledAsmAuxDataDb, SledAsmManifestDb, SledAsmManifestMmrDb, SledAsmStateDb};

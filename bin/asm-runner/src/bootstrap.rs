@@ -54,10 +54,9 @@ pub(crate) async fn bootstrap(
         None
     };
 
-    // 4. Create the ASM worker context. Moho state is no longer materialized here; a dedicated Moho
-    //    worker derives it from each ASM commit (step 7).
-    let export_entries_for_worker = orch_prep.as_ref().map(|_| export_entries_db.clone());
-
+    // 4. Create the ASM worker context. Moho state and the export-entries index are no longer
+    //    materialized here; a dedicated Moho worker derives both from each ASM commit (step 7).
+    //
     // The worker aligns the DB-side ASM manifest MMR with L1 heights during
     // startup (`ManifestMmrStore::prefill_manifest_mmr`), so no prefill is
     // needed here.
@@ -69,7 +68,6 @@ pub(crate) async fn bootstrap(
         aux_db.clone(),
         manifest_db.clone(),
         mmr_db.clone(),
-        export_entries_for_worker,
     );
 
     // 5. Launch ASM worker
@@ -101,11 +99,12 @@ pub(crate) async fn bootstrap(
 
         // Spin the Moho worker off onto its own service task, driven by the ASM
         // worker's per-block commit stream. It derives each block's MohoState
-        // from the anchor state the ASM worker committed and persists it to the
-        // same moho-state db the orchestrator and RPC read. Subscribe before the
-        // block watcher is spawned (step 8): the subscription has no replay, so a
-        // later subscriber would miss already-committed blocks. The genesis Moho
-        // state is seeded from the ASM genesis anchor during launch.
+        // (and the export-entry leaves its ExportState MMR commits to) from the
+        // anchor state the ASM worker committed, and persists both to the same
+        // stores the orchestrator and RPC read. Subscribe before the block
+        // watcher is spawned (step 8): the subscription has no replay, so a later
+        // subscriber would miss already-committed blocks. The genesis Moho state
+        // is seeded from the ASM genesis anchor during launch.
         let moho_context = MohoWorkerContextImpl::new(
             runtime_handle.clone(),
             bitcoin_client.clone(),
@@ -113,6 +112,7 @@ pub(crate) async fn bootstrap(
             state_db.clone(),
             manifest_db.clone(),
             moho_state_db.clone(),
+            export_entries_db.clone(),
         );
         let _moho_worker = MohoWorkerBuilder::new()
             .with_context(moho_context)

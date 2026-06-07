@@ -6,13 +6,10 @@
 
 use std::sync::Arc;
 
-use asm_storage::{
-    ExportEntriesDb, SledAsmAuxDataDb, SledAsmManifestDb, SledAsmManifestMmrDb, SledAsmStateDb,
-};
+use asm_storage::{SledAsmAuxDataDb, SledAsmManifestDb, SledAsmManifestMmrDb, SledAsmStateDb};
 use bitcoin::{Block, BlockHash, Network, block::Header};
 use bitcoind_async_client::{Client, error::ClientError, traits::Reader};
 use strata_asm_common::{AsmManifest, AsmManifestHash, AuxData};
-use strata_asm_logs::NewExportEntry;
 use strata_asm_worker::{
     AnchorStateStore, AsmState, AuxDataStore, L1DataProvider, ManifestMmrStore, WorkerError,
     WorkerResult,
@@ -27,8 +24,8 @@ use crate::retry::{ExponentialBackoff, RetryConfig, retry_with_backoff_async};
 /// ASM [`WorkerContext`](strata_asm_worker::WorkerContext) implementation.
 ///
 /// Fetches L1 blocks from a Bitcoin node and persists state via local sled
-/// storage. Moho state is derived separately by the Moho worker; see
-/// [`moho_context`](crate::moho_context).
+/// storage. Moho state and the export-entries index are derived separately by
+/// the Moho worker; see [`moho_context`](crate::moho_context).
 pub(crate) struct AsmWorkerContext {
     runtime_handle: Handle,
     bitcoin_client: Arc<Client>,
@@ -40,7 +37,6 @@ pub(crate) struct AsmWorkerContext {
     aux_db: Arc<SledAsmAuxDataDb>,
     manifest_db: Arc<SledAsmManifestDb>,
     mmr_db: Arc<SledAsmManifestMmrDb>,
-    export_entries_db: Option<ExportEntriesDb>,
 }
 
 impl AsmWorkerContext {
@@ -52,7 +48,6 @@ impl AsmWorkerContext {
         aux_db: Arc<SledAsmAuxDataDb>,
         manifest_db: Arc<SledAsmManifestDb>,
         mmr_db: Arc<SledAsmManifestMmrDb>,
-        export_entries_db: Option<ExportEntriesDb>,
     ) -> Self {
         Self {
             runtime_handle,
@@ -63,7 +58,6 @@ impl AsmWorkerContext {
             aux_db,
             manifest_db,
             mmr_db,
-            export_entries_db,
         }
     }
 }
@@ -173,32 +167,9 @@ impl AnchorStateStore for AsmWorkerContext {
 
     fn store_anchor_state(
         &self,
-        blockid: &L1BlockCommitment,
+        _blockid: &L1BlockCommitment,
         state: &AsmState,
     ) -> WorkerResult<()> {
-        // Write order matters: export_entries first, then anchor. The worker tracks
-        // progress via the anchor db (see get_latest_asm_state), so the anchor write is the
-        // effective commit point for this block. If we crash before it, progress has not
-        // advanced, so on restart the worker reprocesses this block and overwrites the
-        // orphaned entries with the same values. Reversing the order would risk advancing
-        // progress past a block whose export_entries state was never persisted.
-        //
-        // Index each `NewExportEntry` so the RPC can later regenerate inclusion proofs
-        // against the MohoState compact MMR the Moho worker maintains.
-        if let Some(ref export_entries_db) = self.export_entries_db {
-            for log in state.logs() {
-                if let Ok(export) = log.try_into_log::<NewExportEntry>() {
-                    export_entries_db
-                        .append(
-                            export.container_id(),
-                            blockid.height(),
-                            *export.entry_data(),
-                        )
-                        .map_err(|_| WorkerError::DbError)?;
-                }
-            }
-        }
-
         self.state_db
             .put(state.state())
             .map_err(|_| WorkerError::DbError)?;

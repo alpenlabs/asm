@@ -3,7 +3,7 @@
 use std::{fmt::Display, sync::Arc, time::Instant};
 
 use anyhow::Result;
-use asm_storage::{ExportEntriesDb, SledAsmManifestDb, SledAsmStateDb};
+use asm_storage::{SledAsmManifestDb, SledAsmStateDb};
 use async_trait::async_trait;
 use bitcoin::BlockHash;
 use bitcoind_async_client::{Client, traits::Reader};
@@ -14,7 +14,7 @@ use jsonrpsee::{
 };
 use ssz::{Decode, Encode};
 use strata_asm_common::{AnchorState, AsmManifest};
-use strata_asm_moho_storage::SledMohoStateDb;
+use strata_asm_moho_storage::{ExportEntriesDb, SledMohoStateDb};
 use strata_asm_proof_db::{ProofDb, SledProofDb};
 use strata_asm_proof_types::{AsmProof, L1Range, MohoProof};
 use strata_asm_proto_bridge_v1::{AssignmentEntry, BridgeV1State, DepositEntry};

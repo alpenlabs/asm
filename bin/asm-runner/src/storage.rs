@@ -4,8 +4,9 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use asm_storage::{
-    ExportEntriesDb, SledAsmAuxDataDb, SledAsmManifestDb, SledAsmManifestMmrDb, SledAsmStateDb,
+    SledAsmAuxDataDb, SledAsmManifestDb, SledAsmManifestMmrDb, SledAsmStateDb,
 };
+use strata_asm_moho_storage::ExportEntriesDb;
 
 use crate::config::DatabaseConfig;
 

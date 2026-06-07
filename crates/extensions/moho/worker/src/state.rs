@@ -106,11 +106,11 @@ mod tests {
 
     use super::*;
     use crate::{
-        AsmStateProvider, L1ProviderContext, MohoStateStore, MohoWorkerError,
+        AsmStateProvider, ExportEntryStore, L1ProviderContext, MohoStateStore, MohoWorkerError,
         service::process_block,
     };
 
-    /// In-memory context backing the three concern traits.
+    /// In-memory context backing the four concern traits.
     #[derive(Debug, Default)]
     struct MockContext {
         anchors: RefCell<HashMap<L1BlockCommitment, AnchorState>>,
@@ -118,6 +118,7 @@ mod tests {
         parents: RefCell<HashMap<L1BlockCommitment, L1BlockCommitment>>,
         moho: RefCell<HashMap<L1BlockCommitment, MohoState>>,
         latest: RefCell<Option<(L1BlockCommitment, MohoState)>>,
+        export_entries: RefCell<Vec<(u8, u32, [u8; 32])>>,
     }
 
     impl MockContext {
@@ -189,6 +190,20 @@ mod tests {
             {
                 *latest = Some((*blockid, state.clone()));
             }
+            Ok(())
+        }
+    }
+
+    impl ExportEntryStore for MockContext {
+        fn append_export_entry(
+            &self,
+            container_id: u8,
+            height: u32,
+            entry: [u8; 32],
+        ) -> MohoWorkerResult<()> {
+            self.export_entries
+                .borrow_mut()
+                .push((container_id, height, entry));
             Ok(())
         }
     }

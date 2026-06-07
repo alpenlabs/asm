@@ -6,7 +6,10 @@ edition = "2024"
 [dependencies]
 moho-types.workspace = true
 strata-identifiers.workspace = true
+strata-merkle = { workspace = true, features = ["ssz"] }
+strata-merkle-node-store.workspace = true
 
+anyhow.workspace = true
 sled.workspace = true
 ssz.workspace = true
 

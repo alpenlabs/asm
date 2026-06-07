@@ -10,6 +10,8 @@
 //! - [`L1ProviderContext`] — resolves the parent of an L1 block commitment, so the fold can chain
 //!   onto the parent's Moho state across reorgs.
 //! - [`MohoStateStore`] — persists and loads the derived [`MohoState`].
+//! - [`ExportEntryStore`] — persists the per-container export-entry leaves the state's
+//!   `ExportState` MMR commits to, so inclusion proofs can be rebuilt later.
 //!
 //! [`MohoWorkerContext`] is the umbrella with a blanket impl, mirroring
 //! `strata-asm-worker`'s [`WorkerContext`](strata_asm_worker::WorkerContext):
@@ -71,12 +73,38 @@ pub trait MohoStateStore {
     ) -> MohoWorkerResult<()>;
 }
 
+/// Persists the per-container export-entry leaves the derived state commits to.
+///
+/// [`MohoState`] keeps only each container's compact `ExportState` MMR (its
+/// peaks), so the original leaves cannot be recovered from it. The worker
+/// mirrors them here as it folds each block — from the same `NewExportEntry`
+/// logs that advance the MMR — so the RPC can rebuild inclusion proofs.
+pub trait ExportEntryStore {
+    /// Appends one export-entry leaf for `container_id` inserted at `height`.
+    ///
+    /// Must be idempotent in `(container_id, entry)`: the worker reprocesses a
+    /// block whose fold did not reach its commit point, so the same leaf can be
+    /// appended more than once and must not be duplicated.
+    fn append_export_entry(
+        &self,
+        container_id: u8,
+        height: u32,
+        entry: [u8; 32],
+    ) -> MohoWorkerResult<()>;
+}
+
 /// Context the Moho worker interacts with the outside world through.
 ///
-/// Umbrella over [`AsmStateProvider`], [`L1ProviderContext`] and
-/// [`MohoStateStore`]. The blanket impl means any type implementing all three
-/// automatically implements `MohoWorkerContext`, so implementors never name it
-/// directly.
-pub trait MohoWorkerContext: AsmStateProvider + L1ProviderContext + MohoStateStore {}
+/// Umbrella over [`AsmStateProvider`], [`L1ProviderContext`], [`MohoStateStore`]
+/// and [`ExportEntryStore`]. The blanket impl means any type implementing all
+/// four automatically implements `MohoWorkerContext`, so implementors never name
+/// it directly.
+pub trait MohoWorkerContext:
+    AsmStateProvider + L1ProviderContext + MohoStateStore + ExportEntryStore
+{
+}
 
-impl<T> MohoWorkerContext for T where T: AsmStateProvider + L1ProviderContext + MohoStateStore {}
+impl<T> MohoWorkerContext for T where
+    T: AsmStateProvider + L1ProviderContext + MohoStateStore + ExportEntryStore
+{
+}

@@ -55,7 +55,8 @@ where
     }
 }
 
-/// Folds a single ASM commit into a new [`MohoState`] and persists it.
+/// Folds a single ASM commit into a new [`MohoState`] and persists it, along
+/// with the export-entry leaves its `ExportState` MMR commits to.
 ///
 /// Resolves the commit's parent and chains the Moho state forward onto this
 /// block's anchor state and logs. The parent's Moho state comes from the
@@ -79,6 +80,18 @@ pub(crate) fn process_block<W: MohoWorkerContext>(
     let anchor_state = state.context.get_anchor_state(&block)?;
     let logs = state.context.get_anchor_logs(&block)?;
     let moho = compute::construct_next_moho_state(&parent_moho, &anchor_state, &logs);
+
+    // Persist the export-entry leaves before the Moho state. The worker tracks
+    // progress via the Moho store (`get_latest_moho_state`), so `store_moho_state`
+    // is this block's commit point: a crash before it leaves progress unadvanced
+    // and the block is reprocessed on restart, re-appending the same
+    // (idempotent) leaves. Writing them after the commit point would risk a gap
+    // between the leaves and the `ExportState` MMR that commits to them.
+    for (container_id, entry) in compute::export_entries_from_logs(&logs) {
+        state
+            .context
+            .append_export_entry(container_id, block.height(), entry)?;
+    }
     state.context.store_moho_state(&block, &moho)?;
 
     state.update_moho_state(moho, block);
