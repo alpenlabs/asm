@@ -24,18 +24,10 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Install Rust toolchain
-        run: |
-          rustup toolchain install nightly --profile minimal --component clippy
-          rustup default nightly
-
-      - name: Rust cache
-        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2
+      - name: Set up Rust
+        uses: ./.github/actions/setup-rust
         with:
-          cache-on-failure: true
-
-      - name: Install protoc
-        uses: arduino/setup-protoc@c65c819552d16ad3c9b72d9dfd5ba5237b9c906b # v3.0.0
+          components: clippy
 
       # `--all-features` pulls in `sp1-core-executor-runner`, whose build.rs
       # embeds a nested-built helper that breaks clippy on a cache hit; the
@@ -63,10 +55,12 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Install Rust toolchain
-        run: |
-          rustup toolchain install nightly --profile minimal --component rustfmt
-          rustup default nightly
+      - name: Set up Rust
+        uses: ./.github/actions/setup-rust
+        with:
+          components: rustfmt
+          cache: "false"
+          protoc: "false"
 
       - name: Check Rust formatting
         run: cargo fmt --all --check

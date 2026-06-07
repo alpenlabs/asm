@@ -27,23 +27,14 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Install Rust toolchain
-        run: |
-          RUST_TOOLCHAIN="$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)"
-          rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal
-          rustup default "$RUST_TOOLCHAIN"
+      - name: Set up Rust
+        uses: ./.github/actions/setup-rust
+        with:
+          channel: rust-toolchain.toml
+          cache: "false"
 
-      - name: Install SP1 toolchain
-        run: |
-          curl -fsSL --proto '=https' --tlsv1.2 https://sp1.succinct.xyz | bash
-          ~/.sp1/bin/sp1up
-          echo "$HOME/.sp1/bin" >> "$GITHUB_PATH"
-
-      - name: Check SP1 toolchain
-        run: cargo prove --version
-
-      - name: Install protoc
-        uses: arduino/setup-protoc@c65c819552d16ad3c9b72d9dfd5ba5237b9c906b # v3.0.0
+      - name: Set up SP1 toolchain
+        uses: ./.github/actions/setup-sp1
 
       - name: Build guest ELFs and vk JSONs
         # Override the repo-wide SKIP_VKEY_BUILD=1 default (.cargo/config.toml) so

@@ -29,28 +29,13 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Install Rust toolchain
-        run: |
-          RUST_TOOLCHAIN="$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)"
-          rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal
-          rustup default "$RUST_TOOLCHAIN"
-
-      - name: Rust cache
-        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2
+      - name: Set up Rust
+        uses: ./.github/actions/setup-rust
         with:
-          cache-on-failure: true
+          channel: rust-toolchain.toml
 
-      - name: Install SP1 Toolchain
-        run: |
-          curl -fsSL --proto '=https' --tlsv1.2 https://sp1.succinct.xyz | bash
-          ~/.sp1/bin/sp1up
-          echo "$HOME/.sp1/bin" >> "$GITHUB_PATH"
-
-      - name: Check SP1 toolchain
-        run: cargo prove --version
-
-      - name: Install protoc
-        uses: arduino/setup-protoc@c65c819552d16ad3c9b72d9dfd5ba5237b9c906b # v3.0.0
+      - name: Set up SP1 toolchain
+        uses: ./.github/actions/setup-sp1
 
       # `sp1-core-executor-runner`'s build.rs embeds a nested-built helper that
       # breaks on a cache hit; the action pre-builds it and returns the path to

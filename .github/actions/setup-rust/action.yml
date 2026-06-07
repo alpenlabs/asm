@@ -1,0 +1,45 @@
+name: Set up Rust
+description: >-
+  Install a Rust toolchain (optionally with components) and, by default, restore
+  the Swatinem cache and install protoc. Requires the repo to be checked out.
+inputs:
+  channel:
+    description: >-
+      Toolchain to install and default to. Use the literal "rust-toolchain.toml"
+      to read the pinned channel from that file instead.
+    default: nightly
+  components:
+    description: 'Space-separated rustup components to add (e.g. "clippy rustfmt").'
+    default: ""
+  cache:
+    description: 'Whether to restore the Swatinem/rust-cache ("true"/"false").'
+    default: "true"
+  protoc:
+    description: 'Whether to install protoc ("true"/"false").'
+    default: "true"
+runs:
+  using: composite
+  steps:
+    - name: Install Rust toolchain
+      shell: bash
+      env:
+        CHANNEL: ${{ inputs.channel }}
+        COMPONENTS: ${{ inputs.components }}
+      run: |
+        if [ "$CHANNEL" = "rust-toolchain.toml" ]; then
+          CHANNEL="$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)"
+        fi
+        args=()
+        for c in $COMPONENTS; do args+=(--component "$c"); done
+        rustup toolchain install "$CHANNEL" --profile minimal "${args[@]}"
+        rustup default "$CHANNEL"
+
+    - name: Rust cache
+      if: inputs.cache == 'true'
+      uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2
+      with:
+        cache-on-failure: true
+
+    - name: Install protoc
+      if: inputs.protoc == 'true'
+      uses: arduino/setup-protoc@c65c819552d16ad3c9b72d9dfd5ba5237b9c906b # v3.0.0

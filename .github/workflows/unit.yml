@@ -31,10 +31,10 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Install Rust toolchain
-        run: |
-          rustup toolchain install nightly --profile minimal --component llvm-tools-preview
-          rustup default nightly
+      - name: Set up Rust
+        uses: ./.github/actions/setup-rust
+        with:
+          components: llvm-tools-preview
 
       - name: Install latest cargo-nextest release
         uses: taiki-e/install-action@b550161ef8a7bc4f2a671c0b03a18ac9ccedea1e # v2.79.1
@@ -58,14 +58,6 @@ jobs:
           sudo install -m 0755 -t /usr/local/bin bitcoin-"$BITCOIND_VERSION"/bin/*
           bitcoind --version
           rm -rf SHA256SUMS "bitcoin-$BITCOIND_VERSION" "bitcoin-$BITCOIND_VERSION-$BITCOIND_ARCH.tar.gz"
-
-      - name: Rust cache
-        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2
-        with:
-          cache-on-failure: true
-
-      - name: Install protoc
-        uses: arduino/setup-protoc@c65c819552d16ad3c9b72d9dfd5ba5237b9c906b # v3.0.0
 
       - name: Run tests with coverage
         run: |
@@ -94,18 +86,8 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Install Rust toolchain
-        run: |
-          rustup toolchain install nightly --profile minimal
-          rustup default nightly
-
-      - name: Rust cache
-        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2
-        with:
-          cache-on-failure: true
-
-      - name: Install protoc
-        uses: arduino/setup-protoc@c65c819552d16ad3c9b72d9dfd5ba5237b9c906b # v3.0.0
+      - name: Set up Rust
+        uses: ./.github/actions/setup-rust
 
       - name: Run doctests
         run: cargo test --doc --all-features

@@ -1,0 +1,20 @@
+name: Set up SP1 toolchain
+description: >-
+  Install the SP1 toolchain via sp1up, add it to PATH, and verify cargo prove is
+  available. Requires a Rust toolchain to already be on PATH.
+runs:
+  using: composite
+  steps:
+    - name: Install SP1 toolchain
+      shell: bash
+      # The only env-file write appends a fixed, trusted dir ($HOME/.sp1/bin) to
+      # PATH; persisting PATH across steps requires $GITHUB_PATH and there is no
+      # user input, so the github-env finding is a false positive.
+      run: | # zizmor: ignore[github-env]
+        curl -fsSL --proto '=https' --tlsv1.2 https://sp1.succinct.xyz | bash
+        ~/.sp1/bin/sp1up
+        echo "$HOME/.sp1/bin" >> "$GITHUB_PATH"
+
+    - name: Check SP1 toolchain
+      shell: bash
+      run: cargo prove --version
