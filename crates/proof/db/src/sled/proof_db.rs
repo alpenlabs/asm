@@ -1,7 +1,7 @@
 //! [`ProofDb`] implementation for [`SledProofDb`].
 
 use borsh::BorshDeserialize;
-use strata_asm_proof_types::{AsmProof, L1Range, MohoProof};
+use strata_asm_prover_types::{AsmProof, L1Range, MohoProof};
 use strata_identifiers::L1BlockCommitment;
 
 use super::{SledProofDb, decode_moho_key, encode_asm_key, encode_moho_key};

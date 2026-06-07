@@ -5,7 +5,7 @@
 //! concern. Keys use big-endian height encoding so that sled's lexicographic
 //! ordering matches block-height ordering.
 
-use strata_asm_proof_types::L1Range;
+use strata_asm_prover_types::L1Range;
 use strata_identifiers::{Buf32, L1BlockCommitment, L1BlockId};
 
 mod proof_db;
@@ -117,7 +117,7 @@ pub(crate) fn decode_moho_key(key: &[u8]) -> L1BlockCommitment {
 #[cfg(test)]
 pub(crate) mod test_util {
     use proptest::{collection::vec, prelude::*};
-    use strata_asm_proof_types::{AsmProof, L1Range, MohoProof};
+    use strata_asm_prover_types::{AsmProof, L1Range, MohoProof};
     use strata_identifiers::{Buf32, L1BlockCommitment, L1BlockId};
     use zkaleido::{
         ProgramId, Proof, ProofMetadata, ProofReceipt, ProofReceiptWithMetadata, ProofType,

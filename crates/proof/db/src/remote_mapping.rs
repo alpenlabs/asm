@@ -6,7 +6,7 @@
 
 use std::fmt::Debug;
 
-use strata_asm_proof_types::{ProofId, RemoteProofId};
+use strata_asm_prover_types::{ProofId, RemoteProofId};
 
 /// Persistent bidirectional mapping between local [`ProofId`]s and
 /// [`RemoteProofId`]s assigned by the remote prover service.

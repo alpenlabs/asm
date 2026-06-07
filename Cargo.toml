@@ -9,7 +9,7 @@ members = [
   "crates/params",
   "crates/proof/db",
   "crates/proof/statements",
-  "crates/proof/types",
+  "crates/extensions/prover/types",
   "crates/rpc",
   "crates/spec",
   "crates/spec-debug",
@@ -71,7 +71,6 @@ strata-asm-moho-worker = { path = "crates/extensions/moho/worker" }
 strata-asm-params = { path = "crates/params" }
 strata-asm-proof-db = { path = "crates/proof/db" }
 strata-asm-proof-impl = { path = "crates/proof/statements" }
-strata-asm-proof-types = { path = "crates/proof/types" }
 strata-asm-proto-admin = { path = "crates/subprotocols/admin/subprotocol" }
 strata-asm-proto-admin-txs = { path = "crates/subprotocols/admin/txs" }
 strata-asm-proto-bridge-v1 = { path = "crates/subprotocols/bridge-v1/subprotocol" }
@@ -84,6 +83,7 @@ strata-asm-proto-checkpoint-txs = { path = "crates/subprotocols/checkpoint/txs" 
 strata-asm-proto-checkpoint-types = { path = "crates/subprotocols/checkpoint/types" }
 strata-asm-proto-debug-v1 = { path = "crates/subprotocols/debug-v1/subprotocol" }
 strata-asm-proto-txs-test-utils = { path = "crates/subprotocols/txs-test-utils" }
+strata-asm-prover-types = { path = "crates/extensions/prover/types" }
 strata-asm-rpc = { path = "crates/rpc" }
 strata-asm-spec = { path = "crates/spec" }
 strata-asm-spec-debug = { path = "crates/spec-debug" }

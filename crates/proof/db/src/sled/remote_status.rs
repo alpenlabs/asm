@@ -3,7 +3,7 @@
 use std::{error::Error, fmt};
 
 use borsh::BorshDeserialize;
-use strata_asm_proof_types::RemoteProofId;
+use strata_asm_prover_types::RemoteProofId;
 use zkaleido::RemoteProofStatus;
 
 use super::SledProofDb;

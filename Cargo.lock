@@ -7741,7 +7741,7 @@ dependencies = [
  "borsh",
  "proptest",
  "sled",
- "strata-asm-proof-types",
+ "strata-asm-prover-types",
  "strata-identifiers",
  "tempfile",
  "tokio",
@@ -7773,16 +7773,6 @@ dependencies = [
  "tree_hash",
  "zkaleido",
  "zkaleido-native-adapter",
-]
-
-[[package]]
-name = "strata-asm-proof-types"
-version = "0.1.0"
-dependencies = [
- "borsh",
- "serde",
- "strata-identifiers",
- "zkaleido",
 ]
 
 [[package]]
@@ -8029,16 +8019,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "strata-asm-prover-types"
+version = "0.1.0"
+dependencies = [
+ "borsh",
+ "serde",
+ "strata-identifiers",
+ "zkaleido",
+]
+
+[[package]]
 name = "strata-asm-rpc"
 version = "0.1.0"
 dependencies = [
  "bitcoin",
  "jsonrpsee",
  "strata-asm-common",
- "strata-asm-proof-types",
  "strata-asm-proto-bridge-v1",
  "strata-asm-proto-bridge-v1-types",
  "strata-asm-proto-checkpoint-types",
+ "strata-asm-prover-types",
  "strata-asm-worker",
 ]
 
@@ -8073,13 +8073,13 @@ dependencies = [
  "strata-asm-params",
  "strata-asm-proof-db",
  "strata-asm-proof-impl",
- "strata-asm-proof-types",
  "strata-asm-proto-bridge-v1",
  "strata-asm-proto-bridge-v1-txs",
  "strata-asm-proto-bridge-v1-types",
  "strata-asm-proto-checkpoint",
  "strata-asm-proto-checkpoint-txs",
  "strata-asm-proto-checkpoint-types",
+ "strata-asm-prover-types",
  "strata-asm-rpc",
  "strata-asm-spec",
  "strata-asm-worker",

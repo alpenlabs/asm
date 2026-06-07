@@ -3,10 +3,10 @@
 use bitcoin::BlockHash;
 use jsonrpsee::{core::RpcResult, proc_macros::rpc};
 use strata_asm_common::{AnchorState, AsmManifest};
-use strata_asm_proof_types::{AsmProof, MohoProof};
 use strata_asm_proto_bridge_v1::{AssignmentEntry, DepositEntry};
 use strata_asm_proto_bridge_v1_types::SafeHarbour;
 use strata_asm_proto_checkpoint_types::CheckpointTip;
+use strata_asm_prover_types::{AsmProof, MohoProof};
 use strata_asm_worker::AsmWorkerStatus;
 
 /// Control-plane ASM RPCs: liveness and overall worker status.

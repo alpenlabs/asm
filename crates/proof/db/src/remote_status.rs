@@ -6,7 +6,7 @@
 
 use std::fmt::Debug;
 
-use strata_asm_proof_types::RemoteProofId;
+use strata_asm_prover_types::RemoteProofId;
 use zkaleido::RemoteProofStatus;
 
 /// Persistent store for the execution status of remote proof jobs.

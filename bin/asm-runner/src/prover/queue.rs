@@ -7,7 +7,7 @@
 
 use std::collections::BTreeSet;
 
-use strata_asm_proof_types::ProofId;
+use strata_asm_prover_types::ProofId;
 
 /// In-memory queue of proofs awaiting generation.
 ///
@@ -50,7 +50,7 @@ impl PendingProofQueue {
 
 #[cfg(test)]
 mod tests {
-    use strata_asm_proof_types::L1Range;
+    use strata_asm_prover_types::L1Range;
     use strata_identifiers::{L1BlockCommitment, L1BlockId};
 
     use super::*;

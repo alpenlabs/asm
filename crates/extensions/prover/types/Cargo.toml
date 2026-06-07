@@ -1,6 +1,6 @@
 [package]
 edition = "2021"
-name = "strata-asm-proof-types"
+name = "strata-asm-prover-types"
 version = "0.1.0"
 
 [lints]

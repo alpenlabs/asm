@@ -3,7 +3,7 @@
 use std::{error::Error, fmt};
 
 use borsh::BorshDeserialize;
-use strata_asm_proof_types::{ProofId, RemoteProofId};
+use strata_asm_prover_types::{ProofId, RemoteProofId};
 
 use super::SledProofDb;
 use crate::RemoteProofMappingDb;
@@ -112,7 +112,7 @@ mod tests {
     use std::collections::HashSet;
 
     use proptest::{collection::vec, prelude::*};
-    use strata_asm_proof_types::ProofId;
+    use strata_asm_prover_types::ProofId;
     use tokio::runtime::Runtime;
 
     use super::*;

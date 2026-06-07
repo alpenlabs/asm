@@ -5,7 +5,7 @@
 
 use std::fmt::Debug;
 
-use strata_asm_proof_types::{AsmProof, L1Range, MohoProof};
+use strata_asm_prover_types::{AsmProof, L1Range, MohoProof};
 use strata_identifiers::L1BlockCommitment;
 
 /// Persistence interface for proof storage.

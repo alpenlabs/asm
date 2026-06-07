@@ -9,7 +9,7 @@ use async_trait::async_trait;
 use moho_recursive_proof::MohoRecursiveProgram;
 use strata_asm_proof_db::{RemoteProofMappingDb, RemoteProofStatusDb, SledProofDb};
 use strata_asm_proof_impl::program::AsmStfProofProgram;
-use strata_asm_proof_types::{ProofId, RemoteProofId};
+use strata_asm_prover_types::{ProofId, RemoteProofId};
 use strata_tasks::ShutdownGuard;
 use tokio::{sync::mpsc, time};
 use tracing::{debug, error, info, warn};
@@ -385,7 +385,7 @@ fn to_typed_proof_id<R: ZkVmRemoteHost>(remote_id: &RemoteProofId) -> Result<R::
 mod tests {
     use std::collections::HashMap;
 
-    use strata_asm_proof_types::L1Range;
+    use strata_asm_prover_types::L1Range;
     use strata_identifiers::{L1BlockCommitment, L1BlockId};
 
     use super::*;

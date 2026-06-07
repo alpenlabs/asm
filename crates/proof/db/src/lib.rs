@@ -7,8 +7,8 @@
 //! - [`ProofDb`] — stores and retrieves finalised ASM step proofs and Moho recursive proofs, keyed
 //!   by their L1 block range or commitment.
 //! - [`RemoteProofMappingDb`] — maintains a bidirectional mapping between local
-//!   [`ProofId`](strata_asm_proof_types::ProofId)s and opaque
-//!   [`RemoteProofId`](strata_asm_proof_types::RemoteProofId)s assigned by the remote prover
+//!   [`ProofId`](strata_asm_prover_types::ProofId)s and opaque
+//!   [`RemoteProofId`](strata_asm_prover_types::RemoteProofId)s assigned by the remote prover
 //!   service.
 //! - [`RemoteProofStatusDb`] — tracks the execution status of in-flight remote proof jobs until
 //!   their results are retrieved and stored locally.
