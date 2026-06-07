@@ -37,8 +37,17 @@ jobs:
       - name: Install protoc
         uses: arduino/setup-protoc@c65c819552d16ad3c9b72d9dfd5ba5237b9c906b # v3.0.0
 
+      # The workspace doc build pulls in `sp1-core-executor-runner`, whose
+      # build.rs embeds a nested-built helper that breaks on a cache hit; the
+      # action pre-builds it and returns the path to use as the override (see the
+      # action for why).
+      - name: Pre-build SP1 core runner binary
+        id: sp1-runner
+        uses: ./.github/actions/prebuild-sp1-runner
+
       - name: Check docs leaving the dependencies out
         env:
           RUSTDOCFLAGS: -A rustdoc::private-doc-tests -D warnings
           SP1_SKIP_PROGRAM_BUILD: true
+          SP1_CORE_RUNNER_OVERRIDE_BINARY: ${{ steps.sp1-runner.outputs.override-binary }}
         run: cargo doc --no-deps
