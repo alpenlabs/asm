@@ -101,6 +101,9 @@ where
             let span = tracing::debug_span!("asm.stf.aux_resolve");
             let _guard = span.enter();
 
+            // Snapshot proofs at the accumulator's own leaf count: a verifier
+            // checks them against this accumulator's committed root, so the
+            // snapshot size must be that accumulator's.
             let accumulator = &cur_state.state().chain_view.history_accumulator;
             let resolver = AuxDataResolver::new(&self.context, accumulator.num_entries());
             resolver.resolve(&pre_process.aux_requests)?
