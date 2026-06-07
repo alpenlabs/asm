@@ -24,8 +24,6 @@ use bitcoin::BlockHash;
 use bitcoincore_zmq::{Message, SocketMessage, subscribe_async_wait_handshake};
 use bitcoind_async_client::{Client, traits::Reader};
 use futures::StreamExt;
-use strata_asm_prover_types::{L1Range, ProofId};
-use strata_asm_prover_worker::ProverWorkerHandle;
 use strata_asm_worker::AsmWorkerHandle;
 use strata_tasks::ShutdownGuard;
 use tokio::time::timeout;
@@ -46,7 +44,6 @@ pub(crate) async fn drive_asm_from_bitcoin(
     config: BitcoinConfig,
     bitcoin_client: Arc<Client>,
     asm_worker: Arc<AsmWorkerHandle>,
-    proof_handle: Option<ProverWorkerHandle>,
     shutdown: ShutdownGuard,
 ) -> Result<()> {
     info!("starting ASM block watcher");
@@ -71,7 +68,7 @@ pub(crate) async fn drive_asm_from_bitcoin(
     // a height read and a hash read could desync them.
     match bitcoin_client.get_blockchain_info().await {
         Ok(info) => {
-            if let Err(err) = submit_block(&asm_worker, &proof_handle, info.best_block_hash).await {
+            if let Err(err) = submit_block(&asm_worker, info.best_block_hash).await {
                 error!(?err, "failed to submit chain tip on startup");
             }
         }
@@ -107,47 +104,24 @@ pub(crate) async fn drive_asm_from_bitcoin(
             _ => continue,
         };
 
-        if let Err(err) = submit_block(&asm_worker, &proof_handle, block_hash).await {
+        if let Err(err) = submit_block(&asm_worker, block_hash).await {
             error!(?err, "failed to submit block from ZMQ");
         }
     }
 }
 
-/// Submit a block to the ASM worker and, optionally, enqueue proof requests for
-/// every block the worker actually processed.
+/// Submit a block to the ASM worker.
 ///
-/// One submit can drive several blocks: the worker walks back from the submitted
-/// block to its last stored anchor (startup catch-up, a ZMQ gap, or a reorg). We
-/// enqueue ASM+Moho requests for each processed commitment the worker returns —
-/// not just the submitted tip — so the Moho recursive chain stays gap-free (each
-/// Moho(H) has its Moho(H-1)). The commitments come back oldest first, the order
-/// Moho's recursion needs.
-async fn submit_block(
-    asm_worker: &AsmWorkerHandle,
-    proof_handle: &Option<ProverWorkerHandle>,
-    block_hash: BlockHash,
-) -> Result<()> {
+/// Proof requests are not issued here: the prover worker subscribes to the ASM
+/// worker's commit stream and derives them from each *committed* block, so they
+/// fire only after the block is durably stored.
+async fn submit_block(asm_worker: &AsmWorkerHandle, block_hash: BlockHash) -> Result<()> {
     let processed = asm_worker
         .submit_block_async(block_hash)
         .await
         .with_context(|| format!("submit_block_async for {block_hash}"))?;
 
     debug!(%block_hash, processed = processed.len(), "submitted block to ASM worker");
-
-    let Some(handle) = proof_handle else {
-        return Ok(());
-    };
-
-    for commitment in processed {
-        let asm_proof_id = ProofId::Asm(L1Range::single(commitment));
-        if let Err(err) = handle.request_proof(asm_proof_id) {
-            warn!(%commitment, ?err, "failed to enqueue ASM proof request");
-        }
-        let moho_proof_id = ProofId::Moho(commitment);
-        if let Err(err) = handle.request_proof(moho_proof_id) {
-            warn!(%commitment, ?err, "failed to enqueue Moho proof request");
-        }
-    }
 
     Ok(())
 }

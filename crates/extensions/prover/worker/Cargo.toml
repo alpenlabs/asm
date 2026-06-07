@@ -15,6 +15,7 @@ strata-asm-moho-storage.workspace = true
 strata-asm-proof-impl.workspace = true
 strata-asm-prover-storage.workspace = true
 strata-asm-prover-types.workspace = true
+strata-asm-worker.workspace = true
 strata-btc-types.workspace = true
 strata-btc-verification.workspace = true
 strata-identifiers.workspace = true

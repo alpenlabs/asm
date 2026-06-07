@@ -1,20 +1,21 @@
 //! Builder for assembling a prover worker.
 
-use strata_asm_prover_types::ProofId;
-use tokio::sync::mpsc;
+use strata_asm_worker::Subscription;
+use strata_identifiers::L1BlockCommitment;
 use zkaleido::ZkVmRemoteHost;
 
 use crate::{
-    InputBuilder, ProofOrchestrator, ProverContext, ProverWorkerHandle,
+    InputBuilder, ProofOrchestrator, ProverContext,
     config::OrchestratorConfig,
     errors::{ProverError, ProverResult},
 };
 
 /// Builder for assembling a prover worker.
 ///
-/// Wires the context, remote hosts, config, and input builder into a
-/// [`ProofOrchestrator`], returning it alongside a [`ProverWorkerHandle`] over a
-/// freshly created request channel.
+/// Wires the context, remote hosts, config, input builder, and the ASM worker's
+/// commit subscription into a [`ProofOrchestrator`]. The orchestrator's only
+/// input is that subscription: it turns each committed [`L1BlockCommitment`]
+/// into the proofs the block requires.
 ///
 /// The orchestrator is *not* spawned here: its run loop is `!Send` (the
 /// upstream `ZkVmRemoteProver` is `#[async_trait(?Send)]`), so the caller must
@@ -27,6 +28,7 @@ pub struct ProverWorkerBuilder<C, H> {
     moho_host: Option<H>,
     config: Option<OrchestratorConfig>,
     input_builder: Option<InputBuilder>,
+    subscription: Option<Subscription<L1BlockCommitment>>,
 }
 
 impl<C, H> ProverWorkerBuilder<C, H> {
@@ -38,6 +40,7 @@ impl<C, H> ProverWorkerBuilder<C, H> {
             moho_host: None,
             config: None,
             input_builder: None,
+            subscription: None,
         }
     }
 
@@ -65,14 +68,25 @@ impl<C, H> ProverWorkerBuilder<C, H> {
         self.input_builder = Some(input_builder);
         self
     }
+
+    /// Sets the ASM worker commit subscription that drives the orchestrator.
+    ///
+    /// Subscribe *before* the worker starts processing blocks — there is no
+    /// replay buffer, so any block committed before this subscription exists is
+    /// not seen.
+    pub fn with_block_subscription(
+        mut self,
+        subscription: Subscription<L1BlockCommitment>,
+    ) -> Self {
+        self.subscription = Some(subscription);
+        self
+    }
 }
 
 impl<C: ProverContext, H: ZkVmRemoteHost> ProverWorkerBuilder<C, H> {
-    /// Validates the supplied dependencies and assembles the orchestrator.
-    ///
-    /// Returns the [`ProverWorkerHandle`] for enqueuing proof requests and the
-    /// [`ProofOrchestrator`] for the caller to drive.
-    pub fn build(self) -> ProverResult<(ProverWorkerHandle, ProofOrchestrator<C, H>)> {
+    /// Validates the supplied dependencies and assembles the orchestrator for
+    /// the caller to drive.
+    pub fn build(self) -> ProverResult<ProofOrchestrator<C, H>> {
         let ctx = self.ctx.ok_or(ProverError::MissingDependency("context"))?;
         let asm_host = self
             .asm_host
@@ -86,12 +100,18 @@ impl<C: ProverContext, H: ZkVmRemoteHost> ProverWorkerBuilder<C, H> {
         let input_builder = self
             .input_builder
             .ok_or(ProverError::MissingDependency("input_builder"))?;
+        let subscription = self
+            .subscription
+            .ok_or(ProverError::MissingDependency("subscription"))?;
 
-        let (tx, rx) = mpsc::unbounded_channel::<ProofId>();
-        let orchestrator =
-            ProofOrchestrator::new(ctx, asm_host, moho_host, config, input_builder, rx);
-
-        Ok((ProverWorkerHandle::new(tx), orchestrator))
+        Ok(ProofOrchestrator::new(
+            ctx,
+            asm_host,
+            moho_host,
+            config,
+            input_builder,
+            subscription,
+        ))
     }
 }
 

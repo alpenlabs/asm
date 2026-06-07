@@ -5,7 +5,9 @@
 //! The worker defines a [`ProverContext`] umbrella trait abstracting its
 //! storage and chain-data dependencies, and a [`ProofOrchestrator`] that drives
 //! proof scheduling and reconciliation generically over it — mirroring how the
-//! ASM worker (`strata-asm-worker`) is built. Concrete sled-backed storage
+//! ASM worker (`strata-asm-worker`) is built. The orchestrator is fed by the ASM
+//! worker's commit subscription: each committed block expands into the ASM step
+//! proof and Moho recursive proof it requires. Concrete sled-backed storage
 //! lives in the sibling `strata-asm-prover-storage` crate; the binary supplies
 //! the `ProverContext` impl that wires storage and the Bitcoin client together.
 
@@ -13,7 +15,6 @@ mod backend;
 mod builder;
 mod config;
 mod errors;
-mod handle;
 mod input;
 mod orchestrator;
 mod proof_store;
@@ -24,7 +25,6 @@ pub use backend::{ProofBackend, ProofHost};
 pub use builder::ProverWorkerBuilder;
 pub use config::{BackendConfig, OrchestratorConfig};
 pub use errors::{ProverError, ProverResult};
-pub use handle::ProverWorkerHandle;
 pub use input::{InputBuilder, MohoPrerequisite};
 pub use orchestrator::ProofOrchestrator;
 pub use traits::{AnchorStateReader, AuxDataReader, L1BlockProvider, ProverContext};

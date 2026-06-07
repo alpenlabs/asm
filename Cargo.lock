@@ -8050,6 +8050,7 @@ dependencies = [
  "strata-asm-proof-impl",
  "strata-asm-prover-storage",
  "strata-asm-prover-types",
+ "strata-asm-worker",
  "strata-btc-types",
  "strata-btc-verification",
  "strata-identifiers",

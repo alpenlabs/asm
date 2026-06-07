@@ -8,9 +8,11 @@ use anyhow::{Context, Result};
 use async_trait::async_trait;
 use moho_recursive_proof::MohoRecursiveProgram;
 use strata_asm_proof_impl::program::AsmStfProofProgram;
-use strata_asm_prover_types::{ProofId, RemoteProofId};
+use strata_asm_prover_types::{L1Range, ProofId, RemoteProofId};
+use strata_asm_worker::Subscription;
+use strata_identifiers::L1BlockCommitment;
 use strata_tasks::ShutdownGuard;
-use tokio::{sync::mpsc, time};
+use tokio::{sync::mpsc::error::TryRecvError, time};
 use tracing::{debug, error, info, warn};
 use zkaleido::{RemoteProofStatus, ZkVmRemoteHost, ZkVmRemoteProgram};
 
@@ -20,11 +22,18 @@ use crate::{
 };
 
 /// Orchestrates remote proof generation for ASM and Moho proofs.
+///
+/// The orchestrator's only input is the ASM worker's commit stream: each
+/// [`L1BlockCommitment`] arrives *after* the block has been durably stored, and
+/// the orchestrator expands it into the ASM step proof and the Moho recursive
+/// proof that block requires (see [`drain_committed_blocks`]).
+///
+/// [`drain_committed_blocks`]: ProofOrchestrator::drain_committed_blocks
 #[derive(Debug)]
 pub struct ProofOrchestrator<C: ProverContext, H: ZkVmRemoteHost> {
     ctx: C,
     queue: PendingProofQueue,
-    rx: mpsc::UnboundedReceiver<ProofId>,
+    subscription: Subscription<L1BlockCommitment>,
     asm: H,
     moho: H,
     config: OrchestratorConfig,
@@ -39,12 +48,12 @@ impl<C: ProverContext, H: ZkVmRemoteHost> ProofOrchestrator<C, H> {
         moho: H,
         config: OrchestratorConfig,
         input_builder: InputBuilder,
-        rx: mpsc::UnboundedReceiver<ProofId>,
+        subscription: Subscription<L1BlockCommitment>,
     ) -> Self {
         Self {
             ctx,
             queue: PendingProofQueue::new(),
-            rx,
+            subscription,
             asm,
             moho,
             config,
@@ -52,10 +61,15 @@ impl<C: ProverContext, H: ZkVmRemoteHost> ProofOrchestrator<C, H> {
         }
     }
 
-    /// Runs the orchestrator loop until shutdown is requested or the channel is closed.
+    /// Runs the orchestrator loop until shutdown is requested or the ASM
+    /// worker's commit stream closes.
     pub async fn run(&mut self, shutdown: ShutdownGuard) -> Result<()> {
         info!("proof orchestrator started");
         loop {
+            // Pull every block committed since the last tick and expand each into
+            // its proof requests before doing the periodic reconcile/schedule work.
+            let closed = self.drain_committed_blocks();
+
             if let Err(e) = self.tick().await {
                 error!(?e, "orchestrator tick failed");
             }
@@ -65,9 +79,9 @@ impl<C: ProverContext, H: ZkVmRemoteHost> ProofOrchestrator<C, H> {
                 return Ok(());
             }
 
-            // Exit once the sender side has been dropped (shutdown) and there is
-            // nothing left to process.
-            if self.rx.is_closed() && self.queue.is_empty() {
+            // The ASM worker dropped the commit stream (shutdown) and there is
+            // nothing left to prove.
+            if closed && self.queue.is_empty() {
                 info!("proof orchestrator shutting down");
                 return Ok(());
             }
@@ -82,18 +96,29 @@ impl<C: ProverContext, H: ZkVmRemoteHost> ProofOrchestrator<C, H> {
         }
     }
 
-    /// Drains incoming proof requests from the channel into the pending queue.
-    fn drain_incoming(&mut self) {
-        while let Ok(id) = self.rx.try_recv() {
-            debug!(?id, "received proof request");
-            self.queue.enqueue(id);
+    /// Drains committed-block notifications from the ASM worker into the pending
+    /// queue, expanding each block into the ASM step proof and the Moho
+    /// recursive proof it requires.
+    ///
+    /// Returns `true` once the subscription has closed — the ASM worker shut
+    /// down and the backlog is drained — so the caller can exit after the queue
+    /// empties.
+    fn drain_committed_blocks(&mut self) -> bool {
+        loop {
+            match self.subscription.try_recv() {
+                Ok(block) => {
+                    debug!(%block, "ASM worker committed block, enqueuing proofs");
+                    self.queue.enqueue(ProofId::Asm(L1Range::single(block)));
+                    self.queue.enqueue(ProofId::Moho(block));
+                }
+                Err(TryRecvError::Empty) => return false,
+                Err(TryRecvError::Disconnected) => return true,
+            }
         }
     }
 
     /// Executes one orchestration cycle.
     async fn tick(&mut self) -> Result<()> {
-        self.drain_incoming();
-
         if !self.queue.is_empty() {
             debug!(pending = self.queue.len(), "orchestrator tick");
         }
