@@ -3,7 +3,7 @@
 use std::{fmt::Display, sync::Arc, time::Instant};
 
 use anyhow::Result;
-use asm_storage::{ExportEntriesDb, SledAsmStateDb};
+use asm_storage::{ExportEntriesDb, SledAsmManifestDb, SledAsmStateDb};
 use async_trait::async_trait;
 use bitcoin::BlockHash;
 use bitcoind_async_client::{Client, traits::Reader};
@@ -13,6 +13,7 @@ use jsonrpsee::{
     types::{ErrorObject, ErrorObjectOwned},
 };
 use ssz::{Decode, Encode};
+use strata_asm_common::{AnchorState, AsmManifest};
 use strata_asm_proof_db::{ProofDb, SledMohoStateDb, SledProofDb};
 use strata_asm_proof_types::{AsmProof, L1Range, MohoProof};
 use strata_asm_proto_bridge_v1::{AssignmentEntry, BridgeV1State, DepositEntry};
@@ -22,7 +23,7 @@ use strata_asm_proto_checkpoint::CheckpointState;
 use strata_asm_proto_checkpoint_txs::CHECKPOINT_SUBPROTOCOL_ID;
 use strata_asm_proto_checkpoint_types::CheckpointTip;
 use strata_asm_rpc::traits::{AsmControlApiServer, AsmProofApiServer, AsmStateApiServer};
-use strata_asm_worker::{AsmState, AsmWorkerHandle, AsmWorkerStatus};
+use strata_asm_worker::{AsmWorkerHandle, AsmWorkerStatus};
 use strata_btc_types::BlockHashExt;
 use strata_identifiers::L1BlockCommitment;
 use strata_tasks::ShutdownGuard;
@@ -46,6 +47,7 @@ async fn to_block_commitment(
 #[derive(Clone)]
 pub(crate) struct AsmRpcServer {
     state_db: Arc<SledAsmStateDb>,
+    manifest_db: Arc<SledAsmManifestDb>,
     asm_worker: Arc<AsmWorkerHandle>,
     bitcoin_client: Arc<Client>,
     /// Monotonic start instant, used to compute uptime for the control API.
@@ -55,11 +57,13 @@ pub(crate) struct AsmRpcServer {
 impl AsmRpcServer {
     pub(crate) fn new(
         state_db: Arc<SledAsmStateDb>,
+        manifest_db: Arc<SledAsmManifestDb>,
         asm_worker: Arc<AsmWorkerHandle>,
         bitcoin_client: Arc<Client>,
     ) -> Self {
         Self {
             state_db,
+            manifest_db,
             asm_worker,
             bitcoin_client,
             start_time: Instant::now(),
@@ -151,18 +155,20 @@ impl AsmStateApiServer for AsmRpcServer {
         }
     }
 
-    async fn get_asm_state(&self, block_hash: BlockHash) -> RpcResult<Option<AsmState>> {
+    async fn get_anchor_state(&self, block_hash: BlockHash) -> RpcResult<Option<AnchorState>> {
         let commitment = to_block_commitment(&self.bitcoin_client, block_hash)
             .await
             .map_err(to_rpc_error)?;
 
-        // The state store keeps only the `AnchorState`; logs live in the manifest
-        // store, so the returned `AsmState` carries empty logs.
-        Ok(self
-            .state_db
-            .get(&commitment)
-            .map_err(to_rpc_error)?
-            .map(|anchor| AsmState::new(anchor, vec![])))
+        self.state_db.get(&commitment).map_err(to_rpc_error)
+    }
+
+    async fn get_manifest(&self, block_hash: BlockHash) -> RpcResult<Option<AsmManifest>> {
+        let commitment = to_block_commitment(&self.bitcoin_client, block_hash)
+            .await
+            .map_err(to_rpc_error)?;
+
+        self.manifest_db.get(&commitment).map_err(to_rpc_error)
     }
 }
 
@@ -307,8 +313,13 @@ fn build_export_entry_mmr_proof(
 }
 
 /// Run the RPC server.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "wires every dependency the RPC handlers need; one call site"
+)]
 pub(crate) async fn run_rpc_server(
     state_db: Arc<SledAsmStateDb>,
+    manifest_db: Arc<SledAsmManifestDb>,
     asm_worker: Arc<AsmWorkerHandle>,
     bitcoin_client: Arc<Client>,
     proof_deps: Option<AsmProofRpcDeps>,
@@ -316,7 +327,7 @@ pub(crate) async fn run_rpc_server(
     rpc_port: u16,
     shutdown: ShutdownGuard,
 ) -> Result<()> {
-    let asm_rpc = AsmRpcServer::new(state_db, asm_worker, bitcoin_client.clone());
+    let asm_rpc = AsmRpcServer::new(state_db, manifest_db, asm_worker, bitcoin_client.clone());
     let mut module = AsmControlApiServer::into_rpc(asm_rpc.clone());
     module.merge(AsmStateApiServer::into_rpc(asm_rpc))?;
 

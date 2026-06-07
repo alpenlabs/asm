@@ -168,6 +168,7 @@ pub(crate) async fn bootstrap(
     executor.spawn_critical_async_with_shutdown("rpc_server", move |shutdown| {
         run_rpc_server(
             state_db,
+            manifest_db,
             asm_worker,
             bitcoin_client,
             proof_rpc_deps,

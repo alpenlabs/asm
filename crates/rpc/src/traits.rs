@@ -2,11 +2,12 @@
 
 use bitcoin::BlockHash;
 use jsonrpsee::{core::RpcResult, proc_macros::rpc};
+use strata_asm_common::{AnchorState, AsmManifest};
 use strata_asm_proof_types::{AsmProof, MohoProof};
 use strata_asm_proto_bridge_v1::{AssignmentEntry, DepositEntry};
 use strata_asm_proto_bridge_v1_types::SafeHarbour;
 use strata_asm_proto_checkpoint_types::CheckpointTip;
-use strata_asm_worker::{AsmState, AsmWorkerStatus};
+use strata_asm_worker::AsmWorkerStatus;
 
 /// Control-plane ASM RPCs: liveness and overall worker status.
 #[cfg_attr(not(feature = "client"), rpc(server, namespace = "strata_asm"))]
@@ -43,9 +44,16 @@ pub trait AsmStateApi {
     #[method(name = "getCheckpointTip")]
     async fn get_checkpoint_tip(&self, block_hash: BlockHash) -> RpcResult<Option<CheckpointTip>>;
 
-    /// Return the `AsmState` for the provided Bitcoin block hash.
-    #[method(name = "getAsmState")]
-    async fn get_asm_state(&self, block_hash: BlockHash) -> RpcResult<Option<AsmState>>;
+    /// Return the `AnchorState` for the provided Bitcoin block hash.
+    #[method(name = "getAnchorState")]
+    async fn get_anchor_state(&self, block_hash: BlockHash) -> RpcResult<Option<AnchorState>>;
+
+    /// Return the `AsmManifest` for the provided Bitcoin block hash.
+    ///
+    /// The manifest carries the block's emitted logs, which the anchor state
+    /// does not retain.
+    #[method(name = "getManifest")]
+    async fn get_manifest(&self, block_hash: BlockHash) -> RpcResult<Option<AsmManifest>>;
 }
 
 /// Proof-related ASM RPCs: registered only when the proof orchestrator is configured.
