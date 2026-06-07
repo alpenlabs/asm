@@ -7708,6 +7708,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "strata-asm-moho-storage"
+version = "0.1.0"
+dependencies = [
+ "moho-types",
+ "proptest",
+ "sled",
+ "ssz",
+ "strata-identifiers",
+ "strata-predicate",
+ "tempfile",
+ "tokio",
+]
+
+[[package]]
 name = "strata-asm-moho-worker"
 version = "0.1.0"
 dependencies = [

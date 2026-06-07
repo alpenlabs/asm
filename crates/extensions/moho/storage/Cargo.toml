@@ -1,0 +1,20 @@
+[package]
+name = "strata-asm-moho-storage"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+moho-types.workspace = true
+strata-identifiers.workspace = true
+
+sled.workspace = true
+ssz.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true
+strata-predicate.workspace = true
+tempfile.workspace = true
+tokio.workspace = true
+
+[lints]
+workspace = true
