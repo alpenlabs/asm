@@ -43,7 +43,13 @@ pub trait AuxDataReader {
 /// from a single-threaded runtime where blocking on the client would deadlock.
 pub trait L1BlockProvider {
     /// Fetches the full Bitcoin [`Block`] for `blockid`.
-    fn get_l1_block(&self, blockid: &L1BlockId) -> impl Future<Output = anyhow::Result<Block>>;
+    ///
+    /// The future is `Send` so the orchestration loop can run on the
+    /// multi-threaded async service framework.
+    fn get_l1_block(
+        &self,
+        blockid: &L1BlockId,
+    ) -> impl Future<Output = anyhow::Result<Block>> + Send;
 
     /// Fetches just the [`Header`] for `blockid`.
     ///
@@ -52,10 +58,10 @@ pub trait L1BlockProvider {
     fn get_l1_block_header(
         &self,
         blockid: &L1BlockId,
-    ) -> impl Future<Output = anyhow::Result<Header>>;
+    ) -> impl Future<Output = anyhow::Result<Header>> + Send;
 }
 
-/// Umbrella context the [`ProofOrchestrator`](crate::ProofOrchestrator) runs
+/// Umbrella context the [`ProverService`](crate::ProverService) runs
 /// against.
 ///
 /// Combines proof persistence and remote-job tracking (reused from

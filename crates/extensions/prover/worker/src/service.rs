@@ -1,264 +1,247 @@
-//! Proof orchestrator — schedules and reconciles remote proof jobs.
+//! Service framework integration for the prover worker.
 //!
-//! The orchestrator runs a periodic tick loop that:
-//! 1. Reconciles active remote proofs (polls status, stores completed proofs).
-//! 2. Schedules new proofs from the pending queue, enforcing prerequisites.
+//! Mirrors the ASM worker (`strata-asm-worker`): a logic-only [`ProverService`]
+//! ZST implements the framework traits, while all mutable data lives in
+//! [`ProverServiceState`]. The service is driven by the framework's input loop,
+//! fed by a [`TickingInput`](strata_service::TickingInput) that merges the ASM
+//! worker's commit subscription with a periodic wakeup tick:
+//!
+//! - [`TickMsg::Msg`] — a newly committed block; expand it into its ASM step and Moho recursive
+//!   proofs and enqueue them.
+//! - [`TickMsg::Tick`] — reconcile in-flight remote proofs, then schedule pending ones.
+
+use std::marker;
 
 use anyhow::{Context, Result};
 use async_trait::async_trait;
 use moho_recursive_proof::MohoRecursiveProgram;
+use serde::{Deserialize, Serialize};
 use strata_asm_proof_impl::program::AsmStfProofProgram;
-use strata_asm_prover_types::{L1Range, ProofId, RemoteProofId};
-use strata_asm_worker::Subscription;
+use strata_asm_prover_types::{ProofId, RemoteProofId};
 use strata_identifiers::L1BlockCommitment;
-use strata_tasks::ShutdownGuard;
-use tokio::{sync::mpsc::error::TryRecvError, time};
+use strata_service::{AsyncService, Response, Service, TickMsg};
 use tracing::{debug, error, info, warn};
-use zkaleido::{RemoteProofStatus, ZkVmRemoteHost, ZkVmRemoteProgram};
+use zkaleido::{RemoteProofStatus, ZkVmProgram, ZkVmRemoteHost};
 
 use crate::{
-    ProverContext, config::OrchestratorConfig, input::InputBuilder, proof_store,
-    queue::PendingProofQueue,
+    ProverContext, input::InputBuilder, message::ProverMessage, proof_store,
+    queue::PendingProofQueue, state::ProverServiceState,
 };
 
-/// Orchestrates remote proof generation for ASM and Moho proofs.
+/// Prover service implementation using the service framework.
 ///
-/// The orchestrator's only input is the ASM worker's commit stream: each
-/// [`L1BlockCommitment`] arrives *after* the block has been durably stored, and
-/// the orchestrator expands it into the ASM step proof and the Moho recursive
-/// proof that block requires (see [`drain_committed_blocks`]).
-///
-/// [`drain_committed_blocks`]: ProofOrchestrator::drain_committed_blocks
+/// A zero-sized logic holder generic over the prover context `C` and the remote
+/// host `H`; all state lives in [`ProverServiceState`].
 #[derive(Debug)]
-pub struct ProofOrchestrator<C: ProverContext, H: ZkVmRemoteHost> {
-    ctx: C,
-    queue: PendingProofQueue,
-    subscription: Subscription<L1BlockCommitment>,
-    asm: H,
-    moho: H,
-    config: OrchestratorConfig,
-    input_builder: InputBuilder,
+pub struct ProverService<C, H> {
+    _phantom: marker::PhantomData<(C, H)>,
 }
 
-impl<C: ProverContext, H: ZkVmRemoteHost> ProofOrchestrator<C, H> {
-    /// Creates a new orchestrator.
-    pub fn new(
-        ctx: C,
-        asm: H,
-        moho: H,
-        config: OrchestratorConfig,
-        input_builder: InputBuilder,
-        subscription: Subscription<L1BlockCommitment>,
-    ) -> Self {
-        Self {
-            ctx,
-            queue: PendingProofQueue::new(),
-            subscription,
-            asm,
-            moho,
-            config,
-            input_builder,
+impl<C, H> Service for ProverService<C, H>
+where
+    C: ProverContext + Send + Sync + 'static,
+    H: ZkVmRemoteHost + Send + Sync + 'static,
+{
+    type State = ProverServiceState<C, H>;
+    type Msg = ProverMessage;
+    type Status = ProverStatus;
+
+    fn get_status(state: &Self::State) -> Self::Status {
+        ProverStatus {
+            pending: state.queue.len(),
+            last_committed: state.last_committed,
         }
     }
+}
 
-    /// Runs the orchestrator loop until shutdown is requested or the ASM
-    /// worker's commit stream closes.
-    pub async fn run(&mut self, shutdown: ShutdownGuard) -> Result<()> {
-        info!("proof orchestrator started");
-        loop {
-            // Pull every block committed since the last tick and expand each into
-            // its proof requests before doing the periodic reconcile/schedule work.
-            let closed = self.drain_committed_blocks();
+impl<C, H> AsyncService for ProverService<C, H>
+where
+    C: ProverContext + Send + Sync + 'static,
+    H: ZkVmRemoteHost + Send + Sync + 'static,
+    H::ProofId: Send + Sync,
+{
+    async fn process_input(state: &mut Self::State, input: Self::Msg) -> anyhow::Result<Response> {
+        match input {
+            // A newly committed block: record the proofs it requires. Scheduling
+            // happens on the next tick.
+            TickMsg::Msg(block) => state.enqueue_block_proofs(block),
 
-            if let Err(e) = self.tick().await {
-                error!(?e, "orchestrator tick failed");
-            }
-
-            if shutdown.should_shutdown() {
-                info!("proof orchestrator shutting down");
-                return Ok(());
-            }
-
-            // The ASM worker dropped the commit stream (shutdown) and there is
-            // nothing left to prove.
-            if closed && self.queue.is_empty() {
-                info!("proof orchestrator shutting down");
-                return Ok(());
-            }
-
-            tokio::select! {
-                _ = shutdown.wait_for_shutdown() => {
-                    info!("proof orchestrator shutting down");
-                    return Ok(());
+            // Periodic wakeup: drive reconcile + schedule. Transient failures are
+            // logged and swallowed so the service keeps running, matching the
+            // pre-framework orchestrator loop.
+            TickMsg::Tick => {
+                if let Err(e) = tick(state).await {
+                    error!(?e, "prover tick failed");
                 }
-                _ = time::sleep(self.config.tick_interval) => {}
             }
         }
+        Ok(Response::Continue)
+    }
+}
+
+/// Executes one orchestration cycle: reconcile in-flight proofs, then schedule
+/// pending ones.
+async fn tick<C, H>(state: &mut ProverServiceState<C, H>) -> Result<()>
+where
+    C: ProverContext + Send + Sync,
+    H: ZkVmRemoteHost + Send + Sync,
+    H::ProofId: Send + Sync,
+{
+    if !state.queue.is_empty() {
+        debug!(pending = state.queue.len(), "prover tick");
     }
 
-    /// Drains committed-block notifications from the ASM worker into the pending
-    /// queue, expanding each block into the ASM step proof and the Moho
-    /// recursive proof it requires.
-    ///
-    /// Returns `true` once the subscription has closed — the ASM worker shut
-    /// down and the backlog is drained — so the caller can exit after the queue
-    /// empties.
-    fn drain_committed_blocks(&mut self) -> bool {
-        loop {
-            match self.subscription.try_recv() {
-                Ok(block) => {
-                    debug!(%block, "ASM worker committed block, enqueuing proofs");
-                    self.queue.enqueue(ProofId::Asm(L1Range::single(block)));
-                    self.queue.enqueue(ProofId::Moho(block));
-                }
-                Err(TryRecvError::Empty) => return false,
-                Err(TryRecvError::Disconnected) => return true,
-            }
+    reconcile_active_proofs(state).await?;
+    schedule_proofs(state).await?;
+    Ok(())
+}
+
+// ---- Step 1: Reconcile ----------------------------------------------------
+
+/// Polls all in-progress remote proofs and stores any that have completed.
+async fn reconcile_active_proofs<C, H>(state: &ProverServiceState<C, H>) -> Result<()>
+where
+    C: ProverContext + Send + Sync,
+    H: ZkVmRemoteHost + Send + Sync,
+    H::ProofId: Send + Sync,
+{
+    let in_progress = state
+        .ctx
+        .get_all_in_progress()
+        .await
+        .context("failed to query in-progress proofs")?;
+
+    for (remote_id, old_status) in in_progress {
+        if let Err(e) = reconcile_one(state, &remote_id, &old_status).await {
+            warn!(?remote_id, ?e, "failed to reconcile remote proof");
         }
     }
+    Ok(())
+}
 
-    /// Executes one orchestration cycle.
-    async fn tick(&mut self) -> Result<()> {
-        if !self.queue.is_empty() {
-            debug!(pending = self.queue.len(), "orchestrator tick");
-        }
+/// Reconciles a single remote proof.
+async fn reconcile_one<C, H>(
+    state: &ProverServiceState<C, H>,
+    remote_id: &RemoteProofId,
+    old_status: &RemoteProofStatus,
+) -> Result<()>
+where
+    C: ProverContext + Send + Sync,
+    H: ZkVmRemoteHost + Send + Sync,
+    H::ProofId: Send + Sync,
+{
+    let typed_id = to_typed_proof_id::<H>(remote_id)?;
 
-        self.reconcile_active_proofs().await?;
-        self.schedule_proofs().await?;
-        Ok(())
+    // NOTE: We use `state.asm` here but this could be any host instance.
+    // `get_status` only requires a network client and proof ID — not the ELF or
+    // proving key. Both hosts share the same concrete type `H`, so either works.
+    let new_status = state
+        .asm
+        .get_status(&typed_id)
+        .await
+        .map_err(|e| anyhow::anyhow!("failed to query remote proof status: {e}"))?;
+
+    if &new_status == old_status {
+        return Ok(());
     }
 
-    // ---- Step 1: Reconcile ------------------------------------------------
+    debug!(%remote_id, ?old_status, ?new_status, "remote proof status changed");
 
-    /// Polls all in-progress remote proofs and stores any that have completed.
-    async fn reconcile_active_proofs(&mut self) -> Result<()> {
-        let in_progress = self
-            .ctx
-            .get_all_in_progress()
-            .await
-            .context("failed to query in-progress proofs")?;
-
-        for (remote_id, old_status) in in_progress {
-            if let Err(e) = self.reconcile_one(&remote_id, &old_status).await {
-                warn!(?remote_id, ?e, "failed to reconcile remote proof");
-            }
+    match &new_status {
+        RemoteProofStatus::Completed => {
+            handle_completed(state, remote_id, &typed_id).await?;
         }
-        Ok(())
+        RemoteProofStatus::Failed(reason) => {
+            error!(?remote_id, %reason, "remote proof generation failed");
+            state
+                .ctx
+                .remove(remote_id)
+                .await
+                .context("failed to remove failed proof status")?;
+        }
+        _ => {
+            state
+                .ctx
+                .update_status(remote_id, new_status)
+                .await
+                .context("failed to update proof status")?;
+        }
+    }
+    Ok(())
+}
+
+/// Retrieves a completed proof and stores it in the proof store.
+async fn handle_completed<C, H>(
+    state: &ProverServiceState<C, H>,
+    remote_id: &RemoteProofId,
+    typed_id: &H::ProofId,
+) -> Result<()>
+where
+    C: ProverContext + Send + Sync,
+    H: ZkVmRemoteHost + Send + Sync,
+    H::ProofId: Send + Sync,
+{
+    // NOTE: As above, `get_proof` only needs a network client and the proof ID,
+    // so `state.asm` works for proofs produced by either host.
+    let receipt = state
+        .asm
+        .get_proof(typed_id)
+        .await
+        .map_err(|e| anyhow::anyhow!("failed to retrieve completed proof: {e}"))?;
+
+    let proof_id = state
+        .ctx
+        .get_proof_id(remote_id)
+        .await
+        .context("failed to look up proof ID from remote ID")?
+        .context("no mapping found for completed remote proof")?;
+
+    proof_store::store_completed_proof(&state.ctx, proof_id, receipt).await?;
+
+    state
+        .ctx
+        .remove(remote_id)
+        .await
+        .context("failed to remove completed proof status")?;
+
+    Ok(())
+}
+
+// ---- Step 2: Schedule -----------------------------------------------------
+
+/// Dequeues proofs from the pending queue and submits them to the remote prover.
+///
+/// Computes the available submission capacity, then delegates the loop control
+/// flow to [`schedule_with`] through a short-lived [`StateSubmitter`] so the
+/// scheduling loop itself can be unit-tested with a fake submitter.
+async fn schedule_proofs<C, H>(state: &mut ProverServiceState<C, H>) -> Result<()>
+where
+    C: ProverContext + Send + Sync,
+    H: ZkVmRemoteHost + Send + Sync,
+    H::ProofId: Send + Sync,
+{
+    let in_flight = state
+        .ctx
+        .get_all_in_progress()
+        .await
+        .context("failed to query in-progress proofs")?
+        .len();
+
+    let capacity = state.config.max_concurrent_proofs.saturating_sub(in_flight);
+    if capacity == 0 {
+        return Ok(());
     }
 
-    /// Reconciles a single remote proof.
-    async fn reconcile_one(
-        &self,
-        remote_id: &RemoteProofId,
-        old_status: &RemoteProofStatus,
-    ) -> Result<()> {
-        let typed_id = to_typed_proof_id::<H>(remote_id)?;
-
-        // NOTE: We use `self.asm` here but this could be any `ZkVmRemoteHost` instance.
-        // `get_status` only requires a network client and proof ID — not the ELF or
-        // proving key. Since the orchestrator is generic over a single `H: ZkVmRemoteHost`,
-        // both `asm` and `moho` share the same concrete type, so either works.
-        let new_status = self
-            .asm
-            .get_status(&typed_id)
-            .await
-            .map_err(|e| anyhow::anyhow!("failed to query remote proof status: {e}"))?;
-
-        if &new_status == old_status {
-            return Ok(());
-        }
-
-        debug!(
-            %remote_id,
-            ?old_status,
-            ?new_status,
-            "remote proof status changed"
-        );
-
-        match &new_status {
-            RemoteProofStatus::Completed => {
-                self.handle_completed(remote_id, &typed_id).await?;
-            }
-            RemoteProofStatus::Failed(reason) => {
-                error!(?remote_id, %reason, "remote proof generation failed");
-                self.ctx
-                    .remove(remote_id)
-                    .await
-                    .context("failed to remove failed proof status")?;
-            }
-            _ => {
-                self.ctx
-                    .update_status(remote_id, new_status)
-                    .await
-                    .context("failed to update proof status")?;
-            }
-        }
-        Ok(())
-    }
-
-    /// Retrieves a completed proof and stores it in the proof store.
-    async fn handle_completed(
-        &self,
-        remote_id: &RemoteProofId,
-        typed_id: &H::ProofId,
-    ) -> Result<()> {
-        // NOTE: We use `self.asm` here but this could be any `ZkVmRemoteHost` instance.
-        // `get_proof` only requires a network client and proof ID — not the ELF or
-        // proving key. Since the orchestrator is generic over a single `H: ZkVmRemoteHost`,
-        // both `asm` and `moho` share the same concrete type, so either works.
-        let receipt = self
-            .asm
-            .get_proof(typed_id)
-            .await
-            .map_err(|e| anyhow::anyhow!("failed to retrieve completed proof: {e}"))?;
-
-        let proof_id = self
-            .ctx
-            .get_proof_id(remote_id)
-            .await
-            .context("failed to look up proof ID from remote ID")?
-            .context("no mapping found for completed remote proof")?;
-
-        proof_store::store_completed_proof(&self.ctx, proof_id, receipt).await?;
-
-        self.ctx
-            .remove(remote_id)
-            .await
-            .context("failed to remove completed proof status")?;
-
-        Ok(())
-    }
-
-    // ---- Step 2: Schedule -------------------------------------------------
-
-    /// Dequeues proofs from the pending queue and submits them to the remote prover.
-    ///
-    /// Computes the available submission capacity, then delegates the loop
-    /// control flow to [`schedule_with`] through a short-lived
-    /// [`OrchestratorSubmitter`] so the scheduling loop itself can be
-    /// unit-tested with a fake submitter.
-    async fn schedule_proofs(&mut self) -> Result<()> {
-        let in_flight = self
-            .ctx
-            .get_all_in_progress()
-            .await
-            .context("failed to query in-progress proofs")?
-            .len();
-
-        let capacity = self.config.max_concurrent_proofs.saturating_sub(in_flight);
-        if capacity == 0 {
-            return Ok(());
-        }
-
-        let mut submitter = OrchestratorSubmitter {
-            ctx: &self.ctx,
-            asm: &self.asm,
-            moho: &self.moho,
-            input_builder: &self.input_builder,
-        };
-        schedule_with(&mut self.queue, &mut submitter, capacity).await;
-        Ok(())
-    }
+    // Disjoint field borrows: the submitter reads ctx/hosts/input_builder while
+    // `schedule_with` mutates the queue.
+    let mut submitter = StateSubmitter {
+        ctx: &state.ctx,
+        asm: &state.asm,
+        moho: &state.moho,
+        input_builder: &state.input_builder,
+    };
+    schedule_with(&mut state.queue, &mut submitter, capacity).await;
+    Ok(())
 }
 
 /// Outcome of a single [`ProofSubmitter::try_submit`] call.
@@ -276,29 +259,21 @@ enum SubmitOutcome {
 ///
 /// Abstracts the "submit one proof" step so the scheduling loop in
 /// [`schedule_with`] can be unit-tested against a fake submitter.
-///
-/// `?Send` because `zkaleido::ZkVmRemoteProver` is itself declared
-/// `#[async_trait(?Send)]` upstream — its async methods (e.g. `start_proving`)
-/// return non-`Send` futures to accommodate backends whose clients hold
-/// non-`Send` state across `.await`. Awaiting them here transitively makes
-/// `try_submit` non-`Send`. This is fine because the orchestrator is driven
-/// from a `LocalSet` (see the runner's `bootstrap`).
-#[async_trait(?Send)]
+#[async_trait]
 trait ProofSubmitter {
     async fn try_submit(&mut self, proof_id: ProofId) -> Result<SubmitOutcome>;
 }
 
 /// Runs the scheduling loop: pulls items from `queue` and submits via
-/// `submitter` until either `capacity` real submissions have been issued or
-/// the queue drains.
+/// `submitter` until either `capacity` real submissions have been issued or the
+/// queue drains.
 ///
 /// Drains past proofs whose prerequisites are not yet satisfied (e.g. a Moho
-/// proof waiting on its ASM step proof) so that independent higher-priority
-/// work behind them — typically the next ASM step proof — still gets submitted
-/// within the same tick. Deferred proofs (and submission errors) are parked in
-/// a local buffer and re-enqueued at the end, so the same blocked item is not
-/// popped twice within one loop. All submission errors are absorbed and
-/// logged; the function does not surface them upward.
+/// proof waiting on its ASM step proof) so that independent higher-priority work
+/// behind them — typically the next ASM step proof — still gets submitted within
+/// the same tick. Deferred proofs (and submission errors) are parked in a local
+/// buffer and re-enqueued at the end, so the same blocked item is not popped
+/// twice within one loop. All submission errors are absorbed and logged.
 async fn schedule_with<S: ProofSubmitter>(
     queue: &mut PendingProofQueue,
     submitter: &mut S,
@@ -326,18 +301,23 @@ async fn schedule_with<S: ProofSubmitter>(
     }
 }
 
-/// [`ProofSubmitter`] backed by the orchestrator's context, hosts, and input
-/// builder. Constructed inline by [`ProofOrchestrator::schedule_proofs`] for
-/// the duration of one scheduling cycle.
-struct OrchestratorSubmitter<'a, C: ProverContext, H: ZkVmRemoteHost> {
+/// [`ProofSubmitter`] backed by the service state's context, hosts, and input
+/// builder. Constructed inline by [`schedule_proofs`] for the duration of one
+/// scheduling cycle.
+struct StateSubmitter<'a, C, H> {
     ctx: &'a C,
     asm: &'a H,
     moho: &'a H,
     input_builder: &'a InputBuilder,
 }
 
-#[async_trait(?Send)]
-impl<C: ProverContext, H: ZkVmRemoteHost> ProofSubmitter for OrchestratorSubmitter<'_, C, H> {
+#[async_trait]
+impl<C, H> ProofSubmitter for StateSubmitter<'_, C, H>
+where
+    C: ProverContext + Send + Sync,
+    H: ZkVmRemoteHost + Send + Sync,
+    H::ProofId: Send + Sync,
+{
     async fn try_submit(&mut self, proof_id: ProofId) -> Result<SubmitOutcome> {
         // Skip if already submitted.
         if self
@@ -358,13 +338,32 @@ impl<C: ProverContext, H: ZkVmRemoteHost> ProofSubmitter for OrchestratorSubmitt
         }
 
         // Build input and submit to remote prover, dispatching by proof type.
+        //
+        // We call the host's `start_proving` directly rather than the
+        // `ZkVmRemoteProgram::start_proving` convenience wrapper: that wrapper is
+        // still declared `#[async_trait(?Send)]` upstream, which would make this
+        // future `!Send` and force the whole service off the async framework.
+        // Its body is just `prepare_input` (sync) + `host.start_proving` (now
+        // `Send`), so inlining it keeps the path `Send`.
+        //
+        // TODO(zkaleido): two upstream changes would let this whole module shed
+        // its `Send` workarounds:
+        //   1. Mark `ZkVmRemoteProgram` `#[async_trait]` (its body is already `Send`-safe) — then
+        //      drop this inlining and call `AsmStfProofProgram::start_proving(&runtime_input,
+        //      self.asm)`.
+        //   2. Bound `ZkVmRemoteProver::ProofId: Send + Sync` — then drop the `H::ProofId: Send +
+        //      Sync` where-clauses threaded through this module (the concrete
+        //      `Sp1ProofId`/`NativeProofId` already satisfy it).
         let typed_id = match &proof_id {
             ProofId::Asm(range) => {
                 let runtime_input = self
                     .input_builder
                     .build_asm_runtime_input(self.ctx, range)
                     .await?;
-                AsmStfProofProgram::start_proving(&runtime_input, self.asm)
+                let zkvm_input = AsmStfProofProgram::prepare_input::<H::Input<'_>>(&runtime_input)
+                    .map_err(|e| anyhow::anyhow!("failed to prepare ASM proof input: {e}"))?;
+                self.asm
+                    .start_proving(zkvm_input, AsmStfProofProgram::proof_type())
                     .await
                     .map_err(|e| anyhow::anyhow!("failed to submit proof to remote prover: {e}"))?
             }
@@ -384,7 +383,10 @@ impl<C: ProverContext, H: ZkVmRemoteHost> ProofSubmitter for OrchestratorSubmitt
                     .input_builder
                     .build_moho_runtime_input(self.ctx, prerequisite, *block)
                     .await?;
-                MohoRecursiveProgram::start_proving(&input, self.moho)
+                let zkvm_input = MohoRecursiveProgram::prepare_input::<H::Input<'_>>(&input)
+                    .map_err(|e| anyhow::anyhow!("failed to prepare Moho proof input: {e}"))?;
+                self.moho
+                    .start_proving(zkvm_input, MohoRecursiveProgram::proof_type())
                     .await
                     .map_err(|e| anyhow::anyhow!("failed to submit proof to remote prover: {e}"))?
             }
@@ -412,6 +414,18 @@ impl<C: ProverContext, H: ZkVmRemoteHost> ProofSubmitter for OrchestratorSubmitt
 fn to_typed_proof_id<H: ZkVmRemoteHost>(remote_id: &RemoteProofId) -> Result<H::ProofId> {
     H::ProofId::try_from(remote_id.0.clone())
         .map_err(|_| anyhow::anyhow!("failed to decode remote proof ID"))
+}
+
+/// Status snapshot for the prover service, surfaced through the
+/// [`ServiceMonitor`](strata_service::ServiceMonitor) on
+/// [`ProverWorkerHandle`](crate::ProverWorkerHandle).
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ProverStatus {
+    /// Number of proofs queued but not yet submitted to the remote prover.
+    pub pending: usize,
+
+    /// Most recent block the ASM worker reported as committed, if any.
+    pub last_committed: Option<L1BlockCommitment>,
 }
 
 #[cfg(test)]
@@ -466,7 +480,7 @@ mod tests {
         }
     }
 
-    #[async_trait(?Send)]
+    #[async_trait]
     impl ProofSubmitter for FakeSubmitter {
         async fn try_submit(&mut self, id: ProofId) -> Result<SubmitOutcome> {
             self.call_log.push(id);

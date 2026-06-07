@@ -14,7 +14,6 @@ strata-asm-common.workspace = true
 strata-asm-moho-storage.workspace = true
 strata-asm-moho-worker.workspace = true
 strata-asm-params.workspace = true
-strata-asm-proof-impl.workspace = true
 strata-asm-proto-bridge-v1.workspace = true
 strata-asm-proto-bridge-v1-txs.workspace = true
 strata-asm-proto-bridge-v1-types.workspace = true
@@ -33,7 +32,6 @@ asm-storage.workspace = true
 
 strata-identifiers.workspace = true
 strata-merkle.workspace = true
-strata-predicate.workspace = true
 strata-tasks.workspace = true
 
 anyhow.workspace = true
@@ -55,6 +53,7 @@ tracing.workspace = true
 zkaleido.workspace = true
 
 [dev-dependencies]
+strata-predicate.workspace = true
 tempfile.workspace = true
 
 [features]

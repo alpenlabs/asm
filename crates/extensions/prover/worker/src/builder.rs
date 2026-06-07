@@ -1,26 +1,31 @@
-//! Builder for assembling a prover worker.
+//! Builder for assembling and launching a prover worker.
 
 use strata_asm_worker::Subscription;
 use strata_identifiers::L1BlockCommitment;
+use strata_service::{ServiceBuilder, StreamInput, TickingInput};
+use strata_tasks::TaskExecutor;
 use zkaleido::ZkVmRemoteHost;
 
 use crate::{
-    InputBuilder, ProofOrchestrator, ProverContext,
+    InputBuilder, ProverContext,
     config::OrchestratorConfig,
+    constants,
     errors::{ProverError, ProverResult},
+    handle::ProverWorkerHandle,
+    service::ProverService,
+    state::ProverServiceState,
 };
 
-/// Builder for assembling a prover worker.
+/// Builder for assembling and launching a prover worker.
 ///
 /// Wires the context, remote hosts, config, input builder, and the ASM worker's
-/// commit subscription into a [`ProofOrchestrator`]. The orchestrator's only
-/// input is that subscription: it turns each committed [`L1BlockCommitment`]
-/// into the proofs the block requires.
-///
-/// The orchestrator is *not* spawned here: its run loop is `!Send` (the
-/// upstream `ZkVmRemoteProver` is `#[async_trait(?Send)]`), so the caller must
-/// drive [`ProofOrchestrator::run`] itself — typically on a dedicated thread
-/// with a single-threaded runtime and a `LocalSet`.
+/// commit subscription into a [`ProverService`] and launches it on the
+/// `strata-service` async framework — mirroring how
+/// [`AsmWorkerBuilder`](https://docs.rs/strata-asm-worker) launches the ASM
+/// worker. The orchestration loop runs on the framework's worker task; the
+/// subscription is adapted into the service input via
+/// [`StreamInput`] + [`TickingInput`], so each committed [`L1BlockCommitment`]
+/// becomes a `TickMsg::Msg` and the periodic wakeup a `TickMsg::Tick`.
 #[derive(Debug)]
 pub struct ProverWorkerBuilder<C, H> {
     ctx: Option<C>,
@@ -69,7 +74,7 @@ impl<C, H> ProverWorkerBuilder<C, H> {
         self
     }
 
-    /// Sets the ASM worker commit subscription that drives the orchestrator.
+    /// Sets the ASM worker commit subscription that drives the service.
     ///
     /// Subscribe *before* the worker starts processing blocks — there is no
     /// replay buffer, so any block committed before this subscription exists is
@@ -83,10 +88,15 @@ impl<C, H> ProverWorkerBuilder<C, H> {
     }
 }
 
-impl<C: ProverContext, H: ZkVmRemoteHost> ProverWorkerBuilder<C, H> {
-    /// Validates the supplied dependencies and assembles the orchestrator for
-    /// the caller to drive.
-    pub fn build(self) -> ProverResult<ProofOrchestrator<C, H>> {
+impl<C, H> ProverWorkerBuilder<C, H>
+where
+    C: ProverContext + Send + Sync + 'static,
+    H: ZkVmRemoteHost + Send + Sync + 'static,
+    H::ProofId: Send + Sync,
+{
+    /// Validates the supplied dependencies, then launches the prover service and
+    /// returns a handle to it.
+    pub async fn launch(self, executor: &TaskExecutor) -> ProverResult<ProverWorkerHandle> {
         let ctx = self.ctx.ok_or(ProverError::MissingDependency("context"))?;
         let asm_host = self
             .asm_host
@@ -104,14 +114,22 @@ impl<C: ProverContext, H: ZkVmRemoteHost> ProverWorkerBuilder<C, H> {
             .subscription
             .ok_or(ProverError::MissingDependency("subscription"))?;
 
-        Ok(ProofOrchestrator::new(
-            ctx,
-            asm_host,
-            moho_host,
-            config,
-            input_builder,
-            subscription,
-        ))
+        // Capture the tick interval before `config` is moved into the state.
+        let tick_interval = config.tick_interval;
+
+        let state = ProverServiceState::new(ctx, asm_host, moho_host, config, input_builder);
+
+        // The ASM worker's commit subscription is a `Stream`; wrap it as a
+        // service input and overlay the periodic wakeup tick.
+        let input = TickingInput::new(tick_interval, StreamInput::new(subscription));
+
+        let monitor = ServiceBuilder::<ProverService<C, H>, _>::new()
+            .with_state(state)
+            .with_input(input)
+            .launch_async(constants::SERVICE_NAME, executor)
+            .await?;
+
+        Ok(ProverWorkerHandle::new(monitor))
     }
 }
 

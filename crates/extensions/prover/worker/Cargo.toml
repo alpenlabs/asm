@@ -21,6 +21,7 @@ strata-btc-verification.workspace = true
 strata-identifiers.workspace = true
 strata-merkle = { workspace = true, features = ["ssz"] }
 strata-predicate.workspace = true
+strata-service.workspace = true
 strata-tasks.workspace = true
 
 anyhow.workspace = true
@@ -31,7 +32,6 @@ k256 = { workspace = true, features = ["schnorr"] }
 serde.workspace = true
 ssz.workspace = true
 thiserror.workspace = true
-tokio.workspace = true
 tracing.workspace = true
 tree_hash.workspace = true
 zkaleido.workspace = true

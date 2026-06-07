@@ -10,10 +10,7 @@ use strata_asm_prover_worker::{InputBuilder, ProofBackend, ProverWorkerBuilder};
 use strata_asm_spec::StrataAsmSpec;
 use strata_asm_worker::AsmWorkerBuilder;
 use strata_tasks::TaskExecutor;
-use tokio::{
-    runtime::{Builder as RuntimeBuilder, Handle},
-    task::{self, LocalSet},
-};
+use tokio::{runtime::Handle, task};
 
 use crate::{
     block_watcher::drive_asm_from_bitcoin,
@@ -151,28 +148,19 @@ pub(crate) async fn bootstrap(
         // wrote MohoState inline. Revisit if proof input assembly races moho-state.
         let block_subscription = asm_worker.subscribe_blocks();
 
-        let mut orchestrator = ProverWorkerBuilder::new()
+        // The prover proving path is now `Send` (it calls the host's
+        // `start_proving`/`get_status`/`get_proof` directly rather than the
+        // `?Send` `ZkVmRemoteProgram` wrapper), so the service runs on the
+        // standard async framework via `launch` — no dedicated thread or
+        // `LocalSet` needed.
+        let _prover_handle = ProverWorkerBuilder::new()
             .with_context(prover_ctx)
             .with_hosts(asm_host, moho_host)
             .with_config(orch_config)
             .with_input_builder(input_builder)
             .with_block_subscription(block_subscription)
-            .build()?;
-
-        // ZkVmRemoteProver is !Send (#[async_trait(?Send)]), so the orchestrator
-        // future cannot be spawned on a multi-threaded runtime directly. We run it
-        // on a dedicated thread with a single-threaded runtime + LocalSet.
-        executor.spawn_critical_async_with_shutdown(
-            "proof_orchestrator",
-            move |shutdown| async move {
-                task::spawn_blocking(move || {
-                    let rt = RuntimeBuilder::new_current_thread().enable_all().build()?;
-                    let local = LocalSet::new();
-                    rt.block_on(local.run_until(async move { orchestrator.run(shutdown).await }))
-                })
-                .await?
-            },
-        );
+            .launch(&executor)
+            .await?;
 
         Some(rpc_deps)
     } else {
