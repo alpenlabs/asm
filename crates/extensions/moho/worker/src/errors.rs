@@ -12,14 +12,21 @@ pub enum MohoWorkerError {
     #[error("missing ASM anchor state for block {0:?}")]
     MissingAsmState(L1BlockCommitment),
 
-    /// An incoming ASM commit skipped one or more heights relative to the
-    /// worker's running state. The worker is a forward-only fold over the commit
-    /// stream, so it cannot chain across a gap.
+    /// The Moho state for a block was not found in the store. Hit when
+    /// resolving the parent of an incoming commit: the fold chains forward from
+    /// the parent's committed Moho state, so the parent must already be present.
+    /// With commits arriving in order from the ASM worker, a miss means the
+    /// parent's commit was never folded — a gap the worker cannot bridge alone.
     // TODO(STR-3124): backfill the gap by replaying the intervening anchor
     // states instead of erroring out, once the worker resumes from its own
     // store on restart.
-    #[error("non-contiguous ASM commit: expected height {expected}, got {got}")]
-    NonContiguousBlock { expected: u64, got: u64 },
+    #[error("missing Moho state for block {0:?}")]
+    MissingMohoState(L1BlockCommitment),
+
+    /// The parent of an L1 block commitment could not be resolved — e.g. the L1
+    /// block or its header was unavailable from the provider.
+    #[error("could not resolve parent of L1 block {0:?}")]
+    MissingParentBlock(L1BlockCommitment),
 
     /// The underlying Moho-state store failed. Carries the backend's display so
     /// the operator sees the real cause without us bucketing it.
