@@ -7768,13 +7768,10 @@ name = "strata-asm-proof-db"
 version = "0.1.0"
 dependencies = [
  "borsh",
- "moho-types",
  "proptest",
  "sled",
- "ssz",
  "strata-asm-proof-types",
  "strata-identifiers",
- "strata-predicate",
  "tempfile",
  "tokio",
  "zkaleido",
