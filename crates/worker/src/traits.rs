@@ -43,7 +43,19 @@ pub trait AnchorStateStore {
     /// Fetches the [`AsmState`] given the block id.
     fn get_anchor_state(&self, blockid: &L1BlockCommitment) -> WorkerResult<AsmState>;
 
-    /// Fetches the latest [`AsmState`] - the one that corresponds to the "highest" block.
+    /// Fetches the latest [`AsmState`] — the one at the highest stored block.
+    ///
+    /// This is a best-effort startup resume hint, *not* a guaranteed canonical
+    /// tip. Orphaned states from abandoned reorg branches are never pruned, so
+    /// the highest-height entry may belong to a branch that is no longer
+    /// canonical (e.g. after a reorg to a shorter chain the orphaned higher
+    /// block outranks the canonical tip). Implementations must not assume the
+    /// result is on the canonical chain.
+    ///
+    /// This is safe to use only as the initial anchor seed: every sync re-derives
+    /// the base by walking the L1 target's ancestry (see `plan_block_processing`)
+    /// and resets the anchor before applying any block, so a stale hint here is
+    /// overwritten on the first sync and never drives a transition.
     fn get_latest_asm_state(&self) -> WorkerResult<Option<(L1BlockCommitment, AsmState)>>;
 
     /// Puts the [`AsmState`] into DB.
