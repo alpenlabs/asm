@@ -85,6 +85,12 @@ pub fn compute_asm_transition<S: AsmSpec>(
     // 8. Append the manifest to the history accumulator
     history_accumulator.add_manifest(&manifest)?;
 
+    // Sanity check
+    assert_eq!(
+        history_accumulator.last_inserted_height(),
+        pow_state.last_verified_block.height as u64
+    );
+
     // 9. Construct the final `AnchorState` and output.
     let chain_view = ChainViewState {
         pow_state,
