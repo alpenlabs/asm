@@ -7706,6 +7706,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "strata-asm-moho-worker"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "moho-runtime-interface",
+ "moho-types",
+ "serde",
+ "strata-asm-common",
+ "strata-asm-params",
+ "strata-asm-proof-impl",
+ "strata-asm-spec",
+ "strata-asm-worker",
+ "strata-identifiers",
+ "strata-predicate",
+ "strata-service",
+ "strata-tasks",
+ "strata-test-utils-arb",
+ "thiserror 2.0.18",
+ "tracing",
+]
+
+[[package]]
 name = "strata-asm-params"
 version = "0.1.0"
 dependencies = [

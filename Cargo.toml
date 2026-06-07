@@ -34,6 +34,9 @@ members = [
   "crates/worker",
   "crates/storage",
 
+  # extensions
+  "crates/extensions/moho/worker",
+
   # tests
   "tests",
 
@@ -61,6 +64,7 @@ strata-ams-test-utils = { path = "crates/test-utils-btcio" }
 strata-asm-common = { path = "crates/common" }
 strata-asm-logs = { path = "crates/logs" }
 strata-asm-manifest-types = { path = "crates/manifest-types" }
+strata-asm-moho-worker = { path = "crates/extensions/moho/worker" }
 strata-asm-params = { path = "crates/params" }
 strata-asm-proof-db = { path = "crates/proof/db" }
 strata-asm-proof-impl = { path = "crates/proof/statements" }
