@@ -1,5 +1,6 @@
 //! Service state for the Moho worker.
 
+use moho_types::MohoState;
 use strata_identifiers::L1BlockCommitment;
 use strata_predicate::PredicateKey;
 use strata_service::ServiceState;
@@ -9,27 +10,29 @@ use crate::{MohoWorkerContext, MohoWorkerResult, compute, constants};
 
 /// In-memory state for the Moho worker.
 ///
-/// The worker folds each ASM commit into a [`MohoState`](moho_types::MohoState)
-/// by resolving the commit's parent, loading the Moho state already committed
-/// for that parent, and chaining forward onto the incoming block's anchor
-/// state. Resolving the *actual* parent each time — rather than assuming height
-/// contiguity — is what lets the fold follow L1 reorgs: a commit building on an
-/// earlier fork point chains from that fork's Moho state, not from whichever
-/// commit was processed last. It keeps no chain view of its own; the parent
-/// linkage and the committed states in the store are the only inputs.
+/// Holds the most recently folded [`MohoState`] and the block it is anchored to.
+/// Each ASM commit is folded onto its parent's Moho state: in the common
+/// in-order case the parent is the block already held here, so the fold reads
+/// straight from memory; on an L1 reorg the incoming commit builds on a
+/// different block, so the orchestration re-anchors from the parent's committed
+/// state in the store. It keeps no chain view of its own.
+///
+/// Mirrors `strata-asm-worker`'s `AsmWorkerServiceState`, which likewise holds
+/// the current `AsmState` in memory and re-anchors on reorg. The fold
+/// orchestration lives in the service layer's `process_block`; this type just
+/// holds the data and the small `update_moho_state` mutation that advances it.
 #[derive(Debug)]
 pub struct MohoWorkerServiceState<W> {
     /// Context for reading ASM anchor states, resolving parents, and persisting
     /// Moho states.
     pub(crate) context: W,
 
-    /// The L1 block the worker most recently committed a Moho state for. Tracked
-    /// for status reporting only — the fold chains off each commit's stored
-    /// parent, not this field.
-    cur_block: L1BlockCommitment,
+    /// The most recently folded (or genesis-seeded) Moho state. The fold chains
+    /// directly onto this when the next commit builds on `cur_block`.
+    cur_moho: MohoState,
 
-    /// Number of commits folded since launch (excludes the genesis seed).
-    processed: u64,
+    /// The L1 block `cur_moho` is anchored to.
+    cur_block: L1BlockCommitment,
 }
 
 impl<W: MohoWorkerContext> MohoWorkerServiceState<W> {
@@ -43,24 +46,24 @@ impl<W: MohoWorkerContext> MohoWorkerServiceState<W> {
         genesis_block: L1BlockCommitment,
         asm_predicate: PredicateKey,
     ) -> MohoWorkerResult<Self> {
-        let cur_block = match context.get_latest_moho_state()? {
-            Some((blk, _)) => {
+        let (cur_block, cur_moho) = match context.get_latest_moho_state()? {
+            Some((blk, moho)) => {
                 info!(%blk, "resuming Moho worker from stored state");
-                blk
+                (blk, moho)
             }
             None => {
                 let genesis_anchor = context.get_anchor_state(&genesis_block)?;
                 let moho = compute::construct_genesis_moho_state(asm_predicate, &genesis_anchor);
                 context.store_moho_state(&genesis_block, &moho)?;
                 info!(%genesis_block, "seeded genesis Moho state");
-                genesis_block
+                (genesis_block, moho)
             }
         };
 
         Ok(Self {
             context,
+            cur_moho,
             cur_block,
-            processed: 0,
         })
     }
 
@@ -69,33 +72,16 @@ impl<W: MohoWorkerContext> MohoWorkerServiceState<W> {
         self.cur_block
     }
 
-    /// Number of ASM commits folded since launch.
-    pub fn processed(&self) -> u64 {
-        self.processed
+    /// The most recently folded (or genesis-seeded) Moho state.
+    pub fn cur_moho(&self) -> &MohoState {
+        &self.cur_moho
     }
 
-    /// Folds a single ASM commit into a new [`MohoState`](moho_types::MohoState)
-    /// and persists it.
-    ///
-    /// Resolves the commit's parent, loads the Moho state already committed for
-    /// that parent, and chains it forward onto this block's anchor state and
-    /// logs. Resolving the real parent (rather than assuming the commit is the
-    /// height-successor of the last one processed) is what lets the fold follow
-    /// L1 reorgs.
-    pub(crate) fn process(&mut self, block: L1BlockCommitment) -> MohoWorkerResult<()> {
-        let parent_block = self.context.get_parent_block(&block)?;
-        let parent_moho = self.context.get_moho_state(&parent_block)?;
-
-        let anchor_state = self.context.get_anchor_state(&block)?;
-        let logs = self.context.get_anchor_logs(&block)?;
-        let moho = compute::construct_next_moho_state(&parent_moho, &anchor_state, &logs);
-        self.context.store_moho_state(&block, &moho)?;
-
-        self.cur_block = block;
-        self.processed += 1;
-
-        info!(%block, parent = %parent_block, "committed Moho state");
-        Ok(())
+    /// Advances the in-memory state to `moho` at `blk` after a successful fold.
+    /// Mirrors `strata-asm-worker`'s `update_anchor_state`.
+    pub(crate) fn update_moho_state(&mut self, moho: MohoState, blk: L1BlockCommitment) {
+        self.cur_moho = moho;
+        self.cur_block = blk;
     }
 }
 
@@ -110,7 +96,6 @@ mod tests {
     use std::{cell::RefCell, collections::HashMap};
 
     use moho_runtime_interface::MohoProgram;
-    use moho_types::MohoState;
     use strata_asm_common::{AnchorState, AsmLogEntry};
     use strata_asm_params::AsmParams;
     use strata_asm_proof_impl::moho_program::program::AsmStfProgram;
@@ -120,7 +105,10 @@ mod tests {
     use strata_test_utils_arb::ArbitraryGenerator;
 
     use super::*;
-    use crate::{AsmStateProvider, L1ProviderContext, MohoStateStore, MohoWorkerError};
+    use crate::{
+        AsmStateProvider, L1ProviderContext, MohoStateStore, MohoWorkerError,
+        service::process_block,
+    };
 
     /// In-memory context backing the three concern traits.
     #[derive(Debug, Default)]
@@ -240,7 +228,6 @@ mod tests {
             MohoWorkerServiceState::new(ctx, genesis_blk, PredicateKey::always_accept()).unwrap();
 
         assert_eq!(state.cur_block(), genesis_blk);
-        assert_eq!(state.processed(), 0);
         // Genesis moho was persisted and its inner commitment matches the anchor.
         let stored = state
             .context
@@ -289,11 +276,10 @@ mod tests {
         let mut state =
             MohoWorkerServiceState::new(ctx, genesis_blk, PredicateKey::always_accept()).unwrap();
 
-        state.process(blk1).unwrap();
-        state.process(blk2).unwrap();
+        process_block(&mut state, blk1).unwrap();
+        process_block(&mut state, blk2).unwrap();
 
         assert_eq!(state.cur_block(), blk2);
-        assert_eq!(state.processed(), 2);
         assert!(state.context.moho.borrow().contains_key(&blk1));
         assert!(state.context.moho.borrow().contains_key(&blk2));
     }
@@ -317,12 +303,13 @@ mod tests {
         let mut state =
             MohoWorkerServiceState::new(ctx, genesis_blk, PredicateKey::always_accept()).unwrap();
 
-        state.process(blk_a).unwrap();
-        state.process(blk_b).unwrap();
+        process_block(&mut state, blk_a).unwrap();
+        // blk_b's parent (genesis) is no longer the in-memory cur_block (blk_a),
+        // so this exercises the store re-anchor path, not the fast path.
+        process_block(&mut state, blk_b).unwrap();
 
-        // The second sibling was folded, not ignored.
-        assert_eq!(state.processed(), 2);
         let moho = state.context.moho.borrow();
+        // The second sibling was folded, not ignored.
         assert!(moho.contains_key(&blk_a));
         assert!(moho.contains_key(&blk_b));
         // Both fold from the shared genesis state onto the same anchor, so their
@@ -347,7 +334,7 @@ mod tests {
         let mut state =
             MohoWorkerServiceState::new(ctx, genesis_blk, PredicateKey::always_accept()).unwrap();
 
-        let err = state.process(orphan).unwrap_err();
+        let err = process_block(&mut state, orphan).unwrap_err();
         assert!(matches!(err, MohoWorkerError::MissingMohoState(_)));
     }
 
@@ -364,7 +351,7 @@ mod tests {
         let mut state =
             MohoWorkerServiceState::new(ctx, genesis_blk, PredicateKey::always_accept()).unwrap();
 
-        let err = state.process(blk).unwrap_err();
+        let err = process_block(&mut state, blk).unwrap_err();
         assert!(matches!(err, MohoWorkerError::MissingParentBlock(_)));
     }
 }

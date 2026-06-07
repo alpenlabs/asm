@@ -4306,7 +4306,9 @@ name = "moho-types"
 version = "0.1.0"
 source = "git+https://github.com/alpenlabs/moho?tag=v0.1-alpha.8#9499bce0ed87d6d2d84bc694ade6867858808244"
 dependencies = [
+ "const-hex",
  "hex",
+ "serde",
  "sha2 0.11.0",
  "ssz",
  "ssz_codegen",

@@ -8,11 +8,13 @@
 
 use std::marker::PhantomData;
 
+use moho_types::MohoState;
 use serde::{Deserialize, Serialize};
 use strata_identifiers::L1BlockCommitment;
 use strata_service::{AsyncService, Response, Service};
+use tracing::info;
 
-use crate::{MohoWorkerContext, MohoWorkerServiceState};
+use crate::{MohoWorkerContext, MohoWorkerResult, MohoWorkerServiceState, compute};
 
 /// Moho worker service implementation using the service framework.
 #[derive(Debug)]
@@ -32,7 +34,7 @@ where
         MohoWorkerStatus {
             is_initialized: true,
             cur_block: Some(state.cur_block()),
-            processed: state.processed(),
+            cur_state: Some(state.cur_moho().clone()),
         }
     }
 }
@@ -48,9 +50,41 @@ where
         // The store is synchronous (sled), so the fold runs to completion
         // without yielding. A processing error exits the worker — the commit
         // stream cannot be skipped without leaving a gap.
-        state.process(input)?;
+        process_block(state, input)?;
         Ok(Response::Continue)
     }
+}
+
+/// Folds a single ASM commit into a new [`MohoState`] and persists it.
+///
+/// Resolves the commit's parent and chains the Moho state forward onto this
+/// block's anchor state and logs. The parent's Moho state comes from the
+/// in-memory [`cur_moho`](MohoWorkerServiceState::cur_moho) when the commit
+/// builds on the block already held — the in-order common case; otherwise (an L1
+/// reorg) it is re-anchored from the parent's committed state in the store.
+/// Resolving the real parent rather than assuming height contiguity is what lets
+/// the worker follow reorgs.
+pub(crate) fn process_block<W: MohoWorkerContext>(
+    state: &mut MohoWorkerServiceState<W>,
+    block: L1BlockCommitment,
+) -> MohoWorkerResult<()> {
+    let parent = state.context.get_parent_block(&block)?;
+
+    let parent_moho = if state.cur_block() == parent {
+        state.cur_moho().clone()
+    } else {
+        state.context.get_moho_state(&parent)?
+    };
+
+    let anchor_state = state.context.get_anchor_state(&block)?;
+    let logs = state.context.get_anchor_logs(&block)?;
+    let moho = compute::construct_next_moho_state(&parent_moho, &anchor_state, &logs);
+    state.context.store_moho_state(&block, &moho)?;
+
+    state.update_moho_state(moho, block);
+
+    info!(%block, %parent, "committed Moho state");
+    Ok(())
 }
 
 /// Status information for the Moho worker service.
@@ -58,5 +92,5 @@ where
 pub struct MohoWorkerStatus {
     pub is_initialized: bool,
     pub cur_block: Option<L1BlockCommitment>,
-    pub processed: u64,
+    pub cur_state: Option<MohoState>,
 }
