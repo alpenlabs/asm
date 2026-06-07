@@ -8,40 +8,41 @@ use anyhow::{Context, Result};
 use async_trait::async_trait;
 use moho_recursive_proof::MohoRecursiveProgram;
 use strata_asm_proof_impl::program::AsmStfProofProgram;
-use strata_asm_prover_storage::{RemoteProofMappingDb, RemoteProofStatusDb, SledProofDb};
 use strata_asm_prover_types::{ProofId, RemoteProofId};
 use strata_tasks::ShutdownGuard;
 use tokio::{sync::mpsc, time};
 use tracing::{debug, error, info, warn};
 use zkaleido::{RemoteProofStatus, ZkVmRemoteHost, ZkVmRemoteProgram};
 
-use super::{
-    config::OrchestratorConfig, input::InputBuilder, proof_store, queue::PendingProofQueue,
+use crate::{
+    ProverContext, config::OrchestratorConfig, input::InputBuilder, proof_store,
+    queue::PendingProofQueue,
 };
 
 /// Orchestrates remote proof generation for ASM and Moho proofs.
-pub(crate) struct ProofOrchestrator<Host: ZkVmRemoteHost> {
-    db: SledProofDb,
+#[derive(Debug)]
+pub struct ProofOrchestrator<C: ProverContext, H: ZkVmRemoteHost> {
+    ctx: C,
     queue: PendingProofQueue,
     rx: mpsc::UnboundedReceiver<ProofId>,
-    asm: Host,
-    moho: Host,
+    asm: H,
+    moho: H,
     config: OrchestratorConfig,
     input_builder: InputBuilder,
 }
 
-impl<R: ZkVmRemoteHost> ProofOrchestrator<R> {
+impl<C: ProverContext, H: ZkVmRemoteHost> ProofOrchestrator<C, H> {
     /// Creates a new orchestrator.
-    pub(crate) fn new(
-        db: SledProofDb,
-        asm: R,
-        moho: R,
+    pub fn new(
+        ctx: C,
+        asm: H,
+        moho: H,
         config: OrchestratorConfig,
         input_builder: InputBuilder,
         rx: mpsc::UnboundedReceiver<ProofId>,
     ) -> Self {
         Self {
-            db,
+            ctx,
             queue: PendingProofQueue::new(),
             rx,
             asm,
@@ -52,7 +53,7 @@ impl<R: ZkVmRemoteHost> ProofOrchestrator<R> {
     }
 
     /// Runs the orchestrator loop until shutdown is requested or the channel is closed.
-    pub(crate) async fn run(&mut self, shutdown: ShutdownGuard) -> Result<()> {
+    pub async fn run(&mut self, shutdown: ShutdownGuard) -> Result<()> {
         info!("proof orchestrator started");
         loop {
             if let Err(e) = self.tick().await {
@@ -107,7 +108,7 @@ impl<R: ZkVmRemoteHost> ProofOrchestrator<R> {
     /// Polls all in-progress remote proofs and stores any that have completed.
     async fn reconcile_active_proofs(&mut self) -> Result<()> {
         let in_progress = self
-            .db
+            .ctx
             .get_all_in_progress()
             .await
             .context("failed to query in-progress proofs")?;
@@ -126,11 +127,11 @@ impl<R: ZkVmRemoteHost> ProofOrchestrator<R> {
         remote_id: &RemoteProofId,
         old_status: &RemoteProofStatus,
     ) -> Result<()> {
-        let typed_id = to_typed_proof_id::<R>(remote_id)?;
+        let typed_id = to_typed_proof_id::<H>(remote_id)?;
 
         // NOTE: We use `self.asm` here but this could be any `ZkVmRemoteHost` instance.
         // `get_status` only requires a network client and proof ID — not the ELF or
-        // proving key. Since the orchestrator is generic over a single `R: ZkVmRemoteHost`,
+        // proving key. Since the orchestrator is generic over a single `H: ZkVmRemoteHost`,
         // both `asm` and `moho` share the same concrete type, so either works.
         let new_status = self
             .asm
@@ -155,13 +156,13 @@ impl<R: ZkVmRemoteHost> ProofOrchestrator<R> {
             }
             RemoteProofStatus::Failed(reason) => {
                 error!(?remote_id, %reason, "remote proof generation failed");
-                self.db
+                self.ctx
                     .remove(remote_id)
                     .await
                     .context("failed to remove failed proof status")?;
             }
             _ => {
-                self.db
+                self.ctx
                     .update_status(remote_id, new_status)
                     .await
                     .context("failed to update proof status")?;
@@ -170,15 +171,15 @@ impl<R: ZkVmRemoteHost> ProofOrchestrator<R> {
         Ok(())
     }
 
-    /// Retrieves a completed proof and stores it in the proof DB.
+    /// Retrieves a completed proof and stores it in the proof store.
     async fn handle_completed(
         &self,
         remote_id: &RemoteProofId,
-        typed_id: &R::ProofId,
+        typed_id: &H::ProofId,
     ) -> Result<()> {
         // NOTE: We use `self.asm` here but this could be any `ZkVmRemoteHost` instance.
         // `get_proof` only requires a network client and proof ID — not the ELF or
-        // proving key. Since the orchestrator is generic over a single `R: ZkVmRemoteHost`,
+        // proving key. Since the orchestrator is generic over a single `H: ZkVmRemoteHost`,
         // both `asm` and `moho` share the same concrete type, so either works.
         let receipt = self
             .asm
@@ -187,15 +188,15 @@ impl<R: ZkVmRemoteHost> ProofOrchestrator<R> {
             .map_err(|e| anyhow::anyhow!("failed to retrieve completed proof: {e}"))?;
 
         let proof_id = self
-            .db
+            .ctx
             .get_proof_id(remote_id)
             .await
             .context("failed to look up proof ID from remote ID")?
             .context("no mapping found for completed remote proof")?;
 
-        proof_store::store_completed_proof(&self.db, proof_id, receipt).await?;
+        proof_store::store_completed_proof(&self.ctx, proof_id, receipt).await?;
 
-        self.db
+        self.ctx
             .remove(remote_id)
             .await
             .context("failed to remove completed proof status")?;
@@ -213,7 +214,7 @@ impl<R: ZkVmRemoteHost> ProofOrchestrator<R> {
     /// unit-tested with a fake submitter.
     async fn schedule_proofs(&mut self) -> Result<()> {
         let in_flight = self
-            .db
+            .ctx
             .get_all_in_progress()
             .await
             .context("failed to query in-progress proofs")?
@@ -225,7 +226,7 @@ impl<R: ZkVmRemoteHost> ProofOrchestrator<R> {
         }
 
         let mut submitter = OrchestratorSubmitter {
-            db: &self.db,
+            ctx: &self.ctx,
             asm: &self.asm,
             moho: &self.moho,
             input_builder: &self.input_builder,
@@ -256,7 +257,7 @@ enum SubmitOutcome {
 /// return non-`Send` futures to accommodate backends whose clients hold
 /// non-`Send` state across `.await`. Awaiting them here transitively makes
 /// `try_submit` non-`Send`. This is fine because the orchestrator is driven
-/// from a `LocalSet` (see `bootstrap.rs`).
+/// from a `LocalSet` (see the runner's `bootstrap`).
 #[async_trait(?Send)]
 trait ProofSubmitter {
     async fn try_submit(&mut self, proof_id: ProofId) -> Result<SubmitOutcome>;
@@ -300,22 +301,22 @@ async fn schedule_with<S: ProofSubmitter>(
     }
 }
 
-/// [`ProofSubmitter`] backed by the orchestrator's DB, hosts, and input
+/// [`ProofSubmitter`] backed by the orchestrator's context, hosts, and input
 /// builder. Constructed inline by [`ProofOrchestrator::schedule_proofs`] for
 /// the duration of one scheduling cycle.
-struct OrchestratorSubmitter<'a, R: ZkVmRemoteHost> {
-    db: &'a SledProofDb,
-    asm: &'a R,
-    moho: &'a R,
+struct OrchestratorSubmitter<'a, C: ProverContext, H: ZkVmRemoteHost> {
+    ctx: &'a C,
+    asm: &'a H,
+    moho: &'a H,
     input_builder: &'a InputBuilder,
 }
 
 #[async_trait(?Send)]
-impl<R: ZkVmRemoteHost> ProofSubmitter for OrchestratorSubmitter<'_, R> {
+impl<C: ProverContext, H: ZkVmRemoteHost> ProofSubmitter for OrchestratorSubmitter<'_, C, H> {
     async fn try_submit(&mut self, proof_id: ProofId) -> Result<SubmitOutcome> {
         // Skip if already submitted.
         if self
-            .db
+            .ctx
             .get_remote_proof_id(proof_id)
             .await
             .context("failed to check remote proof mapping")?
@@ -326,7 +327,7 @@ impl<R: ZkVmRemoteHost> ProofSubmitter for OrchestratorSubmitter<'_, R> {
         }
 
         // Skip if proof already exists locally.
-        if proof_store::proof_exists(self.db, &proof_id).await? {
+        if proof_store::proof_exists(self.ctx, &proof_id).await? {
             debug!(?proof_id, "proof already exists, skipping");
             return Ok(SubmitOutcome::Skipped);
         }
@@ -334,13 +335,20 @@ impl<R: ZkVmRemoteHost> ProofSubmitter for OrchestratorSubmitter<'_, R> {
         // Build input and submit to remote prover, dispatching by proof type.
         let typed_id = match &proof_id {
             ProofId::Asm(range) => {
-                let runtime_input = self.input_builder.build_asm_runtime_input(range).await?;
+                let runtime_input = self
+                    .input_builder
+                    .build_asm_runtime_input(self.ctx, range)
+                    .await?;
                 AsmStfProofProgram::start_proving(&runtime_input, self.asm)
                     .await
                     .map_err(|e| anyhow::anyhow!("failed to submit proof to remote prover: {e}"))?
             }
             ProofId::Moho(block) => {
-                let prerequisite = match self.input_builder.check_moho_prerequisite(*block).await {
+                let prerequisite = match self
+                    .input_builder
+                    .check_moho_prerequisite(self.ctx, *block)
+                    .await
+                {
                     Ok(prereq) => prereq,
                     Err(e) => {
                         debug!(?proof_id, %e, "moho prerequisite not ready, deferring");
@@ -349,7 +357,7 @@ impl<R: ZkVmRemoteHost> ProofSubmitter for OrchestratorSubmitter<'_, R> {
                 };
                 let input = self
                     .input_builder
-                    .build_moho_runtime_input(prerequisite, *block)
+                    .build_moho_runtime_input(self.ctx, prerequisite, *block)
                     .await?;
                 MohoRecursiveProgram::start_proving(&input, self.moho)
                     .await
@@ -361,12 +369,12 @@ impl<R: ZkVmRemoteHost> ProofSubmitter for OrchestratorSubmitter<'_, R> {
         info!(?proof_id, %typed_id, "proof submitted to remote prover");
 
         // Store mapping and initial status.
-        self.db
+        self.ctx
             .put_remote_proof_id(proof_id, remote_id.clone())
             .await
             .context("failed to store proof mapping")?;
 
-        self.db
+        self.ctx
             .put_status(&remote_id, RemoteProofStatus::Requested)
             .await
             .context("failed to store initial proof status")?;
@@ -376,8 +384,8 @@ impl<R: ZkVmRemoteHost> ProofSubmitter for OrchestratorSubmitter<'_, R> {
 }
 
 /// Converts a persisted [`RemoteProofId`] back into the host's typed proof ID.
-fn to_typed_proof_id<R: ZkVmRemoteHost>(remote_id: &RemoteProofId) -> Result<R::ProofId> {
-    R::ProofId::try_from(remote_id.0.clone())
+fn to_typed_proof_id<H: ZkVmRemoteHost>(remote_id: &RemoteProofId) -> Result<H::ProofId> {
+    H::ProofId::try_from(remote_id.0.clone())
         .map_err(|_| anyhow::anyhow!("failed to decode remote proof ID"))
 }
 

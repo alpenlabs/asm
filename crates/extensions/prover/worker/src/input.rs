@@ -1,78 +1,68 @@
 //! Input preparation for proof generation.
 //!
-//! Builds the [`RuntimeInput`] required by the ZkVM program for each proof type.
-
-use std::sync::Arc;
+//! Builds the [`RuntimeInput`] required by the ZkVM program for each proof type,
+//! reading every dependency (proofs, Moho state, anchor state, aux data, L1
+//! blocks) through the [`ProverContext`] rather than holding concrete handles.
 
 use anyhow::{Context, Result};
-use asm_storage::{SledAsmAuxDataDb, SledAsmStateDb};
-use bitcoind_async_client::{Client, traits::Reader};
 use moho_recursive_proof::{MohoRecursiveInput, MohoRecursiveOutput};
 use moho_runtime_impl::RuntimeInput;
 use moho_types::{MohoState, RecursiveMohoProof, StepMohoAttestation, StepMohoProof};
 use ssz::{Decode, Encode};
-use strata_asm_moho_storage::{MohoStateDb, SledMohoStateDb};
 use strata_asm_proof_impl::moho_program::input::AsmStepInput;
-use strata_asm_prover_storage::{ProofDb, SledProofDb};
 use strata_asm_prover_types::L1Range;
-use strata_btc_types::{BlockHashExt, L1BlockIdBitcoinExt};
-use strata_btc_verification::{self, TxidInclusionProof};
+use strata_btc_types::BlockHashExt;
+use strata_btc_verification::TxidInclusionProof;
 use strata_identifiers::L1BlockCommitment;
 use strata_merkle::{BinaryMerkleTree, MerkleProofB32, Sha256NoPrefixHasher};
 use strata_predicate::PredicateKey;
 use tree_hash::{Sha256Hasher as TreeSha256Hasher, TreeHash};
 
+use crate::ProverContext;
+
 /// Builds [`RuntimeInput`] for proof generation, dispatching by proof type.
-pub(crate) struct InputBuilder {
-    state_db: Arc<SledAsmStateDb>,
-    aux_db: Arc<SledAsmAuxDataDb>,
-    bitcoin_client: Arc<Client>,
-    proof_db: SledProofDb,
-    moho_state_db: SledMohoStateDb,
+///
+/// Holds only the values that are fixed for the lifetime of the prover (the
+/// genesis commitment and the two predicate keys); all per-block data is read
+/// from the [`ProverContext`] passed to each method.
+#[derive(Debug)]
+pub struct InputBuilder {
     genesis: L1BlockCommitment,
     asm_predicate: PredicateKey,
     moho_predicate: PredicateKey,
 }
 
-pub(crate) struct MohoPrerequisite {
+/// Prerequisites required to build a Moho recursive proof input for a block:
+/// the inner ASM step proof and (unless genesis) the previous Moho proof.
+#[derive(Debug)]
+pub struct MohoPrerequisite {
     prev_moho_proof: Option<RecursiveMohoProof>,
     incremental_step_proof: StepMohoProof,
 }
 
 impl InputBuilder {
-    #[expect(
-        clippy::too_many_arguments,
-        reason = "constructor wires every dependency proof input building needs; one call site"
-    )]
-    pub(crate) fn new(
-        state_db: Arc<SledAsmStateDb>,
-        aux_db: Arc<SledAsmAuxDataDb>,
-        bitcoin_client: Arc<Client>,
-        proof_db: SledProofDb,
-        moho_state_db: SledMohoStateDb,
+    /// Creates a new input builder.
+    pub fn new(
         genesis: L1BlockCommitment,
         asm_predicate: PredicateKey,
         moho_predicate: PredicateKey,
     ) -> Self {
         Self {
-            state_db,
-            aux_db,
-            bitcoin_client,
-            proof_db,
-            moho_state_db,
             genesis,
             asm_predicate,
             moho_predicate,
         }
     }
 
-    async fn get_parent_commitment(&self, l1_ref: L1BlockCommitment) -> Result<L1BlockCommitment> {
-        let block_hash = l1_ref.blkid().to_block_hash();
-        let header = self
-            .bitcoin_client
-            .get_block_header(&block_hash)
+    async fn get_parent_commitment<C: ProverContext>(
+        &self,
+        ctx: &C,
+        l1_ref: L1BlockCommitment,
+    ) -> Result<L1BlockCommitment> {
+        let header = ctx
+            .get_l1_block_header(l1_ref.blkid())
             .await
-            .context("failed to fetch Bitcoin block")?;
+            .context("failed to fetch Bitcoin block header")?;
         let parent_hash = header.prev_blockhash;
 
         let parent_height = l1_ref
@@ -85,46 +75,55 @@ impl InputBuilder {
     }
 
     /// Fetches the persisted [`MohoState`] for the given L1 block. The worker
-    /// materializes this alongside each anchor state — see `AsmWorkerContext::store_anchor_state`.
-    async fn get_moho_state(&self, l1_ref: L1BlockCommitment) -> Result<MohoState> {
-        self.moho_state_db
-            .get_moho_state(l1_ref)
+    /// materializes this alongside each anchor state — see the runner's
+    /// `AsmWorkerContext::store_anchor_state`.
+    async fn get_moho_state<C: ProverContext>(
+        &self,
+        ctx: &C,
+        l1_ref: L1BlockCommitment,
+    ) -> Result<MohoState> {
+        ctx.get_moho_state(l1_ref)
             .await
             .context("failed to fetch moho state")?
             .context("moho state not found for block")
     }
 
-    pub(crate) async fn check_moho_prerequisite(
+    /// Checks whether the prerequisites for a Moho recursive proof at `block`
+    /// are available, returning them if so.
+    pub async fn check_moho_prerequisite<C: ProverContext>(
         &self,
+        ctx: &C,
         block: L1BlockCommitment,
     ) -> Result<MohoPrerequisite> {
         // 1. ASM step proof is required.
-        let asm_proof = self
-            .proof_db
+        let asm_proof = ctx
             .get_asm_proof(L1Range::single(block))
-            .await?
+            .await
+            .context("failed to fetch ASM step proof")?
             .context("ASM step proof not available yet for this block")?;
 
         let asm_receipt = asm_proof.0.receipt();
         let asm_attestation =
             StepMohoAttestation::from_ssz_bytes(asm_receipt.public_values().as_bytes())
-                .context("invalid ASM attestation in stored proof")?;
+                .map_err(|e| anyhow::anyhow!("invalid ASM attestation in stored proof: {e:?}"))?;
         let asm_step_proof =
             StepMohoProof::new(asm_attestation, asm_receipt.proof().as_bytes().to_vec());
 
         // 2. Previous moho proof: required unless this is the genesis block.
-        let parent = self.get_parent_commitment(block).await?;
+        let parent = self.get_parent_commitment(ctx, block).await?;
         let prev_moho_proof = if parent == self.genesis {
             None
         } else {
-            let proof = self
-                .proof_db
+            let proof = ctx
                 .get_moho_proof(parent)
-                .await?
+                .await
+                .context("failed to fetch previous moho proof")?
                 .context("previous moho recursive proof not available yet")?;
             let receipt = proof.0.receipt();
             let output = MohoRecursiveOutput::from_ssz_bytes(receipt.public_values().as_bytes())
-                .context("invalid moho recursive output in stored proof")?;
+                .map_err(|e| {
+                    anyhow::anyhow!("invalid moho recursive output in stored proof: {e:?}")
+                })?;
             Some(RecursiveMohoProof::new(
                 output.attestation().clone(),
                 receipt.proof().as_bytes().to_vec(),
@@ -141,23 +140,23 @@ impl InputBuilder {
     ///
     /// This fetches the Bitcoin block and auxiliary data, reconstructs the
     /// pre-state, and assembles the input the ZkVM program expects.
-    pub(crate) async fn build_asm_runtime_input(&self, range: &L1Range) -> Result<RuntimeInput> {
+    pub async fn build_asm_runtime_input<C: ProverContext>(
+        &self,
+        ctx: &C,
+        range: &L1Range,
+    ) -> Result<RuntimeInput> {
         let commitment = range.start();
 
         // 1. Fetch the Bitcoin block.
-        let block_hash = commitment.blkid().to_block_hash();
-        let block = self
-            .bitcoin_client
-            .get_block(&block_hash)
+        let block = ctx
+            .get_l1_block(commitment.blkid())
             .await
             .context("failed to fetch Bitcoin block")?;
 
         // 2. Fetch the auxiliary data stored during STF execution.
-        let aux_data = self
-            .aux_db
-            .get(&commitment)
-            .context("failed to fetch aux data")?
-            .context("aux data not found for block")?;
+        let aux_data = ctx
+            .get_aux_data(&commitment)
+            .context("failed to fetch aux data")?;
 
         let coinbase_inclusion_proof = match block.witness_root() {
             Some(_) => Some(TxidInclusionProof::generate(&block.txdata, 0)),
@@ -168,16 +167,14 @@ impl InputBuilder {
         let step_input = AsmStepInput::new(block.clone(), aux_data, coinbase_inclusion_proof);
 
         // 4. Fetch the pre-state (anchor state for the parent block).
-        let parent_commitment = self.get_parent_commitment(commitment).await?;
+        let parent_commitment = self.get_parent_commitment(ctx, commitment).await?;
 
-        let anchor_state = self
-            .state_db
-            .get(&parent_commitment)
-            .context("failed to fetch parent anchor state")?
-            .context("parent anchor state not found")?;
+        let anchor_state = ctx
+            .get_anchor_state(&parent_commitment)
+            .context("failed to fetch parent anchor state")?;
 
         // 5. Compute the Moho pre-state from the anchor state.
-        let moho_pre_state = self.get_moho_state(parent_commitment).await?;
+        let moho_pre_state = self.get_moho_state(ctx, parent_commitment).await?;
 
         // 6. Build RuntimeInput.
         let runtime_input = RuntimeInput::new(
@@ -189,8 +186,10 @@ impl InputBuilder {
         Ok(runtime_input)
     }
 
-    pub(crate) async fn build_moho_runtime_input(
+    /// Builds the [`MohoRecursiveInput`] for a Moho recursive proof at `l1_ref`.
+    pub async fn build_moho_runtime_input<C: ProverContext>(
         &self,
+        ctx: &C,
         prerequisite: MohoPrerequisite,
         l1_ref: L1BlockCommitment,
     ) -> Result<MohoRecursiveInput> {
@@ -205,8 +204,8 @@ impl InputBuilder {
         // the ASM predicate.
         let step_predicate = self.asm_predicate.clone();
 
-        let parent = self.get_parent_commitment(l1_ref).await?;
-        let parent_state = self.get_moho_state(parent).await?;
+        let parent = self.get_parent_commitment(ctx, l1_ref).await?;
+        let parent_state = self.get_moho_state(ctx, parent).await?;
 
         let leaves = vec![
             <_ as TreeHash>::tree_hash_root::<TreeSha256Hasher>(&parent_state.inner_state)

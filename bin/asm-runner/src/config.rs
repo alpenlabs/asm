@@ -3,8 +3,9 @@
 use std::{path::PathBuf, time::Duration};
 
 use serde::{Deserialize, Serialize};
+use strata_asm_prover_worker::OrchestratorConfig;
 
-use crate::{prover::config::OrchestratorConfig, retry::RetryConfig};
+use crate::retry::RetryConfig;
 
 /// Main configuration structure
 #[derive(Debug, Clone, Serialize, Deserialize)]

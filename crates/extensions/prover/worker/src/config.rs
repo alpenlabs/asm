@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 
 /// Configuration for the proof orchestrator.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub(crate) struct OrchestratorConfig {
+pub struct OrchestratorConfig {
     /// Interval between orchestrator ticks.
     pub tick_interval: Duration,
 
@@ -26,7 +26,7 @@ pub(crate) struct OrchestratorConfig {
 /// Tagged with `kind` so the same config schema is valid regardless of
 /// which features the binary was built with. If the selected variant does
 /// not match the build (e.g. `sp1` requested in a binary built without the
-/// `sp1` feature), [`crate::prover::backend::ProofBackend::new`] surfaces a
+/// `sp1` feature), [`ProofBackend::new`](crate::ProofBackend::new) surfaces a
 /// startup error.
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
@@ -34,7 +34,7 @@ pub(crate) struct OrchestratorConfig {
     clippy::large_enum_variant,
     reason = "BackendConfig is parsed once at startup; boxing a SigningKey to save a few bytes on a singleton value is not worth the indirection"
 )]
-pub(crate) enum BackendConfig {
+pub enum BackendConfig {
     /// SP1 backend. Loads the ASM and Moho guest ELFs from explicit paths at startup.
     Sp1 {
         asm_elf_path: PathBuf,

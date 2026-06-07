@@ -1,0 +1,56 @@
+[package]
+name = "strata-asm-prover-worker"
+version = "0.1.0"
+edition = "2024"
+
+[lints]
+workspace = true
+
+[dependencies]
+moho-recursive-proof.workspace = true
+moho-runtime-impl.workspace = true
+moho-types.workspace = true
+strata-asm-common.workspace = true
+strata-asm-moho-storage.workspace = true
+strata-asm-proof-impl.workspace = true
+strata-asm-prover-storage.workspace = true
+strata-asm-prover-types.workspace = true
+strata-btc-types.workspace = true
+strata-btc-verification.workspace = true
+strata-identifiers.workspace = true
+strata-merkle = { workspace = true, features = ["ssz"] }
+strata-predicate.workspace = true
+strata-tasks.workspace = true
+
+anyhow.workspace = true
+async-trait.workspace = true
+bitcoin.workspace = true
+hex.workspace = true
+k256 = { workspace = true, features = ["schnorr"] }
+serde.workspace = true
+ssz.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+tree_hash.workspace = true
+zkaleido.workspace = true
+zkaleido-native-adapter.workspace = true
+
+bincode = { workspace = true, optional = true }
+sp1-sdk = { workspace = true, optional = true }
+sp1-verifier = { workspace = true, optional = true }
+zkaleido-sp1-groth16-verifier = { workspace = true, optional = true }
+zkaleido-sp1-host = { workspace = true, optional = true }
+
+[dev-dependencies]
+tokio.workspace = true
+
+[features]
+default = []
+sp1 = [
+  "dep:zkaleido-sp1-host",
+  "dep:zkaleido-sp1-groth16-verifier",
+  "dep:sp1-verifier",
+  "dep:sp1-sdk",
+  "dep:bincode",
+]

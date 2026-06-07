@@ -1,19 +1,21 @@
-//! Proof DB helpers that dispatch on [`ProofId`] variants.
+//! Proof-store helpers that dispatch on [`ProofId`] variants.
 //!
 //! These free functions encapsulate the match-on-ProofId pattern, keeping the
-//! orchestrator focused on coordination logic.
+//! orchestrator focused on coordination logic. They operate through the
+//! [`ProofDb`] surface of the [`ProverContext`].
 
 use anyhow::{Context, Result};
-use strata_asm_prover_storage::{ProofDb, SledProofDb};
 use strata_asm_prover_types::{AsmProof, MohoProof, ProofId};
 use tracing::info;
 use zkaleido::ProofReceiptWithMetadata;
 
-/// Returns `true` if the proof already exists in the local proof DB.
-pub(crate) async fn proof_exists(db: &SledProofDb, proof_id: &ProofId) -> Result<bool> {
+use crate::ProverContext;
+
+/// Returns `true` if the proof already exists in the local proof store.
+pub(crate) async fn proof_exists<C: ProverContext>(ctx: &C, proof_id: &ProofId) -> Result<bool> {
     match proof_id {
         ProofId::Asm(range) => {
-            let exists = db
+            let exists = ctx
                 .get_asm_proof(*range)
                 .await
                 .context("failed to check ASM proof")?
@@ -21,7 +23,7 @@ pub(crate) async fn proof_exists(db: &SledProofDb, proof_id: &ProofId) -> Result
             Ok(exists)
         }
         ProofId::Moho(commitment) => {
-            let exists = db
+            let exists = ctx
                 .get_moho_proof(*commitment)
                 .await
                 .context("failed to check Moho proof")?
@@ -31,22 +33,22 @@ pub(crate) async fn proof_exists(db: &SledProofDb, proof_id: &ProofId) -> Result
     }
 }
 
-/// Stores a completed proof receipt in the appropriate DB table.
-pub(crate) async fn store_completed_proof(
-    db: &SledProofDb,
+/// Stores a completed proof receipt in the appropriate proof-store table.
+pub(crate) async fn store_completed_proof<C: ProverContext>(
+    ctx: &C,
     proof_id: ProofId,
     receipt: ProofReceiptWithMetadata,
 ) -> Result<()> {
     match proof_id {
         ProofId::Asm(range) => {
             info!(?range, "storing completed ASM proof");
-            db.store_asm_proof(range, AsmProof(receipt))
+            ctx.store_asm_proof(range, AsmProof(receipt))
                 .await
                 .context("failed to store ASM proof")?;
         }
         ProofId::Moho(commitment) => {
             info!(?commitment, "storing completed Moho proof");
-            db.store_moho_proof(commitment, MohoProof(receipt))
+            ctx.store_moho_proof(commitment, MohoProof(receipt))
                 .await
                 .context("failed to store Moho proof")?;
         }

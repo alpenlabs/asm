@@ -7,25 +7,23 @@ edition = "2024"
 workspace = true
 
 [dependencies]
-moho-recursive-proof.workspace = true
-moho-runtime-impl.workspace = true
 moho-types.workspace = true
 strata-asm-rpc.workspace = true
-strata-btc-verification.workspace = true
 
 strata-asm-common.workspace = true
 strata-asm-moho-storage.workspace = true
 strata-asm-moho-worker.workspace = true
 strata-asm-params.workspace = true
-strata-asm-prover-storage.workspace = true
 strata-asm-proof-impl.workspace = true
-strata-asm-prover-types.workspace = true
 strata-asm-proto-bridge-v1.workspace = true
 strata-asm-proto-bridge-v1-txs.workspace = true
 strata-asm-proto-bridge-v1-types.workspace = true
 strata-asm-proto-checkpoint.workspace = true
 strata-asm-proto-checkpoint-txs.workspace = true
 strata-asm-proto-checkpoint-types.workspace = true
+strata-asm-prover-storage.workspace = true
+strata-asm-prover-types.workspace = true
+strata-asm-prover-worker.workspace = true
 strata-asm-spec.workspace = true
 strata-asm-worker.workspace = true
 strata-btc-types.workspace = true
@@ -37,43 +35,28 @@ strata-identifiers.workspace = true
 strata-merkle.workspace = true
 strata-predicate.workspace = true
 strata-tasks.workspace = true
-tree_hash.workspace = true
 
 anyhow.workspace = true
 async-trait.workspace = true
-bincode = { workspace = true, optional = true }
 bitcoin.workspace = true
 bitcoincore-zmq = { version = "1.5.2", features = ["async"] }
 bitcoind-async-client.workspace = true
 clap.workspace = true
 futures.workspace = true
-hex.workspace = true
 jsonrpsee = { workspace = true, features = ["server", "macros"] }
-k256 = { workspace = true, features = ["schnorr"] }
 serde.workspace = true
 serde_json.workspace = true
 sled.workspace = true
-sp1-sdk = { workspace = true, optional = true }
-sp1-verifier = { workspace = true, optional = true }
 ssz.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 toml.workspace = true
 tracing.workspace = true
 zkaleido.workspace = true
-zkaleido-native-adapter.workspace = true
-zkaleido-sp1-groth16-verifier = { workspace = true, optional = true }
-zkaleido-sp1-host = { workspace = true, optional = true }
 
 [dev-dependencies]
 tempfile.workspace = true
 
 [features]
 default = []
-sp1 = [
-  "dep:zkaleido-sp1-host",
-  "dep:zkaleido-sp1-groth16-verifier",
-  "dep:sp1-verifier",
-  "dep:sp1-sdk",
-  "dep:bincode",
-]
+sp1 = ["strata-asm-prover-worker/sp1"]

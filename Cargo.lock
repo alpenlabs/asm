@@ -7735,20 +7735,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "strata-asm-proof-db"
-version = "0.1.0"
-dependencies = [
- "borsh",
- "proptest",
- "sled",
- "strata-asm-prover-types",
- "strata-identifiers",
- "tempfile",
- "tokio",
- "zkaleido",
-]
-
-[[package]]
 name = "strata-asm-proof-impl"
 version = "0.1.0"
 dependencies = [
@@ -8019,6 +8005,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "strata-asm-prover-storage"
+version = "0.1.0"
+dependencies = [
+ "borsh",
+ "proptest",
+ "sled",
+ "strata-asm-prover-types",
+ "strata-identifiers",
+ "tempfile",
+ "tokio",
+ "zkaleido",
+]
+
+[[package]]
 name = "strata-asm-prover-types"
 version = "0.1.0"
 dependencies = [
@@ -8026,6 +8026,44 @@ dependencies = [
  "serde",
  "strata-identifiers",
  "zkaleido",
+]
+
+[[package]]
+name = "strata-asm-prover-worker"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "bincode",
+ "bitcoin",
+ "hex",
+ "k256",
+ "moho-recursive-proof",
+ "moho-runtime-impl",
+ "moho-types",
+ "serde",
+ "sp1-sdk",
+ "sp1-verifier",
+ "ssz",
+ "strata-asm-common",
+ "strata-asm-moho-storage",
+ "strata-asm-proof-impl",
+ "strata-asm-prover-storage",
+ "strata-asm-prover-types",
+ "strata-btc-types",
+ "strata-btc-verification",
+ "strata-identifiers",
+ "strata-merkle",
+ "strata-predicate",
+ "strata-tasks",
+ "thiserror 2.0.18",
+ "tokio",
+ "tracing",
+ "tree_hash",
+ "zkaleido",
+ "zkaleido-native-adapter",
+ "zkaleido-sp1-groth16-verifier",
+ "zkaleido-sp1-host",
 ]
 
 [[package]]
@@ -8049,29 +8087,21 @@ dependencies = [
  "anyhow",
  "asm-storage",
  "async-trait",
- "bincode",
  "bitcoin",
  "bitcoincore-zmq",
  "bitcoind-async-client",
  "clap",
  "futures",
- "hex",
  "jsonrpsee",
- "k256",
- "moho-recursive-proof",
- "moho-runtime-impl",
  "moho-types",
  "serde",
  "serde_json",
  "sled",
- "sp1-sdk",
- "sp1-verifier",
  "ssz",
  "strata-asm-common",
  "strata-asm-moho-storage",
  "strata-asm-moho-worker",
  "strata-asm-params",
- "strata-asm-proof-db",
  "strata-asm-proof-impl",
  "strata-asm-proto-bridge-v1",
  "strata-asm-proto-bridge-v1-txs",
@@ -8079,12 +8109,13 @@ dependencies = [
  "strata-asm-proto-checkpoint",
  "strata-asm-proto-checkpoint-txs",
  "strata-asm-proto-checkpoint-types",
+ "strata-asm-prover-storage",
  "strata-asm-prover-types",
+ "strata-asm-prover-worker",
  "strata-asm-rpc",
  "strata-asm-spec",
  "strata-asm-worker",
  "strata-btc-types",
- "strata-btc-verification",
  "strata-identifiers",
  "strata-logging",
  "strata-merkle",
@@ -8095,11 +8126,7 @@ dependencies = [
  "tokio",
  "toml 1.1.2+spec-1.1.0",
  "tracing",
- "tree_hash",
  "zkaleido",
- "zkaleido-native-adapter",
- "zkaleido-sp1-groth16-verifier",
- "zkaleido-sp1-host",
 ]
 
 [[package]]

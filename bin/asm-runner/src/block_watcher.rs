@@ -25,9 +25,10 @@ use bitcoincore_zmq::{Message, SocketMessage, subscribe_async_wait_handshake};
 use bitcoind_async_client::{Client, traits::Reader};
 use futures::StreamExt;
 use strata_asm_prover_types::{L1Range, ProofId};
+use strata_asm_prover_worker::ProverWorkerHandle;
 use strata_asm_worker::AsmWorkerHandle;
 use strata_tasks::ShutdownGuard;
-use tokio::{sync::mpsc, time::timeout};
+use tokio::time::timeout;
 use tracing::{debug, error, info, warn};
 
 use crate::config::BitcoinConfig;
@@ -45,7 +46,7 @@ pub(crate) async fn drive_asm_from_bitcoin(
     config: BitcoinConfig,
     bitcoin_client: Arc<Client>,
     asm_worker: Arc<AsmWorkerHandle>,
-    proof_tx: Option<mpsc::UnboundedSender<ProofId>>,
+    proof_handle: Option<ProverWorkerHandle>,
     shutdown: ShutdownGuard,
 ) -> Result<()> {
     info!("starting ASM block watcher");
@@ -70,7 +71,7 @@ pub(crate) async fn drive_asm_from_bitcoin(
     // a height read and a hash read could desync them.
     match bitcoin_client.get_blockchain_info().await {
         Ok(info) => {
-            if let Err(err) = submit_block(&asm_worker, &proof_tx, info.best_block_hash).await {
+            if let Err(err) = submit_block(&asm_worker, &proof_handle, info.best_block_hash).await {
                 error!(?err, "failed to submit chain tip on startup");
             }
         }
@@ -106,7 +107,7 @@ pub(crate) async fn drive_asm_from_bitcoin(
             _ => continue,
         };
 
-        if let Err(err) = submit_block(&asm_worker, &proof_tx, block_hash).await {
+        if let Err(err) = submit_block(&asm_worker, &proof_handle, block_hash).await {
             error!(?err, "failed to submit block from ZMQ");
         }
     }
@@ -123,7 +124,7 @@ pub(crate) async fn drive_asm_from_bitcoin(
 /// Moho's recursion needs.
 async fn submit_block(
     asm_worker: &AsmWorkerHandle,
-    proof_tx: &Option<mpsc::UnboundedSender<ProofId>>,
+    proof_handle: &Option<ProverWorkerHandle>,
     block_hash: BlockHash,
 ) -> Result<()> {
     let processed = asm_worker
@@ -133,17 +134,17 @@ async fn submit_block(
 
     debug!(%block_hash, processed = processed.len(), "submitted block to ASM worker");
 
-    let Some(tx) = proof_tx else {
+    let Some(handle) = proof_handle else {
         return Ok(());
     };
 
     for commitment in processed {
         let asm_proof_id = ProofId::Asm(L1Range::single(commitment));
-        if let Err(err) = tx.send(asm_proof_id) {
+        if let Err(err) = handle.request_proof(asm_proof_id) {
             warn!(%commitment, ?err, "failed to enqueue ASM proof request");
         }
         let moho_proof_id = ProofId::Moho(commitment);
-        if let Err(err) = tx.send(moho_proof_id) {
+        if let Err(err) = handle.request_proof(moho_proof_id) {
             warn!(%commitment, ?err, "failed to enqueue Moho proof request");
         }
     }

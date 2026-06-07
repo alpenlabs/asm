@@ -7,7 +7,7 @@ mod block_watcher;
 mod bootstrap;
 mod config;
 mod moho_context;
-mod prover;
+mod prover_context;
 mod retry;
 mod rpc_server;
 mod storage;
@@ -22,7 +22,6 @@ use strata_logging::{LoggingInitConfig, finalize, init_logging_from_config};
 use strata_tasks::TaskManager;
 use tokio::runtime::{Builder, Handle};
 use tracing::{error, info};
-use zkaleido_native_adapter as _;
 
 use crate::{
     bootstrap::bootstrap,
