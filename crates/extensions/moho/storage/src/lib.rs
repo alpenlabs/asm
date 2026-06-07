@@ -6,13 +6,19 @@
 //! the worker mirrors the per-container export-entry leaves of the state's
 //! `ExportState` MMR so the RPC can rebuild inclusion proofs on demand.
 //!
-//! - [`MohoStateDb`] — the Moho-state storage trait, parameterised over an associated error type.
-//! - [`SledMohoStateDb`] — a [sled](https://docs.rs/sled)-backed implementation.
-//! - [`ExportEntriesDb`] — the per-container export-entry index mirroring the `ExportState` MMR
-//!   leaves.
+//! Each store is split into a backend-agnostic trait and a sled-backed
+//! implementation:
+//!
+//! - [`MohoStateDb`] / [`SledMohoStateDb`] — the Moho-state store, keyed by L1 block commitment.
+//! - [`ExportEntriesDb`] / [`SledExportEntriesDb`] — the per-container export-entry index mirroring
+//!   the `ExportState` MMR leaves.
 
 mod export_entries;
 mod moho_state;
 mod sled;
 
-pub use self::{export_entries::ExportEntriesDb, moho_state::MohoStateDb, sled::SledMohoStateDb};
+pub use self::{
+    export_entries::ExportEntriesDb,
+    moho_state::MohoStateDb,
+    sled::{SledExportEntriesDb, SledMohoStateDb},
+};

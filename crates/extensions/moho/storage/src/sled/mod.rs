@@ -6,9 +6,10 @@
 
 use strata_identifiers::{Buf32, L1BlockCommitment, L1BlockId};
 
+mod export_entries;
 mod moho_state;
 
-pub use self::moho_state::SledMohoStateDb;
+pub use self::{export_entries::SledExportEntriesDb, moho_state::SledMohoStateDb};
 
 // ── Key encoding ──────────────────────────────────────────────────────
 //

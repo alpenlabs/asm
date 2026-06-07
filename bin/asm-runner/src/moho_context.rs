@@ -20,7 +20,7 @@ use bitcoin::BlockHash;
 use bitcoind_async_client::{Client, error::ClientError, traits::Reader};
 use moho_types::MohoState;
 use strata_asm_common::{AnchorState, AsmLogEntry};
-use strata_asm_moho_storage::{ExportEntriesDb, SledMohoStateDb};
+use strata_asm_moho_storage::{SledExportEntriesDb, SledMohoStateDb};
 use strata_asm_moho_worker::{
     AsmStateProvider, ExportEntryStore, L1ProviderContext, MohoStateStore, MohoWorkerError,
     MohoWorkerResult,
@@ -49,7 +49,7 @@ pub(crate) struct MohoWorkerContextImpl {
     moho_state_db: SledMohoStateDb,
     /// Persistence for the per-container export-entry leaves the Moho state's
     /// `ExportState` MMR commits to.
-    export_entries_db: ExportEntriesDb,
+    export_entries_db: SledExportEntriesDb,
 }
 
 impl MohoWorkerContextImpl {
@@ -60,7 +60,7 @@ impl MohoWorkerContextImpl {
         state_db: Arc<SledAsmStateDb>,
         manifest_db: Arc<SledAsmManifestDb>,
         moho_state_db: SledMohoStateDb,
-        export_entries_db: ExportEntriesDb,
+        export_entries_db: SledExportEntriesDb,
     ) -> Self {
         Self {
             runtime_handle,
