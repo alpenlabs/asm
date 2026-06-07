@@ -17,7 +17,9 @@
 
 use std::sync::Arc;
 
-use asm_storage::{ExportEntriesDb, SledAsmAuxDataDb, SledAsmManifestMmrDb, SledAsmStateDb};
+use asm_storage::{
+    ExportEntriesDb, SledAsmAuxDataDb, SledAsmManifestDb, SledAsmManifestMmrDb, SledAsmStateDb,
+};
 use bitcoin::{Block, BlockHash, Network, block::Header};
 use bitcoind_async_client::{Client, error::ClientError, traits::Reader};
 use moho_runtime_interface::MohoProgram;
@@ -62,6 +64,7 @@ pub(crate) struct AsmWorkerContext {
     rpc_max_retries: u16,
     state_db: Arc<SledAsmStateDb>,
     aux_db: Arc<SledAsmAuxDataDb>,
+    manifest_db: Arc<SledAsmManifestDb>,
     mmr_db: Arc<SledAsmManifestMmrDb>,
     export_entries_db: Option<ExportEntriesDb>,
     moho_storage: Option<MohoStorage>,
@@ -80,6 +83,7 @@ impl AsmWorkerContext {
         retry: &RetryConfig,
         state_db: Arc<SledAsmStateDb>,
         aux_db: Arc<SledAsmAuxDataDb>,
+        manifest_db: Arc<SledAsmManifestDb>,
         mmr_db: Arc<SledAsmManifestMmrDb>,
         export_entries_db: Option<ExportEntriesDb>,
         moho_storage: Option<MohoStorage>,
@@ -92,6 +96,7 @@ impl AsmWorkerContext {
             rpc_max_retries: retry.max_retries,
             state_db,
             aux_db,
+            manifest_db,
             mmr_db,
             export_entries_db,
             moho_storage,
@@ -267,10 +272,10 @@ impl AnchorStateStore for AsmWorkerContext {
 }
 
 impl ManifestMmrStore for AsmWorkerContext {
-    fn put_manifest(&self, _manifest: AsmManifest) -> WorkerResult<()> {
-        // Full-manifest persistence (for chaintsn and other consumers) is not
-        // wired up yet; only the hash enters the MMR (via `put_manifest_hash`).
-        Ok(())
+    fn put_manifest(&self, manifest: AsmManifest) -> WorkerResult<()> {
+        self.manifest_db
+            .put(&manifest)
+            .map_err(|_| WorkerError::DbError)
     }
 
     fn put_manifest_hash(&self, height: u64, hash: AsmManifestHash) -> WorkerResult<()> {

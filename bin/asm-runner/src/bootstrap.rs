@@ -30,6 +30,7 @@ pub(crate) async fn bootstrap(
     let Storage {
         state_db,
         aux_db,
+        manifest_db,
         mmr_db,
         export_entries_db,
     } = create_storage(&config.database)?;
@@ -68,6 +69,7 @@ pub(crate) async fn bootstrap(
         &config.bitcoin.retry_config,
         state_db.clone(),
         aux_db.clone(),
+        manifest_db.clone(),
         mmr_db.clone(),
         export_entries_for_worker,
         moho_storage,
