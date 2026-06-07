@@ -19,7 +19,7 @@ use std::{
 
 use futures::Stream;
 use strata_identifiers::L1BlockCommitment;
-use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
+use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender, error::TryRecvError};
 
 /// A live stream of items emitted by the ASM worker, one per committed block.
 ///
@@ -50,6 +50,16 @@ impl<T> Subscription<T> {
     /// (every sender dropped).
     pub async fn recv(&mut self) -> Option<T> {
         self.rx.recv().await
+    }
+
+    /// Pulls the next already-queued item without awaiting.
+    ///
+    /// Returns [`TryRecvError::Empty`] when nothing is queued right now, and
+    /// [`TryRecvError::Disconnected`] once the worker has shut down and the
+    /// backlog is drained. Lets a periodically-ticking consumer drain everything
+    /// buffered at the top of each tick without parking on the channel.
+    pub fn try_recv(&mut self) -> Result<T, TryRecvError> {
+        self.rx.try_recv()
     }
 }
 
@@ -155,5 +165,23 @@ mod tests {
         let mut sub = subs.subscribe();
         drop(subs);
         assert_eq!(sub.recv().await, None);
+    }
+
+    #[tokio::test]
+    async fn try_recv_drains_then_reports_empty_and_disconnected() {
+        let subs = AsmSubscribers::default();
+        let mut sub = subs.subscribe();
+
+        subs.emit(commitment(1));
+        subs.emit(commitment(2));
+
+        assert_eq!(sub.try_recv(), Ok(commitment(1)));
+        assert_eq!(sub.try_recv(), Ok(commitment(2)));
+        // Backlog drained but the producer is still live.
+        assert_eq!(sub.try_recv(), Err(TryRecvError::Empty));
+
+        // Once every sender is gone, a drained subscription reports disconnect.
+        drop(subs);
+        assert_eq!(sub.try_recv(), Err(TryRecvError::Disconnected));
     }
 }
