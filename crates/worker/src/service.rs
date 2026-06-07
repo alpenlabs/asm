@@ -112,7 +112,7 @@ where
         base_state,
         base_block,
         pending,
-    } = plan_block_processing(&state.context, target, genesis_height as u64)?;
+    } = plan_block_processing(&state.context, target, genesis_height)?;
 
     info!(%base_block,
         pending_blocks = pending.len(),
@@ -266,6 +266,7 @@ mod tests {
     use std::thread;
 
     use bitcoind_async_client::traits::Reader;
+    use strata_asm_common::{AsmManifestHash, AuxRequestCollector};
     use strata_asm_spec::StrataAsmSpec;
     use strata_identifiers::{Buf32, L1BlockId};
     use strata_service::CommandCompletionSender;
@@ -273,9 +274,23 @@ mod tests {
 
     use super::*;
     use crate::{
-        AnchorStateStore, WorkerError,
+        AnchorStateStore, AuxDataResolver, ManifestMmrStore, WorkerError,
         test_utils::{TestAsmWorkerContext, fixtures},
     };
+
+    /// Leaf count of the accumulator carried by the current in-memory anchor —
+    /// the snapshot size [`AsmWorkerServiceState::transition`] resolves aux data
+    /// against.
+    fn anchor_leaf_count(
+        state: &AsmWorkerServiceState<TestAsmWorkerContext, StrataAsmSpec>,
+    ) -> u64 {
+        state
+            .anchor
+            .state()
+            .chain_view
+            .history_accumulator
+            .num_entries()
+    }
 
     /// Pending block heights in the order they're processed (oldest first).
     ///
@@ -460,6 +475,104 @@ mod tests {
             "leaf 103 now reflects branch B"
         );
         assert_eq!(leaves_b[102], leaves_a[102], "the fork point is untouched");
+    }
+
+    /// End-to-end at the resolver boundary: drive the real STF over a chain,
+    /// then reorg to a shorter branch and probe what the post-reorg context can
+    /// serve to a prover.
+    ///
+    /// Genesis at height 5. Chain A (6,7,8,9) is fully processed, so every
+    /// height 6..=9 resolves against the anchor-9 accumulator. Reorging to the
+    /// shorter branch B (6',7') overwrites heights 6,7 in place but leaves the
+    /// now-orphaned 8,9 sitting in storage. The point: those orphans are still
+    /// *present* (their hashes are fetchable) yet no longer *provable* — an
+    /// inclusion proof can't be built against the shorter post-reorg accumulator,
+    /// so the resolver refuses them. They stay until 8',9' overwrite them.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn reorg_orphans_leaves_present_but_unprovable() {
+        let mut fx = fixtures::setup_state(5).await;
+
+        // Chain A: process 6, 7, 8, 9 through the full STF.
+        let branch_a = fixtures::mine(&fx.node, &fx.client, 4).await; // 6,7,8,9
+        let tip_a = *branch_a.last().unwrap(); // 9
+        sync_to_block(&mut fx.state, &tip_a).expect("sync branch A");
+        assert_eq!(fx.state.blkid, tip_a, "anchor at chain A tip");
+
+        // The resolver runs against the current anchor's accumulator: sentinels
+        // 0..=5 plus one manifest per processed height 6..=9.
+        let leaf_count_a = anchor_leaf_count(&fx.state);
+        assert_eq!(leaf_count_a, 10);
+
+        // Everything up to height 9 resolves against chain A.
+        let resolver_a = AuxDataResolver::new(&fx.state.context, leaf_count_a);
+        let mut req_a = AuxRequestCollector::new(0, leaf_count_a);
+        req_a.request_manifest_hashes(6, 9);
+        let data = resolver_a
+            .resolve(&req_a.into_requests())
+            .expect("resolve 6..=9 on chain A");
+        assert_eq!(
+            data.manifest_hashes().len(),
+            4,
+            "one entry per height 6..=9"
+        );
+
+        // Snapshot chain A's stored leaves to compare after the reorg.
+        let leaves_a = fx.state.context.mmr_leaves();
+
+        // Reorg: invalidate 6 (drops 6..=9), mine a *shorter* branch B: 6', 7'.
+        let branch_b = fixtures::reorg(&fx.node, &fx.client, 6, 2).await; // 6',7'
+        let tip_b = *branch_b.last().unwrap(); // 7'
+        sync_to_block(&mut fx.state, &tip_b).expect("sync branch B");
+        assert_eq!(fx.state.blkid, tip_b, "anchor on branch B");
+
+        // (1) The orphaned leaves 8,9 are still in storage — branch B only
+        // reached height 7, so it never touched them. The leaf count is
+        // unchanged and the hashes still hold chain A's values.
+        assert_eq!(
+            fx.state.context.mmr_leaf_count(),
+            10,
+            "8,9 still occupy the MMR",
+        );
+        for height in [8u64, 9] {
+            let hash = fx
+                .state
+                .context
+                .get_manifest_hash(height)
+                .expect("orphaned hash still fetchable");
+            assert_eq!(
+                hash,
+                AsmManifestHash::from(leaves_a[height as usize]),
+                "leaf {height} still holds chain A's hash",
+            );
+        }
+        // Heights 6,7 were overwritten in place by branch B.
+        let leaves_b = fx.state.context.mmr_leaves();
+        assert_ne!(leaves_b[6], leaves_a[6], "leaf 6 now reflects branch B");
+
+        // The post-reorg accumulator is shorter: sentinels 0..=5 plus 6',7'.
+        let leaf_count_b = anchor_leaf_count(&fx.state);
+        assert_eq!(leaf_count_b, 8, "snapshot shrank to branch B's length");
+        let resolver_b = AuxDataResolver::new(&fx.state.context, leaf_count_b);
+
+        // Branch B's own heights still resolve.
+        let mut req_b = AuxRequestCollector::new(0, leaf_count_b);
+        req_b.request_manifest_hashes(6, 7);
+        resolver_b
+            .resolve(&req_b.into_requests())
+            .expect("6'..=7' resolve on branch B");
+
+        // (2) But the orphaned 8,9 can't be proven against the shorter snapshot:
+        // their index sits at/over the snapshot leaf count, so proof generation
+        // fails at the first such index (8). The collector would normally drop
+        // such a request as out-of-bounds, so bypass that clamp to exercise the
+        // resolver-level guarantee directly.
+        let mut req_orphans = AuxRequestCollector::new(0, u64::MAX);
+        req_orphans.request_manifest_hashes(8, 9);
+        let result = resolver_b.resolve(&req_orphans.into_requests());
+        assert!(
+            matches!(result, Err(WorkerError::MmrProofFailed { index: 8 })),
+            "orphaned leaves are present but unprovable at the post-reorg snapshot",
+        );
     }
 
     /// A fetch failure during the backward walk (block the node cannot serve)
