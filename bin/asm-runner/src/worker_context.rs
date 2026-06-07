@@ -3,17 +3,6 @@
 //! Implements the four [`WorkerContext`](strata_asm_worker::WorkerContext)
 //! concern traits ([`L1DataProvider`], [`AnchorStateStore`],
 //! [`ManifestMmrStore`], [`AuxDataStore`]) for [`AsmWorkerContext`].
-//!
-//! # Moho extension
-//!
-//! When [`MohoStorage`] is configured, we piggyback on the ASM worker: every
-//! anchor-state write in [`AnchorStateStore::store_anchor_state`] also
-//! materializes and persists the derived [`MohoState`] for the same
-//! [`L1BlockCommitment`]. The two databases advance together under a single
-//! call — Moho does not run its own driver, does not subscribe to L1, and
-//! does not manage its own chain view. Whatever block sequence the ASM worker
-//! decides to apply (including any future reorg handling it gains) is the
-//! sequence Moho sees, for free.
 
 use std::sync::Arc;
 
@@ -22,39 +11,24 @@ use asm_storage::{
 };
 use bitcoin::{Block, BlockHash, Network, block::Header};
 use bitcoind_async_client::{Client, error::ClientError, traits::Reader};
-use moho_runtime_interface::MohoProgram;
-use moho_types::{ExportState, MohoState};
-use strata_asm_common::{AnchorState, AsmManifest, AsmManifestHash, AuxData};
+use strata_asm_common::{AsmManifest, AsmManifestHash, AuxData};
 use strata_asm_logs::NewExportEntry;
-use strata_asm_proof_db::SledMohoStateDb;
-use strata_asm_proof_impl::moho_program::program::{
-    AsmStfProgram, advance_export_state_with_logs, extract_next_predicate_from_logs,
-};
 use strata_asm_worker::{
     AnchorStateStore, AsmState, AuxDataStore, L1DataProvider, ManifestMmrStore, WorkerError,
     WorkerResult,
 };
-use strata_btc_types::{BitcoinTxid, BlockHashExt, L1BlockIdBitcoinExt, RawBitcoinTx};
+use strata_btc_types::{BitcoinTxid, L1BlockIdBitcoinExt, RawBitcoinTx};
 use strata_identifiers::{L1BlockCommitment, L1BlockId};
 use strata_merkle::MerkleProofB32;
-use strata_predicate::PredicateKey;
 use tokio::runtime::Handle;
 
 use crate::retry::{ExponentialBackoff, RetryConfig, retry_with_backoff_async};
 
-/// Dependencies the worker needs to materialize per-block [`MohoState`]
-/// alongside each anchor state. `asm_predicate` is used only to seed the
-/// genesis entry; every subsequent block is chain-forward from the parent.
-pub(crate) struct MohoStorage {
-    pub db: SledMohoStateDb,
-    pub asm_predicate: PredicateKey,
-}
-
 /// ASM [`WorkerContext`](strata_asm_worker::WorkerContext) implementation.
 ///
 /// Fetches L1 blocks from a Bitcoin node and persists state via local sled
-/// storage. When [`MohoStorage`] is supplied, each anchor-state write also
-/// materializes the derived [`MohoState`] for the same block.
+/// storage. Moho state is derived separately by the Moho worker; see
+/// [`moho_context`](crate::moho_context).
 pub(crate) struct AsmWorkerContext {
     runtime_handle: Handle,
     bitcoin_client: Arc<Client>,
@@ -67,16 +41,9 @@ pub(crate) struct AsmWorkerContext {
     manifest_db: Arc<SledAsmManifestDb>,
     mmr_db: Arc<SledAsmManifestMmrDb>,
     export_entries_db: Option<ExportEntriesDb>,
-    moho_storage: Option<MohoStorage>,
-    /// L1 height of the chain genesis (anchor) block.
-    genesis_height: u64,
 }
 
 impl AsmWorkerContext {
-    #[expect(
-        clippy::too_many_arguments,
-        reason = "constructor wires every dependency the worker holds; one call site"
-    )]
     pub(crate) fn new(
         runtime_handle: Handle,
         bitcoin_client: Arc<Client>,
@@ -86,8 +53,6 @@ impl AsmWorkerContext {
         manifest_db: Arc<SledAsmManifestDb>,
         mmr_db: Arc<SledAsmManifestMmrDb>,
         export_entries_db: Option<ExportEntriesDb>,
-        moho_storage: Option<MohoStorage>,
-        genesis_height: u64,
     ) -> Self {
         Self {
             runtime_handle,
@@ -99,50 +64,7 @@ impl AsmWorkerContext {
             manifest_db,
             mmr_db,
             export_entries_db,
-            moho_storage,
-            genesis_height,
         }
-    }
-
-    /// Materialize and persist the derived [`MohoState`] for this anchor state.
-    /// No-op when [`MohoStorage`] is not configured.
-    ///
-    /// Genesis is identified by the block commitment's height matching the
-    /// configured `genesis_height`. For non-genesis blocks we read the parent's
-    /// `MohoState` and chain forward.
-    fn compute_and_store_moho_state(
-        &self,
-        blockid: &L1BlockCommitment,
-        asm_state: &AsmState,
-    ) -> WorkerResult<()> {
-        let Some(moho) = &self.moho_storage else {
-            return Ok(());
-        };
-
-        let genesis_height = self.genesis_height;
-
-        let moho_state = if blockid.height() as u64 == genesis_height {
-            construct_genesis_moho_state(moho.asm_predicate.clone(), asm_state.state())
-        } else {
-            let block = self.get_l1_block(blockid.blkid())?;
-            let parent = L1BlockCommitment::new(
-                blockid.height() - 1,
-                block.header.prev_blockhash.to_l1_block_id(),
-            );
-
-            let prev_moho = moho
-                .db
-                .get(parent)
-                .map_err(|_| WorkerError::DbError)?
-                .ok_or(WorkerError::DbError)?; // TODO(STR-3124): use appropriate error types after fixing the piggybanking on ASM worker
-            construct_next_moho_state(&prev_moho, asm_state)
-        };
-
-        moho.db
-            .store(*blockid, moho_state)
-            .map_err(|_| WorkerError::DbError)?;
-
-        Ok(())
     }
 }
 
@@ -254,16 +176,15 @@ impl AnchorStateStore for AsmWorkerContext {
         blockid: &L1BlockCommitment,
         state: &AsmState,
     ) -> WorkerResult<()> {
-        // Write order matters: moho and export_entries first, then anchor. The worker tracks
+        // Write order matters: export_entries first, then anchor. The worker tracks
         // progress via the anchor db (see get_latest_asm_state), so the anchor write is the
         // effective commit point for this block. If we crash before it, progress has not
         // advanced, so on restart the worker reprocesses this block and overwrites the
         // orphaned entries with the same values. Reversing the order would risk advancing
-        // progress past a block whose moho or export_entries state was never persisted.
-        self.compute_and_store_moho_state(blockid, state)?;
-
-        // Index each `NewExportEntry` alongside the MohoState's compact MMR so
-        // the RPC can regenerate inclusion proofs later.
+        // progress past a block whose export_entries state was never persisted.
+        //
+        // Index each `NewExportEntry` so the RPC can later regenerate inclusion proofs
+        // against the MohoState compact MMR the Moho worker maintains.
         if let Some(ref export_entries_db) = self.export_entries_db {
             for log in state.logs() {
                 if let Ok(export) = log.try_into_log::<NewExportEntry>() {
@@ -334,26 +255,4 @@ impl AuxDataStore for AsmWorkerContext {
             .map_err(|_| WorkerError::DbError)?
             .ok_or(WorkerError::MissingAuxData(*blockid))
     }
-}
-
-/// Seed the genesis [`MohoState`]: no prior state to chain forward from, so we
-/// use the configured `asm_predicate` and an empty export state.
-fn construct_genesis_moho_state(
-    asm_predicate: PredicateKey,
-    genesis_anchor_state: &AnchorState,
-) -> MohoState {
-    let inner = AsmStfProgram::compute_state_commitment(genesis_anchor_state);
-    let export_state = ExportState::new(vec![]).expect("empty export state is always valid");
-    MohoState::new(inner, asm_predicate, export_state)
-}
-
-/// Chain-forward the [`MohoState`]: let STF logs drive predicate and export
-/// state updates, and recompute the inner commitment from the new anchor state.
-fn construct_next_moho_state(prev_moho: &MohoState, state: &AsmState) -> MohoState {
-    let next_predicate = extract_next_predicate_from_logs(state.logs())
-        .unwrap_or_else(|| prev_moho.next_predicate().clone());
-    let next_export_state =
-        advance_export_state_with_logs(prev_moho.export_state().clone(), state.logs());
-    let inner = AsmStfProgram::compute_state_commitment(state.state());
-    MohoState::new(inner, next_predicate, next_export_state)
 }

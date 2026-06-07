@@ -2,8 +2,10 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use bitcoind_async_client::{Auth, Client};
+use strata_asm_moho_storage::SledMohoStateDb;
+use strata_asm_moho_worker::MohoWorkerBuilder;
 use strata_asm_params::AsmParams;
-use strata_asm_proof_db::{SledMohoStateDb, SledProofDb};
+use strata_asm_proof_db::SledProofDb;
 use strata_asm_spec::StrataAsmSpec;
 use strata_asm_worker::AsmWorkerBuilder;
 use strata_tasks::TaskExecutor;
@@ -16,10 +18,11 @@ use tokio::{
 use crate::{
     block_watcher::drive_asm_from_bitcoin,
     config::{AsmRpcConfig, BitcoinConfig},
+    moho_context::MohoWorkerContextImpl,
     prover::{InputBuilder, ProofBackend, ProofOrchestrator},
     rpc_server::{AsmProofRpcDeps, run_rpc_server},
     storage::{Storage, create_storage},
-    worker_context::{AsmWorkerContext, MohoStorage},
+    worker_context::AsmWorkerContext,
 };
 pub(crate) async fn bootstrap(
     config: AsmRpcConfig,
@@ -39,8 +42,7 @@ pub(crate) async fn bootstrap(
     let bitcoin_client = Arc::new(connect_bitcoin(&config.bitcoin).await?);
 
     // 3. If the orchestrator is configured, open proof storage and build the proof backend up front
-    //    so the worker can receive the moho-state db and the asm predicate. The worker owns
-    //    moho-state writes (including the genesis seed) — see [`MohoStorage`].
+    //    so the Moho worker and orchestrator can receive the moho-state db and the asm predicate.
     let runtime_handle = Handle::current();
     let orch_prep = if let Some(orch_config) = config.orchestrator {
         let sled_db = sled::open(&orch_config.proof_db_path)?;
@@ -52,13 +54,9 @@ pub(crate) async fn bootstrap(
         None
     };
 
-    // 4. Create the worker context, wiring moho storage when available.
-    let moho_storage = orch_prep.as_ref().map(|(_, _, db, backend)| MohoStorage {
-        db: db.clone(),
-        asm_predicate: backend.asm_predicate.clone(),
-    });
+    // 4. Create the ASM worker context. Moho state is no longer materialized here; a dedicated Moho
+    //    worker derives it from each ASM commit (step 7).
     let export_entries_for_worker = orch_prep.as_ref().map(|_| export_entries_db.clone());
-    let genesis_height = params.anchor.block.height() as u64;
 
     // The worker aligns the DB-side ASM manifest MMR with L1 heights during
     // startup (`ManifestMmrStore::prefill_manifest_mmr`), so no prefill is
@@ -72,8 +70,6 @@ pub(crate) async fn bootstrap(
         manifest_db.clone(),
         mmr_db.clone(),
         export_entries_for_worker,
-        moho_storage,
-        genesis_height,
     );
 
     // 5. Launch ASM worker
@@ -102,6 +98,29 @@ pub(crate) async fn bootstrap(
             asm_predicate,
             moho_predicate,
         } = backend;
+
+        // Spin the Moho worker off onto its own service task, driven by the ASM
+        // worker's per-block commit stream. It derives each block's MohoState
+        // from the anchor state the ASM worker committed and persists it to the
+        // same moho-state db the orchestrator and RPC read. Subscribe before the
+        // block watcher is spawned (step 8): the subscription has no replay, so a
+        // later subscriber would miss already-committed blocks. The genesis Moho
+        // state is seeded from the ASM genesis anchor during launch.
+        let moho_context = MohoWorkerContextImpl::new(
+            runtime_handle.clone(),
+            bitcoin_client.clone(),
+            &config.bitcoin.retry_config,
+            state_db.clone(),
+            manifest_db.clone(),
+            moho_state_db.clone(),
+        );
+        let _moho_worker = MohoWorkerBuilder::new()
+            .with_context(moho_context)
+            .with_subscription(asm_worker.subscribe_blocks())
+            .with_genesis_block(params.anchor.block)
+            .with_asm_predicate(asm_predicate.clone())
+            .launch(&executor)
+            .await?;
 
         let input_builder = InputBuilder::new(
             state_db.clone(),
