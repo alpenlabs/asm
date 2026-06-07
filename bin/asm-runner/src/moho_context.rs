@@ -11,7 +11,8 @@
 //! RPC directly — the Moho worker runs as an async service. The
 //! [`MohoWorkerContext`](strata_asm_moho_worker::MohoWorkerContext) traits are
 //! synchronous, so parent resolution bridges to the async client via
-//! [`block_in_place`](task::block_in_place); see [`Self::get_parent_block`].
+//! [`block_in_place`](task::block_in_place); see
+//! [`MohoWorkerContextImpl::get_parent_block`].
 
 use std::sync::Arc;
 
