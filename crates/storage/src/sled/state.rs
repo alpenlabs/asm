@@ -9,8 +9,8 @@ use crate::AsmStateDb;
 
 /// Sled-backed [`AsmStateDb`] keyed by [`L1BlockCommitment`].
 ///
-/// Values are borsh-encoded; keys use the big-endian height encoding from
-/// [`super`] so lexicographic ordering matches block-height ordering.
+/// Values are borsh-encoded; keys use the parent module's big-endian height
+/// encoding so lexicographic ordering matches block-height ordering.
 #[derive(Debug, Clone)]
 pub struct SledAsmStateDb {
     states: sled::Tree,

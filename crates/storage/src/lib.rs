@@ -4,8 +4,8 @@
 //! with a self-contained implementation that has zero alpen dependencies.
 //!
 //! Each store is split into an async persistence trait and a sled-backed
-//! implementation under [`sled`] that also exposes synchronous inherent methods
-//! for the sync worker thread:
+//! implementation (in the private `sled` module) that also exposes synchronous
+//! inherent methods for the sync worker thread:
 //! - [`AsmStateDb`] / [`SledAsmStateDb`] — anchor states, keyed by block commitment
 //! - [`AsmAuxDataDb`] / [`SledAsmAuxDataDb`] — auxiliary data, keyed by block commitment
 //! - [`AsmManifestDb`] / [`SledAsmManifestDb`] — full manifests, keyed by block commitment
