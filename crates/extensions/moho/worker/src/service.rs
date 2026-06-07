@@ -87,6 +87,8 @@ pub(crate) fn process_block<W: MohoWorkerContext>(
     // and the block is reprocessed on restart, re-appending the same
     // (idempotent) leaves. Writing them after the commit point would risk a gap
     // between the leaves and the `ExportState` MMR that commits to them.
+    // TODO(STR-3723): unlike manifest MMR we need to handle the reorg differently since there might
+    // be multiple ExportEntry in a single block.
     for (container_id, entry) in compute::export_entries_from_logs(&logs) {
         state
             .context
