@@ -38,10 +38,8 @@ test-utils = [
 ]
 
 [dev-dependencies]
-strata-asm-spec.workspace = true
-strata-test-utils-arb.workspace = true
+strata-l1-txfmt.workspace = true
 strata-test-utils-btcio.workspace = true
-strata-asm-params = { workspace = true, features = ["arbitrary"] }
 
 bitcoind-async-client.workspace = true
 corepc-node.workspace = true

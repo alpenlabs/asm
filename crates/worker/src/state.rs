@@ -147,11 +147,13 @@ where
 #[cfg(test)]
 mod tests {
     use bitcoind_async_client::traits::Reader;
-    use strata_asm_spec::StrataAsmSpec;
     use strata_test_utils_btcio::mine_blocks;
 
     use super::*;
-    use crate::{AnchorStateStore, test_utils::fixtures};
+    use crate::{
+        AnchorStateStore,
+        test_utils::fixtures::{self, TestAsmSpec},
+    };
 
     /// `transition` runs the STF for a child of the current anchor.
     #[tokio::test(flavor = "multi_thread")]
@@ -203,7 +205,7 @@ mod tests {
             .unwrap();
 
         let params = fixtures::genesis_params(&seed.client, 101).await;
-        let reloaded = AsmWorkerServiceState::new(context, StrataAsmSpec, params).unwrap();
+        let reloaded = AsmWorkerServiceState::new(context, TestAsmSpec, params).unwrap();
 
         assert_eq!(
             reloaded.blkid, advanced,
@@ -221,7 +223,7 @@ mod tests {
 
         let context = fx.state.context.clone();
         let params = fixtures::genesis_params(&fx.client, 101).await;
-        AsmWorkerServiceState::new(context, StrataAsmSpec, params).unwrap();
+        AsmWorkerServiceState::new(context, TestAsmSpec, params).unwrap();
 
         assert_eq!(
             fx.state.context.mmr_leaf_count(),

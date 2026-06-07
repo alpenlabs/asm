@@ -267,7 +267,6 @@ mod tests {
 
     use bitcoind_async_client::traits::Reader;
     use strata_asm_common::{AsmManifestHash, AuxRequestCollector};
-    use strata_asm_spec::StrataAsmSpec;
     use strata_identifiers::{Buf32, L1BlockId};
     use strata_service::CommandCompletionSender;
     use tokio::{sync::oneshot, task::block_in_place};
@@ -275,15 +274,16 @@ mod tests {
     use super::*;
     use crate::{
         AnchorStateStore, AuxDataResolver, ManifestMmrStore, WorkerError,
-        test_utils::{TestAsmWorkerContext, fixtures},
+        test_utils::{
+            TestAsmWorkerContext,
+            fixtures::{self, TestAsmSpec},
+        },
     };
 
     /// Leaf count of the accumulator carried by the current in-memory anchor —
     /// the snapshot size [`AsmWorkerServiceState::transition`] resolves aux data
     /// against.
-    fn anchor_leaf_count(
-        state: &AsmWorkerServiceState<TestAsmWorkerContext, StrataAsmSpec>,
-    ) -> u64 {
+    fn anchor_leaf_count(state: &AsmWorkerServiceState<TestAsmWorkerContext, TestAsmSpec>) -> u64 {
         state
             .anchor
             .state()
@@ -650,11 +650,11 @@ mod tests {
     /// dedicated thread is load-bearing, not incidental. `block_in_place` keeps
     /// the runtime free to serve that fetch while this thread blocks on it.
     fn process_input_off_runtime(
-        mut state: AsmWorkerServiceState<TestAsmWorkerContext, StrataAsmSpec>,
+        mut state: AsmWorkerServiceState<TestAsmWorkerContext, TestAsmSpec>,
         msg: AsmWorkerMessage,
     ) -> (
         anyhow::Result<Response>,
-        AsmWorkerServiceState<TestAsmWorkerContext, StrataAsmSpec>,
+        AsmWorkerServiceState<TestAsmWorkerContext, TestAsmSpec>,
     ) {
         block_in_place(|| {
             thread::spawn(move || {

@@ -281,11 +281,14 @@ pub(crate) mod fixtures {
     use bitcoin::BlockHash;
     use bitcoind_async_client::{Client, traits::Reader};
     use corepc_node::Node;
-    use strata_asm_params::AsmParams;
-    use strata_asm_spec::StrataAsmSpec;
+    use strata_asm_common::{
+        AnchorState, AsmHistoryAccumulatorState, AsmSpec, ChainViewState, HeaderVerificationState,
+        Stage,
+    };
     use strata_btc_types::BlockHashExt;
+    use strata_btc_verification::L1Anchor;
     use strata_identifiers::L1BlockCommitment;
-    use strata_test_utils_arb::ArbitraryGenerator;
+    use strata_l1_txfmt::MagicBytes;
     use strata_test_utils_btcio::{
         get_bitcoind_and_client, get_bitcoind_and_client_with_txindex, mine_blocks,
     };
@@ -293,13 +296,51 @@ pub(crate) mod fixtures {
     use super::{TestAsmWorkerContext, get_l1_anchor};
     use crate::AsmWorkerServiceState;
 
+    /// Minimal [`AsmSpec::Params`] for the worker's own tests: just the L1 anchor
+    /// the genesis state pins to, plus a magic. The production `AsmParams` also
+    /// carries per-subprotocol configs, which [`TestAsmSpec`] has no use for.
+    #[derive(Debug)]
+    pub(crate) struct TestAsmParams {
+        pub anchor: L1Anchor,
+        pub magic: MagicBytes,
+    }
+
+    /// A no-subprotocol [`AsmSpec`] for exercising the worker in isolation.
+    #[derive(Debug)]
+    pub(crate) struct TestAsmSpec;
+
+    impl AsmSpec for TestAsmSpec {
+        type Params = TestAsmParams;
+
+        fn call_subprotocols(&self, _stage: &mut impl Stage) {}
+
+        fn construct_genesis_state(&self, params: &Self::Params) -> AnchorState {
+            let genesis_height = params.anchor.block.height() as u64;
+            let chain_view = ChainViewState {
+                history_accumulator: AsmHistoryAccumulatorState::new(genesis_height),
+                pow_state: HeaderVerificationState::init(params.anchor.clone()),
+            };
+            AnchorState {
+                magic: AnchorState::magic_ssz(params.magic),
+                chain_view,
+                sections: Vec::new()
+                    .try_into()
+                    .expect("empty dummy sections fit within capacity"),
+            }
+        }
+
+        fn genesis_l1_height(&self, params: &Self::Params) -> u64 {
+            params.anchor.block.height() as u64
+        }
+    }
+
     /// A running regtest node, its client, and a worker state whose genesis
     /// anchor sits at the chain tip.
     pub(crate) struct StateFixture {
         /// Kept alive for the test's duration; dropping it stops `bitcoind`.
         pub node: Node,
         pub client: Arc<Client>,
-        pub state: AsmWorkerServiceState<TestAsmWorkerContext, StrataAsmSpec>,
+        pub state: AsmWorkerServiceState<TestAsmWorkerContext, TestAsmSpec>,
     }
 
     /// Builds a worker state with genesis at `genesis_height`: mine that many
@@ -315,8 +356,8 @@ pub(crate) mod fixtures {
 
         let params = genesis_params(&client, genesis_height).await;
         let context = TestAsmWorkerContext::new((*client).clone());
-        let state = AsmWorkerServiceState::new(context, StrataAsmSpec, params)
-            .expect("create service state");
+        let state =
+            AsmWorkerServiceState::new(context, TestAsmSpec, params).expect("create service state");
 
         StateFixture {
             node,
@@ -325,16 +366,18 @@ pub(crate) mod fixtures {
         }
     }
 
-    /// Arbitrary [`AsmParams`] with the anchor pinned to the block at
-    /// `genesis_height`, so [`AsmWorkerServiceState::new`] genesis lands there.
-    pub(crate) async fn genesis_params(client: &Client, genesis_height: u64) -> AsmParams {
+    /// [`TestAsmParams`] with the anchor pinned to the block at `genesis_height`,
+    /// so [`AsmWorkerServiceState::new`] genesis lands there.
+    pub(crate) async fn genesis_params(client: &Client, genesis_height: u64) -> TestAsmParams {
         let tip = client
             .get_block_hash(genesis_height)
             .await
             .expect("genesis tip hash");
-        let mut params: AsmParams = ArbitraryGenerator::new().generate();
-        params.anchor = get_l1_anchor(client, &tip).await.expect("genesis anchor");
-        params
+        let anchor = get_l1_anchor(client, &tip).await.expect("genesis anchor");
+        TestAsmParams {
+            anchor,
+            magic: MagicBytes::new(*b"ALPN"),
+        }
     }
 
     /// A running regtest node with a bare worker context (no anchors stored, no
