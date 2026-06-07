@@ -7,8 +7,8 @@
 use anyhow::{Context, Result};
 use async_trait::async_trait;
 use moho_recursive_proof::MohoRecursiveProgram;
-use strata_asm_proof_db::{RemoteProofMappingDb, RemoteProofStatusDb, SledProofDb};
 use strata_asm_proof_impl::program::AsmStfProofProgram;
+use strata_asm_prover_storage::{RemoteProofMappingDb, RemoteProofStatusDb, SledProofDb};
 use strata_asm_prover_types::{ProofId, RemoteProofId};
 use strata_tasks::ShutdownGuard;
 use tokio::{sync::mpsc, time};

@@ -5,7 +5,7 @@ use bitcoind_async_client::{Auth, Client};
 use strata_asm_moho_storage::SledMohoStateDb;
 use strata_asm_moho_worker::MohoWorkerBuilder;
 use strata_asm_params::AsmParams;
-use strata_asm_proof_db::SledProofDb;
+use strata_asm_prover_storage::SledProofDb;
 use strata_asm_spec::StrataAsmSpec;
 use strata_asm_worker::AsmWorkerBuilder;
 use strata_tasks::TaskExecutor;

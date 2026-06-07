@@ -4,7 +4,7 @@
 //! orchestrator focused on coordination logic.
 
 use anyhow::{Context, Result};
-use strata_asm_proof_db::{ProofDb, SledProofDb};
+use strata_asm_prover_storage::{ProofDb, SledProofDb};
 use strata_asm_prover_types::{AsmProof, MohoProof, ProofId};
 use tracing::info;
 use zkaleido::ProofReceiptWithMetadata;
