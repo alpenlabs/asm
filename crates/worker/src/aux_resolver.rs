@@ -221,10 +221,168 @@ impl<'a, C: ?Sized + L1DataProvider + ManifestMmrStore> fmt::Debug for AuxDataRe
 
 #[cfg(test)]
 mod tests {
-    // TODO(STR-3031): Add tests
-    // - test_resolve_empty_requests
-    // - test_resolve_bitcoin_txs
-    // - test_resolve_manifest_hashes
-    // - test_bitcoin_tx_not_found
-    // - test_invalid_manifest_range
+    use bitcoin::{Transaction, Txid, hashes::Hash};
+    use bitcoind_async_client::traits::Reader;
+    use strata_asm_common::{
+        AsmHistoryAccumulatorState, AsmManifestHash, AuxData, AuxRequestCollector,
+    };
+
+    use super::*;
+    use crate::{
+        WorkerError,
+        test_utils::{TestAsmWorkerContext, fixtures},
+    };
+
+    /// Genesis L1 height for the manifest fixtures: the MMR is sentinel-prefilled
+    /// for heights `0..=GENESIS_HEIGHT`, so real manifests start at the next
+    /// height and the leaf index equals the L1 height.
+    const GENESIS_HEIGHT: u64 = 5;
+
+    /// A distinct manifest hash seeded by `seed`.
+    fn manifest_hash(seed: u64) -> AsmManifestHash {
+        let mut bytes = [0u8; 32];
+        bytes[..8].copy_from_slice(&seed.to_le_bytes());
+        AsmManifestHash::from(bytes)
+    }
+
+    /// Populates `context`'s manifest MMR with the genesis sentinel prefill plus
+    /// `n` real manifest hashes (for heights `GENESIS_HEIGHT + 1 ..= GENESIS_HEIGHT + n`),
+    /// and returns a parallel accumulator built from the same leaves so resolved
+    /// proofs can be verified against it.
+    fn populate_manifests(context: &TestAsmWorkerContext, n: u64) -> AsmHistoryAccumulatorState {
+        context
+            .prefill_manifest_mmr(GENESIS_HEIGHT)
+            .expect("prefill");
+        let mut accumulator = AsmHistoryAccumulatorState::new(GENESIS_HEIGHT);
+        for height in GENESIS_HEIGHT + 1..=GENESIS_HEIGHT + n {
+            let hash = manifest_hash(height);
+            context.put_manifest_hash(height, hash).expect("put hash");
+            accumulator.add_manifest_leaf(hash).expect("add leaf");
+        }
+        accumulator
+    }
+
+    /// With no requests, resolution yields empty aux data without touching either
+    /// backing store.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn resolve_empty_requests() {
+        let fx = fixtures::setup_context(0).await;
+        let resolver = AuxDataResolver::new(&fx.context, 0);
+
+        let data = resolver.resolve(&AuxRequests::default()).expect("resolve");
+
+        assert_eq!(data, AuxData::default(), "no requests yield empty aux data");
+    }
+
+    /// Each requested txid is fetched from the Bitcoin node and returned, in
+    /// request order, as the matching raw transaction.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn resolve_bitcoin_txs() {
+        let fx = fixtures::setup_context_with_txindex(3).await;
+
+        // Two confirmed coinbase txs, fetched by txid.
+        let mut expected = Vec::new();
+        let mut collector = AuxRequestCollector::new(0, 0);
+        for height in [1u64, 2] {
+            let hash = fx.client.get_block_hash(height).await.unwrap();
+            let block = fx.client.get_block(&hash).await.unwrap();
+            let txid = block.txdata[0].compute_txid();
+            expected.push(txid);
+            collector.request_bitcoin_tx(txid);
+        }
+        let requests = collector.into_requests();
+
+        let resolver = AuxDataResolver::new(&fx.context, 0);
+        let data = resolver.resolve(&requests).expect("resolve");
+
+        let resolved = data.bitcoin_txs();
+        assert_eq!(resolved.len(), expected.len());
+        for (raw, txid) in resolved.iter().zip(&expected) {
+            let tx: Transaction = raw.try_into().expect("deserialize raw tx");
+            assert_eq!(
+                tx.compute_txid(),
+                *txid,
+                "fetched the requested tx, in order",
+            );
+        }
+    }
+
+    /// A manifest hash range resolves to one entry per height, each carrying the
+    /// stored hash and an MMR proof that verifies against the accumulator at the
+    /// snapshot leaf count.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn resolve_manifest_hashes() {
+        let fx = fixtures::setup_context(0).await;
+        let accumulator = populate_manifests(&fx.context, 5); // heights 6..=10
+        let at_leaf_count = accumulator.num_entries();
+
+        let mut collector = AuxRequestCollector::new(0, at_leaf_count);
+        collector.request_manifest_hashes(7, 9);
+        let requests = collector.into_requests();
+
+        let resolver = AuxDataResolver::new(&fx.context, at_leaf_count);
+        let data = resolver.resolve(&requests).expect("resolve");
+
+        let resolved = data.manifest_hashes();
+        assert_eq!(resolved.len(), 3, "one entry per height in 7..=9");
+        for (offset, height) in (7u64..=9).enumerate() {
+            let entry = &resolved[offset];
+            assert_eq!(
+                *entry.hash(),
+                manifest_hash(height),
+                "hash for height {height}"
+            );
+            assert_eq!(
+                entry.proof().index(),
+                height,
+                "proof index is the L1 height"
+            );
+            assert!(
+                accumulator.verify_manifest_leaf(entry.proof(), entry.hash()),
+                "proof verifies for height {height}",
+            );
+        }
+        assert!(
+            !accumulator.verify_manifest_leaf(resolved[0].proof(), &manifest_hash(999)),
+            "proof must not verify against a different leaf",
+        );
+    }
+
+    /// A txid the node cannot serve surfaces as `BitcoinTxNotFound` rather than
+    /// being swallowed.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn bitcoin_tx_not_found() {
+        let fx = fixtures::setup_context_with_txindex(1).await;
+
+        let mut collector = AuxRequestCollector::new(0, 0);
+        collector.request_bitcoin_tx(Txid::from_byte_array([0xff; 32]));
+        let requests = collector.into_requests();
+
+        let resolver = AuxDataResolver::new(&fx.context, 0);
+        let result = resolver.resolve(&requests);
+
+        assert!(matches!(result, Err(WorkerError::BitcoinTxNotFound(_))));
+    }
+
+    /// A range that runs past the last stored leaf errors at the first missing
+    /// height with `ManifestHashNotFound`.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn invalid_manifest_range() {
+        let fx = fixtures::setup_context(0).await;
+        let accumulator = populate_manifests(&fx.context, 3); // heights 6..=8
+        let at_leaf_count = accumulator.num_entries();
+
+        let mut collector = AuxRequestCollector::new(0, u64::MAX);
+        collector.request_manifest_hashes(6, at_leaf_count + 2);
+        let requests = collector.into_requests();
+
+        let resolver = AuxDataResolver::new(&fx.context, at_leaf_count);
+        let result = resolver.resolve(&requests);
+
+        // The first index without a stored leaf is the snapshot leaf count.
+        assert!(matches!(
+            result,
+            Err(WorkerError::ManifestHashNotFound { index }) if index == at_leaf_count,
+        ));
+    }
 }

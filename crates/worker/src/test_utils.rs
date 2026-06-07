@@ -286,7 +286,9 @@ pub(crate) mod fixtures {
     use strata_btc_types::BlockHashExt;
     use strata_identifiers::L1BlockCommitment;
     use strata_test_utils_arb::ArbitraryGenerator;
-    use strata_test_utils_btcio::{get_bitcoind_and_client, mine_blocks};
+    use strata_test_utils_btcio::{
+        get_bitcoind_and_client, get_bitcoind_and_client_with_txindex, mine_blocks,
+    };
 
     use super::{TestAsmWorkerContext, get_l1_anchor};
     use crate::AsmWorkerServiceState;
@@ -347,6 +349,23 @@ pub(crate) mod fixtures {
     /// Mines `height` blocks and wraps the node in a fresh, empty context.
     pub(crate) async fn setup_context(height: u64) -> ContextFixture {
         let (node, client) = get_bitcoind_and_client();
+        let client = Arc::new(client);
+        mine_blocks(&node, &client, height as usize, None)
+            .await
+            .expect("mine blocks");
+        let context = TestAsmWorkerContext::new((*client).clone());
+        ContextFixture {
+            _node: node,
+            client,
+            context,
+        }
+    }
+
+    /// Like [`setup_context`] but with `-txindex` enabled, so the context can
+    /// fetch confirmed non-wallet transactions (e.g. coinbase txs) by txid via
+    /// [`get_bitcoin_tx`](crate::L1DataProvider::get_bitcoin_tx).
+    pub(crate) async fn setup_context_with_txindex(height: u64) -> ContextFixture {
+        let (node, client) = get_bitcoind_and_client_with_txindex();
         let client = Arc::new(client);
         mine_blocks(&node, &client, height as usize, None)
             .await
