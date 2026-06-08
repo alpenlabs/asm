@@ -49,6 +49,13 @@ where
         match input {
             AsmWorkerMessage::SubmitBlock(target, completion) => {
                 let result = sync_to_block(state, &target);
+                if let Err(err) = &result {
+                    // A sync error is fatal: the worker exits below. Log it here
+                    // so the shutdown reason lands in the worker's own log, not
+                    // only in the caller's completion result (which may be
+                    // awaited on another task).
+                    error!(%target, %err, "ASM sync failed; shutting down worker");
+                }
                 let should_exit = result.is_err();
                 completion.send_blocking(result);
                 if should_exit {
@@ -125,6 +132,23 @@ where
     );
     drop(plan_span_guard);
 
+    // A reorg surfaces here as a base (fork point) that isn't the current
+    // in-memory tip: the backward walk followed `target`'s own ancestry, so
+    // landing on a stored anchor below our tip means the prior branch's blocks
+    // above the fork are being abandoned and their manifests/anchor state
+    // rewritten. Flag it — otherwise a reorg (including a rollback to an
+    // already-stored ancestor, where `pending` is empty) is indistinguishable
+    // from a normal forward extension in the logs.
+    if base_block != state.blkid {
+        warn!(
+            old_tip = %state.blkid,
+            fork_point = %base_block,
+            new_target = %target,
+            abandoned_blocks = state.blkid.height().saturating_sub(base_block.height()),
+            "ASM L1 reorg detected"
+        );
+    }
+
     // When the target is already processed (`pending` empty — a resync, or a
     // reorg that rolls the active tip back to an already-stored ancestor), the
     // forward pass below applies no block, so it never moves the durable
@@ -148,7 +172,7 @@ where
 
         info!(%block_id, "ASM transition attempt");
         apply_block(state, block_id)?;
-        info!(%block_id, %height, "ASM transition complete, manifest and state stored");
+        info!(%block_id, "ASM transition complete, manifest and state stored");
     }
 
     Ok(())
@@ -237,9 +261,6 @@ where
     // resident at any point during the forward pass.
     let block = state.context.get_l1_block(block_id.blkid())?;
     let (asm_stf_out, aux_data) = state.transition(&block)?;
-
-    let storage_span = debug_span!("asm.manifest_storage");
-    let _storage_guard = storage_span.enter();
 
     // Persist the manifest and record its hash in the height-indexed MMR.
     state

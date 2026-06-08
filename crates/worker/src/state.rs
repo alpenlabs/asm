@@ -52,11 +52,15 @@ where
         context.prefill_manifest_mmr(genesis_height)?;
 
         let (anchor, blkid) = match context.get_latest_asm_state()? {
-            Some((blkid, state)) => (state, blkid),
+            Some((blkid, state)) => {
+                tracing::info!(%blkid, "ASM worker resuming from stored anchor state");
+                (state, blkid)
+            }
             None => {
                 // Create genesis anchor state.
                 let genesis_state = spec.construct_genesis_state(&params);
                 let genesis_blk = genesis_state.chain_view.pow_state.last_verified_block;
+                tracing::info!(%genesis_blk, "no stored ASM state; initializing genesis anchor");
 
                 let state = AsmState::new(genesis_state, vec![]);
                 context.store_anchor_state(&genesis_blk, &state)?;
