@@ -36,12 +36,12 @@ class AsmRestartTest(flexitest.Test):
        To distinguish the two we read the worker log: the genesis-bootstrap
        line must not appear after the restart (and the resume line must).
 
-    2. Catch up past the gap. The block watcher does no backfilling of its own —
-       it only submits blocks it sees live over ZMQ, and ZMQ does not replay
-       blocks mined while the runner was down. The worker fills that gap by
-       walking back from the next live block to the persisted anchor. So we mine
-       blocks while the runner is down, then mine one more once it is back up to
-       trigger the walk-back, and assert it catches up over the whole gap.
+    2. Catch up past the gap on startup. ZMQ only forwards blocks mined after
+       the watcher subscribes, so blocks mined while the runner was down are
+       never replayed. To avoid sitting idle until the next block, the watcher
+       submits the current tip once on startup and the worker walks back from it
+       to the persisted anchor. So we mine blocks while the runner is down and
+       assert it catches up over the whole gap without any new block.
     """
 
     def __init__(self, ctx: flexitest.InitContext):
@@ -82,40 +82,25 @@ class AsmRestartTest(flexitest.Test):
         logging.info("stopping ASM runner at height %s", pre_restart_height)
         asm_service.stop()
 
-        # Mine while the runner is down so it must catch up over a gap on
-        # restart. These blocks are never delivered over ZMQ (which only
-        # forwards blocks mined after subscription), so they exercise the
-        # worker's walk-back, not the steady-state path.
+        # Mine while the runner is down. ZMQ won't replay these on restart (it
+        # only forwards blocks mined after subscription), so catching up to them
+        # exercises the startup tip-submit and the worker's walk-back, not the
+        # steady-state path.
         gap_blocks = 2
         bitcoin_rpc.proxy.generatetoaddress(gap_blocks, wallet_addr)
+        post_restart_target = pre_restart_height + gap_blocks
 
         logging.info("restarting ASM runner")
         asm_service.start()
         asm_rpc = asm_service.create_rpc()
         wait_until_asm_ready(asm_rpc)
 
-        # Mine one live block to trigger the worker's walk-back to the persisted
-        # anchor, which fills the gap mined while down. Retry to absorb the brief
-        # window between RPC readiness and ZMQ (re)subscription, during which a
-        # lone trigger block could be missed; each retry mines a fresh block.
-        caught_up_height = None
-        for attempt in range(5):
-            bitcoin_rpc.proxy.generatetoaddress(1, wallet_addr)
-            tip = bitcoin_rpc.proxy.getblockcount()
-            try:
-                caught_up_height = wait_until_asm_reaches_height(
-                    asm_rpc, min_height=tip, timeout=15
-                )
-                break
-            except TimeoutError:
-                logging.info("trigger block not yet observed (attempt %s); retrying", attempt + 1)
-        assert caught_up_height is not None, (
-            "runner did not catch up to the chain tip after restart"
-        )
-        assert caught_up_height > pre_restart_height + gap_blocks, (
-            f"runner caught up to {caught_up_height}, expected past the "
-            f"{gap_blocks}-block gap above {pre_restart_height}"
-        )
+        # The runner must reach the gap mined while it was down *without* any new
+        # block being mined: on startup the watcher submits the current tip once
+        # and the worker walks back from it to the persisted anchor. Before this,
+        # the runner sat idle until the next live block arrived — the regression
+        # this guards against.
+        caught_up_height = wait_until_asm_reaches_height(asm_rpc, min_height=post_restart_target)
         logging.info("ASM caught up past restart to height %s", caught_up_height)
 
         # Resume vs replay. The worker logs exactly one of two mutually

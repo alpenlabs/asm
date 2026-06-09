@@ -5,6 +5,11 @@
 //! stored anchor, so any heights skipped while the runner was down (or dropped
 //! by ZMQ) are synced by the worker itself — including across L1 reorgs.
 //!
+//! ZMQ only forwards blocks mined after we subscribe, so on startup the worker
+//! would sit at its persisted height until the next block is mined. To avoid
+//! that idle wait, the watcher submits the current chain tip once after
+//! subscribing; the worker walks back from it to catch up immediately.
+//!
 //! This is a glue-like replacement for the `btc-tracker` that asm-runner needs:
 //! real-time block notification with `bury_depth=0` (no reorg tracking, no
 //! tx monitoring). Written to avoid a painful dependency on `strata-bridge`.
@@ -14,6 +19,7 @@ use std::{sync::Arc, time::Duration};
 use anyhow::{Context, Result};
 use bitcoin::Block;
 use bitcoincore_zmq::{Message, SocketMessage, subscribe_async_wait_handshake};
+use bitcoind_async_client::{Client, traits::Reader};
 use futures::StreamExt;
 use strata_asm_proof_types::{L1Range, ProofId};
 use strata_asm_worker::AsmWorkerHandle;
@@ -36,6 +42,7 @@ const ZMQ_HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(2);
 /// N.B. Will be (eventually) onto SF rails and integrated with the worker "natively".
 pub(crate) async fn drive_asm_from_bitcoin(
     config: BitcoinConfig,
+    bitcoin_client: Arc<Client>,
     asm_worker: Arc<AsmWorkerHandle>,
     start_height: u64,
     proof_tx: Option<mpsc::UnboundedSender<ProofId>>,
@@ -53,6 +60,20 @@ pub(crate) async fn drive_asm_from_bitcoin(
     .context("failed to subscribe to bitcoind ZMQ")?;
 
     let mut stream = stream;
+
+    // Submit the current tip once to catch up from the persisted height without
+    // waiting for the next mined block. This runs *after* subscribing so any
+    // block mined in between still arrives over ZMQ — no gap between the
+    // catch-up and the live stream. A failure here isn't fatal: the next ZMQ
+    // block drives the same walk-back, just later.
+    match fetch_chain_tip(&bitcoin_client).await {
+        Ok(tip) => {
+            if let Err(err) = submit_block(&asm_worker, &proof_tx, tip).await {
+                error!(?err, "failed to submit chain tip on startup");
+            }
+        }
+        Err(err) => warn!(?err, "failed to fetch chain tip for startup catch-up"),
+    }
 
     loop {
         let msg = tokio::select! {
@@ -102,6 +123,16 @@ pub(crate) async fn drive_asm_from_bitcoin(
     }
 }
 
+/// Fetch the current best block from bitcoind.
+async fn fetch_chain_tip(client: &Client) -> Result<Block> {
+    let height = client.get_block_count().await.context("get_block_count")?;
+    let block = client
+        .get_block_at(height)
+        .await
+        .with_context(|| format!("get_block_at({height})"))?;
+    Ok(block)
+}
+
 /// Submit a block to the ASM worker and, optionally, enqueue a proof request.
 async fn submit_block(
     asm_worker: &AsmWorkerHandle,
@@ -120,6 +151,14 @@ async fn submit_block(
 
     debug!(%height, %hash, "submitted block to ASM worker");
 
+    // FIXME(STR-3699): only this commitment's proofs are enqueued, but the
+    // worker may have walked back and processed several intermediate blocks for
+    // this one submit (startup catch-up, or a ZMQ gap). Those blocks get no
+    // proof request, which permanently stalls the Moho recursive chain past the
+    // gap (Moho(H) needs Moho(H-1)). The watcher can't enqueue them correctly on
+    // its own — across a reorg, height-indexed lookups would name the wrong
+    // blocks. The fix is to have `submit_block_async` return the ordered list of
+    // blocks it processed and enqueue ASM+Moho requests for each.
     if let Some(tx) = proof_tx {
         let asm_proof_id = ProofId::Asm(L1Range::single(commitment));
         if let Err(err) = tx.send(asm_proof_id) {

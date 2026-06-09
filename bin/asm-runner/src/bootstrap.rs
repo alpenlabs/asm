@@ -150,9 +150,11 @@ pub(crate) async fn bootstrap(
     // 8. Spawn block watcher as a critical task.
     let asm_worker_for_driver = asm_worker.clone();
     let bitcoin_config = config.bitcoin.clone();
+    let bitcoin_client_for_driver = bitcoin_client.clone();
     executor.spawn_critical_async_with_shutdown("block_watcher", move |shutdown| {
         drive_asm_from_bitcoin(
             bitcoin_config,
+            bitcoin_client_for_driver,
             asm_worker_for_driver,
             start_height as u64,
             proof_tx,
