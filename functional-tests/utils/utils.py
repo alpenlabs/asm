@@ -1,6 +1,7 @@
 import logging
 import time
 from collections.abc import Callable
+from pathlib import Path
 
 from rpc.asm_types import AsmWorkerStatus
 
@@ -22,6 +23,68 @@ def wait_until(
             logging.debug("while waiting, caught exception: %s", exc)
 
     raise TimeoutError(f"{error_msg} (timeout: {timeout}s)")
+
+
+# The log helpers below are ported from strata-bridge's
+# `functional-tests/utils/utils.py` to share its convention for asserting on
+# log output emitted after a specific point in time.
+def snapshot_log_offsets(log_paths: list[str]) -> dict[str, int]:
+    """Capture the current size of each log file, keyed by path.
+
+    Used as a starting offset so later reads only see lines appended after this
+    point — the basis for "did this happen after X?" assertions on a log file
+    the process appends to across restarts.
+    """
+    return {
+        log_path: Path(log_path).stat().st_size if Path(log_path).exists() else 0
+        for log_path in log_paths
+    }
+
+
+def read_logs_since(log_offsets: dict[str, int]) -> str:
+    """Read and concatenate everything appended to each log past its offset.
+
+    The companion to `snapshot_log_offsets` for *absence* checks, which a
+    poll-until-match helper can't express (you can't wait for a non-event).
+    """
+    chunks = []
+    for log_path, start_offset in log_offsets.items():
+        path = Path(log_path)
+        if not path.exists():
+            continue
+        with path.open(encoding="utf-8", errors="ignore") as f:
+            f.seek(start_offset)
+            chunks.append(f.read())
+    return "".join(chunks)
+
+
+def wait_until_logs_match(
+    log_offsets: dict[str, int],
+    matcher: Callable[[str], bool],
+    timeout: int = 120,
+    step: int = 1,
+    error_msg: str = "Condition not met within timeout",
+):
+    """Wait until any line appended past the captured offsets satisfies *matcher*.
+
+    Reading only from each captured offset onward preserves "did this happen
+    after X?" semantics: tests that scan whole log files can otherwise match
+    stale lines emitted before the action under test.
+    """
+
+    def has_matching_line():
+        for log_path, start_offset in log_offsets.items():
+            path = Path(log_path)
+            if not path.exists():
+                continue
+            with path.open(encoding="utf-8", errors="ignore") as f:
+                f.seek(start_offset)
+                for line in f:
+                    if matcher(line):
+                        return True
+        return False
+
+    wait_until(has_matching_line, timeout=timeout, step=step, error_msg=error_msg)
 
 
 def wait_until_bitcoind_ready(rpc_client, timeout: int = 120, step: int = 1):

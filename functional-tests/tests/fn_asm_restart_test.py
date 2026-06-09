@@ -1,12 +1,14 @@
 import logging
-import os
 
 import flexitest
 
 from utils.utils import (
+    read_logs_since,
+    snapshot_log_offsets,
     wait_until_asm_reaches_height,
     wait_until_asm_ready,
     wait_until_bitcoind_ready,
+    wait_until_logs_match,
 )
 
 # Emitted once by the worker on fresh bootstrap, when it finds no persisted
@@ -73,9 +75,9 @@ class AsmRestartTest(flexitest.Test):
         )
 
         # Mark where the post-restart slice of the log file begins. The runner
-        # appends to this file across stop/start, so a byte offset captured now
-        # cleanly partitions pre- vs post-restart output.
-        log_offset = os.path.getsize(log_path)
+        # appends to this file across stop/start, so offsets captured now cleanly
+        # partition pre- vs post-restart output.
+        log_offsets = snapshot_log_offsets([log_path])
 
         logging.info("stopping ASM runner at height %s", pre_restart_height)
         asm_service.stop()
@@ -116,21 +118,26 @@ class AsmRestartTest(flexitest.Test):
         )
         logging.info("ASM caught up past restart to height %s", caught_up_height)
 
-        # Resume vs replay: the genesis-bootstrap line only fires when the worker
-        # can't load a persisted anchor. If the post-restart log slice contains
-        # it, the runner threw away persisted state and rebuilt from scratch —
-        # exactly the failure mode the test is for. The resume line must appear
-        # in its place.
-        with open(log_path, "rb") as f:
-            f.seek(log_offset)
-            post_log = f.read().decode("utf-8", errors="replace")
+        # Resume vs replay. The worker logs exactly one of two mutually
+        # exclusive lines at startup: the resume line when it loads a persisted
+        # anchor, or the genesis-bootstrap line when it can't. Both are emitted
+        # before the RPC comes up, so they're already in the post-restart slice
+        # by now; wait_until_logs_match just reuses the shared offset-scanning
+        # matcher rather than re-rolling the file read.
+        wait_until_logs_match(
+            log_offsets,
+            lambda line: RESUME_MARKER in line,
+            error_msg=f"runner did not emit {RESUME_MARKER!r} after restart",
+        )
+
+        # And assert the genesis-bootstrap line is absent from the same slice —
+        # its presence would mean the runner threw away persisted state and
+        # rebuilt from scratch, exactly the failure mode the test guards against.
+        # Absence can't be expressed as a wait, so read the slice and check.
+        post_log = read_logs_since(log_offsets)
         assert GENESIS_BOOTSTRAP_MARKER not in post_log, (
             f"runner re-emitted {GENESIS_BOOTSTRAP_MARKER!r} after restart — "
             "it restarted from genesis instead of resuming from persisted state"
-        )
-        assert RESUME_MARKER in post_log, (
-            f"runner did not emit {RESUME_MARKER!r} after restart — "
-            "expected it to resume from persisted state"
         )
 
         # Sanity: state for a pre-restart block is still queryable and identical
