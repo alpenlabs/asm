@@ -103,10 +103,8 @@ pub(crate) async fn drive_asm_from_bitcoin(
             _ => continue,
         };
 
-        let received_height = block.bip34_block_height().unwrap_or(0);
-
         if let Err(err) = submit_block(&asm_worker, &proof_tx, block).await {
-            error!(%received_height, ?err, "failed to submit block from ZMQ");
+            error!(?err, "failed to submit block from ZMQ");
         }
     }
 }
