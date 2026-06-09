@@ -92,6 +92,9 @@ where
 /// is committed as the latest anchor — moving the durable pointer so the
 /// rollback, not the abandoned higher branch, survives a restart.
 ///
+/// Returns the commitments processed, oldest first — possibly several blocks for
+/// one submit, or empty when the target is already processed or before genesis.
+///
 /// A `target` before genesis is ignored (returns `Ok`). If the backward walk
 /// descends below genesis without finding a stored anchor state, returns
 /// `WorkerError::MissingGenesisState`. Any fetch, transition, or storage error
@@ -99,7 +102,7 @@ where
 fn sync_to_block<W, S>(
     state: &mut AsmWorkerServiceState<W, S>,
     target: &L1BlockCommitment,
-) -> crate::WorkerResult<()>
+) -> crate::WorkerResult<Vec<L1BlockCommitment>>
 where
     W: WorkerContext + Send + Sync + 'static,
     S: AsmSpec + Send + Sync + 'static,
@@ -110,7 +113,7 @@ where
     let height = target.height();
     if height < genesis_height as u32 {
         warn!(height, "ignoring unexpected L1 block before genesis");
-        return Ok(());
+        return Ok(vec![]);
     }
 
     // Phase 1: plan the work — the base state and the blocks to process onto it.
@@ -162,8 +165,11 @@ where
 
     state.update_anchor_state(base_state, base_block);
 
-    // Phase 2: process the pending blocks oldest first.
-    for block_id in pending.iter().rev() {
+    // Phase 2: process the pending blocks oldest first. Collect them in applied
+    // order so the caller can drive per-block follow-up work (e.g. proof
+    // requests) over exactly the blocks the worker processed for this submit.
+    let processed: Vec<L1BlockCommitment> = pending.into_iter().rev().collect();
+    for block_id in &processed {
         let transition_span = debug_span!("asm.block_transition",
             height = block_id.height(),
             block_id = %block_id.blkid()
@@ -175,7 +181,7 @@ where
         info!(%block_id, "ASM transition complete, manifest and state stored");
     }
 
-    Ok(())
+    Ok(processed)
 }
 
 /// The work needed to bring the ASM state up to a target block, produced by
@@ -428,8 +434,10 @@ mod tests {
         let below = fx.client.get_block_hash(100).await.unwrap();
         let target = L1BlockCommitment::new(100, below.to_l1_block_id());
 
-        sync_to_block(&mut fx.state, &target).expect("pre-genesis target is ignored, not an error");
+        let processed = sync_to_block(&mut fx.state, &target)
+            .expect("pre-genesis target is ignored, not an error");
 
+        assert!(processed.is_empty(), "nothing processed before genesis");
         assert_eq!(fx.state.blkid, genesis, "anchor must not move");
         assert_eq!(
             fx.state.context.mmr_leaf_count(),
@@ -447,8 +455,12 @@ mod tests {
         let mined = fixtures::mine(&fx.node, &fx.client, 3).await; // 102, 103, 104
         let target = *mined.last().unwrap();
 
-        sync_to_block(&mut fx.state, &target).expect("sync should succeed");
+        let processed = sync_to_block(&mut fx.state, &target).expect("sync should succeed");
 
+        assert_eq!(
+            processed, mined,
+            "returns every processed block, oldest first"
+        );
         assert_eq!(fx.state.blkid, target, "anchor advanced to target");
         for blk in &mined {
             assert!(
@@ -473,8 +485,12 @@ mod tests {
         let leaves_after_sync = fx.state.context.mmr_leaf_count();
         assert_eq!(fx.state.blkid, tip);
 
-        sync_to_block(&mut fx.state, &earlier).expect("resync");
+        let processed = sync_to_block(&mut fx.state, &earlier).expect("resync");
 
+        assert!(
+            processed.is_empty(),
+            "an already-processed target applies nothing",
+        );
         assert_eq!(
             fx.state.blkid, earlier,
             "anchor repositions to the resynced block",
@@ -761,7 +777,11 @@ mod tests {
         let (response, state) = process_input_off_runtime(fx.state, msg);
 
         assert!(matches!(response.unwrap(), Response::Continue));
-        assert!(rx.await.unwrap().is_ok(), "caller received Ok");
+        assert_eq!(
+            rx.await.unwrap().unwrap(),
+            vec![target],
+            "caller received the processed block",
+        );
         assert_eq!(state.blkid, target, "anchor advanced");
     }
 

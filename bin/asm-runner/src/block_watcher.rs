@@ -119,7 +119,15 @@ async fn fetch_chain_tip(client: &Client) -> Result<Block> {
     Ok(block)
 }
 
-/// Submit a block to the ASM worker and, optionally, enqueue a proof request.
+/// Submit a block to the ASM worker and, optionally, enqueue proof requests for
+/// every block the worker actually processed.
+///
+/// One submit can drive several blocks: the worker walks back from the submitted
+/// block to its last stored anchor (startup catch-up, a ZMQ gap, or a reorg). We
+/// enqueue ASM+Moho requests for each processed commitment the worker returns —
+/// not just the submitted tip — so the Moho recursive chain stays gap-free (each
+/// Moho(H) has its Moho(H-1)). The commitments come back oldest first, the order
+/// Moho's recursion needs.
 async fn submit_block(
     asm_worker: &AsmWorkerHandle,
     proof_tx: &Option<mpsc::UnboundedSender<ProofId>>,
@@ -130,29 +138,25 @@ async fn submit_block(
     let block_id = hash.to_l1_block_id();
     let commitment = L1BlockCommitment::new(height as u32, block_id);
 
-    asm_worker
+    let processed = asm_worker
         .submit_block_async(commitment)
         .await
         .with_context(|| format!("submit_block_async for {hash} at {height}"))?;
 
-    debug!(%height, %hash, "submitted block to ASM worker");
+    debug!(%height, %hash, processed = processed.len(), "submitted block to ASM worker");
 
-    // FIXME(STR-3699): only this commitment's proofs are enqueued, but the
-    // worker may have walked back and processed several intermediate blocks for
-    // this one submit (startup catch-up, or a ZMQ gap). Those blocks get no
-    // proof request, which permanently stalls the Moho recursive chain past the
-    // gap (Moho(H) needs Moho(H-1)). The watcher can't enqueue them correctly on
-    // its own — across a reorg, height-indexed lookups would name the wrong
-    // blocks. The fix is to have `submit_block_async` return the ordered list of
-    // blocks it processed and enqueue ASM+Moho requests for each.
-    if let Some(tx) = proof_tx {
+    let Some(tx) = proof_tx else {
+        return Ok(());
+    };
+
+    for commitment in processed {
         let asm_proof_id = ProofId::Asm(L1Range::single(commitment));
         if let Err(err) = tx.send(asm_proof_id) {
-            warn!(%height, %hash, ?err, "failed to enqueue ASM proof request");
+            warn!(%commitment, ?err, "failed to enqueue ASM proof request");
         }
         let moho_proof_id = ProofId::Moho(commitment);
         if let Err(err) = tx.send(moho_proof_id) {
-            warn!(%height, %hash, ?err, "failed to enqueue Moho proof request");
+            warn!(%commitment, ?err, "failed to enqueue Moho proof request");
         }
     }
 
