@@ -43,6 +43,11 @@ pub(crate) enum Domain {
 /// Resources within the `asm` domain.
 #[derive(Subcommand, Debug)]
 pub(crate) enum AsmResource {
+    /// Anchor states, keyed by L1 block commitment.
+    State {
+        #[command(subcommand)]
+        verb: StateVerb,
+    },
     /// Full manifests, keyed by L1 block commitment.
     Manifest {
         #[command(subcommand)]
@@ -65,6 +70,26 @@ pub(crate) struct PruneArgs {
     /// Remove entries with height strictly above this (the height is kept).
     #[arg(long)]
     pub(crate) after: Option<u32>,
+}
+
+/// Verbs for `asm state`.
+#[derive(Subcommand, Debug)]
+pub(crate) enum StateVerb {
+    /// Dump the anchor state for a commitment, formatted `<height>:<blkid_hex>`.
+    Get { commitment: String },
+    /// Dump the highest-height anchor state.
+    Latest,
+    /// List every stored anchor-state commitment, in height order.
+    List,
+    /// Store an anchor state from a file of canonical SSZ bytes.
+    Put {
+        #[arg(long)]
+        file: PathBuf,
+    },
+    /// Delete the anchor state for a commitment `<height>:<blkid_hex>`.
+    Delete { commitment: String },
+    /// Bulk-remove anchor states by height.
+    Prune(PruneArgs),
 }
 
 /// Verbs for `asm manifest`.
