@@ -1,8 +1,9 @@
 //! Minimal Bitcoin block watcher for the ASM runner.
 //!
-//! Subscribes to a bitcoind `rawblock` ZMQ topic and feeds new blocks to the
-//! ASM worker. If the ZMQ stream skips heights (bitcoind catch-up, missed
-//! messages, restart), the gap is backfilled.
+//! Subscribes to a bitcoind `rawblock` ZMQ topic and submits each new block to
+//! the ASM worker. The worker walks back from the submitted block to its last
+//! stored anchor, so any heights skipped while the runner was down (or dropped
+//! by ZMQ) are synced by the worker itself — including across L1 reorgs.
 //!
 //! This is a glue-like replacement for the `btc-tracker` that asm-runner needs:
 //! real-time block notification with `bury_depth=0` (no reorg tracking, no
@@ -10,10 +11,9 @@
 
 use std::{sync::Arc, time::Duration};
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result};
 use bitcoin::Block;
 use bitcoincore_zmq::{Message, SocketMessage, subscribe_async_wait_handshake};
-use bitcoind_async_client::{Client, traits::Reader};
 use futures::StreamExt;
 use strata_asm_proof_types::{L1Range, ProofId};
 use strata_asm_worker::AsmWorkerHandle;
@@ -28,13 +28,14 @@ use crate::config::BitcoinConfig;
 /// Timeout for the initial ZMQ handshake with bitcoind.
 const ZMQ_HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(2);
 
-/// Drives the ASM worker by subscribing to bitcoind's `rawblock` ZMQ topic
-/// and submitting new blocks to the worker, backfilling any skipped heights.
+/// Drives the ASM worker by subscribing to bitcoind's `rawblock` ZMQ topic and
+/// submitting each new block. The worker syncs any skipped heights itself by
+/// walking back from the submitted block to its last anchor, so this watcher
+/// does not backfill.
 ///
 /// N.B. Will be (eventually) onto SF rails and integrated with the worker "natively".
 pub(crate) async fn drive_asm_from_bitcoin(
     config: BitcoinConfig,
-    bitcoin_client: Arc<Client>,
     asm_worker: Arc<AsmWorkerHandle>,
     start_height: u64,
     proof_tx: Option<mpsc::UnboundedSender<ProofId>>,
@@ -52,7 +53,6 @@ pub(crate) async fn drive_asm_from_bitcoin(
     .context("failed to subscribe to bitcoind ZMQ")?;
 
     let mut stream = stream;
-    let mut cursor = start_height;
 
     loop {
         let msg = tokio::select! {
@@ -85,59 +85,21 @@ pub(crate) async fn drive_asm_from_bitcoin(
 
         let received_height = block.bip34_block_height().unwrap_or(0);
 
-        if received_height < cursor {
+        // Blocks below the start height are already covered by the worker's
+        // anchor; never feed it a pre-anchor block.
+        if received_height < start_height {
             debug!(
                 %received_height,
-                %cursor,
-                "block is older than cursor, skipping"
+                %start_height,
+                "block is below start height, skipping"
             );
             continue;
-        }
-
-        // Backfill any skipped heights [cursor, received_height). This covers
-        // the common case of starting after a downtime, or rare ZMQ drops.
-        if received_height > cursor {
-            info!(
-                from = %cursor,
-                to = %received_height,
-                "backfilling skipped blocks"
-            );
-            for height in cursor..received_height {
-                match fetch_block_at_height(&bitcoin_client, height).await {
-                    Ok(fetched) => {
-                        if let Err(err) = submit_block(&asm_worker, &proof_tx, fetched).await {
-                            error!(%height, ?err, "failed to submit backfill block");
-                            // Stop backfilling on failure so we don't hand the
-                            // worker a gap. The next ZMQ event will retry.
-                            bail!("backfill interrupted at height {height}: {err}");
-                        }
-                    }
-                    Err(err) => {
-                        error!(%height, ?err, "failed to fetch backfill block");
-                        bail!("backfill fetch failed at height {height}: {err}");
-                    }
-                }
-            }
         }
 
         if let Err(err) = submit_block(&asm_worker, &proof_tx, block).await {
             error!(%received_height, ?err, "failed to submit block from ZMQ");
         }
-        cursor = received_height + 1;
     }
-}
-
-/// Fetch a single block by height via the bitcoind RPC client.
-async fn fetch_block_at_height(client: &Client, height: u64) -> Result<Block> {
-    let hash = client
-        .get_block_hash(height)
-        .await
-        .with_context(|| format!("get_block_hash({height})"))?;
-    let block = client
-        .get_block(&hash)
-        .await
-        .with_context(|| format!("get_block({hash})"))?;
-    Ok(block)
 }
 
 /// Submit a block to the ASM worker and, optionally, enqueue a proof request.
