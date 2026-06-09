@@ -39,6 +39,7 @@ members = [
 
   # binaries listed separately
   "bin/asm-runner",
+  "bin/dbtool",
   "bin/prover-perf",
   "guest-builder/sp1",
 ]

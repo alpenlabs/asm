@@ -1,0 +1,80 @@
+//! Clap definitions for the layered `<domain> <resource> <verb>` grammar.
+//!
+//! The structs/enums here only describe the surface; dispatch lives in
+//! [`crate::cmd`] so this module carries no storage dependencies.
+
+use std::path::PathBuf;
+
+use clap::{Args, Parser, Subcommand};
+
+/// Offline inspection and maintenance for ASM storage.
+#[derive(Parser, Debug)]
+#[command(name = "dbtool", version, about, long_about = None)]
+pub(crate) struct Cli {
+    /// Path to the ASM storage sled DB (anchor state, aux data, manifests,
+    /// manifest-hash MMR). Required for `asm` commands. The runner must be
+    /// stopped: sled takes an exclusive lock on the directory.
+    #[arg(long, global = true)]
+    pub(crate) storage_db: Option<PathBuf>,
+
+    /// Pretty-print JSON output instead of a single line.
+    #[arg(long, global = true)]
+    pub(crate) pretty: bool,
+
+    /// Allow mutating verbs (put/delete/prune/put-leaf) to write. Without it,
+    /// they refuse to run and the DB is treated as read-only.
+    #[arg(long, global = true)]
+    pub(crate) write: bool,
+
+    #[command(subcommand)]
+    pub(crate) domain: Domain,
+}
+
+/// Top-level conceptual domains.
+#[derive(Subcommand, Debug)]
+pub(crate) enum Domain {
+    /// ASM anchor state, aux data, manifests, and the manifest-hash MMR.
+    Asm {
+        #[command(subcommand)]
+        resource: AsmResource,
+    },
+}
+
+/// Resources within the `asm` domain.
+#[derive(Subcommand, Debug)]
+pub(crate) enum AsmResource {
+    /// Full manifests, keyed by L1 block commitment.
+    Manifest {
+        #[command(subcommand)]
+        verb: ManifestVerb,
+    },
+}
+
+/// `--before` / `--after` selector shared by the height-pruning verbs.
+#[derive(Args, Debug)]
+pub(crate) struct PruneArgs {
+    /// Remove entries with height strictly below this.
+    #[arg(long)]
+    pub(crate) before: Option<u32>,
+    /// Remove entries with height strictly above this (the height is kept).
+    #[arg(long)]
+    pub(crate) after: Option<u32>,
+}
+
+/// Verbs for `asm manifest`.
+#[derive(Subcommand, Debug)]
+pub(crate) enum ManifestVerb {
+    /// Dump the manifest for a commitment `<height>:<blkid_hex>`.
+    Get { commitment: String },
+    /// List every stored manifest commitment, in height order.
+    List,
+    /// Store a manifest from a file of canonical SSZ bytes (key is derived).
+    Put {
+        #[arg(long)]
+        file: PathBuf,
+    },
+    /// Delete the manifest for a commitment `<height>:<blkid_hex>`.
+    Delete { commitment: String },
+    /// Bulk-remove manifests by height.
+    Prune(PruneArgs),
+}

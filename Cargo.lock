@@ -763,6 +763,22 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7c02d123df017efcdfbd739ef81735b36c5ba83ec3c59c80a9d7ecc718f92e50"
 
 [[package]]
+name = "asm-dbtool"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "asm-storage",
+ "clap",
+ "hex",
+ "serde_json",
+ "sled",
+ "ssz",
+ "strata-asm-common",
+ "strata-identifiers",
+ "tempfile",
+]
+
+[[package]]
 name = "asm-storage"
 version = "0.1.0"
 dependencies = [

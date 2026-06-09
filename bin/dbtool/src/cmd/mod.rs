@@ -1,0 +1,16 @@
+//! Command dispatch. One submodule per resource; each returns the JSON value
+//! `main` emits.
+
+pub(crate) mod manifest;
+
+use anyhow::Result;
+use serde_json::Value;
+
+use crate::cli::AsmResource;
+
+/// Dispatches an `asm <resource> <verb>` command against the storage DB.
+pub(crate) fn run_asm(db: &sled::Db, resource: AsmResource, write: bool) -> Result<Value> {
+    match resource {
+        AsmResource::Manifest { verb } => manifest::run(db, verb, write),
+    }
+}
