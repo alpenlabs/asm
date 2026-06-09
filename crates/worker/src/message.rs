@@ -1,5 +1,6 @@
 //! Messages from the handle to the worker.
 
+use bitcoin::BlockHash;
 use strata_identifiers::L1BlockCommitment;
 use strata_service::CommandCompletionSender;
 
@@ -15,13 +16,13 @@ pub enum SubprotocolMessage {
 /// return the processing result.
 #[derive(Debug)]
 pub enum AsmWorkerMessage {
-    /// Submit an L1 block for ASM processing. The worker walks back from the
-    /// submitted block to its last stored anchor, so one submit can drive
+    /// Submit an L1 block hash for ASM processing. The worker resolves its
+    /// height and walks back to its last stored anchor, so one submit can drive
     /// several blocks (startup catch-up, a ZMQ gap, or a reorg). The completion
     /// sender receives the commitments actually processed, oldest first, once
     /// processing has finished.
     SubmitBlock(
-        L1BlockCommitment,
+        BlockHash,
         CommandCompletionSender<WorkerResult<Vec<L1BlockCommitment>>>,
     ),
 }

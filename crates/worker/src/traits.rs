@@ -29,6 +29,14 @@ pub trait L1DataProvider {
     /// Fetches a Bitcoin block [`Header`], without the block's transactions.
     fn get_l1_block_header(&self, blockid: &L1BlockId) -> WorkerResult<Header>;
 
+    /// Fetches the L1 height of the block with the given id.
+    ///
+    /// A submitted block carries only its id; the worker resolves it to a
+    /// height-tagged [`L1BlockCommitment`] here. Every subsequent height is
+    /// derived by the worker itself (the STF chains each block's height from its
+    /// parent), so this is the single point where an authoritative height enters.
+    fn get_l1_block_height(&self, blockid: &L1BlockId) -> WorkerResult<u64>;
+
     /// Fetches a raw Bitcoin transaction by txid.
     ///
     /// Returns the raw transaction bytes.

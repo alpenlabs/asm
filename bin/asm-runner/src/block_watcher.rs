@@ -17,14 +17,12 @@
 use std::{sync::Arc, time::Duration};
 
 use anyhow::{Context, Result};
-use bitcoin::Block;
+use bitcoin::BlockHash;
 use bitcoincore_zmq::{Message, SocketMessage, subscribe_async_wait_handshake};
 use bitcoind_async_client::{Client, traits::Reader};
 use futures::StreamExt;
 use strata_asm_proof_types::{L1Range, ProofId};
 use strata_asm_worker::AsmWorkerHandle;
-use strata_btc_types::BlockHashExt;
-use strata_identifiers::L1BlockCommitment;
 use strata_tasks::ShutdownGuard;
 use tokio::{sync::mpsc, time::timeout};
 use tracing::{debug, error, info, warn};
@@ -103,20 +101,21 @@ pub(crate) async fn drive_asm_from_bitcoin(
             _ => continue,
         };
 
-        if let Err(err) = submit_block(&asm_worker, &proof_tx, block).await {
+        let block_hash = block.block_hash();
+        if let Err(err) = submit_block(&asm_worker, &proof_tx, block_hash).await {
             error!(?err, "failed to submit block from ZMQ");
         }
     }
 }
 
-/// Fetch the current best block from bitcoind.
-async fn fetch_chain_tip(client: &Client) -> Result<Block> {
+/// Fetch the hash of the current best block from bitcoind.
+async fn fetch_chain_tip(client: &Client) -> Result<BlockHash> {
     let height = client.get_block_count().await.context("get_block_count")?;
-    let block = client
-        .get_block_at(height)
+    let hash = client
+        .get_block_hash(height)
         .await
-        .with_context(|| format!("get_block_at({height})"))?;
-    Ok(block)
+        .with_context(|| format!("get_block_hash({height})"))?;
+    Ok(hash)
 }
 
 /// Submit a block to the ASM worker and, optionally, enqueue proof requests for
@@ -131,19 +130,14 @@ async fn fetch_chain_tip(client: &Client) -> Result<Block> {
 async fn submit_block(
     asm_worker: &AsmWorkerHandle,
     proof_tx: &Option<mpsc::UnboundedSender<ProofId>>,
-    block: Block,
+    block_hash: BlockHash,
 ) -> Result<()> {
-    let height = block.bip34_block_height().unwrap_or(0);
-    let hash = block.block_hash();
-    let block_id = hash.to_l1_block_id();
-    let commitment = L1BlockCommitment::new(height as u32, block_id);
-
     let processed = asm_worker
-        .submit_block_async(commitment)
+        .submit_block_async(block_hash)
         .await
-        .with_context(|| format!("submit_block_async for {hash} at {height}"))?;
+        .with_context(|| format!("submit_block_async for {block_hash}"))?;
 
-    debug!(%height, %hash, processed = processed.len(), "submitted block to ASM worker");
+    debug!(%block_hash, processed = processed.len(), "submitted block to ASM worker");
 
     let Some(tx) = proof_tx else {
         return Ok(());

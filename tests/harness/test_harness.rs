@@ -56,7 +56,6 @@ use strata_asm_worker::{
     test_utils::{get_l1_anchor, TestAsmWorkerContext},
     AnchorStateStore, AsmState, AsmWorkerBuilder, AsmWorkerHandle, ManifestMmrStore,
 };
-use strata_btc_types::BlockHashExt;
 use strata_identifiers::L1BlockCommitment;
 use strata_l1_envelope_fmt::builder::{build_envelope_script, EnvelopeScriptBuilder};
 use strata_l1_txfmt::{ParseConfig, TagData};
@@ -133,17 +132,11 @@ impl AsmTestHarness {
 
         let block_hash = block_hashes[0];
 
-        // Get block height
-        let height = self.client.get_block_height(&block_hash).await?;
-
-        // Create L1BlockCommitment and submit to ASM worker
-        let block_id = block_hash.to_l1_block_id();
-        let block_commitment = L1BlockCommitment::new(height as u32, block_id);
-
-        // Submit to ASM worker and wait for processing to complete.
-        // `submit_block` uses `send_and_wait_blocking`, so the block is fully
-        // processed when this returns.
-        block_in_place(|| self.asm_handle.submit_block(block_commitment))?;
+        // Submit the block hash to the ASM worker and wait for processing to
+        // complete. The worker resolves the height itself. `submit_block` uses
+        // `send_and_wait_blocking`, so the block is fully processed when this
+        // returns.
+        block_in_place(|| self.asm_handle.submit_block(block_hash))?;
 
         Ok(block_hash)
     }
@@ -187,11 +180,8 @@ impl AsmTestHarness {
         let result = self.bitcoind.client.generate_block(&output, &raw, true)?;
         let block_hash: BlockHash = result.hash.parse()?;
 
-        // Same post-step as `mine_block`: feed the block to the ASM worker.
-        let height = self.client.get_block_height(&block_hash).await?;
-        let block_id = block_hash.to_l1_block_id();
-        let block_commitment = L1BlockCommitment::new(height as u32, block_id);
-        block_in_place(|| self.asm_handle.submit_block(block_commitment))?;
+        // Same post-step as `mine_block`: feed the block hash to the ASM worker.
+        block_in_place(|| self.asm_handle.submit_block(block_hash))?;
 
         Ok(block_hash)
     }
@@ -722,12 +712,8 @@ impl AsmTestHarnessBuilder {
             genesis_height,
         };
 
-        // Submit genesis block to ASM worker
-        let genesis_block_id = genesis_hash.to_l1_block_id();
-        let genesis_commitment = L1BlockCommitment::new(genesis_height as u32, genesis_block_id);
-
-        // Submit genesis block and wait for processing to complete
-        block_in_place(|| harness.asm_handle.submit_block(genesis_commitment))?;
+        // Submit genesis block hash and wait for processing to complete
+        block_in_place(|| harness.asm_handle.submit_block(genesis_hash))?;
 
         Ok(Setup {
             harness,

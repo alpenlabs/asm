@@ -1,5 +1,6 @@
 //! Handle for interacting with the ASM worker service.
 
+use bitcoin::BlockHash;
 use strata_identifiers::L1BlockCommitment;
 use strata_service::{CommandHandle, ServiceError, ServiceMonitor};
 
@@ -24,10 +25,10 @@ impl AsmWorkerHandle {
         }
     }
 
-    /// Sends an L1 block to the ASM service and waits for processing to
+    /// Sends an L1 block hash to the ASM service and waits for processing to
     /// complete. Returns the commitments the worker processed (oldest first),
     /// which may span several blocks the worker walked back through.
-    pub fn submit_block(&self, block: L1BlockCommitment) -> anyhow::Result<Vec<L1BlockCommitment>> {
+    pub fn submit_block(&self, block: BlockHash) -> anyhow::Result<Vec<L1BlockCommitment>> {
         self.command_handle
             .send_and_wait_blocking(|completion| AsmWorkerMessage::SubmitBlock(block, completion))
             .map_err(convert_service_error)?
@@ -37,7 +38,7 @@ impl AsmWorkerHandle {
     /// Async variant of [`submit_block`](Self::submit_block).
     pub async fn submit_block_async(
         &self,
-        block: L1BlockCommitment,
+        block: BlockHash,
     ) -> anyhow::Result<Vec<L1BlockCommitment>> {
         self.command_handle
             .send_and_wait(|completion| AsmWorkerMessage::SubmitBlock(block, completion))

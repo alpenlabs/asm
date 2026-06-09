@@ -5,7 +5,7 @@ use std::marker;
 use serde::{Deserialize, Serialize};
 use strata_asm_common::AsmSpec;
 use strata_btc_types::BlockHashExt;
-use strata_identifiers::L1BlockCommitment;
+use strata_identifiers::{L1BlockCommitment, L1BlockId};
 use strata_service::{Response, Service, SyncService};
 use tracing::*;
 
@@ -48,7 +48,10 @@ where
     ) -> anyhow::Result<Response> {
         match input {
             AsmWorkerMessage::SubmitBlock(target, completion) => {
-                let result = sync_to_block(state, &target);
+                // The wire carries a bitcoin block hash; translate it to the
+                // worker's L1 block id at this boundary so nothing downstream
+                // deals in bitcoin types.
+                let result = sync_to_block(state, &target.to_l1_block_id());
                 if let Err(err) = &result {
                     // A sync error is fatal: the worker exits below. Log it here
                     // so the shutdown reason lands in the worker's own log, not
@@ -67,8 +70,13 @@ where
     }
 }
 
-/// Synchronizes the ASM state up to `target`, processing every L1 block between
-/// the last already-processed ancestor and `target`.
+/// Synchronizes the ASM state up to the submitted block, processing every L1
+/// block between the last already-processed ancestor and the target.
+///
+/// The caller submits only an id; the worker resolves its height from the L1
+/// source once (see
+/// [`get_l1_block_height`](crate::L1DataProvider::get_l1_block_height)) to form
+/// the target commitment, then derives every later height itself.
 ///
 /// `target` is a block submitted to the worker; it may extend the current chain
 /// or, on an L1 reorg, switch to a different branch (even one whose tip is at a
@@ -101,16 +109,21 @@ where
 /// is propagated; the caller treats it as fatal and shuts the worker down.
 fn sync_to_block<W, S>(
     state: &mut AsmWorkerServiceState<W, S>,
-    target: &L1BlockCommitment,
+    target_blkid: &L1BlockId,
 ) -> crate::WorkerResult<Vec<L1BlockCommitment>>
 where
     W: WorkerContext + Send + Sync + 'static,
     S: AsmSpec + Send + Sync + 'static,
     S::Params: Send + Sync + 'static,
 {
-    // Ignore blocks before genesis.
+    // Resolve the submitted id to a height-tagged commitment. This is the only
+    // height the worker takes from outside; every later height is derived from
+    // the parent chain as the STF processes each block.
     let genesis_height = state.genesis_height();
-    let height = target.height();
+    let height = state.context.get_l1_block_height(target_blkid)? as u32;
+    let target = L1BlockCommitment::new(height, *target_blkid);
+
+    // Ignore blocks before genesis.
     if height < genesis_height as u32 {
         warn!(height, "ignoring unexpected L1 block before genesis");
         return Ok(vec![]);
@@ -127,7 +140,7 @@ where
         base_state,
         base_block,
         pending,
-    } = plan_block_processing(&state.context, target, genesis_height)?;
+    } = plan_block_processing(&state.context, &target, genesis_height)?;
 
     info!(%base_block,
         pending_blocks = pending.len(),
@@ -310,6 +323,7 @@ mod tests {
 
     use bitcoind_async_client::traits::Reader;
     use strata_asm_common::{AsmManifestHash, AuxRequestCollector};
+    use strata_btc_types::L1BlockIdBitcoinExt;
     use strata_identifiers::{Buf32, L1BlockId};
     use strata_service::CommandCompletionSender;
     use tokio::{sync::oneshot, task::block_in_place};
@@ -431,10 +445,14 @@ mod tests {
         let genesis = fx.state.blkid;
         let leaves_before = fx.state.context.mmr_leaf_count();
 
-        let below = fx.client.get_block_hash(100).await.unwrap();
-        let target = L1BlockCommitment::new(100, below.to_l1_block_id());
+        let below = fx
+            .client
+            .get_block_hash(100)
+            .await
+            .unwrap()
+            .to_l1_block_id();
 
-        let processed = sync_to_block(&mut fx.state, &target)
+        let processed = sync_to_block(&mut fx.state, &below)
             .expect("pre-genesis target is ignored, not an error");
 
         assert!(processed.is_empty(), "nothing processed before genesis");
@@ -455,7 +473,7 @@ mod tests {
         let mined = fixtures::mine(&fx.node, &fx.client, 3).await; // 102, 103, 104
         let target = *mined.last().unwrap();
 
-        let processed = sync_to_block(&mut fx.state, &target).expect("sync should succeed");
+        let processed = sync_to_block(&mut fx.state, target.blkid()).expect("sync should succeed");
 
         assert_eq!(
             processed, mined,
@@ -481,11 +499,11 @@ mod tests {
         let earlier = mined[0];
         let tip = mined[1];
 
-        sync_to_block(&mut fx.state, &tip).expect("initial sync");
+        sync_to_block(&mut fx.state, tip.blkid()).expect("initial sync");
         let leaves_after_sync = fx.state.context.mmr_leaf_count();
         assert_eq!(fx.state.blkid, tip);
 
-        let processed = sync_to_block(&mut fx.state, &earlier).expect("resync");
+        let processed = sync_to_block(&mut fx.state, earlier.blkid()).expect("resync");
 
         assert!(
             processed.is_empty(),
@@ -514,7 +532,7 @@ mod tests {
         let earlier = mined[0];
         let tip = mined[1];
 
-        sync_to_block(&mut fx.state, &tip).expect("initial sync");
+        sync_to_block(&mut fx.state, tip.blkid()).expect("initial sync");
         assert_eq!(
             fx.state
                 .context
@@ -525,7 +543,7 @@ mod tests {
             "latest tracks the higher branch after the initial sync",
         );
 
-        sync_to_block(&mut fx.state, &earlier).expect("resync to the earlier block");
+        sync_to_block(&mut fx.state, earlier.blkid()).expect("resync to the earlier block");
 
         // The durable pointer follows the rollback...
         assert_eq!(
@@ -557,13 +575,13 @@ mod tests {
 
         // Branch A: process 102, 103, 104.
         let branch_a = fixtures::mine(&fx.node, &fx.client, 3).await;
-        sync_to_block(&mut fx.state, branch_a.last().unwrap()).expect("sync branch A");
+        sync_to_block(&mut fx.state, branch_a.last().unwrap().blkid()).expect("sync branch A");
         let leaves_a = fx.state.context.mmr_leaves();
 
         // Reorg below 103 and process a longer branch B: 103b, 104b, 105b.
         let branch_b = fixtures::reorg(&fx.node, &fx.client, 103, 3).await;
         let new_tip = *branch_b.last().unwrap();
-        sync_to_block(&mut fx.state, &new_tip).expect("sync branch B");
+        sync_to_block(&mut fx.state, new_tip.blkid()).expect("sync branch B");
         let leaves_b = fx.state.context.mmr_leaves();
 
         assert_eq!(fx.state.blkid, new_tip, "anchor on the new branch");
@@ -594,7 +612,7 @@ mod tests {
         // Chain A: process 6, 7, 8, 9 through the full STF.
         let branch_a = fixtures::mine(&fx.node, &fx.client, 4).await; // 6,7,8,9
         let tip_a = *branch_a.last().unwrap(); // 9
-        sync_to_block(&mut fx.state, &tip_a).expect("sync branch A");
+        sync_to_block(&mut fx.state, tip_a.blkid()).expect("sync branch A");
         assert_eq!(fx.state.blkid, tip_a, "anchor at chain A tip");
 
         // The resolver runs against the current anchor's accumulator: sentinels
@@ -621,7 +639,7 @@ mod tests {
         // Reorg: invalidate 6 (drops 6..=9), mine a *shorter* branch B: 6', 7'.
         let branch_b = fixtures::reorg(&fx.node, &fx.client, 6, 2).await; // 6',7'
         let tip_b = *branch_b.last().unwrap(); // 7'
-        sync_to_block(&mut fx.state, &tip_b).expect("sync branch B");
+        sync_to_block(&mut fx.state, tip_b.blkid()).expect("sync branch B");
         assert_eq!(fx.state.blkid, tip_b, "anchor on branch B");
 
         // (1) The orphaned leaves 8,9 are still in storage — branch B only
@@ -674,16 +692,17 @@ mod tests {
         );
     }
 
-    /// A fetch failure during the backward walk (block the node cannot serve)
-    /// propagates out of `sync_to_block` rather than being swallowed.
+    /// A fetch failure resolving the submitted id (a block the node cannot
+    /// serve) propagates out of `sync_to_block` rather than being swallowed —
+    /// here at the up-front height lookup, before any walk.
     #[tokio::test(flavor = "multi_thread")]
     async fn sync_propagates_fetch_error() {
         let mut fx = fixtures::setup_state(101).await;
-        // Above genesis, so the walk tries to fetch — but the id is not a real block.
+        // Not a real block, so resolving its height to form the target
+        // commitment fails.
         let bogus = L1BlockId::from(Buf32::from([0xab; 32]));
-        let target = L1BlockCommitment::new(102, bogus);
 
-        let result = sync_to_block(&mut fx.state, &target);
+        let result = sync_to_block(&mut fx.state, &bogus);
 
         assert!(matches!(result, Err(WorkerError::MissingL1Block(_))));
     }
@@ -772,7 +791,10 @@ mod tests {
         let fx = fixtures::setup_state(101).await;
         let target = fixtures::mine(&fx.node, &fx.client, 1).await[0]; // 102
         let (tx, rx) = oneshot::channel();
-        let msg = AsmWorkerMessage::SubmitBlock(target, CommandCompletionSender::new(tx));
+        let msg = AsmWorkerMessage::SubmitBlock(
+            target.blkid().to_block_hash(),
+            CommandCompletionSender::new(tx),
+        );
 
         let (response, state) = process_input_off_runtime(fx.state, msg);
 
@@ -786,12 +808,12 @@ mod tests {
     }
 
     /// A failing sync shuts the worker down: `process_input` returns `ShouldExit`
-    /// and the error reaches the caller. The genesis-height bogus id errors in the
-    /// plan's genesis check, before any fetch.
+    /// and the error reaches the caller. The bogus id can't be resolved to a
+    /// height, so the sync fails at the up-front lookup.
     #[tokio::test(flavor = "multi_thread")]
     async fn process_input_failure_exits() {
         let fx = fixtures::setup_state(101).await;
-        let bogus = L1BlockCommitment::new(101, L1BlockId::from(Buf32::from([0xcd; 32])));
+        let bogus = L1BlockId::from(Buf32::from([0xcd; 32])).to_block_hash();
         let (tx, rx) = oneshot::channel();
         let msg = AsmWorkerMessage::SubmitBlock(bogus, CommandCompletionSender::new(tx));
 

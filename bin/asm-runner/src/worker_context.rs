@@ -175,6 +175,21 @@ impl L1DataProvider for AsmWorkerContext {
             })
     }
 
+    fn get_l1_block_height(&self, blockid: &L1BlockId) -> WorkerResult<u64> {
+        let block_hash: BlockHash = blockid.to_block_hash();
+        let client = &self.bitcoin_client;
+        self.runtime_handle
+            .block_on(retry_with_backoff_async(
+                "btc_get_block_height",
+                self.rpc_max_retries,
+                &self.rpc_backoff,
+                || async { client.get_block_height(&block_hash).await },
+            ))
+            .map_err(|e: ClientError| {
+                WorkerError::BtcRpc(format!("get_block_height({block_hash}): {e}"))
+            })
+    }
+
     fn get_network(&self) -> WorkerResult<Network> {
         let client = &self.bitcoin_client;
         self.runtime_handle
