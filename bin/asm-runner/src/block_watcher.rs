@@ -1,9 +1,12 @@
 //! Minimal Bitcoin block watcher for the ASM runner.
 //!
-//! Subscribes to a bitcoind `rawblock` ZMQ topic and submits each new block to
-//! the ASM worker. The worker walks back from the submitted block to its last
-//! stored anchor, so any heights skipped while the runner was down (or dropped
-//! by ZMQ) are synced by the worker itself — including across L1 reorgs.
+//! Subscribes to a bitcoind `hashblock` ZMQ topic and submits each new block
+//! hash to the ASM worker. The worker resolves the height, then walks back from
+//! the submitted block to its last stored anchor, so any heights skipped while
+//! the runner was down (or dropped by ZMQ) are synced by the worker itself —
+//! including across L1 reorgs. We subscribe to `hashblock` rather than
+//! `rawblock` because the worker re-fetches each full block by RPC when it runs
+//! the STF, so the 32-byte hash is all this watcher needs.
 //!
 //! ZMQ only forwards blocks mined after we subscribe, so on startup the worker
 //! would sit at its persisted height until the next block is mined. To avoid
@@ -32,9 +35,9 @@ use crate::config::BitcoinConfig;
 /// Timeout for the initial ZMQ handshake with bitcoind.
 const ZMQ_HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(2);
 
-/// Drives the ASM worker by subscribing to bitcoind's `rawblock` ZMQ topic and
-/// submitting each new block. The worker syncs any skipped heights itself by
-/// walking back from the submitted block to its last anchor, so this watcher
+/// Drives the ASM worker by subscribing to bitcoind's `hashblock` ZMQ topic and
+/// submitting each new block hash. The worker syncs any skipped heights itself
+/// by walking back from the submitted block to its last anchor, so this watcher
 /// does not backfill.
 ///
 /// N.B. Will be (eventually) onto SF rails and integrated with the worker "natively".
@@ -47,7 +50,7 @@ pub(crate) async fn drive_asm_from_bitcoin(
 ) -> Result<()> {
     info!("starting ASM block watcher");
 
-    let socket = config.rawblock_connection_string.as_str();
+    let socket = config.hashblock_connection_string.as_str();
     let stream = timeout(
         ZMQ_HANDSHAKE_TIMEOUT,
         subscribe_async_wait_handshake(&[socket]),
@@ -95,13 +98,12 @@ pub(crate) async fn drive_asm_from_bitcoin(
             }
         };
 
-        let block = match socket_msg {
-            SocketMessage::Message(Message::Block(block, _)) => block,
-            // We only subscribe to rawblock, but ignore anything else defensively.
+        let block_hash = match socket_msg {
+            SocketMessage::Message(Message::HashBlock(hash, _)) => hash,
+            // We only subscribe to hashblock, but ignore anything else defensively.
             _ => continue,
         };
 
-        let block_hash = block.block_hash();
         if let Err(err) = submit_block(&asm_worker, &proof_tx, block_hash).await {
             error!(?err, "failed to submit block from ZMQ");
         }

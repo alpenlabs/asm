@@ -76,11 +76,12 @@ pub(crate) struct BitcoinConfig {
     pub rpc_user: String,
     /// Bitcoin RPC password
     pub rpc_password: String,
-    /// Connection string used in `bitcoin.conf => zmqpubrawblock`.
-    // TODO(STR-2662): We should be able to work with `hashblock_connection_string` since ASM
-    // runner used btc-client to fetch the full block. We don't use it here since the BlockEvent is
-    // emitted only on the rawblock connection. Fix that.
-    pub rawblock_connection_string: String,
+    /// Connection string used in `bitcoin.conf => zmqpubhashblock`.
+    ///
+    /// The watcher only needs the new block's hash to drive the worker (which
+    /// re-fetches the full block by RPC), so it subscribes to `hashblock`
+    /// rather than shipping every full block over `rawblock`.
+    pub hashblock_connection_string: String,
     /// Retry policy applied to Bitcoin RPC calls. This is the *outer* retry
     /// layer; [`bitcoind_async_client::Client`] has its own narrow retry
     /// loop underneath that only covers transient transport hiccups and is
@@ -113,7 +114,7 @@ mod tests {
             rpc_url = "http://localhost:18443"
             rpc_user = "user"
             rpc_password = "pass"
-            rawblock_connection_string = "tcp://127.0.0.1:28332"
+            hashblock_connection_string = "tcp://127.0.0.1:28332"
 
             [logging]
             otlp_url = "http://localhost:4317"
@@ -147,7 +148,7 @@ mod tests {
             rpc_url = "http://localhost:18443"
             rpc_user = "user"
             rpc_password = "pass"
-            rawblock_connection_string = "tcp://127.0.0.1:28332"
+            hashblock_connection_string = "tcp://127.0.0.1:28332"
         "#;
 
         let config: AsmRpcConfig = toml::from_str(toml_src).expect("should parse");
