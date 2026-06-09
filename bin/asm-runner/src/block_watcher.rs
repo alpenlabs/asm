@@ -65,10 +65,12 @@ pub(crate) async fn drive_asm_from_bitcoin(
     // waiting for the next mined block. This runs *after* subscribing so any
     // block mined in between still arrives over ZMQ — no gap between the
     // catch-up and the live stream. A failure here isn't fatal: the next ZMQ
-    // block drives the same walk-back, just later.
-    match fetch_chain_tip(&bitcoin_client).await {
-        Ok(tip) => {
-            if let Err(err) = submit_block(&asm_worker, &proof_tx, tip).await {
+    // block drives the same walk-back, just later. `getblockchaininfo` resolves
+    // the tip hash in one call, so there's no window where a block mined between
+    // a height read and a hash read could desync them.
+    match bitcoin_client.get_blockchain_info().await {
+        Ok(info) => {
+            if let Err(err) = submit_block(&asm_worker, &proof_tx, info.best_block_hash).await {
                 error!(?err, "failed to submit chain tip on startup");
             }
         }
@@ -108,16 +110,6 @@ pub(crate) async fn drive_asm_from_bitcoin(
             error!(?err, "failed to submit block from ZMQ");
         }
     }
-}
-
-/// Fetch the hash of the current best block from bitcoind.
-async fn fetch_chain_tip(client: &Client) -> Result<BlockHash> {
-    let height = client.get_block_count().await.context("get_block_count")?;
-    let hash = client
-        .get_block_hash(height)
-        .await
-        .with_context(|| format!("get_block_hash({height})"))?;
-    Ok(hash)
 }
 
 /// Submit a block to the ASM worker and, optionally, enqueue proof requests for
