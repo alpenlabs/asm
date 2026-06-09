@@ -2,6 +2,7 @@
 //! `main` emits.
 
 pub(crate) mod manifest;
+pub(crate) mod manifest_mmr;
 
 use anyhow::Result;
 use serde_json::Value;
@@ -12,5 +13,6 @@ use crate::cli::AsmResource;
 pub(crate) fn run_asm(db: &sled::Db, resource: AsmResource, write: bool) -> Result<Value> {
     match resource {
         AsmResource::Manifest { verb } => manifest::run(db, verb, write),
+        AsmResource::ManifestMmr { verb } => manifest_mmr::run(db, verb, write),
     }
 }

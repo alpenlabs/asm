@@ -7,7 +7,10 @@ use strata_asm_common::{AsmManifest, AsmManifestHash};
 use strata_identifiers::{Buf32, L1BlockId, WtxidsRoot};
 use tempfile::TempDir;
 
-use crate::{cli::ManifestVerb, cmd};
+use crate::{
+    cli::{ManifestVerb, MmrVerb},
+    cmd,
+};
 
 const HEIGHT: u32 = 100;
 const BLKID_SEED: u8 = 0x07;
@@ -83,6 +86,29 @@ fn manifest_list_counts_entries() {
     let v = cmd::manifest::run(&db, ManifestVerb::List, false).unwrap();
     assert_eq!(v["count"], 1);
     assert_eq!(v["entries"][0]["height"], HEIGHT);
+}
+
+#[test]
+fn manifest_mmr_proof_emits_inclusion_proof() {
+    let (db, _dir) = seeded_db();
+    let verb = MmrVerb::Proof {
+        index: 1,
+        at: Some(4),
+    };
+
+    let v = cmd::manifest_mmr::run(&db, verb, false).unwrap();
+    assert_eq!(v["index"], 1);
+    assert_eq!(v["at_leaf_count"], 4);
+    assert_eq!(v["leaf"], hex::encode(leaf(1).as_ref()));
+    assert!(v["proof_ssz_hex"].as_str().is_some_and(|s| !s.is_empty()));
+}
+
+#[test]
+fn manifest_mmr_count_matches() {
+    let (db, _dir) = seeded_db();
+
+    let v = cmd::manifest_mmr::run(&db, MmrVerb::Count, false).unwrap();
+    assert_eq!(v["leaf_count"], 4);
 }
 
 #[test]

@@ -48,6 +48,12 @@ pub(crate) enum AsmResource {
         #[command(subcommand)]
         verb: ManifestVerb,
     },
+    /// Manifest-hash Merkle Mountain Range (height-indexed).
+    #[command(name = "manifest-mmr")]
+    ManifestMmr {
+        #[command(subcommand)]
+        verb: MmrVerb,
+    },
 }
 
 /// `--before` / `--after` selector shared by the height-pruning verbs.
@@ -77,4 +83,22 @@ pub(crate) enum ManifestVerb {
     Delete { commitment: String },
     /// Bulk-remove manifests by height.
     Prune(PruneArgs),
+}
+
+/// Verbs for `asm manifest-mmr`.
+#[derive(Subcommand, Debug)]
+pub(crate) enum MmrVerb {
+    /// Print the current leaf count.
+    Count,
+    /// Print the manifest hash at a leaf index.
+    Leaf { index: u64 },
+    /// Generate an inclusion proof for a leaf against an MMR of `--at` leaves
+    /// (defaults to the current leaf count).
+    Proof {
+        index: u64,
+        #[arg(long)]
+        at: Option<u64>,
+    },
+    /// Write a manifest hash as the leaf at `height` (append or overwrite).
+    PutLeaf { height: u64, hash: String },
 }
