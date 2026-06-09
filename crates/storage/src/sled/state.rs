@@ -78,6 +78,16 @@ impl SledAsmStateDb {
         }
         Ok(())
     }
+
+    /// Removes the anchor state for `block`, returning whether one was present.
+    ///
+    /// For inspection tooling; the worker never deletes individual states.
+    pub fn delete(&self, block: &L1BlockCommitment) -> Result<bool> {
+        Ok(self
+            .states
+            .remove(encode_block_commitment(block))?
+            .is_some())
+    }
 }
 
 impl AsmStateDb for SledAsmStateDb {

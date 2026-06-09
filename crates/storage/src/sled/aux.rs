@@ -67,6 +67,13 @@ impl SledAsmAuxDataDb {
         }
         Ok(())
     }
+
+    /// Removes the auxiliary data for `block`, returning whether it was present.
+    ///
+    /// For inspection tooling; the worker never deletes individual entries.
+    pub fn delete(&self, block: &L1BlockCommitment) -> Result<bool> {
+        Ok(self.aux.remove(encode_block_commitment(block))?.is_some())
+    }
 }
 
 impl AsmAuxDataDb for SledAsmAuxDataDb {
@@ -158,5 +165,18 @@ mod tests {
         assert!(store.get(&low).unwrap().is_some());
         assert!(store.get(&at).unwrap().is_some());
         assert!(store.get(&high).unwrap().is_none());
+    }
+
+    #[test]
+    fn delete_reports_presence_and_removes() {
+        let (db, _dir) = test_db();
+        let store = SledAsmAuxDataDb::open(&db).unwrap();
+        let commitment = make_commitment(42, 0xdd);
+        store.put(&commitment, &AuxData::default()).unwrap();
+
+        assert!(store.delete(&commitment).unwrap());
+        assert!(store.get(&commitment).unwrap().is_none());
+        // Deleting again reports absence.
+        assert!(!store.delete(&commitment).unwrap());
     }
 }

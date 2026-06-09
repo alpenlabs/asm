@@ -69,6 +69,16 @@ impl SledAsmManifestDb {
         }
         Ok(())
     }
+
+    /// Removes the manifest for `block`, returning whether one was present.
+    ///
+    /// For inspection tooling; the worker never deletes individual manifests.
+    pub fn delete(&self, block: &L1BlockCommitment) -> Result<bool> {
+        Ok(self
+            .manifests
+            .remove(encode_block_commitment(block))?
+            .is_some())
+    }
 }
 
 impl AsmManifestDb for SledAsmManifestDb {
@@ -169,5 +179,18 @@ mod tests {
         assert!(store.get(&low).unwrap().is_some());
         assert!(store.get(&at).unwrap().is_some());
         assert!(store.get(&high).unwrap().is_none());
+    }
+
+    #[test]
+    fn delete_reports_presence_and_removes() {
+        let (db, _dir) = test_db();
+        let store = SledAsmManifestDb::open(&db).unwrap();
+        let commitment = make_commitment(42, 0xdd);
+        store.put(&make_manifest(42, 0xdd)).unwrap();
+
+        assert!(store.delete(&commitment).unwrap());
+        assert!(store.get(&commitment).unwrap().is_none());
+        // Deleting again reports absence.
+        assert!(!store.delete(&commitment).unwrap());
     }
 }
