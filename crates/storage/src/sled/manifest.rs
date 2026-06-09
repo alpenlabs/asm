@@ -4,7 +4,7 @@ use anyhow::{Context, Result};
 use strata_asm_common::AsmManifest;
 use strata_identifiers::L1BlockCommitment;
 
-use super::encode_block_commitment;
+use super::{decode_block_commitment, encode_block_commitment};
 use crate::AsmManifestDb;
 
 /// Sled-backed [`AsmManifestDb`] keyed by [`L1BlockCommitment`].
@@ -78,6 +78,18 @@ impl SledAsmManifestDb {
             .manifests
             .remove(encode_block_commitment(block))?
             .is_some())
+    }
+
+    /// Returns every stored manifest key, in ascending height order.
+    ///
+    /// For inspection tooling: keys are decoded from the tree without reading
+    /// the values.
+    pub fn list(&self) -> Result<Vec<L1BlockCommitment>> {
+        self.manifests
+            .iter()
+            .keys()
+            .map(|key| Ok(decode_block_commitment(key?.as_ref())))
+            .collect()
     }
 }
 
@@ -192,5 +204,20 @@ mod tests {
         assert!(store.get(&commitment).unwrap().is_none());
         // Deleting again reports absence.
         assert!(!store.delete(&commitment).unwrap());
+    }
+
+    #[test]
+    fn list_returns_keys_in_height_order() {
+        let (db, _dir) = test_db();
+        let store = SledAsmManifestDb::open(&db).unwrap();
+        let high = make_commitment(7, 0x07);
+        let low = make_commitment(3, 0x03);
+        let mid = make_commitment(5, 0x05);
+        // Insert out of order; list must come back height-sorted.
+        store.put(&make_manifest(7, 0x07)).unwrap();
+        store.put(&make_manifest(3, 0x03)).unwrap();
+        store.put(&make_manifest(5, 0x05)).unwrap();
+
+        assert_eq!(store.list().unwrap(), vec![low, mid, high]);
     }
 }

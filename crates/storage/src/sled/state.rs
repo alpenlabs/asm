@@ -4,7 +4,7 @@ use anyhow::{Context, Result};
 use strata_asm_common::AnchorState;
 use strata_identifiers::L1BlockCommitment;
 
-use super::encode_block_commitment;
+use super::{decode_block_commitment, encode_block_commitment};
 use crate::AsmStateDb;
 
 /// Sled-backed [`AsmStateDb`] keyed by [`L1BlockCommitment`].
@@ -87,6 +87,18 @@ impl SledAsmStateDb {
             .states
             .remove(encode_block_commitment(block))?
             .is_some())
+    }
+
+    /// Returns every stored anchor-state key, in ascending height order.
+    ///
+    /// For inspection tooling: keys are decoded from the tree without reading
+    /// the (large) values.
+    pub fn list(&self) -> Result<Vec<L1BlockCommitment>> {
+        self.states
+            .iter()
+            .keys()
+            .map(|key| Ok(decode_block_commitment(key?.as_ref())))
+            .collect()
     }
 }
 
