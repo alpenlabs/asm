@@ -44,11 +44,10 @@ pub(crate) async fn drive_asm_from_bitcoin(
     config: BitcoinConfig,
     bitcoin_client: Arc<Client>,
     asm_worker: Arc<AsmWorkerHandle>,
-    start_height: u64,
     proof_tx: Option<mpsc::UnboundedSender<ProofId>>,
     shutdown: ShutdownGuard,
 ) -> Result<()> {
-    info!(%start_height, "starting ASM block watcher");
+    info!("starting ASM block watcher");
 
     let socket = config.rawblock_connection_string.as_str();
     let stream = timeout(
@@ -105,17 +104,6 @@ pub(crate) async fn drive_asm_from_bitcoin(
         };
 
         let received_height = block.bip34_block_height().unwrap_or(0);
-
-        // Blocks below the start height are already covered by the worker's
-        // anchor; never feed it a pre-anchor block.
-        if received_height < start_height {
-            debug!(
-                %received_height,
-                %start_height,
-                "block is below start height, skipping"
-            );
-            continue;
-        }
 
         if let Err(err) = submit_block(&asm_worker, &proof_tx, block).await {
             error!(%received_height, ?err, "failed to submit block from ZMQ");

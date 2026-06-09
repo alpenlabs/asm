@@ -83,14 +83,9 @@ pub(crate) async fn bootstrap(
         .with_params(params.clone())
         .launch(&executor)?;
 
-    // 6. Compute the starting height for the block watcher.
-    let start_height = match asm_worker.monitor().get_current().cur_block {
-        Some(blk) => blk.height(),
-        None => params.anchor.block.height() + 1,
-    };
     let asm_worker = Arc::new(asm_worker);
 
-    // 7. Finish orchestrator wiring if it was configured.
+    // 6. Finish orchestrator wiring if it was configured.
     let (proof_tx, proof_rpc_deps) = if let Some((orch_config, proof_db, moho_state_db, backend)) =
         orch_prep
     {
@@ -147,7 +142,7 @@ pub(crate) async fn bootstrap(
         (None, None)
     };
 
-    // 8. Spawn block watcher as a critical task.
+    // 7. Spawn block watcher as a critical task.
     let asm_worker_for_driver = asm_worker.clone();
     let bitcoin_config = config.bitcoin.clone();
     let bitcoin_client_for_driver = bitcoin_client.clone();
@@ -156,13 +151,12 @@ pub(crate) async fn bootstrap(
             bitcoin_config,
             bitcoin_client_for_driver,
             asm_worker_for_driver,
-            start_height as u64,
             proof_tx,
             shutdown,
         )
     });
 
-    // 9. Spawn RPC server as a critical task
+    // 8. Spawn RPC server as a critical task
     let rpc_host = config.rpc.host.clone();
     let rpc_port = config.rpc.port;
     executor.spawn_critical_async_with_shutdown("rpc_server", move |shutdown| {
