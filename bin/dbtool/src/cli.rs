@@ -48,6 +48,11 @@ pub(crate) enum AsmResource {
         #[command(subcommand)]
         verb: StateVerb,
     },
+    /// Auxiliary data, keyed by L1 block commitment.
+    Aux {
+        #[command(subcommand)]
+        verb: AuxVerb,
+    },
     /// Full manifests, keyed by L1 block commitment.
     Manifest {
         #[command(subcommand)]
@@ -89,6 +94,25 @@ pub(crate) enum StateVerb {
     /// Delete the anchor state for a commitment `<height>:<blkid_hex>`.
     Delete { commitment: String },
     /// Bulk-remove anchor states by height.
+    Prune(PruneArgs),
+}
+
+/// Verbs for `asm aux`.
+#[derive(Subcommand, Debug)]
+pub(crate) enum AuxVerb {
+    /// Dump the aux data for a commitment `<height>:<blkid_hex>`.
+    Get { commitment: String },
+    /// List every stored aux-data commitment, in height order.
+    List,
+    /// Store aux data for a commitment from a file of canonical SSZ bytes.
+    Put {
+        commitment: String,
+        #[arg(long)]
+        file: PathBuf,
+    },
+    /// Delete the aux data for a commitment `<height>:<blkid_hex>`.
+    Delete { commitment: String },
+    /// Bulk-remove aux data by height.
     Prune(PruneArgs),
 }
 
