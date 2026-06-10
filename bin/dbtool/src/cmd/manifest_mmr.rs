@@ -1,6 +1,6 @@
 //! `asm manifest-mmr` — the height-indexed manifest-hash Merkle Mountain Range.
 
-use anyhow::Result;
+use anyhow::{Result, bail};
 use asm_storage::SledAsmManifestMmrDb;
 use serde_json::{Value, json};
 use ssz::Encode;
@@ -41,6 +41,12 @@ pub(crate) fn run(db: &sled::Db, verb: MmrVerb, write: bool) -> Result<Value> {
         MmrVerb::PutLeaf { height, hash } => {
             ensure_write(write)?;
             let hash = parse_hash32(&hash)?;
+            // The compact-peaks MMR these leaves verify against reads an all-zero
+            // hash as an empty-peak sentinel, so it isn't a representable leaf —
+            // storing one would silently corrupt later proofs.
+            if hash == [0u8; 32] {
+                bail!("refusing to store an all-zero leaf: it is the MMR's empty-peak sentinel");
+            }
             store.put_leaf(height, AsmManifestHash::from(hash))?;
             Ok(json!({ "stored": true, "height": height, "hash": hex::encode(hash) }))
         }

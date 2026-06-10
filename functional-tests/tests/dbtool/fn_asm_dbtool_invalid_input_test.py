@@ -32,4 +32,9 @@ class AsmDbtoolInvalidInputTest(flexitest.Test):
             code, _out, err = run_dbtool(db, "--write", "asm", "manifest-mmr", "put-leaf", "0", bad)
             assert code != 0, f"hash {bad!r} was accepted"
 
+        # The all-zero hash is the MMR's empty-peak sentinel, not a storable leaf.
+        zero = "00" * 32
+        code, _out, err = run_dbtool(db, "--write", "asm", "manifest-mmr", "put-leaf", "0", zero)
+        assert code != 0 and "sentinel" in err, err
+
         return True
