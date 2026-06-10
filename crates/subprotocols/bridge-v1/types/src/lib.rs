@@ -19,8 +19,6 @@
 //! Types for specifying Bitcoin withdrawal operations:
 //!
 //! - [`WithdrawOutput`] — a Bitcoin output descriptor paired with an amount.
-//! - [`WithdrawalCommand`] — instructions for operators to construct a withdrawal transaction,
-//!   including operator fee deduction.
 //!
 //! # Bridge Gateway
 //!
@@ -37,7 +35,7 @@ pub use operator::{
     OperatorBitmap, OperatorBitmapError, OperatorIdx, OperatorSelection, filter_eligible_operators,
 };
 pub use safe_harbour::{SafeHarbour, SafeHarbourAddress};
-pub use withdrawal::{WithdrawOutput, WithdrawalCommand};
+pub use withdrawal::WithdrawOutput;
 
 const BRIDGE_GATEWAY_REF: u8 = 0x10;
 

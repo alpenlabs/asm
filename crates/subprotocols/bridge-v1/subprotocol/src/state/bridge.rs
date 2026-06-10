@@ -3,7 +3,7 @@ use strata_asm_common::logging::{info, warn};
 use strata_asm_params::BridgeV1InitConfig;
 use strata_asm_proto_bridge_v1_txs::{deposit::DepositInfo, errors::Mismatch};
 use strata_asm_proto_bridge_v1_types::{
-    OperatorIdx, SafeHarbour, SafeHarbourAddress, WithdrawOutput, WithdrawalCommand,
+    OperatorIdx, SafeHarbour, SafeHarbourAddress, WithdrawOutput,
 };
 use strata_btc_types::BitcoinAmount;
 use strata_identifiers::L1BlockCommitment;
@@ -157,7 +157,7 @@ impl BridgeV1State {
     /// Adds a new withdrawal assignment to the assignments table.
     ///
     /// This retrieves the oldest unassigned deposit UTXO, validates that its amount matches
-    /// the withdrawal amount, and creates a withdrawal command with the configured operator fee.
+    /// the withdrawal amount, and records the configured operator fee on the assignment.
     /// The assignment is then added to the table with operators randomly selected from the
     /// currently active operators.
     ///
@@ -195,11 +195,10 @@ impl BridgeV1State {
         let selected_operator_raw = selected_operator.raw();
         let deposit_idx = deposit.idx();
         let amount_sat = deposit.amt().to_sat();
-        let withdrawal_cmd = WithdrawalCommand::new(withdrawal_output.clone(), self.operator_fee);
-
         let result = self.assignments.add_new_assignment(
             deposit,
-            withdrawal_cmd,
+            withdrawal_output.clone(),
+            self.operator_fee,
             self.operators.current_multisig(),
             l1_block,
             selected_operator,

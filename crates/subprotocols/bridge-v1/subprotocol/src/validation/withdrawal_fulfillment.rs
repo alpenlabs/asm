@@ -37,8 +37,8 @@ pub(crate) fn validate_withdrawal_fulfillment_info(
         .get_assignment(deposit_idx)
         .ok_or(WithdrawalValidationError::NoAssignmentFound { deposit_idx })?;
 
-    // Validate withdrawal amount against assignment command
-    let expected_amount = assignment.withdrawal_command().net_amount();
+    // Validate withdrawal amount against the assignment
+    let expected_amount = assignment.net_amount();
     let actual_amount = withdrawal_info.withdrawal_amount();
     if expected_amount != actual_amount {
         return Err(WithdrawalValidationError::AmountMismatch(Mismatch {
@@ -47,8 +47,8 @@ pub(crate) fn validate_withdrawal_fulfillment_info(
         }));
     }
 
-    // Validate withdrawal destination against assignment command
-    let expected_destination = assignment.withdrawal_command().destination().to_script();
+    // Validate withdrawal destination against the assignment
+    let expected_destination = assignment.withdrawal_output().destination().to_script();
     let actual_destination = withdrawal_info.withdrawal_destination().clone();
     if expected_destination != actual_destination {
         return Err(WithdrawalValidationError::DestinationMismatch(Mismatch {

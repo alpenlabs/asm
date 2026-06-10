@@ -91,7 +91,7 @@ pub(crate) fn add_deposits(state: &mut BridgeV1State, count: usize) -> Vec<Depos
 /// Helper function to add deposits and immediately create withdrawal assignments.
 ///
 /// This is a convenience function that combines deposit creation with assignment
-/// creation. For each deposit added, it creates a corresponding withdrawal command
+/// creation. For each deposit added, it creates a corresponding withdrawal output
 /// and assignment. This simulates a complete deposit-to-assignment flow for testing.
 ///
 /// # Parameters
@@ -128,8 +128,8 @@ pub(crate) fn create_withdrawal_info_from_assignment(
     let header_aux = WithdrawalFulfillmentTxHeaderAux::new(assignment.deposit_idx());
     WithdrawalFulfillmentInfo::new(
         header_aux,
-        assignment.withdrawal_command().destination().to_script(),
-        assignment.withdrawal_command().net_amount(),
+        assignment.withdrawal_output().destination().to_script(),
+        assignment.net_amount(),
     )
 }
 
