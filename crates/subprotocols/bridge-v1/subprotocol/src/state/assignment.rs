@@ -23,10 +23,7 @@ use strata_identifiers::{Buf32, L1BlockCommitment, L1BlockId, L1Height};
 
 use crate::{errors::WithdrawalAssignmentError, state::deposit::DepositEntry};
 
-/// Assignment entry linking a deposit UTXO to an operator for withdrawal processing.
-///
-/// Each assignment represents a task, assigned to a specific operator to process
-/// a withdrawal of from a particular deposit UTXO.
+/// Links a deposit UTXO to the operator responsible for fulfilling its withdrawal.
 #[derive(Clone, Debug, Eq, PartialEq, Arbitrary, Serialize, Deserialize, Encode, Decode)]
 pub struct AssignmentEntry {
     /// Deposit entry that has been assigned
@@ -134,10 +131,7 @@ impl AssignmentEntry {
         self.operator_fee
     }
 
-    /// Calculates the net amount the user will receive after operator fee deduction.
-    ///
-    /// This is the amount sent to the user's Bitcoin address, equal to the withdrawal
-    /// amount minus the operator fee.
+    /// Returns the amount the user receives: the withdrawal amount minus the operator fee.
     pub fn net_amount(&self) -> BitcoinAmount {
         self.withdrawal_intent
             .amt()
@@ -154,24 +148,11 @@ impl AssignmentEntry {
         self.fulfillment_deadline
     }
 
-    /// Reassigns the withdrawal to a new randomly selected operator.
+    /// Reassigns the withdrawal to a different operator and updates the fulfillment deadline.
     ///
-    /// Moves the current assignee to the previous assignees list and randomly selects
-    /// a new operator from eligible candidates. If no eligible operators remain (all
-    /// have been tried), clears the previous assignees list and selects from all
-    /// active notary operators.
-    ///
-    /// # Parameters
-    ///
-    /// - `new_deadline` - The new absolute Bitcoin block height deadline for fulfillment
-    /// - `seed` - L1 block ID used as seed for deterministic random selection
-    /// - `current_active_operators` - Bitmap of currently active operator indices
-    ///
-    /// # Returns
-    ///
-    /// - `Ok(())` - If the reassignment succeeded
-    /// - `Err(WithdrawalAssignmentError)` - If the bitmap operation fails or no eligible operators
-    ///   are available
+    /// Marks the current assignee as tried and selects a new operator from those not yet tried.
+    /// Once every operator has been tried, the history is cleared and selection draws from the
+    /// full active set again.
     pub fn reassign(
         &mut self,
         new_deadline: L1Height,
@@ -239,29 +220,15 @@ fn select_random_operator(
         .ok_or(WithdrawalAssignmentError::NoEligibleOperators { deposit_idx })
 }
 
-/// Table for managing operator assignments with efficient lookup operations.
-///
-/// This table maintains all assignments linking deposits to operators, providing
-/// efficient insertion, lookup, and filtering operations. The table maintains
-/// sorted order for binary search efficiency.
+/// A table of operator assignments, kept sorted by deposit index.
 ///
 /// # Ordering Invariant
 ///
-/// The assignments vector **MUST** remain sorted by deposit index at all times.
-/// This invariant enables O(log n) lookup operations via binary search.
-///
-/// # Assignment Management
-///
-/// The table supports various operations including:
-/// - Creating new assignments with optimized insertion
-/// - Looking up assignments by deposit index
-/// - Filtering assignments by operator or expiration status
-/// - Removing completed assignments
+/// The entries **MUST** stay sorted by deposit index; this is what makes
+/// [`get_assignment`](Self::get_assignment) an O(log n) binary search.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct AssignmentTable {
-    /// Vector of assignment entries, sorted by deposit index.
-    ///
-    /// **Invariant**: MUST be sorted by `AssignmentEntry::deposit_idx` field.
+    /// Assignment entries, sorted by deposit index.
     assignments: SortedVec<AssignmentEntry>,
 
     /// The duration (in blocks) for which the operator is assigned to fulfill the withdrawal.
@@ -317,7 +284,7 @@ impl SszDecode for AssignmentTable {
 }
 
 impl AssignmentTable {
-    /// Creates a new empty assignment table with no assignments
+    /// Creates an empty assignment table.
     pub fn new(assignment_duration: u16) -> Self {
         Self {
             assignments: SortedVec::new_empty(),
@@ -340,11 +307,7 @@ impl AssignmentTable {
         self.assignments.as_slice()
     }
 
-    /// Retrieves an assignment entry by its deposit index.
-    /// # Returns
-    ///
-    /// - `Some(&AssignmentEntry)` if the assignment exists
-    /// - `None` if no assignment for the given deposit index is found
+    /// Returns the assignment for `deposit_idx`, or `None` if there is none.
     pub fn get_assignment(&self, deposit_idx: u32) -> Option<&AssignmentEntry> {
         let assignments = self.assignments.as_slice();
         let idx = assignments
@@ -353,35 +316,24 @@ impl AssignmentTable {
         Some(&assignments[idx])
     }
 
-    /// Creates a new assignment entry with optimized insertion.
+    /// Inserts an assignment, preserving the sort order.
     ///
     /// # Panics
     ///
-    /// Panics if an assignment with the given deposit index already exists.
+    /// Panics if an assignment with the same deposit index already exists.
     pub fn insert(&mut self, entry: AssignmentEntry) {
-        // Check if entry already exists
         if self.get_assignment(entry.deposit_idx()).is_some() {
             panic!(
                 "Assignment with deposit index {} already exists",
                 entry.deposit_idx()
             );
         }
-
-        // SortedVec handles the insertion and maintains order
         self.assignments.insert(entry);
     }
 
-    /// Removes an assignment by its deposit index.
-    ///
-    /// # Returns
-    ///
-    /// - `Some(AssignmentEntry)` if the assignment was found and removed
-    /// - `None` if no assignment with the given deposit index exists
+    /// Removes and returns the assignment for `deposit_idx`, or `None` if there is none.
     pub fn remove_assignment(&mut self, deposit_idx: u32) -> Option<AssignmentEntry> {
-        // Find the assignment first
         let assignment = self.get_assignment(deposit_idx)?.clone();
-
-        // Remove it using SortedVec's remove method
         if self.assignments.remove(&assignment) {
             Some(assignment)
         } else {
@@ -389,28 +341,10 @@ impl AssignmentTable {
         }
     }
 
-    /// Reassigns all expired assignments to new randomly selected operators.
+    /// Reassigns every assignment whose deadline has passed, returning their deposit indices.
     ///
-    /// Iterates through all assignments and reassigns those whose fulfillment deadlines
-    /// have passed (current height >= fulfillment_deadline). Each expired assignment is
-    /// reassigned using the provided seed for deterministic random operator selection.
-    ///
-    /// This method handles bulk reassignment of expired assignments, ensuring that
-    /// withdrawals don't get stuck due to unresponsive operators. If any individual
-    /// reassignment fails (e.g., no eligible operators), the entire operation fails
-    /// and returns an error.
-    ///
-    /// # Parameters
-    ///
-    /// - `current_active_operators` - Bitmap of currently active operator indices
-    /// - `l1_block` - The L1 block commitment used to derive the current height, seed, and new
-    ///   fulfillment deadline
-    ///
-    /// # Returns
-    ///
-    /// - `Ok(Vec<u32>)` - Vector of deposit indices that were successfully reassigned
-    /// - `Err(WithdrawalAssignmentError)` - If any reassignment failed due to lack of eligible
-    ///   operators
+    /// Keeps withdrawals from stalling on unresponsive operators. All-or-nothing: if any expired
+    /// assignment has no eligible operator, the whole call errors.
     pub fn reassign_expired_assignments(
         &mut self,
         current_active_operators: &OperatorBitmap,
@@ -435,24 +369,8 @@ impl AssignmentTable {
         Ok(reassigned_withdrawals)
     }
 
-    /// Creates and adds a new withdrawal assignment.
-    ///
-    /// This creates a new assignment by randomly selecting operators from the current active set
-    /// and calculating the fulfillment deadline based on the current L1 block height.
-    ///
-    /// # Arguments
-    ///
-    /// * `deposit_entry` - The deposit that will be used to fulfill this withdrawal
-    /// * `withdrawal_intent` - destination, amount, and the user's preferred operator
-    /// * `operator_fee` - Fee deducted from the withdrawal amount as operator compensation
-    /// * `current_active_operators` - Bitmap of currently active operators eligible for assignment
-    /// * `l1_block` - The L1 block commitment used to anchor the assignment and calculate the
-    ///   deadline
-    ///
-    /// # Returns
-    ///
-    /// Returns `Ok(())` if the assignment was created and added successfully, or an error if
-    /// the assignment creation failed (e.g., no operators available).
+    /// Builds an assignment for the deposit (see [`AssignmentEntry::create`]) and inserts it,
+    /// deriving the fulfillment deadline from the current L1 height and the assignment duration.
     pub fn add_new_assignment(
         &mut self,
         deposit_entry: DepositEntry,
