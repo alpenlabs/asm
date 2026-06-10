@@ -77,7 +77,7 @@ impl AssignmentEntry {
     /// Creates a new assignment, selecting the assignee from the deposit's eligible operators.
     ///
     /// Honors the withdrawal intent's preferred operator when it is still eligible; otherwise
-    /// picks one deterministically at random (see [`random_eligible_operator`]).
+    /// picks one deterministically at random.
     ///
     /// Returns [`WithdrawalAssignmentError::NoEligibleOperators`] if no operator from the
     /// deposit's notary set is currently active.
@@ -100,11 +100,14 @@ impl AssignmentEntry {
         )?;
 
         // Honor the user's preferred operator when eligible; otherwise pick one at random.
-        let current_assignee = withdrawal_intent
+        let current_assignee = match withdrawal_intent
             .selected_operator()
             .as_specific()
             .filter(|&idx| eligible.is_active(idx))
-            .unwrap_or_else(|| random_eligible_operator(&eligible, seed, deposit_entry.idx()));
+        {
+            Some(idx) => idx,
+            None => select_random_operator(&eligible, seed, deposit_entry.idx())?,
+        };
 
         Ok(Self {
             deposit_entry,
@@ -180,74 +183,75 @@ impl AssignmentEntry {
             .try_set(self.current_assignee, true)
             .map_err(WithdrawalAssignmentError::BitmapError)?;
 
+        let deposit_idx = self.deposit_entry.idx();
+
         // Prefer an operator that hasn't been tried yet; once every operator has been tried,
         // reset the history and reselect from the full active set.
-        let eligible = match eligible_operators(
+        let eligible = eligible_operators(
             &self.deposit_entry,
             &self.previous_assignees,
             current_active_operators,
-        ) {
-            Ok(eligible) => eligible,
+        )?;
+        let new_assignee = match select_random_operator(&eligible, seed, deposit_idx) {
+            Ok(operator) => operator,
             Err(WithdrawalAssignmentError::NoEligibleOperators { .. }) => {
                 self.previous_assignees = OperatorBitmap::new_with_size(
                     self.deposit_entry.notary_operators().len(),
                     false,
                 );
-                eligible_operators(
+                let eligible = eligible_operators(
                     &self.deposit_entry,
                     &self.previous_assignees,
                     current_active_operators,
-                )?
+                )?;
+                select_random_operator(&eligible, seed, deposit_idx)?
             }
             Err(err) => return Err(err),
         };
 
-        self.current_assignee = random_eligible_operator(&eligible, seed, self.deposit_entry.idx());
+        self.current_assignee = new_assignee;
         self.fulfillment_deadline = new_deadline;
         Ok(())
     }
 }
 
 /// Returns the operators eligible to fulfill `deposit`'s withdrawal — its notary set with
-/// `previous_assignees` and any inactive operators removed.
-///
-/// Returns [`WithdrawalAssignmentError::NoEligibleOperators`] if none remain.
+/// `previous_assignees` and any inactive operators removed. May be empty.
 fn eligible_operators(
     deposit: &DepositEntry,
     previous_assignees: &OperatorBitmap,
     current_active_operators: &OperatorBitmap,
 ) -> Result<OperatorBitmap, WithdrawalAssignmentError> {
-    let eligible = filter_eligible_operators(
+    filter_eligible_operators(
         deposit.notary_operators(),
         previous_assignees,
         current_active_operators,
-    )?;
-    if eligible.active_count() == 0 {
-        return Err(WithdrawalAssignmentError::NoEligibleOperators {
-            deposit_idx: deposit.idx(),
-        });
-    }
-    Ok(eligible)
+    )
+    .map_err(WithdrawalAssignmentError::BitmapError)
 }
 
-/// Deterministically picks one operator from `eligible`, keyed by `(seed, deposit_idx)`.
+/// Deterministically selects one operator from `eligible`, keyed by `(seed, deposit_idx)`.
 ///
 /// The L1 block id seeds `ChaChaRng` and the deposit index selects the ChaCha20 stream, so
 /// selections anchored to the same block draw from independent streams rather than collapsing
-/// onto a single operator. `eligible` must be non-empty (see [`eligible_operators`]).
-fn random_eligible_operator(
+/// onto a single operator.
+///
+/// Returns [`WithdrawalAssignmentError::NoEligibleOperators`] when `eligible` is empty:
+/// `checked_rem` yields `None` for a zero-length set, and `nth` otherwise always succeeds since
+/// the index is `< active_count`.
+fn select_random_operator(
     eligible: &OperatorBitmap,
     seed: L1BlockId,
     deposit_idx: u32,
-) -> OperatorIdx {
+) -> Result<OperatorIdx, WithdrawalAssignmentError> {
     let seed_bytes: [u8; 32] = Buf32::from(seed).into();
     let mut rng = ChaChaRng::from_seed(seed_bytes);
     rng.set_stream(deposit_idx as u64);
-    let random_index = (rng.next_u32() as usize) % eligible.active_count();
-    eligible
-        .active_indices()
-        .nth(random_index)
-        .expect("random_index is within active_count")
+
+    (rng.next_u32() as usize)
+        .checked_rem(eligible.active_count())
+        .and_then(|index| eligible.active_indices().nth(index))
+        .ok_or(WithdrawalAssignmentError::NoEligibleOperators { deposit_idx })
 }
 
 /// Table for managing operator assignments with efficient lookup operations.
