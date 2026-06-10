@@ -2,7 +2,7 @@ use bitcoin_bosd::Descriptor;
 use ssz::Encode;
 use strata_asm_manifest_types::AsmManifestRangeHash;
 use strata_asm_proto_bridge_v1_types::{
-    BRIDGE_GATEWAY_ACCT_SERIAL, OperatorSelection, WithdrawOutput,
+    BRIDGE_GATEWAY_ACCT_SERIAL, OperatorSelection, WithdrawalIntent,
 };
 use strata_asm_proto_checkpoint_types::{
     CheckpointClaim, CheckpointPayload, CheckpointSidecar, CheckpointTip, L2BlockRange, OLLog,
@@ -204,10 +204,10 @@ fn construct_full_claim(
 /// Extracts and validates withdrawal intent logs from OL logs.
 ///
 /// Filters OL logs from the bridge gateway account, validates that withdrawal intent
-/// destination descriptors can be parsed, and returns the extracted withdrawal outputs.
+/// destination descriptors can be parsed, and returns the extracted withdrawal intents.
 pub(crate) fn extract_withdrawal_intents(
     logs: &[OLLog],
-) -> CheckpointValidationResult<Vec<WithdrawOutput>> {
+) -> CheckpointValidationResult<Vec<WithdrawalIntent>> {
     let mut withdrawal_intents = Vec::new();
 
     for log in logs
@@ -241,7 +241,7 @@ pub(crate) fn extract_withdrawal_intents(
 
         let selected_operator = OperatorSelection::from_raw(withdrawal_data.selected_operator);
         let withdraw_output =
-            WithdrawOutput::new(destination, withdrawal_data.amt().into(), selected_operator);
+            WithdrawalIntent::new(destination, withdrawal_data.amt().into(), selected_operator);
         withdrawal_intents.push(withdraw_output);
     }
 
@@ -253,7 +253,7 @@ mod tests {
     use bitcoin_bosd::Descriptor;
     use ssz_types::VariableList;
     use strata_asm_manifest_types::AsmManifestRangeHash;
-    use strata_asm_proto_bridge_v1_types::{BRIDGE_GATEWAY_ACCT_SERIAL, WithdrawOutput};
+    use strata_asm_proto_bridge_v1_types::{BRIDGE_GATEWAY_ACCT_SERIAL, WithdrawalIntent};
     use strata_asm_proto_checkpoint_types::{
         CheckpointPayload, OLLog, SimpleWithdrawalIntentLogData, TerminalHeaderComplement,
     };
@@ -291,7 +291,7 @@ mod tests {
         current_l1_height: u32,
         payload: &CheckpointPayload,
         asm_manifests_hash: AsmManifestRangeHash,
-    ) -> CheckpointValidationResult<Vec<WithdrawOutput>> {
+    ) -> CheckpointValidationResult<Vec<WithdrawalIntent>> {
         verify_progression(state.verified_tip(), payload.new_tip(), current_l1_height)?;
         state.advance(payload, asm_manifests_hash)
     }

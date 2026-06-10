@@ -16,7 +16,7 @@ use strata_asm_proto_bridge_v1_txs::{
     unstake::{UnstakeInfo, UnstakeTxHeaderAux, parse_unstake_tx},
     withdrawal_fulfillment::{WithdrawalFulfillmentInfo, WithdrawalFulfillmentTxHeaderAux},
 };
-use strata_asm_proto_bridge_v1_types::{OperatorIdx, WithdrawOutput};
+use strata_asm_proto_bridge_v1_types::{OperatorIdx, WithdrawalIntent};
 use strata_btc_types::{BitcoinAmount, RawBitcoinTx};
 use strata_crypto::EvenSecretKey;
 use strata_identifiers::L1BlockCommitment;
@@ -91,7 +91,7 @@ pub(crate) fn add_deposits(state: &mut BridgeV1State, count: usize) -> Vec<Depos
 /// Helper function to add deposits and immediately create withdrawal assignments.
 ///
 /// This is a convenience function that combines deposit creation with assignment
-/// creation. For each deposit added, it creates a corresponding withdrawal output
+/// creation. For each deposit added, it creates a corresponding withdrawal intent
 /// and assignment. This simulates a complete deposit-to-assignment flow for testing.
 ///
 /// # Parameters
@@ -103,9 +103,9 @@ pub(crate) fn add_deposits_and_assignments(state: &mut BridgeV1State, count: usi
     let mut arb = ArbitraryGenerator::new();
     for _ in 0..count {
         let l1blk: L1BlockCommitment = arb.generate();
-        let mut output: WithdrawOutput = arb.generate();
-        output.amt = *state.denomination();
-        state.create_withdrawal_assignment(&output, &l1blk).unwrap();
+        let mut intent: WithdrawalIntent = arb.generate();
+        intent.amt = *state.denomination();
+        state.create_withdrawal_assignment(&intent, &l1blk).unwrap();
     }
 }
 
@@ -128,7 +128,7 @@ pub(crate) fn create_withdrawal_info_from_assignment(
     let header_aux = WithdrawalFulfillmentTxHeaderAux::new(assignment.deposit_idx());
     WithdrawalFulfillmentInfo::new(
         header_aux,
-        assignment.withdrawal_output().destination().to_script(),
+        assignment.withdrawal_intent().destination().to_script(),
         assignment.net_amount(),
     )
 }

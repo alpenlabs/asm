@@ -5,7 +5,7 @@
 
 use bitcoin_bosd::Descriptor;
 use strata_asm_common::TxInputRef;
-use strata_asm_proto_bridge_v1_types::{OperatorSelection, WithdrawOutput};
+use strata_asm_proto_bridge_v1_types::{OperatorSelection, WithdrawalIntent};
 use strata_btc_types::BitcoinAmount;
 use strata_l1_txfmt::TxType;
 use thiserror::Error;
@@ -42,7 +42,7 @@ pub(crate) enum ParsedDebugTx {
     MockAsmLog(MockAsmLogInfo),
 
     /// Mock withdrawal creation transaction.
-    MockWithdrawIntent(WithdrawOutput),
+    MockWithdrawIntent(WithdrawalIntent),
 }
 
 /// Parses a debug transaction from the given transaction input.
@@ -126,14 +126,14 @@ impl MockWithdrawalAuxData {
 }
 
 /// Parses withdrawal data from auxiliary data bytes and validates the descriptor.
-fn parse_withdrawal_from_aux_data(aux_data: &[u8]) -> Result<WithdrawOutput, DebugTxParseError> {
+fn parse_withdrawal_from_aux_data(aux_data: &[u8]) -> Result<WithdrawalIntent, DebugTxParseError> {
     let parsed = MockWithdrawalAuxData::parse(aux_data)?;
 
     let dest = Descriptor::from_bytes(&parsed.descriptor_bytes)
         .map_err(|e| DebugTxParseError::InvalidDescriptorFormat(e.to_string()))?;
 
     let amt = BitcoinAmount::from_sat(parsed.amount);
-    Ok(WithdrawOutput::new(dest, amt, parsed.selected_operator))
+    Ok(WithdrawalIntent::new(dest, amt, parsed.selected_operator))
 }
 
 /// Parses a mock withdrawal transaction.
@@ -201,11 +201,11 @@ mod tests {
         aux_data.extend_from_slice(&u32::MAX.to_be_bytes());
         aux_data.extend_from_slice(&p2wpkh_descriptor.to_bytes());
 
-        let output = parse_withdrawal_from_aux_data(&aux_data).unwrap();
+        let intent = parse_withdrawal_from_aux_data(&aux_data).unwrap();
 
-        assert_eq!(output.amt, BitcoinAmount::from_sat(100_000));
-        assert_eq!(output.destination.to_bytes(), p2wpkh_descriptor.to_bytes());
-        assert_eq!(output.selected_operator(), OperatorSelection::any());
+        assert_eq!(intent.amt, BitcoinAmount::from_sat(100_000));
+        assert_eq!(intent.destination.to_bytes(), p2wpkh_descriptor.to_bytes());
+        assert_eq!(intent.selected_operator(), OperatorSelection::any());
     }
 
     #[test]
@@ -221,11 +221,11 @@ mod tests {
         aux_data.extend_from_slice(&42u32.to_be_bytes());
         aux_data.extend_from_slice(&p2wsh_descriptor.to_bytes());
 
-        let output = parse_withdrawal_from_aux_data(&aux_data).unwrap();
+        let intent = parse_withdrawal_from_aux_data(&aux_data).unwrap();
 
-        assert_eq!(output.amt, BitcoinAmount::from_sat(200_000));
-        assert_eq!(output.destination.to_bytes(), p2wsh_descriptor.to_bytes());
-        assert_eq!(output.selected_operator(), OperatorSelection::specific(42));
+        assert_eq!(intent.amt, BitcoinAmount::from_sat(200_000));
+        assert_eq!(intent.destination.to_bytes(), p2wsh_descriptor.to_bytes());
+        assert_eq!(intent.selected_operator(), OperatorSelection::specific(42));
     }
 
     #[test]
@@ -246,11 +246,11 @@ mod tests {
         aux_data.extend_from_slice(&u32::MAX.to_be_bytes());
         aux_data.extend_from_slice(&p2tr_descriptor.to_bytes());
 
-        let output = parse_withdrawal_from_aux_data(&aux_data).unwrap();
+        let intent = parse_withdrawal_from_aux_data(&aux_data).unwrap();
 
-        assert_eq!(output.amt, BitcoinAmount::from_sat(300_000));
-        assert_eq!(output.destination.to_bytes(), p2tr_descriptor.to_bytes());
-        assert_eq!(output.selected_operator(), OperatorSelection::any());
+        assert_eq!(intent.amt, BitcoinAmount::from_sat(300_000));
+        assert_eq!(intent.destination.to_bytes(), p2tr_descriptor.to_bytes());
+        assert_eq!(intent.selected_operator(), OperatorSelection::any());
     }
 
     #[test]
@@ -280,14 +280,14 @@ mod tests {
         aux_data.extend_from_slice(&operator_idx.to_be_bytes());
         aux_data.extend_from_slice(&descriptor.to_bytes());
 
-        let output = parse_withdrawal_from_aux_data(&aux_data).unwrap();
+        let intent = parse_withdrawal_from_aux_data(&aux_data).unwrap();
 
-        assert_eq!(output.amt, BitcoinAmount::from_sat(500_000));
+        assert_eq!(intent.amt, BitcoinAmount::from_sat(500_000));
         assert_eq!(
-            output.selected_operator(),
+            intent.selected_operator(),
             OperatorSelection::specific(0x01020304)
         );
-        assert_eq!(output.destination.to_bytes(), descriptor.to_bytes());
+        assert_eq!(intent.destination.to_bytes(), descriptor.to_bytes());
     }
 
     #[test]

@@ -100,10 +100,10 @@ fn process_parsed_debug_tx(
             logging::info!("Successfully emitted ASM log");
         }
 
-        ParsedDebugTx::MockWithdrawIntent(output) => {
-            logging::info!(amount = output.amt.to_sat(), "Processing mock withdrawal");
+        ParsedDebugTx::MockWithdrawIntent(intent) => {
+            logging::info!(amount = intent.amt.to_sat(), "Processing mock withdrawal");
 
-            let bridge_msg = BridgeIncomingMsg::DispatchWithdrawal(output);
+            let bridge_msg = BridgeIncomingMsg::DispatchWithdrawal(intent);
             relayer.relay_msg(&bridge_msg);
 
             logging::info!("Successfully sent mock withdrawal intent to bridge");

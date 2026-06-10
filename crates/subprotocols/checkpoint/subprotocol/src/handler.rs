@@ -102,8 +102,8 @@ pub(crate) fn handle_checkpoint_tx(
         .expect("CheckpointTipUpdate encoding is infallible for fixed-size SSZ");
     relayer.emit_log(log_entry);
 
-    for output in withdrawal_intents {
-        let bridge_msg = BridgeIncomingMsg::DispatchWithdrawal(output);
+    for intent in withdrawal_intents {
+        let bridge_msg = BridgeIncomingMsg::DispatchWithdrawal(intent);
         relayer.relay_msg(&bridge_msg);
     }
 }

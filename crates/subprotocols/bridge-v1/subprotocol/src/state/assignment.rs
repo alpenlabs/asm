@@ -16,7 +16,7 @@ use ssz::{Decode as SszDecode, DecodeError, Encode as SszEncode};
 use ssz_derive::{Decode, Encode};
 use strata_asm_common::sorted_vec::SortedVec;
 use strata_asm_proto_bridge_v1_types::{
-    OperatorBitmap, OperatorIdx, OperatorSelection, WithdrawOutput, filter_eligible_operators,
+    OperatorBitmap, OperatorIdx, OperatorSelection, WithdrawalIntent, filter_eligible_operators,
 };
 use strata_btc_types::BitcoinAmount;
 use strata_identifiers::{Buf32, L1BlockCommitment, L1BlockId, L1Height};
@@ -35,8 +35,8 @@ pub struct AssignmentEntry {
     /// Deposit entry that has been assigned
     deposit_entry: DepositEntry,
 
-    /// Bitcoin output to create in the withdrawal transaction.
-    withdrawal_output: WithdrawOutput,
+    /// The user's withdrawal intent (destination, amount, and preferred operator).
+    withdrawal_intent: WithdrawalIntent,
 
     /// Amount the operator can take as fees for processing the withdrawal.
     ///
@@ -46,7 +46,7 @@ pub struct AssignmentEntry {
 
     /// Index of the operator currently assigned to execute this withdrawal.
     ///
-    /// If they successfully front the withdrawal based on `withdrawal_output`
+    /// If they successfully front the withdrawal based on `withdrawal_intent`
     /// within the `fulfillment_deadline`, they are able to unlock their claim.
     current_assignee: OperatorIdx,
 
@@ -90,7 +90,7 @@ impl AssignmentEntry {
     /// # Parameters
     ///
     /// - `deposit_entry` - The deposit entry to be processed
-    /// - `withdrawal_output` - Bitcoin output specifying the destination and amount
+    /// - `withdrawal_intent` - destination, amount, and the user's preferred operator
     /// - `operator_fee` - Fee deducted from the withdrawal amount as operator compensation
     /// - `fulfillment_deadline` - Bitcoin block height deadline for assignment fulfillment
     /// - `current_active_operators` - Bitmap of currently active operator indices
@@ -103,7 +103,7 @@ impl AssignmentEntry {
     ///   operation fails
     pub fn create_with_random_assignment(
         deposit_entry: DepositEntry,
-        withdrawal_output: WithdrawOutput,
+        withdrawal_intent: WithdrawalIntent,
         operator_fee: BitcoinAmount,
         fulfillment_deadline: L1Height,
         current_active_operators: &OperatorBitmap,
@@ -148,7 +148,7 @@ impl AssignmentEntry {
 
         Ok(Self {
             deposit_entry: deposit_entry.clone(),
-            withdrawal_output,
+            withdrawal_intent,
             operator_fee,
             current_assignee,
             previous_assignees,
@@ -161,9 +161,9 @@ impl AssignmentEntry {
         self.deposit_entry.idx()
     }
 
-    /// Returns a reference to the withdrawal output.
-    pub fn withdrawal_output(&self) -> &WithdrawOutput {
-        &self.withdrawal_output
+    /// Returns a reference to the withdrawal intent.
+    pub fn withdrawal_intent(&self) -> &WithdrawalIntent {
+        &self.withdrawal_intent
     }
 
     /// Returns the operator fee deducted from this withdrawal.
@@ -176,7 +176,7 @@ impl AssignmentEntry {
     /// This is the amount sent to the user's Bitcoin address, equal to the withdrawal
     /// amount minus the operator fee.
     pub fn net_amount(&self) -> BitcoinAmount {
-        self.withdrawal_output
+        self.withdrawal_intent
             .amt()
             .saturating_sub(self.operator_fee)
     }
@@ -468,7 +468,7 @@ impl AssignmentTable {
     /// # Arguments
     ///
     /// * `deposit_entry` - The deposit that will be used to fulfill this withdrawal
-    /// * `withdrawal_output` - Bitcoin output specifying the destination and amount
+    /// * `withdrawal_intent` - destination, amount, and the user's preferred operator
     /// * `operator_fee` - Fee deducted from the withdrawal amount as operator compensation
     /// * `current_active_operators` - Bitmap of currently active operators eligible for assignment
     /// * `l1_block` - The L1 block commitment used to anchor the assignment and calculate the
@@ -481,7 +481,7 @@ impl AssignmentTable {
     pub fn add_new_assignment(
         &mut self,
         deposit_entry: DepositEntry,
-        withdrawal_output: WithdrawOutput,
+        withdrawal_intent: WithdrawalIntent,
         operator_fee: BitcoinAmount,
         current_active_operators: &OperatorBitmap,
         l1_block: &L1BlockCommitment,
@@ -493,7 +493,7 @@ impl AssignmentTable {
 
         let entry = AssignmentEntry::create_with_random_assignment(
             deposit_entry,
-            withdrawal_output,
+            withdrawal_intent,
             operator_fee,
             fulfillment_deadline,
             current_active_operators,
@@ -518,7 +518,7 @@ mod tests {
     fn test_create_with_random_assignment_success() {
         let mut arb = ArbitraryGenerator::new();
         let deposit_entry: DepositEntry = arb.generate();
-        let withdrawal_output: WithdrawOutput = arb.generate();
+        let withdrawal_intent: WithdrawalIntent = arb.generate();
         let operator_fee: BitcoinAmount = arb.generate();
         let fulfillment_deadline: L1Height = 100;
         let seed: L1BlockId = arb.generate();
@@ -528,7 +528,7 @@ mod tests {
 
         let result = AssignmentEntry::create_with_random_assignment(
             deposit_entry.clone(),
-            withdrawal_output.clone(),
+            withdrawal_intent.clone(),
             operator_fee,
             fulfillment_deadline,
             &current_active_operators,
@@ -541,7 +541,7 @@ mod tests {
 
         // Verify assignment properties
         assert_eq!(assignment.deposit_idx(), deposit_entry.idx());
-        assert_eq!(assignment.withdrawal_output(), &withdrawal_output);
+        assert_eq!(assignment.withdrawal_intent(), &withdrawal_intent);
         assert_eq!(assignment.operator_fee(), operator_fee);
         assert_eq!(assignment.fulfillment_deadline(), fulfillment_deadline);
         assert!(current_active_operators.is_active(assignment.current_assignee()));
@@ -560,7 +560,7 @@ mod tests {
             }
         };
 
-        let withdrawal_output: WithdrawOutput = arb.generate();
+        let withdrawal_intent: WithdrawalIntent = arb.generate();
         let operator_fee: BitcoinAmount = arb.generate();
         let fulfillment_deadline: L1Height = 100;
         let seed: L1BlockId = arb.generate();
@@ -574,7 +574,7 @@ mod tests {
 
         let assignment = AssignmentEntry::create_with_random_assignment(
             deposit_entry,
-            withdrawal_output,
+            withdrawal_intent,
             operator_fee,
             fulfillment_deadline,
             &current_active_operators,
@@ -596,7 +596,7 @@ mod tests {
             }
         };
 
-        let withdrawal_output: WithdrawOutput = arb.generate();
+        let withdrawal_intent: WithdrawalIntent = arb.generate();
         let operator_fee: BitcoinAmount = arb.generate();
         let fulfillment_deadline: L1Height = 100;
         let seed: L1BlockId = arb.generate();
@@ -607,7 +607,7 @@ mod tests {
 
         let assignment = AssignmentEntry::create_with_random_assignment(
             deposit_entry,
-            withdrawal_output,
+            withdrawal_intent,
             operator_fee,
             fulfillment_deadline,
             &current_active_operators,
@@ -626,7 +626,7 @@ mod tests {
     fn test_create_with_random_assignment_no_eligible_operators() {
         let mut arb = ArbitraryGenerator::new();
         let deposit_entry: DepositEntry = arb.generate();
-        let withdrawal_output: WithdrawOutput = arb.generate();
+        let withdrawal_intent: WithdrawalIntent = arb.generate();
         let operator_fee: BitcoinAmount = arb.generate();
         let fulfillment_deadline: L1Height = 100;
         let seed: L1BlockId = arb.generate();
@@ -636,7 +636,7 @@ mod tests {
 
         let err = AssignmentEntry::create_with_random_assignment(
             deposit_entry.clone(),
-            withdrawal_output,
+            withdrawal_intent,
             operator_fee,
             fulfillment_deadline,
             &current_active_operators,
@@ -665,7 +665,7 @@ mod tests {
             }
         };
 
-        let withdrawal_output: WithdrawOutput = arb.generate();
+        let withdrawal_intent: WithdrawalIntent = arb.generate();
         let operator_fee: BitcoinAmount = arb.generate();
         let fulfillment_deadline: L1Height = 100;
         let seed1: L1BlockId = arb.generate();
@@ -676,7 +676,7 @@ mod tests {
 
         let mut assignment = AssignmentEntry::create_with_random_assignment(
             deposit_entry,
-            withdrawal_output,
+            withdrawal_intent,
             operator_fee,
             fulfillment_deadline,
             &current_active_operators,
@@ -709,7 +709,7 @@ mod tests {
         deposit_entry =
             DepositEntry::new(deposit_entry.idx(), operators, deposit_entry.amt()).unwrap();
 
-        let withdrawal_output: WithdrawOutput = arb.generate();
+        let withdrawal_intent: WithdrawalIntent = arb.generate();
         let operator_fee: BitcoinAmount = arb.generate();
         let fulfillment_deadline: L1Height = 100;
         let seed1: L1BlockId = arb.generate();
@@ -719,7 +719,7 @@ mod tests {
 
         let mut assignment = AssignmentEntry::create_with_random_assignment(
             deposit_entry,
-            withdrawal_output,
+            withdrawal_intent,
             operator_fee,
             fulfillment_deadline,
             &current_active_operators,
@@ -750,7 +750,7 @@ mod tests {
             }
         };
 
-        let withdrawal_output: WithdrawOutput = arb.generate();
+        let withdrawal_intent: WithdrawalIntent = arb.generate();
         let operator_fee: BitcoinAmount = arb.generate();
         let initial_deadline: L1Height = 100;
         let seed1: L1BlockId = arb.generate();
@@ -761,7 +761,7 @@ mod tests {
 
         let mut assignment = AssignmentEntry::create_with_random_assignment(
             deposit_entry,
-            withdrawal_output,
+            withdrawal_intent,
             operator_fee,
             initial_deadline,
             &current_active_operators,
@@ -793,7 +793,7 @@ mod tests {
 
         let mut arb = ArbitraryGenerator::new();
         let deposit_entry: DepositEntry = arb.generate();
-        let withdrawal_output: WithdrawOutput = arb.generate();
+        let withdrawal_intent: WithdrawalIntent = arb.generate();
         let operator_fee: BitcoinAmount = arb.generate();
         let fulfillment_deadline: L1Height = 100;
         let seed: L1BlockId = arb.generate();
@@ -801,7 +801,7 @@ mod tests {
 
         let assignment = AssignmentEntry::create_with_random_assignment(
             deposit_entry.clone(),
-            withdrawal_output,
+            withdrawal_intent,
             operator_fee,
             fulfillment_deadline,
             &current_active_operators,
@@ -851,13 +851,13 @@ mod tests {
         )
         .unwrap();
 
-        let withdrawal_output1: WithdrawOutput = arb.generate();
+        let withdrawal_intent1: WithdrawalIntent = arb.generate();
         let operator_fee1: BitcoinAmount = arb.generate();
         let expired_deadline: L1Height = 100; // Less than current_height
 
         let expired_assignment = AssignmentEntry::create_with_random_assignment(
             deposit_entry1.clone(),
-            withdrawal_output1,
+            withdrawal_intent1,
             operator_fee1,
             expired_deadline,
             &current_active_operators,
@@ -879,13 +879,13 @@ mod tests {
         )
         .unwrap();
 
-        let withdrawal_output2: WithdrawOutput = arb.generate();
+        let withdrawal_intent2: WithdrawalIntent = arb.generate();
         let operator_fee2: BitcoinAmount = arb.generate();
         let future_deadline: L1Height = 200; // Greater than current_height
 
         let future_assignment = AssignmentEntry::create_with_random_assignment(
             deposit_entry2.clone(),
-            withdrawal_output2,
+            withdrawal_intent2,
             operator_fee2,
             future_deadline,
             &current_active_operators,
@@ -960,11 +960,11 @@ mod tests {
             let deposit_entry =
                 DepositEntry::new(idx, current_active_operators.clone(), arb_entry.amt()).unwrap();
 
-            let withdrawal_output: WithdrawOutput = arb.generate();
+            let withdrawal_intent: WithdrawalIntent = arb.generate();
             let operator_fee: BitcoinAmount = arb.generate();
             let assignment = AssignmentEntry::create_with_random_assignment(
                 deposit_entry,
-                withdrawal_output,
+                withdrawal_intent,
                 operator_fee,
                 expired_deadline,
                 &current_active_operators,

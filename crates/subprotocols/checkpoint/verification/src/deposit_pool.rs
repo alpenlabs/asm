@@ -6,7 +6,7 @@
 //! consumes that many UTXOs from the pool. The bridge enforces these invariants on its
 //! side; the pool re-asserts them for intents arriving via OL logs.
 
-use strata_asm_proto_bridge_v1_types::WithdrawOutput;
+use strata_asm_proto_bridge_v1_types::WithdrawalIntent;
 use strata_btc_types::BitcoinAmount;
 use zkaleido_logging as logging;
 
@@ -83,7 +83,7 @@ impl DepositPool {
     /// to [`apply_withdrawals`](Self::apply_withdrawals) to deduct the funds.
     pub(crate) fn verify_withdrawals(
         &self,
-        intents: &[WithdrawOutput],
+        intents: &[WithdrawalIntent],
     ) -> Result<VerifiedWithdrawals, InvalidCheckpointPayload> {
         if intents.is_empty() {
             return Ok(VerifiedWithdrawals {
@@ -135,7 +135,7 @@ impl DepositPool {
 #[cfg(test)]
 mod tests {
     use bitcoin_bosd::Descriptor;
-    use strata_asm_proto_bridge_v1_types::{OperatorSelection, WithdrawOutput};
+    use strata_asm_proto_bridge_v1_types::{OperatorSelection, WithdrawalIntent};
     use strata_btc_types::BitcoinAmount;
 
     use super::DepositPool;
@@ -145,8 +145,8 @@ mod tests {
         Descriptor::new_p2wpkh(&[0u8; 20])
     }
 
-    fn withdrawal(sats: u64) -> WithdrawOutput {
-        WithdrawOutput::new(
+    fn withdrawal(sats: u64) -> WithdrawalIntent {
+        WithdrawalIntent::new(
             dummy_descriptor(),
             BitcoinAmount::from_sat(sats),
             OperatorSelection::any(),

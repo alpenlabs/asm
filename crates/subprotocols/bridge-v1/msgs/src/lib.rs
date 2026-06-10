@@ -1,6 +1,6 @@
 //! Inter-protocol message types for the bridge subprotocol.
 //!
-//! This crate exposes the incoming bridge messages and shared withdrawal output
+//! This crate exposes the incoming bridge messages and the shared withdrawal intent
 //! payload so other subprotocols can dispatch withdrawals without pulling in the
 //! bridge implementation crate.
 
@@ -9,7 +9,7 @@ use std::any::Any;
 use ssz_derive::{Decode, Encode};
 use strata_asm_common::{InterprotoMsg, SubprotocolId};
 use strata_asm_proto_bridge_v1_txs::BRIDGE_V1_SUBPROTOCOL_ID;
-use strata_asm_proto_bridge_v1_types::{OperatorIdx, SafeHarbourAddress, WithdrawOutput};
+use strata_asm_proto_bridge_v1_types::{OperatorIdx, SafeHarbourAddress, WithdrawalIntent};
 use strata_crypto::EvenPublicKey;
 
 /// Incoming message types received from other subprotocols.
@@ -19,9 +19,9 @@ use strata_crypto::EvenPublicKey;
 #[derive(Clone, Debug, Eq, PartialEq, Encode, Decode)]
 #[ssz(enum_behaviour = "union")]
 pub enum BridgeIncomingMsg {
-    /// Emitted after a checkpoint proof has been validated. Contains the withdrawal command
+    /// Emitted after a checkpoint proof has been validated. Contains the withdrawal intent
     /// specifying the destination descriptor and amount to be withdrawn.
-    DispatchWithdrawal(WithdrawOutput),
+    DispatchWithdrawal(WithdrawalIntent),
 
     /// Emitted by the admin subprotocol when the operator set is updated.
     /// Adds new operators by public key and removes existing operators by index.

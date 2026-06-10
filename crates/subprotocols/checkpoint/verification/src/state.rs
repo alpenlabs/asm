@@ -1,6 +1,6 @@
 use strata_asm_manifest_types::AsmManifestRangeHash;
 use strata_asm_params::CheckpointInitConfig;
-use strata_asm_proto_bridge_v1_types::WithdrawOutput;
+use strata_asm_proto_bridge_v1_types::WithdrawalIntent;
 use strata_asm_proto_checkpoint_types::{CheckpointPayload, CheckpointTip};
 use strata_btc_types::BitcoinAmount;
 use strata_identifiers::L2BlockCommitment;
@@ -93,7 +93,7 @@ impl CheckpointState {
         &mut self,
         payload: &CheckpointPayload,
         asm_manifests_hash: AsmManifestRangeHash,
-    ) -> CheckpointValidationResult<Vec<WithdrawOutput>> {
+    ) -> CheckpointValidationResult<Vec<WithdrawalIntent>> {
         let withdrawal_intents = extract_withdrawal_intents(payload.sidecar().ol_logs())?;
 
         let token = self.deposits.verify_withdrawals(&withdrawal_intents)?;

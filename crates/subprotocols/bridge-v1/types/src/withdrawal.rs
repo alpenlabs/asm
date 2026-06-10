@@ -1,8 +1,8 @@
-//! Withdrawal Command Management
+//! Withdrawal Intent
 //!
-//! This module contains types for specifying withdrawal commands and outputs.
-//! Withdrawal commands define the Bitcoin outputs that operators should create
-//! when processing withdrawal requests from deposits.
+//! This module defines [`WithdrawalIntent`], a user's request to withdraw funds from the
+//! bridge. The bridge turns an intent into an operator assignment and, ultimately, a
+//! Bitcoin withdrawal transaction.
 
 use arbitrary::Arbitrary;
 use bitcoin_bosd::Descriptor;
@@ -12,19 +12,18 @@ use strata_btc_types::BitcoinAmount;
 
 use crate::OperatorSelection;
 
-/// Bitcoin output specification for a withdrawal operation.
+/// A user's request to withdraw funds from the bridge.
 ///
-/// Each withdrawal output specifies a destination address (as a Bitcoin descriptor),
-/// the amount to be sent, and the user's operator selection for who should fulfill
-/// the withdrawal. This structure provides all information needed by the bridge to
-/// assign and construct the appropriate Bitcoin transaction output.
+/// Specifies the destination address (as a Bitcoin descriptor), the amount to send, and
+/// the user's preferred operator to fulfill it. The bridge consumes an intent to create an
+/// operator assignment and, ultimately, the Bitcoin withdrawal output.
 ///
 /// # Bitcoin Descriptors
 ///
 /// The destination uses Bitcoin Output Script Descriptors (BOSD), which provide
 /// a standardized way to specify Bitcoin addresses and locking conditions.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, Arbitrary, Encode, Decode)]
-pub struct WithdrawOutput {
+pub struct WithdrawalIntent {
     /// Bitcoin Output Script Descriptor specifying the destination address.
     pub destination: Descriptor,
 
@@ -35,8 +34,8 @@ pub struct WithdrawOutput {
     pub selected_operator: OperatorSelection,
 }
 
-impl WithdrawOutput {
-    /// Creates a new withdrawal output with the specified destination, amount, and operator
+impl WithdrawalIntent {
+    /// Creates a new withdrawal intent with the specified destination, amount, and operator
     /// selection.
     pub fn new(
         destination: Descriptor,
