@@ -14,4 +14,4 @@ pub use asm_stf::AsmStfUpdate;
 pub use checkpoint::CheckpointTipUpdate;
 pub use deposit::DepositLog;
 pub use ee_predicate_update::EePredicateKeyUpdate;
-pub use export::NewExportEntry;
+pub use export::{ExportExtraDataUpdate, NewExportEntry};

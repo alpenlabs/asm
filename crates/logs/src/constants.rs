@@ -26,6 +26,8 @@ pub enum AsmLogTypeId {
     AsmStfUpdate = 11,
     /// Subprotocol-published entry into the MohoState export MMR
     NewExportEntry = 12,
+    /// Subprotocol-published update to a MohoState export container's `extra_data`
+    ExportExtraDataUpdate = 13,
 }
 
 // Pin the enum's `#[repr(u16)]` width to `TypeId`. If they ever drift
@@ -53,6 +55,7 @@ impl TryFrom<TypeId> for AsmLogTypeId {
             4 => Ok(Self::EePredicateKeyUpdate),
             11 => Ok(Self::AsmStfUpdate),
             12 => Ok(Self::NewExportEntry),
+            13 => Ok(Self::ExportExtraDataUpdate),
             other => Err(UnknownLogTypeId(other)),
         }
     }
@@ -85,6 +88,7 @@ mod tests {
             AsmLogTypeId::EePredicateKeyUpdate,
             AsmLogTypeId::AsmStfUpdate,
             AsmLogTypeId::NewExportEntry,
+            AsmLogTypeId::ExportExtraDataUpdate,
         ];
         for variant in all {
             let raw: TypeId = variant.into();
@@ -94,9 +98,9 @@ mod tests {
 
     #[test]
     fn unknown_type_id_is_rejected() {
-        // Gaps inside the OL range (5..=10), inside the Moho range (13..=20),
+        // Gaps inside the OL range (5..=10), inside the Moho range (14..=20),
         // and outside both ranges should all reject.
-        for raw in [0u16, 5, 9, 10, 13, 20, 999] {
+        for raw in [0u16, 5, 9, 10, 14, 20, 999] {
             assert_eq!(AsmLogTypeId::try_from(raw), Err(UnknownLogTypeId(raw)));
         }
     }
