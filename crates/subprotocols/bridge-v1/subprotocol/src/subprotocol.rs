@@ -4,10 +4,11 @@
 //! with the Strata Anchor State Machine (ASM).
 
 use strata_asm_common::{
-    AuxRequestCollector, HeaderVerificationState, MsgRelayer, Subprotocol, SubprotocolId,
-    TxInputRef, VerifiedAuxData,
+    AsmLogEntry, AuxRequestCollector, HeaderVerificationState, MsgRelayer, Subprotocol,
+    SubprotocolId, TxInputRef, VerifiedAuxData,
     logging::{error, info},
 };
+use strata_asm_logs::ExportExtraDataUpdate;
 use strata_asm_params::BridgeV1InitConfig;
 use strata_asm_proto_bridge_v1_msgs::BridgeIncomingMsg;
 use strata_asm_proto_bridge_v1_txs::{BRIDGE_V1_SUBPROTOCOL_ID, parser::parse_tx};
@@ -115,6 +116,19 @@ impl Subprotocol for BridgeV1Subproto {
                 panic!("Failed to reassign expired assignments {e}");
             }
         }
+
+        // Publish the accumulated proof of work as the bridge container's export `extra_data`,
+        // so downstream consumers can read the verified L1 work directly from the export state.
+        let accumulated_pow = header_vs
+            .total_accumulated_pow
+            .clone()
+            .into_native()
+            .to_le_bytes();
+        let extra_data_log = ExportExtraDataUpdate::new(BRIDGE_V1_SUBPROTOCOL_ID, accumulated_pow);
+        relayer.emit_log(
+            AsmLogEntry::from_log(&extra_data_log)
+                .expect("export extra data log encoding is infallible for fixed-size SSZ"),
+        );
     }
 
     /// Processes incoming bridge messages

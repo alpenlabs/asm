@@ -6,9 +6,9 @@
 //! transition execution, and extraction of post-transition artifacts such as predicate updates
 //! and export state entries.
 use moho_runtime_interface::MohoProgram;
-use moho_types::{ExportState, InnerStateCommitment, StateReference};
+use moho_types::{ExportContainer, ExportState, InnerStateCommitment, StateReference};
 use strata_asm_common::{AnchorState, AsmLogEntry};
-use strata_asm_logs::{AsmStfUpdate, NewExportEntry};
+use strata_asm_logs::{AsmStfUpdate, ExportExtraDataUpdate, NewExportEntry};
 use strata_asm_spec::StrataAsmSpec;
 use strata_asm_stf::{compute_asm_transition, AsmStfOutput};
 use strata_predicate::PredicateKey;
@@ -29,16 +29,39 @@ pub fn extract_next_predicate_from_logs(logs: &[AsmLogEntry]) -> Option<Predicat
     })
 }
 
-/// Applies each [`NewExportEntry`] in `logs` to `prev`, returning the updated
+/// Applies each export-related log in `logs` to `prev`, returning the updated
 /// export state.
-pub fn advance_export_state_with_logs(mut prev: ExportState, logs: &[AsmLogEntry]) -> ExportState {
+///
+/// [`NewExportEntry`] appends to the target container's MMR, while
+/// [`ExportExtraDataUpdate`] overwrites the target container's `extra_data`.
+/// Both create the container on first reference.
+pub fn advance_export_state_with_logs(prev: ExportState, logs: &[AsmLogEntry]) -> ExportState {
+    let mut containers = prev.containers().to_vec();
     for log in logs {
         if let Ok(export) = log.try_into_log::<NewExportEntry>() {
-            prev.add_entry(export.container_id(), *export.entry_data())
+            container_mut(&mut containers, export.container_id())
+                .add_entry(*export.entry_data())
                 .expect("failed to add entry");
+        } else if let Ok(update) = log.try_into_log::<ExportExtraDataUpdate>() {
+            container_mut(&mut containers, update.container_id())
+                .update_extra_data(*update.extra_data());
         }
     }
-    prev
+    ExportState::new(containers).expect("export container count stays within capacity")
+}
+
+/// Returns a mutable reference to the container with `container_id`, creating
+/// and appending an empty one if it does not already exist.
+fn container_mut(containers: &mut Vec<ExportContainer>, container_id: u8) -> &mut ExportContainer {
+    if let Some(pos) = containers
+        .iter()
+        .position(|c| c.container_id() == container_id)
+    {
+        &mut containers[pos]
+    } else {
+        containers.push(ExportContainer::new(container_id));
+        containers.last_mut().expect("just pushed a container")
+    }
 }
 
 /// The ASM STF program adapted for the Moho runtime.
