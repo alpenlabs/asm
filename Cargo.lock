@@ -775,7 +775,6 @@ dependencies = [
  "ssz",
  "strata-asm-common",
  "strata-identifiers",
- "tempfile",
 ]
 
 [[package]]
