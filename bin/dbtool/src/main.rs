@@ -9,10 +9,9 @@
 //! proof-DB-backed resources (`asm proof`, `moho …`, `proof …`) land in a
 //! follow-up; see `README.md`.
 //!
-//! Output is JSON on stdout; errors and write confirmations go to stderr. The
-//! tool opens sled read-only by intent: mutating verbs refuse to run without
-//! `--write`. sled takes an exclusive lock on the directory, so the runner must
-//! be stopped.
+//! Output is JSON on stdout; errors go to stderr. The tool opens sled read-only
+//! by intent: mutating verbs refuse to run without `--write`. sled takes an
+//! exclusive lock on the directory, so the runner must be stopped.
 
 mod cli;
 mod cmd;

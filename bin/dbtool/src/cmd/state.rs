@@ -42,9 +42,7 @@ pub(crate) fn run(db: &sled::Db, verb: StateVerb, write: bool) -> Result<Value> 
             let state = AnchorState::from_ssz_bytes(&bytes)
                 .map_err(|e| anyhow!("invalid AnchorState SSZ: {e:?}"))?;
             store.put(&state)?;
-            let block = commitment_json(block_of(&state));
-            eprintln!("stored anchor state for {block}");
-            Ok(json!({ "stored": true, "block": block }))
+            Ok(json!({ "stored": true, "block": commitment_json(block_of(&state)) }))
         }
         StateVerb::Delete { commitment } => {
             ensure_write(write)?;
