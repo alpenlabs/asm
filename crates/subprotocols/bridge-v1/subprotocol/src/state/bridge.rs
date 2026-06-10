@@ -9,7 +9,7 @@ use strata_btc_types::BitcoinAmount;
 use strata_identifiers::L1BlockCommitment;
 
 use crate::{
-    errors::{DepositValidationError, WithdrawalCommandError},
+    errors::{DepositValidationError, WithdrawalAssignmentError},
     state::{
         assignment::{AssignmentEntry, AssignmentTable},
         deposit::{DepositEntry, DepositsTable},
@@ -169,21 +169,21 @@ impl BridgeV1State {
     /// # Returns
     ///
     /// - `Ok(())` - If the withdrawal assignment was successfully added
-    /// - `Err(WithdrawalCommandError)` - If no unassigned deposits, amounts mismatch, or adding new
-    ///   assignment fails
+    /// - `Err(WithdrawalAssignmentError)` - If no unassigned deposits, amounts mismatch, or adding
+    ///   new assignment fails
     pub fn create_withdrawal_assignment(
         &mut self,
         withdrawal_intent: &WithdrawalIntent,
         l1_block: &L1BlockCommitment,
-    ) -> Result<(), WithdrawalCommandError> {
+    ) -> Result<(), WithdrawalAssignmentError> {
         // Get the oldest deposit
         let deposit = self
             .deposits
             .remove_oldest_deposit()
-            .ok_or(WithdrawalCommandError::NoUnassignedDeposits)?;
+            .ok_or(WithdrawalAssignmentError::NoUnassignedDeposits)?;
 
         if deposit.amt() != withdrawal_intent.amt() {
-            return Err(WithdrawalCommandError::DepositWithdrawalAmountMismatch(
+            return Err(WithdrawalAssignmentError::DepositWithdrawalAmountMismatch(
                 Mismatch {
                     expected: deposit.amt().to_sat(),
                     got: withdrawal_intent.amt().to_sat(),
@@ -232,12 +232,12 @@ impl BridgeV1State {
         &mut self,
         withdrawal_intent: &WithdrawalIntent,
         l1_block: &L1BlockCommitment,
-    ) -> Result<(), WithdrawalCommandError> {
+    ) -> Result<(), WithdrawalAssignmentError> {
         let amt = withdrawal_intent.amt().to_sat();
         let denom = self.denomination.to_sat();
 
         if !amt.is_multiple_of(denom) {
-            return Err(WithdrawalCommandError::DepositWithdrawalAmountMismatch(
+            return Err(WithdrawalAssignmentError::DepositWithdrawalAmountMismatch(
                 Mismatch {
                     expected: denom,
                     got: amt,
@@ -272,7 +272,7 @@ impl BridgeV1State {
     /// # Returns
     ///
     /// - `Ok(Vec<u32>)` - Vector of deposit indices that were successfully reassigned
-    /// - `Err(WithdrawalCommandError)` - If any reassignment fails
+    /// - `Err(WithdrawalAssignmentError)` - If any reassignment fails
     ///
     /// # Notes
     ///
@@ -282,7 +282,7 @@ impl BridgeV1State {
     pub fn reassign_expired_assignments(
         &mut self,
         current_block: &L1BlockCommitment,
-    ) -> Result<Vec<u32>, WithdrawalCommandError> {
+    ) -> Result<Vec<u32>, WithdrawalAssignmentError> {
         let reassigned_deposits = self
             .assignments
             .reassign_expired_assignments(self.operators.current_multisig(), current_block)?;
@@ -398,9 +398,9 @@ mod tests {
             .unwrap_err();
         assert!(matches!(
             err,
-            WithdrawalCommandError::DepositWithdrawalAmountMismatch(..)
+            WithdrawalAssignmentError::DepositWithdrawalAmountMismatch(..)
         ));
-        if let WithdrawalCommandError::DepositWithdrawalAmountMismatch(mismatch) = err {
+        if let WithdrawalAssignmentError::DepositWithdrawalAmountMismatch(mismatch) = err {
             assert_eq!(mismatch.got, intent.amt.to_sat());
             assert_eq!(mismatch.expected, deposit.amt().to_sat());
         }
@@ -442,9 +442,9 @@ mod tests {
 
         assert!(matches!(
             err,
-            WithdrawalCommandError::DepositWithdrawalAmountMismatch(..)
+            WithdrawalAssignmentError::DepositWithdrawalAmountMismatch(..)
         ));
-        if let WithdrawalCommandError::DepositWithdrawalAmountMismatch(mismatch) = err {
+        if let WithdrawalAssignmentError::DepositWithdrawalAmountMismatch(mismatch) = err {
             assert_eq!(mismatch.expected, state.denomination.to_sat());
             assert_eq!(mismatch.got, intent.amt.to_sat());
         }

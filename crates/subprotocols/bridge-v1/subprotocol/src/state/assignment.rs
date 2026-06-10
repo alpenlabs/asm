@@ -21,10 +21,7 @@ use strata_asm_proto_bridge_v1_types::{
 use strata_btc_types::BitcoinAmount;
 use strata_identifiers::{Buf32, L1BlockCommitment, L1BlockId, L1Height};
 
-use crate::{
-    errors::{WithdrawalAssignmentError, WithdrawalCommandError},
-    state::deposit::DepositEntry,
-};
+use crate::{errors::WithdrawalAssignmentError, state::deposit::DepositEntry};
 
 /// Assignment entry linking a deposit UTXO to an operator for withdrawal processing.
 ///
@@ -434,13 +431,13 @@ impl AssignmentTable {
     /// # Returns
     ///
     /// - `Ok(Vec<u32>)` - Vector of deposit indices that were successfully reassigned
-    /// - `Err(WithdrawalCommandError)` - If any reassignment failed due to lack of eligible
+    /// - `Err(WithdrawalAssignmentError)` - If any reassignment failed due to lack of eligible
     ///   operators
     pub fn reassign_expired_assignments(
         &mut self,
         current_active_operators: &OperatorBitmap,
         l1_block: &L1BlockCommitment,
-    ) -> Result<Vec<u32>, WithdrawalCommandError> {
+    ) -> Result<Vec<u32>, WithdrawalAssignmentError> {
         let mut reassigned_withdrawals = Vec::new();
 
         let current_height = l1_block.height();
@@ -486,7 +483,7 @@ impl AssignmentTable {
         current_active_operators: &OperatorBitmap,
         l1_block: &L1BlockCommitment,
         selected_operator: OperatorSelection,
-    ) -> Result<(), WithdrawalCommandError> {
+    ) -> Result<(), WithdrawalAssignmentError> {
         // Create assignment with deadline calculated from current block height + assignment
         // duration
         let fulfillment_deadline = l1_block.height() + self.assignment_duration as u32;

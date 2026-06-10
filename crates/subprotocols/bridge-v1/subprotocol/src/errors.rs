@@ -112,38 +112,28 @@ pub enum UnstakeValidationError {
     StakeConnectorMismatch,
 }
 
-/// Errors that can occur when processing withdrawal commands.
+/// Errors that can occur when creating or managing withdrawal assignments.
 ///
-/// These errors indicate critical system issues that require investigation.
-/// Unlike parsing errors, these failures suggest broken system invariants.
+/// Covers the full withdrawal-assignment flow: locating an unassigned deposit,
+/// matching the withdrawal amount, selecting an eligible operator, and updating
+/// the operator bitmap.
 #[derive(Debug, Error)]
-pub enum WithdrawalCommandError {
-    /// No unassigned deposits are available for processing
-    #[error("No unassigned deposits available for withdrawal command processing")]
+pub enum WithdrawalAssignmentError {
+    /// No unassigned deposits are available for processing.
+    #[error("No unassigned deposits available for withdrawal processing")]
     NoUnassignedDeposits,
 
-    /// Deposit amount doesn't match withdrawal command total value
+    /// Deposit amount doesn't match the requested withdrawal amount.
     #[error("Deposit amount mismatch {0}")]
     DepositWithdrawalAmountMismatch(Mismatch<u64>),
 
-    /// Withdrawal assignment operation failed
-    #[error("Withdrawal assignment failed: {0}")]
-    AssignmentError(#[from] WithdrawalAssignmentError),
-}
-
-/// Errors that can occur when creating or managing withdrawal assignments.
-///
-/// These errors indicate issues with operator assignment logic, such as
-/// bitmap inconsistencies or invalid state.
-#[derive(Debug, Error)]
-pub enum WithdrawalAssignmentError {
-    /// No eligible operators found for the deposit
+    /// No eligible operators found for the deposit.
     #[error(
         "No current multisig operator found in deposit's notary operators for deposit index {deposit_idx}"
     )]
     NoEligibleOperators { deposit_idx: u32 },
 
-    /// Bitmap operation failed
+    /// Bitmap operation failed.
     #[error("Bitmap operation failed: {0}")]
     BitmapError(#[from] OperatorBitmapError),
 }
