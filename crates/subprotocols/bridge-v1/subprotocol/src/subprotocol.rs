@@ -4,7 +4,8 @@
 //! with the Strata Anchor State Machine (ASM).
 
 use strata_asm_common::{
-    AuxRequestCollector, MsgRelayer, Subprotocol, SubprotocolId, TxInputRef, VerifiedAuxData,
+    AuxRequestCollector, HeaderVerificationState, MsgRelayer, Subprotocol, SubprotocolId,
+    TxInputRef, VerifiedAuxData,
     logging::{error, info},
 };
 use strata_asm_params::BridgeV1InitConfig;
@@ -75,7 +76,7 @@ impl Subprotocol for BridgeV1Subproto {
     fn process_txs(
         state: &mut Self::State,
         txs: &[TxInputRef<'_>],
-        l1ref: &L1BlockCommitment,
+        header_vs: &HeaderVerificationState,
         verified_aux_data: &VerifiedAuxData,
         relayer: &mut impl MsgRelayer,
     ) {
@@ -98,7 +99,7 @@ impl Subprotocol for BridgeV1Subproto {
         }
 
         // After processing all transactions, reassign expired assignments
-        match state.reassign_expired_assignments(l1ref) {
+        match state.reassign_expired_assignments(&header_vs.last_verified_block) {
             Ok(reassigned_deposits) => {
                 info!(
                     count = reassigned_deposits.len(),

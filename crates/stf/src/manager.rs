@@ -3,8 +3,8 @@
 use std::{any::Any, collections::BTreeMap, marker};
 
 use strata_asm_common::{
-    AsmError, AsmLogEntry, AuxRequestCollector, InterprotoMsg, MsgRelayer, SectionState,
-    SubprotoHandler, Subprotocol, SubprotocolId, TxInputRef, VerifiedAuxData,
+    AsmError, AsmLogEntry, AuxRequestCollector, HeaderVerificationState, InterprotoMsg, MsgRelayer,
+    SectionState, SubprotoHandler, Subprotocol, SubprotocolId, TxInputRef, VerifiedAuxData,
 };
 use strata_identifiers::L1BlockCommitment;
 
@@ -49,7 +49,7 @@ impl<S: Subprotocol, R: MsgRelayer> SubprotoHandler for HandlerImpl<S, R> {
         &mut self,
         txs: &[TxInputRef<'_>],
         relayer: &mut dyn MsgRelayer,
-        l1ref: &L1BlockCommitment,
+        header_vs: &HeaderVerificationState,
         verified_aux_data: &VerifiedAuxData,
     ) {
         let relayer = relayer
@@ -57,7 +57,7 @@ impl<S: Subprotocol, R: MsgRelayer> SubprotoHandler for HandlerImpl<S, R> {
             .downcast_mut::<R>()
             .expect("asm: handler");
 
-        S::process_txs(&mut self.state, txs, l1ref, verified_aux_data, relayer);
+        S::process_txs(&mut self.state, txs, header_vs, verified_aux_data, relayer);
     }
 
     fn process_buffered_msgs(&mut self, l1ref: &L1BlockCommitment) {
@@ -118,7 +118,7 @@ impl SubprotoManager {
     pub(crate) fn invoke_process_txs<S: Subprotocol>(
         &mut self,
         txs: &[TxInputRef<'_>],
-        l1ref: &L1BlockCommitment,
+        header_vs: &HeaderVerificationState,
         verified_aux_data: &VerifiedAuxData,
     ) {
         // We temporarily take the handler out of the map so we can call
@@ -127,7 +127,7 @@ impl SubprotoManager {
         let mut h = self
             .remove_handler(S::ID)
             .expect("asm: unloaded subprotocol");
-        h.process_txs(txs, self, l1ref, verified_aux_data);
+        h.process_txs(txs, self, header_vs, verified_aux_data);
         self.insert_handler(h);
     }
 

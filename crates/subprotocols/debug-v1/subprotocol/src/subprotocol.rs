@@ -5,8 +5,8 @@
 
 use ssz_derive::{Decode, Encode};
 use strata_asm_common::{
-    AsmError, AsmLogEntry, MsgRelayer, NullMsg, Subprotocol, SubprotocolId, TxInputRef,
-    VerifiedAuxData, logging,
+    AsmError, AsmLogEntry, HeaderVerificationState, MsgRelayer, NullMsg, Subprotocol,
+    SubprotocolId, TxInputRef, VerifiedAuxData, logging,
 };
 use strata_asm_proto_bridge_v1_msgs::BridgeIncomingMsg;
 use strata_identifiers::L1BlockCommitment;
@@ -41,7 +41,7 @@ impl Subprotocol for DebugSubproto {
     fn process_txs(
         _state: &mut Self::State,
         txs: &[TxInputRef<'_>],
-        _l1ref: &L1BlockCommitment,
+        _header_vs: &HeaderVerificationState,
         _verified_aux_data: &VerifiedAuxData,
         relayer: &mut impl MsgRelayer,
     ) {

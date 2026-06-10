@@ -4,7 +4,8 @@
 //! with the Strata Anchor State Machine (ASM) for managing protocol governance and updates.
 
 use strata_asm_common::{
-    MsgRelayer, NullMsg, Subprotocol, SubprotocolId, TxInputRef, VerifiedAuxData,
+    HeaderVerificationState, MsgRelayer, NullMsg, Subprotocol, SubprotocolId, TxInputRef,
+    VerifiedAuxData,
     logging::{debug, warn},
 };
 use strata_asm_params::AdministrationInitConfig;
@@ -45,11 +46,11 @@ impl Subprotocol for AdministrationSubprotocol {
     fn process_txs(
         state: &mut AdministrationSubprotoState,
         txs: &[TxInputRef<'_>],
-        l1ref: &L1BlockCommitment,
+        header_vs: &HeaderVerificationState,
         _verified_aux_data: &VerifiedAuxData,
         relayer: &mut impl MsgRelayer,
     ) {
-        let current_height = l1ref.height();
+        let current_height = header_vs.last_verified_block.height();
 
         // Phase 1: Execute any pending updates that have reached their activation height
         handle_pending_updates(state, relayer, current_height);

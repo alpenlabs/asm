@@ -3,8 +3,8 @@
 use std::collections::BTreeMap;
 
 use strata_asm_common::{
-    AnchorState, AuxRequestCollector, AuxRequests, Stage, Subprotocol, SubprotocolId, TxInputRef,
-    VerifiedAuxData,
+    AnchorState, AuxRequestCollector, AuxRequests, HeaderVerificationState, Stage, Subprotocol,
+    SubprotocolId, TxInputRef, VerifiedAuxData,
 };
 use strata_identifiers::L1BlockCommitment;
 
@@ -87,7 +87,7 @@ impl Stage for PreProcessStage<'_> {
 /// Stage to process txs pre-extracted from the block for each subprotocol.
 pub(crate) struct ProcessStage<'c> {
     manager: &'c mut SubprotoManager,
-    l1ref: &'c L1BlockCommitment,
+    header_vs: &'c HeaderVerificationState,
     tx_bufs: BTreeMap<SubprotocolId, Vec<TxInputRef<'c>>>,
     verified_aux_data: VerifiedAuxData,
 }
@@ -95,13 +95,13 @@ pub(crate) struct ProcessStage<'c> {
 impl<'c> ProcessStage<'c> {
     pub(crate) fn new(
         manager: &'c mut SubprotoManager,
-        l1ref: &'c L1BlockCommitment,
+        header_vs: &'c HeaderVerificationState,
         tx_bufs: BTreeMap<SubprotocolId, Vec<TxInputRef<'c>>>,
         verified_aux_data: VerifiedAuxData,
     ) -> Self {
         Self {
             manager,
-            l1ref,
+            header_vs,
             tx_bufs,
             verified_aux_data,
         }
@@ -117,7 +117,7 @@ impl Stage for ProcessStage<'_> {
             .unwrap_or(&[]);
 
         self.manager
-            .invoke_process_txs::<S>(txs, self.l1ref, &self.verified_aux_data);
+            .invoke_process_txs::<S>(txs, self.header_vs, &self.verified_aux_data);
     }
 }
 

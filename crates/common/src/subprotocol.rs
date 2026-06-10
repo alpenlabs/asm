@@ -11,8 +11,8 @@ use strata_identifiers::L1BlockCommitment;
 pub use strata_l1_txfmt::SubprotocolId;
 
 use crate::{
-    AsmError, AsmLogEntry, AuxRequestCollector, SectionState, TxInputRef, VerifiedAuxData,
-    msg::InterprotoMsg,
+    AsmError, AsmLogEntry, AuxRequestCollector, HeaderVerificationState, SectionState, TxInputRef,
+    VerifiedAuxData, msg::InterprotoMsg,
 };
 
 /// Trait for defining subprotocol behavior within the ASM framework.
@@ -59,7 +59,7 @@ use crate::{
 ///     fn process_txs(
 ///         state: &mut Self::State,
 ///         txs: &[TxInputRef],
-///         l1ref: &L1BlockCommitment,
+///         header_vs: &HeaderVerificationState,
 ///         verified_aux_data: &VerifiedAuxData,
 ///         relayer: &mut impl MsgRelayer,
 ///     ) {
@@ -128,13 +128,14 @@ pub trait Subprotocol: 'static {
     /// # Arguments
     /// * `state` - Mutable reference to the subprotocol's state
     /// * `txs` - Slice of L1 transactions relevant to this subprotocol
-    /// * `l1ref` - L1 block being processed
+    /// * `header_vs` - Verification state of the L1 block being processed; subprotocols can read
+    ///   `header_vs.last_verified_block` for the block commitment, or any other field they need
     /// * `verified_aux_data` - Verified auxiliary data previously requested and validated
     /// * `relayer` - Interface for sending messages to other subprotocols and emitting logs
     fn process_txs(
         state: &mut Self::State,
         txs: &[TxInputRef<'_>],
-        l1ref: &L1BlockCommitment,
+        header_vs: &HeaderVerificationState,
         verified_aux_data: &VerifiedAuxData,
         relayer: &mut impl MsgRelayer,
     );
@@ -188,7 +189,7 @@ pub trait SubprotoHandler {
         &mut self,
         txs: &[TxInputRef<'_>],
         relayer: &mut dyn MsgRelayer,
-        l1ref: &L1BlockCommitment,
+        header_vs: &HeaderVerificationState,
         verified_aux_data: &VerifiedAuxData,
     );
 
