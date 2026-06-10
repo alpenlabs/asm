@@ -81,7 +81,7 @@ impl AssignmentEntry {
     ///
     /// Returns [`WithdrawalAssignmentError::NoEligibleOperators`] if no operator from the
     /// deposit's notary set is currently active.
-    pub fn assign(
+    pub fn create(
         deposit_entry: DepositEntry,
         withdrawal_intent: WithdrawalIntent,
         operator_fee: BitcoinAmount,
@@ -93,8 +93,8 @@ impl AssignmentEntry {
         let previous_assignees =
             OperatorBitmap::new_with_size(deposit_entry.notary_operators().len(), false);
 
-        let eligible = eligible_operators(
-            &deposit_entry,
+        let eligible = filter_eligible_operators(
+            deposit_entry.notary_operators(),
             &previous_assignees,
             current_active_operators,
         )?;
@@ -187,8 +187,8 @@ impl AssignmentEntry {
 
         // Prefer an operator that hasn't been tried yet; once every operator has been tried,
         // reset the history and reselect from the full active set.
-        let eligible = eligible_operators(
-            &self.deposit_entry,
+        let eligible = filter_eligible_operators(
+            self.deposit_entry.notary_operators(),
             &self.previous_assignees,
             current_active_operators,
         )?;
@@ -199,8 +199,8 @@ impl AssignmentEntry {
                     self.deposit_entry.notary_operators().len(),
                     false,
                 );
-                let eligible = eligible_operators(
-                    &self.deposit_entry,
+                let eligible = filter_eligible_operators(
+                    self.deposit_entry.notary_operators(),
                     &self.previous_assignees,
                     current_active_operators,
                 )?;
@@ -213,21 +213,6 @@ impl AssignmentEntry {
         self.fulfillment_deadline = new_deadline;
         Ok(())
     }
-}
-
-/// Returns the operators eligible to fulfill `deposit`'s withdrawal — its notary set with
-/// `previous_assignees` and any inactive operators removed. May be empty.
-fn eligible_operators(
-    deposit: &DepositEntry,
-    previous_assignees: &OperatorBitmap,
-    current_active_operators: &OperatorBitmap,
-) -> Result<OperatorBitmap, WithdrawalAssignmentError> {
-    filter_eligible_operators(
-        deposit.notary_operators(),
-        previous_assignees,
-        current_active_operators,
-    )
-    .map_err(WithdrawalAssignmentError::BitmapError)
 }
 
 /// Deterministically selects one operator from `eligible`, keyed by `(seed, deposit_idx)`.
@@ -478,7 +463,7 @@ impl AssignmentTable {
     ) -> Result<(), WithdrawalAssignmentError> {
         let fulfillment_deadline = l1_block.height() + self.assignment_duration as u32;
 
-        let entry = AssignmentEntry::assign(
+        let entry = AssignmentEntry::create(
             deposit_entry,
             withdrawal_intent,
             operator_fee,
@@ -501,7 +486,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_assign_success() {
+    fn test_create_success() {
         let mut arb = ArbitraryGenerator::new();
         let deposit_entry: DepositEntry = arb.generate();
         let withdrawal_intent: WithdrawalIntent = arb.generate();
@@ -512,7 +497,7 @@ mod tests {
         // Use the deposit's notary operators as active operators
         let current_active_operators = deposit_entry.notary_operators().clone();
 
-        let result = AssignmentEntry::assign(
+        let result = AssignmentEntry::create(
             deposit_entry.clone(),
             withdrawal_intent.clone(),
             operator_fee,
@@ -558,7 +543,7 @@ mod tests {
             .expect("at least 3 active operators");
         withdrawal_intent.selected_operator = OperatorSelection::specific(selected_idx);
 
-        let assignment = AssignmentEntry::assign(
+        let assignment = AssignmentEntry::create(
             deposit_entry,
             withdrawal_intent,
             operator_fee,
@@ -591,7 +576,7 @@ mod tests {
         let bogus_idx = current_active_operators.len() as u32 + 100;
         withdrawal_intent.selected_operator = OperatorSelection::specific(bogus_idx);
 
-        let assignment = AssignmentEntry::assign(
+        let assignment = AssignmentEntry::create(
             deposit_entry,
             withdrawal_intent,
             operator_fee,
@@ -608,7 +593,7 @@ mod tests {
     }
 
     #[test]
-    fn test_assign_no_eligible_operators() {
+    fn test_create_no_eligible_operators() {
         let mut arb = ArbitraryGenerator::new();
         let deposit_entry: DepositEntry = arb.generate();
         let withdrawal_intent: WithdrawalIntent = arb.generate();
@@ -619,7 +604,7 @@ mod tests {
         // Empty active operators list
         let current_active_operators = OperatorBitmap::new_empty();
 
-        let err = AssignmentEntry::assign(
+        let err = AssignmentEntry::create(
             deposit_entry.clone(),
             withdrawal_intent,
             operator_fee,
@@ -658,7 +643,7 @@ mod tests {
         // Use the deposit's notary operators as active operators
         let current_active_operators = deposit_entry.notary_operators().clone();
 
-        let mut assignment = AssignmentEntry::assign(
+        let mut assignment = AssignmentEntry::create(
             deposit_entry,
             withdrawal_intent,
             operator_fee,
@@ -700,7 +685,7 @@ mod tests {
 
         let current_active_operators = OperatorBitmap::new_with_size(1, true); // Single operator with index 0
 
-        let mut assignment = AssignmentEntry::assign(
+        let mut assignment = AssignmentEntry::create(
             deposit_entry,
             withdrawal_intent,
             operator_fee,
@@ -741,7 +726,7 @@ mod tests {
         // Use the deposit's notary operators as active operators
         let current_active_operators = deposit_entry.notary_operators().clone();
 
-        let mut assignment = AssignmentEntry::assign(
+        let mut assignment = AssignmentEntry::create(
             deposit_entry,
             withdrawal_intent,
             operator_fee,
@@ -780,7 +765,7 @@ mod tests {
         let seed: L1BlockId = arb.generate();
         let current_active_operators = deposit_entry.notary_operators().clone();
 
-        let assignment = AssignmentEntry::assign(
+        let assignment = AssignmentEntry::create(
             deposit_entry.clone(),
             withdrawal_intent,
             operator_fee,
@@ -835,7 +820,7 @@ mod tests {
         let operator_fee1: BitcoinAmount = arb.generate();
         let expired_deadline: L1Height = 100; // Less than current_height
 
-        let expired_assignment = AssignmentEntry::assign(
+        let expired_assignment = AssignmentEntry::create(
             deposit_entry1.clone(),
             withdrawal_intent1,
             operator_fee1,
@@ -862,7 +847,7 @@ mod tests {
         let operator_fee2: BitcoinAmount = arb.generate();
         let future_deadline: L1Height = 200; // Greater than current_height
 
-        let future_assignment = AssignmentEntry::assign(
+        let future_assignment = AssignmentEntry::create(
             deposit_entry2.clone(),
             withdrawal_intent2,
             operator_fee2,
@@ -940,7 +925,7 @@ mod tests {
 
             let withdrawal_intent: WithdrawalIntent = arb.generate();
             let operator_fee: BitcoinAmount = arb.generate();
-            let assignment = AssignmentEntry::assign(
+            let assignment = AssignmentEntry::create(
                 deposit_entry,
                 withdrawal_intent,
                 operator_fee,
