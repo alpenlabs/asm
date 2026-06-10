@@ -48,7 +48,7 @@ pub(crate) fn validate_withdrawal_fulfillment_info(
     }
 
     // Validate withdrawal destination against the assignment
-    let expected_destination = assignment.withdrawal_intent().destination().to_script();
+    let expected_destination = assignment.withdrawal_output().destination().to_script();
     let actual_destination = withdrawal_info.withdrawal_destination().clone();
     if expected_destination != actual_destination {
         return Err(WithdrawalValidationError::DestinationMismatch(Mismatch {

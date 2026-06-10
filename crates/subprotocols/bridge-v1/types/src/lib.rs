@@ -18,6 +18,7 @@
 //!
 //! - [`WithdrawalIntent`] — a user's request to withdraw an amount to a destination, optionally via
 //!   a preferred operator.
+//! - [`WithdrawalOutput`] — the destination and amount an assignment must pay out.
 //!
 //! # Bridge Gateway
 //!
@@ -34,7 +35,7 @@ pub use operator::{
     OperatorBitmap, OperatorBitmapError, OperatorIdx, OperatorSelection, filter_eligible_operators,
 };
 pub use safe_harbour::{SafeHarbour, SafeHarbourAddress};
-pub use withdrawal::WithdrawalIntent;
+pub use withdrawal::{WithdrawalIntent, WithdrawalOutput};
 
 const BRIDGE_GATEWAY_REF: u8 = 0x10;
 

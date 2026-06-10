@@ -1,8 +1,8 @@
-//! Withdrawal Intent
+//! Withdrawal types
 //!
-//! This module defines [`WithdrawalIntent`], a user's request to withdraw funds from the
-//! bridge. The bridge turns an intent into an operator assignment and, ultimately, a
-//! Bitcoin withdrawal transaction.
+//! [`WithdrawalIntent`] is a user's request to withdraw funds — destination, amount, and a
+//! preferred operator. The bridge consumes it to create an assignment, retaining only the
+//! [`WithdrawalOutput`] (destination + amount) that the assigned operator must pay out.
 
 use arbitrary::Arbitrary;
 use bitcoin_bosd::Descriptor;
@@ -62,5 +62,41 @@ impl WithdrawalIntent {
     /// Returns the operator selection.
     pub fn selected_operator(&self) -> OperatorSelection {
         self.selected_operator
+    }
+
+    /// Returns the Bitcoin output for this withdrawal — its destination and amount, without
+    /// the operator preference.
+    pub fn to_output(&self) -> WithdrawalOutput {
+        WithdrawalOutput::new(self.destination.clone(), self.amt)
+    }
+}
+
+/// The Bitcoin output a fulfilled withdrawal must create: a destination and an amount.
+///
+/// This is the per-assignment payout an operator pays out, as opposed to [`WithdrawalIntent`] —
+/// the user's request, which also carries an operator preference.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, Arbitrary, Encode, Decode)]
+pub struct WithdrawalOutput {
+    /// Bitcoin Output Script Descriptor specifying the destination address.
+    pub destination: Descriptor,
+
+    /// Amount to withdraw (in satoshis).
+    pub amt: BitcoinAmount,
+}
+
+impl WithdrawalOutput {
+    /// Creates a new withdrawal output with the specified destination and amount.
+    pub fn new(destination: Descriptor, amt: BitcoinAmount) -> Self {
+        Self { destination, amt }
+    }
+
+    /// Returns a reference to the destination descriptor.
+    pub fn destination(&self) -> &Descriptor {
+        &self.destination
+    }
+
+    /// Returns the withdrawal amount.
+    pub fn amt(&self) -> BitcoinAmount {
+        self.amt
     }
 }

@@ -16,7 +16,7 @@ use ssz::{Decode as SszDecode, DecodeError, Encode as SszEncode};
 use ssz_derive::{Decode, Encode};
 use strata_asm_common::sorted_vec::SortedVec;
 use strata_asm_proto_bridge_v1_types::{
-    OperatorBitmap, OperatorIdx, WithdrawalIntent, filter_eligible_operators,
+    OperatorBitmap, OperatorIdx, WithdrawalIntent, WithdrawalOutput, filter_eligible_operators,
 };
 use strata_btc_types::BitcoinAmount;
 use strata_identifiers::{Buf32, L1BlockCommitment, L1BlockId, L1Height};
@@ -29,8 +29,8 @@ pub struct AssignmentEntry {
     /// Deposit entry that has been assigned
     deposit_entry: DepositEntry,
 
-    /// The user's withdrawal intent (destination, amount, and preferred operator).
-    withdrawal_intent: WithdrawalIntent,
+    /// The Bitcoin output this assignment must pay out: destination and amount.
+    withdrawal_output: WithdrawalOutput,
 
     /// Amount the operator can take as fees for processing the withdrawal.
     ///
@@ -40,7 +40,7 @@ pub struct AssignmentEntry {
 
     /// Index of the operator currently assigned to execute this withdrawal.
     ///
-    /// If they successfully front the withdrawal based on `withdrawal_intent`
+    /// If they successfully front the withdrawal based on `withdrawal_output`
     /// within the `fulfillment_deadline`, they are able to unlock their claim.
     current_assignee: OperatorIdx,
 
@@ -108,7 +108,7 @@ impl AssignmentEntry {
 
         Ok(Self {
             deposit_entry,
-            withdrawal_intent,
+            withdrawal_output: withdrawal_intent.to_output(),
             operator_fee,
             current_assignee,
             previous_assignees,
@@ -121,9 +121,9 @@ impl AssignmentEntry {
         self.deposit_entry.idx()
     }
 
-    /// Returns a reference to the withdrawal intent.
-    pub fn withdrawal_intent(&self) -> &WithdrawalIntent {
-        &self.withdrawal_intent
+    /// Returns a reference to the withdrawal output.
+    pub fn withdrawal_output(&self) -> &WithdrawalOutput {
+        &self.withdrawal_output
     }
 
     /// Returns the operator fee deducted from this withdrawal.
@@ -133,7 +133,7 @@ impl AssignmentEntry {
 
     /// Returns the amount the user receives: the withdrawal amount minus the operator fee.
     pub fn net_amount(&self) -> BitcoinAmount {
-        self.withdrawal_intent
+        self.withdrawal_output
             .amt()
             .saturating_sub(self.operator_fee)
     }
@@ -429,7 +429,10 @@ mod tests {
 
         // Verify assignment properties
         assert_eq!(assignment.deposit_idx(), deposit_entry.idx());
-        assert_eq!(assignment.withdrawal_intent(), &withdrawal_intent);
+        assert_eq!(
+            assignment.withdrawal_output(),
+            &withdrawal_intent.to_output()
+        );
         assert_eq!(assignment.operator_fee(), operator_fee);
         assert_eq!(assignment.fulfillment_deadline(), fulfillment_deadline);
         assert!(current_active_operators.is_active(assignment.current_assignee()));

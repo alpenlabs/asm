@@ -128,7 +128,7 @@ pub(crate) fn create_withdrawal_info_from_assignment(
     let header_aux = WithdrawalFulfillmentTxHeaderAux::new(assignment.deposit_idx());
     WithdrawalFulfillmentInfo::new(
         header_aux,
-        assignment.withdrawal_intent().destination().to_script(),
+        assignment.withdrawal_output().destination().to_script(),
         assignment.net_amount(),
     )
 }
