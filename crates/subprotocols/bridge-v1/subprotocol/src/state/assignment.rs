@@ -292,6 +292,12 @@ impl AssignmentTable {
         }
     }
 
+    /// Calculates the fulfillment deadline for an assignment anchored at `current_height`,
+    /// `assignment_duration` blocks later.
+    fn calculate_deadline(&self, current_height: L1Height) -> L1Height {
+        current_height + self.assignment_duration as u32
+    }
+
     /// Returns the number of assignments in the table.
     pub fn len(&self) -> u32 {
         self.assignments.len() as u32
@@ -354,7 +360,7 @@ impl AssignmentTable {
 
         let current_height = l1_block.height();
         let seed = *l1_block.blkid();
-        let new_deadline = self.assignment_duration as u32 + current_height;
+        let new_deadline = self.calculate_deadline(current_height);
 
         // Using iter_mut since we're only modifying non-sorting fields
         for assignment in self
@@ -379,7 +385,7 @@ impl AssignmentTable {
         current_active_operators: &OperatorBitmap,
         l1_block: &L1BlockCommitment,
     ) -> Result<(), WithdrawalAssignmentError> {
-        let fulfillment_deadline = l1_block.height() + self.assignment_duration as u32;
+        let fulfillment_deadline = self.calculate_deadline(l1_block.height());
 
         let entry = AssignmentEntry::create(
             deposit_entry,
