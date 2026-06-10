@@ -201,7 +201,6 @@ impl BridgeV1State {
             self.operator_fee,
             self.operators.current_multisig(),
             l1_block,
-            selected_operator,
         );
 
         if result.is_ok() {
