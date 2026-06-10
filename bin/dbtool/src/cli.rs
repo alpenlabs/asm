@@ -11,11 +11,12 @@ use clap::{Args, Parser, Subcommand};
 #[derive(Parser, Debug)]
 #[command(name = "dbtool", version, about, long_about = None)]
 pub(crate) struct Cli {
-    /// Path to the ASM storage sled DB (anchor state, aux data, manifests,
-    /// manifest-hash MMR). Required for `asm` commands. The runner must be
-    /// stopped: sled takes an exclusive lock on the directory.
+    /// Path to the sled DB the command operates on. Each command targets exactly
+    /// one database — the storage DB for `asm` commands, the proof DB for
+    /// `moho`/`proof` commands — so point this at whichever the command needs.
+    /// The runner must be stopped: sled takes an exclusive lock on the directory.
     #[arg(long, global = true)]
-    pub(crate) storage_db: Option<PathBuf>,
+    pub(crate) db: Option<PathBuf>,
 
     /// Pretty-print JSON output instead of a single line.
     #[arg(long, global = true)]

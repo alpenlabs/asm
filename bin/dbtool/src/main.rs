@@ -41,7 +41,7 @@ fn main() -> ExitCode {
 
 fn run() -> anyhow::Result<()> {
     let Cli {
-        storage_db,
+        db,
         pretty,
         write,
         domain,
@@ -49,7 +49,7 @@ fn run() -> anyhow::Result<()> {
 
     let value = match domain {
         Domain::Asm { resource } => {
-            let db = db::open_storage(storage_db)?;
+            let db = db::open_storage(db)?;
             cmd::run_asm(&db, resource, write)?
         }
     };
