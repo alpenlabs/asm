@@ -136,11 +136,15 @@ pub(crate) enum ManifestVerb {
 }
 
 /// Verbs for `asm manifest-mmr`.
+///
+/// The MMR is height-indexed: the leaf for the L1 block at height `h` is leaf
+/// index `h`. So the `<index>` that `leaf`/`proof` read and the `<height>` that
+/// `put-leaf` writes are the same value, just named for each verb's vantage.
 #[derive(Subcommand, Debug)]
 pub(crate) enum MmrVerb {
     /// Print the current leaf count.
     Count,
-    /// Print the manifest hash at a leaf index.
+    /// Print the manifest hash at a leaf index (the L1 height).
     Leaf { index: u64 },
     /// Generate an inclusion proof for a leaf against an MMR of `--at` leaves
     /// (defaults to the current leaf count).
