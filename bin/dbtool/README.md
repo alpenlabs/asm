@@ -28,15 +28,19 @@ runner must be stopped** while `dbtool` runs.
 dbtool [--db <path>] [--pretty] [--write] <domain> <resource> <verb> [args]
 ```
 
-- Output is JSON on stdout (compact; `--pretty` for indented). Errors and write
-  confirmations go to stderr.
+- Output is JSON on stdout (compact; `--pretty` for indented). Errors go to
+  stderr.
 - **Read-only by default.** Mutating verbs (`put`, `delete`, `prune`,
   `put-leaf`) refuse to run without `--write`.
-- A commitment argument is written `<height>:<blkid_hex>` — exactly the shape
-  the tool prints in each record's `block` field.
+- A commitment argument is written `<height>:<blkid_hex>`. Each record prints
+  that exact string in its `block.commitment` field, so a printed commitment
+  copies straight into `get`/`delete` (alongside the structured `height` and
+  `blkid`).
 - Records are SSZ-encoded; each `get` prints the fields we can cheaply decode
   plus an `ssz_hex` blob carrying the canonical bytes losslessly. `put` consumes
-  that same encoding from `--file` (raw SSZ bytes), so get → put round-trips.
+  those same bytes from `--file` (raw SSZ, not the hex text), so get → put
+  round-trips once you hex-decode `ssz_hex` back to bytes — see the round-trip
+  example below.
 
 ### Examples
 
@@ -57,6 +61,11 @@ dbtool --db ./data/asm asm manifest-mmr proof 1234 --at 2000
 
 # Roll storage back to a known-good height (mutating → needs --write)
 dbtool --db ./data/asm --write asm state prune --after 1234
+
+# Round-trip a record: get → hex-decode its ssz_hex to raw bytes → put it back
+dbtool --db ./data/asm asm manifest get 1234:6f1a...ee \
+  | jq -r .ssz_hex | xxd -r -p > manifest.ssz
+dbtool --db ./data/asm --write asm manifest put --file manifest.ssz
 ```
 
 ## Command surface
@@ -70,7 +79,10 @@ dbtool --db ./data/asm --write asm state prune --after 1234
 | `asm manifest` | `get <commitment>` · `list` · `put --file F` (w) · `delete <commitment>` (w) · `prune (--before\|--after) <h>` (w) |
 | `asm manifest-mmr` | `count` · `leaf <index>` · `proof <index> [--at <leaf_count>]` · `put-leaf <height> <hash_hex>` (w) |
 
-`(w)` = mutation, gated behind `--write`.
+`(w)` = mutation, gated behind `--write`. The manifest-hash MMR is
+height-indexed, so the `<index>` read by `leaf`/`proof` and the `<height>`
+written by `put-leaf` are the same value — the leaf for the block at height `h`
+is leaf index `h`.
 
 ### Planned (proof DB) — not yet implemented
 

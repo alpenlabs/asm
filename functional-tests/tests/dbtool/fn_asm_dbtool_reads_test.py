@@ -24,8 +24,10 @@ class AsmDbtoolReadsTest(flexitest.Test):
         latest = run_dbtool_json(db, "asm", "state", "latest")
         assert latest["found"] is True and latest["ssz_hex"], latest
 
+        # The printed `commitment` field must feed straight back into `get`.
         block = states["entries"][0]
-        commitment = f"{block['height']}:{block['blkid']}"
+        commitment = block["commitment"]
+        assert commitment == f"{block['height']}:{block['blkid']}", block
         got = run_dbtool_json(db, "asm", "state", "get", commitment)
         assert got["found"] is True and got["ssz_hex"], got
 
