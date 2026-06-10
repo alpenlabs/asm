@@ -10,6 +10,9 @@ use harness::{
     test_harness::{AsmTestHarnessBuilder, Setup},
 };
 use integration_tests::harness;
+use strata_asm_common::Subprotocol;
+use strata_asm_logs::ExportExtraDataUpdate;
+use strata_asm_proto_bridge_v1::BridgeV1Subproto;
 
 /// Regression: a forged unstake transaction must NOT remove an operator.
 ///
@@ -93,4 +96,46 @@ async fn test_attacker_keyed_unstake_does_not_remove_operator() {
         initial_agg_key,
         "agg key must remain unchanged when no real unstake happened",
     );
+}
+
+/// Every L1 block, the bridge must publish the verified accumulated proof of work as its export
+/// container's `extra_data`. With no other transactions, that update is the *only* log the STF
+/// emits, it is keyed by the bridge container id, and its value strictly increases as each new
+/// block adds work.
+#[tokio::test(flavor = "multi_thread")]
+async fn test_bridge_publishes_increasing_accumulated_pow() {
+    let Setup { harness, .. } = AsmTestHarnessBuilder::default().build().await;
+
+    let mut last_pow: Option<[u8; 32]> = None;
+    for _ in 0..4 {
+        harness.mine_block(None).await.unwrap();
+
+        let (_, asm_state) = harness
+            .get_latest_asm_state()
+            .unwrap()
+            .expect("ASM state available");
+
+        // An empty block emits exactly one log: the bridge's accumulated-pow update.
+        let logs = asm_state.logs();
+        assert_eq!(logs.len(), 1, "expected exactly one emitted log per block");
+        let update = logs[0]
+            .try_into_log::<ExportExtraDataUpdate>()
+            .expect("the emitted log must be an ExportExtraDataUpdate");
+        assert_eq!(
+            update.container_id(),
+            BridgeV1Subproto::ID,
+            "accumulated pow must be published under the bridge container id"
+        );
+
+        // The accumulated work is stored little-endian; reverse to big-endian so the byte arrays
+        // compare as the numbers they encode. Each new block adds work, so it must increase.
+        let pow = *update.extra_data();
+        if let Some(prev) = last_pow {
+            let (mut pow_be, mut prev_be) = (pow, prev);
+            pow_be.reverse();
+            prev_be.reverse();
+            assert!(pow_be > prev_be, "accumulated pow must increase each block");
+        }
+        last_pow = Some(pow);
+    }
 }
