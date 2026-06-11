@@ -7,8 +7,10 @@ use strata_service::{ServiceBuilder, StreamInput};
 use strata_tasks::TaskExecutor;
 
 use crate::{
-    MohoWorkerContext, MohoWorkerHandle, constants, errors::MohoWorkerError,
-    service::MohoWorkerService, state::MohoWorkerServiceState,
+    MohoWorkerContext, MohoWorkerHandle, constants,
+    errors::MohoWorkerError,
+    service::{self, MohoWorkerService},
+    state::MohoWorkerServiceState,
 };
 
 /// Builder for launching a Moho worker driven by the ASM worker's per-block
@@ -87,7 +89,12 @@ impl<W> MohoWorkerBuilder<W> {
 
         // Seed or resume synchronously before launch, mirroring the ASM worker:
         // the genesis Moho state must exist before the first commit is folded.
-        let state = MohoWorkerServiceState::new(context, genesis_block, asm_predicate)?;
+        let mut state = MohoWorkerServiceState::new(context, genesis_block, asm_predicate)?;
+
+        // Catch up to the ASM tip before the subscription takes over: on restart
+        // the Moho store can trail the ASM store, and the stream has no replay to
+        // bridge the gap.
+        service::sync_to_tip(&mut state)?;
 
         let input = StreamInput::new(subscription);
         let monitor = ServiceBuilder::<MohoWorkerService<W>, _>::new()

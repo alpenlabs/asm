@@ -95,6 +95,14 @@ impl AsmStateProvider for MohoWorkerContextImpl {
             .map(|manifest| manifest.logs().to_vec())
             .ok_or(MohoWorkerError::MissingAsmState(*blockid))
     }
+
+    fn get_latest_asm_block(&self) -> MohoWorkerResult<Option<L1BlockCommitment>> {
+        Ok(self
+            .state_db
+            .get_latest()
+            .map_err(|e| MohoWorkerError::Storage(e.to_string()))?
+            .map(|anchor| anchor.chain_view.pow_state.last_verified_block))
+    }
 }
 
 impl L1ProviderContext for MohoWorkerContextImpl {

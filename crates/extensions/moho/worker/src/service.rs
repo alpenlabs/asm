@@ -10,11 +10,14 @@ use std::marker::PhantomData;
 
 use moho_types::MohoState;
 use serde::{Deserialize, Serialize};
+use strata_asm_worker::{SyncError, plan_sync};
 use strata_identifiers::L1BlockCommitment;
 use strata_service::{AsyncService, Response, Service};
 use tracing::info;
 
-use crate::{MohoWorkerContext, MohoWorkerResult, MohoWorkerServiceState, compute};
+use crate::{
+    MohoWorkerContext, MohoWorkerError, MohoWorkerResult, MohoWorkerServiceState, compute,
+};
 
 /// Moho worker service implementation using the service framework.
 #[derive(Debug)]
@@ -99,6 +102,76 @@ pub(crate) fn process_block<W: MohoWorkerContext>(
     state.update_moho_state(moho, block);
 
     info!(%block, %parent, "committed Moho state");
+    Ok(())
+}
+
+/// Catches the Moho store up to the ASM worker's committed tip before the live
+/// subscription takes over.
+///
+/// The ASM worker commits a block's anchor state before the Moho worker folds
+/// it, so a crash in that window leaves anchor states with no derived Moho
+/// state — the Moho store trails the ASM store. The subscription does not
+/// replay, so without this catch-up the next live commit would fold onto a
+/// parent whose Moho state is missing and the worker would wedge on
+/// [`MissingMohoState`](MohoWorkerError::MissingMohoState).
+///
+/// The catch-up source is the ASM store itself: every block to fold already has
+/// a committed anchor state. It reuses `strata-asm-worker`'s [`plan_sync`] to
+/// walk real parents (not heights) back from the ASM tip — staying correct across
+/// an L1 reorg during downtime — to the first block already folded (the in-memory
+/// `cur_block`, or any block whose Moho state is stored), then folds the gap
+/// forward with `process_block`. Genesis is always seeded, so the walk
+/// terminates at or above the genesis floor.
+///
+/// Run once at startup, before the subscription stream is consumed; see
+/// [`MohoWorkerBuilder::launch`](crate::MohoWorkerBuilder::launch).
+pub fn sync_to_tip<W: MohoWorkerContext>(
+    state: &mut MohoWorkerServiceState<W>,
+) -> MohoWorkerResult<()> {
+    let Some(asm_tip) = state.context.get_latest_asm_block()? else {
+        return Ok(());
+    };
+
+    // Plan under an immutable borrow of the context; the forward fold below takes
+    // `&mut state`, so the borrows must not overlap.
+    let plan = {
+        let cur_block = state.cur_block();
+        let cur_moho = state.cur_moho().clone();
+        let ctx = &state.context;
+        plan_sync(
+            asm_tip,
+            state.genesis_height(),
+            // The in-memory `cur_block` is the base when the tip builds on it;
+            // otherwise look it up in the store. A miss keeps the walk going; any
+            // other store error is real and propagates.
+            |block| {
+                if *block == cur_block {
+                    return Ok(Some(cur_moho.clone()));
+                }
+                match ctx.get_moho_state(block) {
+                    Ok(moho) => Ok(Some(moho)),
+                    Err(MohoWorkerError::MissingMohoState(_)) => Ok(None),
+                    Err(e) => Err(e),
+                }
+            },
+            |block| ctx.get_parent_block(block),
+        )
+        .map_err(|e| match e {
+            SyncError::ReachedFloor { .. } => MohoWorkerError::MissingMohoState(cur_block),
+            SyncError::Provider(e) => e,
+        })?
+    };
+
+    if plan.pending.is_empty() {
+        return Ok(());
+    }
+
+    // `plan.base_state` is unused: `process_block` re-anchors from each block's
+    // parent (in memory or the store), so the fold needs only the block order.
+    info!(count = plan.pending.len(), %asm_tip, "syncing Moho state to ASM tip");
+    for block in plan.pending.into_iter().rev() {
+        process_block(state, block)?;
+    }
     Ok(())
 }
 

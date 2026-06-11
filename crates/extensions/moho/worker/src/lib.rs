@@ -31,7 +31,7 @@ mod traits;
 pub use builder::MohoWorkerBuilder;
 pub use errors::{MohoWorkerError, MohoWorkerResult};
 pub use handle::MohoWorkerHandle;
-pub use service::{MohoWorkerService, MohoWorkerStatus};
+pub use service::{MohoWorkerService, MohoWorkerStatus, sync_to_tip};
 pub use state::MohoWorkerServiceState;
 pub use traits::{
     AsmStateProvider, ExportEntryStore, L1ProviderContext, MohoStateStore, MohoWorkerContext,

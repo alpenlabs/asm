@@ -33,6 +33,10 @@ pub struct MohoWorkerServiceState<W> {
 
     /// The L1 block `cur_moho` is anchored to.
     cur_block: L1BlockCommitment,
+
+    /// The chain genesis block. Its Moho state is always seeded, so it is the
+    /// floor the startup sync walk terminates at.
+    genesis_block: L1BlockCommitment,
 }
 
 impl<W: MohoWorkerContext> MohoWorkerServiceState<W> {
@@ -64,12 +68,19 @@ impl<W: MohoWorkerContext> MohoWorkerServiceState<W> {
             context,
             cur_moho,
             cur_block,
+            genesis_block,
         })
     }
 
     /// The block the worker has most recently committed a Moho state for.
     pub fn cur_block(&self) -> L1BlockCommitment {
         self.cur_block
+    }
+
+    /// L1 height of the chain genesis block — the floor the sync walk stops
+    /// at. Mirrors `strata-asm-worker`'s `genesis_height`.
+    pub(crate) fn genesis_height(&self) -> u64 {
+        self.genesis_block.height() as u64
     }
 
     /// The most recently folded (or genesis-seeded) Moho state.
@@ -107,7 +118,7 @@ mod tests {
     use super::*;
     use crate::{
         AsmStateProvider, ExportEntryStore, L1ProviderContext, MohoStateStore, MohoWorkerError,
-        service::process_block,
+        service::{process_block, sync_to_tip},
     };
 
     /// In-memory context backing the four concern traits.
@@ -118,12 +129,19 @@ mod tests {
         parents: RefCell<HashMap<L1BlockCommitment, L1BlockCommitment>>,
         moho: RefCell<HashMap<L1BlockCommitment, MohoState>>,
         latest: RefCell<Option<(L1BlockCommitment, MohoState)>>,
+        asm_latest: RefCell<Option<L1BlockCommitment>>,
         export_entries: RefCell<Vec<(u8, u32, [u8; 32])>>,
     }
 
     impl MockContext {
         fn insert_anchor(&self, blk: L1BlockCommitment, state: AnchorState) {
             self.anchors.borrow_mut().insert(blk, state);
+            // Track the highest-height anchor as the ASM tip, mirroring the ASM
+            // store's `latest` pointer.
+            let mut latest = self.asm_latest.borrow_mut();
+            if latest.is_none_or(|b| blk.height() >= b.height()) {
+                *latest = Some(blk);
+            }
         }
 
         /// Registers `parent` as the parent of `blk` for parent resolution.
@@ -146,6 +164,10 @@ mod tests {
             blockid: &L1BlockCommitment,
         ) -> MohoWorkerResult<Vec<AsmLogEntry>> {
             Ok(self.logs.borrow().get(blockid).cloned().unwrap_or_default())
+        }
+
+        fn get_latest_asm_block(&self) -> MohoWorkerResult<Option<L1BlockCommitment>> {
+            Ok(*self.asm_latest.borrow())
         }
     }
 
@@ -368,5 +390,111 @@ mod tests {
 
         let err = process_block(&mut state, blk).unwrap_err();
         assert!(matches!(err, MohoWorkerError::MissingParentBlock(_)));
+    }
+
+    #[test]
+    fn sync_folds_full_gap_to_asm_tip() {
+        // The ASM worker is three blocks ahead of an empty Moho store (the worst
+        // case: a crash before the first fold). Sync must fold genesis+1..tip.
+        let (genesis_blk, anchor) = genesis_anchor();
+        let ctx = MockContext::default();
+        ctx.insert_anchor(genesis_blk, anchor.clone());
+
+        let blk1 = commitment_after(genesis_blk);
+        let blk2 = commitment_after(blk1);
+        let blk3 = commitment_after(blk2);
+        for (blk, parent) in [(blk1, genesis_blk), (blk2, blk1), (blk3, blk2)] {
+            ctx.insert_anchor(blk, child(&anchor));
+            ctx.link_parent(blk, parent);
+        }
+
+        // Seeds genesis Moho state; ASM tip is blk3.
+        let mut state =
+            MohoWorkerServiceState::new(ctx, genesis_blk, PredicateKey::always_accept()).unwrap();
+
+        sync_to_tip(&mut state).unwrap();
+
+        assert_eq!(state.cur_block(), blk3);
+        let moho = state.context.moho.borrow();
+        assert!(moho.contains_key(&blk1));
+        assert!(moho.contains_key(&blk2));
+        assert!(moho.contains_key(&blk3));
+    }
+
+    #[test]
+    fn sync_folds_partial_gap_after_resume() {
+        // Crash between the ASM commit for blk2 and the Moho fold for blk2: Moho
+        // resumes at blk1, ASM tip is blk2. Only blk2 needs folding.
+        let (genesis_blk, anchor) = genesis_anchor();
+        let ctx = MockContext::default();
+        ctx.insert_anchor(genesis_blk, anchor.clone());
+
+        let blk1 = commitment_after(genesis_blk);
+        let blk2 = commitment_after(blk1);
+        for (blk, parent) in [(blk1, genesis_blk), (blk2, blk1)] {
+            ctx.insert_anchor(blk, child(&anchor));
+            ctx.link_parent(blk, parent);
+        }
+        // Moho progressed through blk1 before the crash.
+        let moho1 = compute::construct_genesis_moho_state(PredicateKey::always_accept(), &anchor);
+        ctx.store_moho_state(&genesis_blk, &moho1).unwrap();
+        ctx.store_moho_state(&blk1, &moho1).unwrap();
+
+        // Resumes at blk1 (the Moho tip), ASM tip is blk2.
+        let mut state =
+            MohoWorkerServiceState::new(ctx, genesis_blk, PredicateKey::always_accept()).unwrap();
+        assert_eq!(state.cur_block(), blk1);
+
+        sync_to_tip(&mut state).unwrap();
+
+        assert_eq!(state.cur_block(), blk2);
+        assert!(state.context.moho.borrow().contains_key(&blk2));
+    }
+
+    #[test]
+    fn sync_is_noop_when_caught_up() {
+        // Moho tip already equals the ASM tip: nothing to fold.
+        let (genesis_blk, anchor) = genesis_anchor();
+        let ctx = MockContext::default();
+        ctx.insert_anchor(genesis_blk, anchor.clone());
+
+        let mut state =
+            MohoWorkerServiceState::new(ctx, genesis_blk, PredicateKey::always_accept()).unwrap();
+
+        sync_to_tip(&mut state).unwrap();
+
+        assert_eq!(state.cur_block(), genesis_blk);
+    }
+
+    #[test]
+    fn sync_reanchors_across_reorg() {
+        // The Moho store resumes on sibling blk_a, but the ASM tip is sibling
+        // blk_b (a reorg during downtime). Walking parents lands on the shared
+        // genesis, whose Moho state is stored, so blk_b folds from there.
+        let (genesis_blk, anchor) = genesis_anchor();
+        let ctx = MockContext::default();
+        ctx.insert_anchor(genesis_blk, anchor.clone());
+
+        let blk_a = commitment_after_with_id(genesis_blk, 0xaa);
+        let blk_b = commitment_after_with_id(genesis_blk, 0xbb);
+        ctx.insert_anchor(blk_a, child(&anchor));
+        ctx.insert_anchor(blk_b, child(&anchor));
+        ctx.link_parent(blk_a, genesis_blk);
+        ctx.link_parent(blk_b, genesis_blk);
+
+        // Moho committed the now-orphaned sibling blk_a before the crash.
+        let moho = compute::construct_genesis_moho_state(PredicateKey::always_accept(), &anchor);
+        ctx.store_moho_state(&genesis_blk, &moho).unwrap();
+        ctx.store_moho_state(&blk_a, &moho).unwrap();
+
+        // Resumes at blk_a; ASM tip is the winning sibling blk_b.
+        let mut state =
+            MohoWorkerServiceState::new(ctx, genesis_blk, PredicateKey::always_accept()).unwrap();
+        assert_eq!(state.cur_block(), blk_a);
+
+        sync_to_tip(&mut state).unwrap();
+
+        assert_eq!(state.cur_block(), blk_b);
+        assert!(state.context.moho.borrow().contains_key(&blk_b));
     }
 }

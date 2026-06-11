@@ -15,11 +15,11 @@ pub enum MohoWorkerError {
     /// The Moho state for a block was not found in the store. Hit when
     /// resolving the parent of an incoming commit: the fold chains forward from
     /// the parent's committed Moho state, so the parent must already be present.
-    /// With commits arriving in order from the ASM worker, a miss means the
-    /// parent's commit was never folded — a gap the worker cannot bridge alone.
-    // TODO(STR-3124): backfill the gap by replaying the intervening anchor
-    // states instead of erroring out, once the worker resumes from its own
-    // store on restart.
+    ///
+    /// The restart gap (the Moho store trailing the ASM store after a crash) is
+    /// bridged by [`sync_to_tip`](crate::sync_to_tip) on startup. Once the live
+    /// subscription is running, a miss here means a genuine inconsistency the
+    /// worker cannot recover from.
     #[error("missing Moho state for block {0:?}")]
     MissingMohoState(L1BlockCommitment),
 

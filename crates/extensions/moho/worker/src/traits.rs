@@ -37,6 +37,15 @@ pub trait AsmStateProvider {
     /// [`MissingAsmState`](crate::MohoWorkerError::MissingAsmState) when the
     /// block's ASM commit is absent. An empty vec means the block had no logs.
     fn get_anchor_logs(&self, blockid: &L1BlockCommitment) -> MohoWorkerResult<Vec<AsmLogEntry>>;
+
+    /// Fetches the latest L1 block the ASM worker has committed an anchor state
+    /// for, or `None` when the ASM store is empty.
+    ///
+    /// This is the tip the worker's startup sync catches up to: the ASM
+    /// worker commits a block's anchor state before the Moho worker folds it, so
+    /// on restart the Moho store can trail this tip. See
+    /// [`sync_to_tip`](crate::sync_to_tip).
+    fn get_latest_asm_block(&self) -> MohoWorkerResult<Option<L1BlockCommitment>>;
 }
 
 /// Resolves L1 block ancestry so the fold can chain onto the parent's state.
