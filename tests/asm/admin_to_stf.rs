@@ -14,11 +14,14 @@ use harness::{
 };
 use integration_tests::harness;
 use moho_runtime_impl::RuntimeInput;
+use moho_types::ExportState;
 use ssz::Encode;
 use strata_asm_common::AuxData;
 use strata_asm_logs::AsmStfUpdate;
 use strata_asm_proof_impl::{
-    moho_program::input::AsmStepInput, program::AsmStfProofProgram, test_utils::create_moho_state,
+    moho_program::{input::AsmStepInput, program::advance_export_state_with_logs},
+    program::AsmStfProofProgram,
+    test_utils::create_moho_state,
 };
 use strata_asm_spec::StrataAsmSpec;
 use strata_asm_stf::compute_asm_transition;
@@ -143,8 +146,10 @@ async fn test_proof_program_reflects_predicate_update() {
         Some(coinbase_inclusion_proof.clone()),
     );
 
-    // Build MohoState pre-state with always_accept (the initial predicate).
+    // Build MohoState pre-state with always_accept (the initial predicate) and an empty export
+    // state — nothing has been exported before the activation block.
     let initial_predicate = PredicateKey::always_accept();
+    let initial_export_state = ExportState::new(vec![]).unwrap();
     let moho_pre_state = create_moho_state(&pre_anchor_state, initial_predicate);
 
     // Construct RuntimeInput and execute the proof program.
@@ -168,7 +173,14 @@ async fn test_proof_program_reflects_predicate_update() {
 
     // The post MohoState should carry `never_accept` as the next predicate,
     // because the queued AsmStfUpdate log was emitted during the transition.
-    let expected_post_moho = create_moho_state(&stf_output.state, new_predicate);
+    let mut expected_post_moho = create_moho_state(&stf_output.state, new_predicate);
+
+    // The proof program advances the export state by applying the transition's export logs to the
+    // pre-state's export state. The bridge publishes its accumulated PoW as an
+    // `ExportExtraDataUpdate` every block, so the expected post-state must apply the same logs to
+    // match the proven commitment.
+    expected_post_moho.export_state =
+        advance_export_state_with_logs(initial_export_state, stf_output.manifest.logs());
 
     // The proven commitment in the attestation must match.
     assert_eq!(
