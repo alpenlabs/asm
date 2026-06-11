@@ -9,7 +9,10 @@ use strata_identifiers::{L1BlockCommitment, L1BlockId};
 use strata_service::{Response, Service, SyncService};
 use tracing::*;
 
-use crate::{AsmState, AsmWorkerServiceState, message::AsmWorkerMessage, traits::WorkerContext};
+use crate::{
+    AsmState, AsmWorkerServiceState, SyncError, SyncPlan, WorkerError, message::AsmWorkerMessage,
+    plan_sync, traits::WorkerContext,
+};
 
 /// ASM service implementation using the service framework.
 #[derive(Debug)]
@@ -136,7 +139,7 @@ where
     );
     let plan_span_guard = plan_span.enter();
 
-    let ProcessingPlan {
+    let SyncPlan {
         base_state,
         base_block,
         pending,
@@ -197,61 +200,46 @@ where
     Ok(processed)
 }
 
-/// The work needed to bring the ASM state up to a target block, produced by
-/// [`plan_block_processing`]: the base state to build on plus the blocks to
-/// process onto it.
-struct ProcessingPlan {
-    /// Stored anchor state at [`base_block`](Self::base_block) — the state
-    /// processing builds on.
-    base_state: AsmState,
-    /// The most recent ancestor of the target block with a stored anchor state
-    /// (the reorg fork point, when there is a reorg).
-    base_block: L1BlockCommitment,
-    /// Unprocessed blocks between the base and the target, newest first.
-    /// Process them in reverse to apply them oldest first.
-    pending: Vec<L1BlockCommitment>,
-}
-
-/// Walks back from `target` along parent links to build a [`ProcessingPlan`]:
-/// the base — the most recent ancestor with a stored anchor state — and the
-/// unprocessed blocks between it and `target`.
+/// Walks back from `target` along parent links to build a
+/// [`SyncPlan<AsmState>`]: the base — the most recent ancestor with a stored
+/// anchor state — and the unprocessed blocks between it and `target`.
 ///
-/// Reads only block headers, so a deep reorg does not load every intervening
-/// block into memory. Errors with
-/// [`MissingGenesisState`](crate::WorkerError::MissingGenesisState) if the walk
-/// reaches genesis without finding a stored anchor.
+/// A thin adapter over [`plan_sync`]: the base is a stored anchor state, and
+/// parents are resolved by reading only each block's header (its
+/// `prev_blockhash`), so a deep reorg does not load every intervening block into
+/// memory — the full block is fetched per-height during the forward pass. Errors
+/// with [`MissingGenesisState`](crate::WorkerError::MissingGenesisState) if the
+/// walk reaches genesis without finding a stored anchor.
 fn plan_block_processing<W: WorkerContext>(
     ctx: &W,
     target: &L1BlockCommitment,
     genesis_height: u64,
-) -> crate::WorkerResult<ProcessingPlan> {
-    let mut pending = vec![];
-    let mut cursor = *target;
-
-    loop {
-        if let Ok(anchor) = ctx.get_anchor_state(&cursor) {
-            return Ok(ProcessingPlan {
-                base_state: anchor,
-                base_block: cursor,
-                pending,
-            });
-        }
-
-        if cursor.height() as u64 <= genesis_height {
+) -> crate::WorkerResult<SyncPlan<AsmState>> {
+    plan_sync(
+        *target,
+        genesis_height,
+        // A miss is "not a base, keep walking"; any other store error is real
+        // and propagates rather than being mistaken for an unprocessed block.
+        |block| match ctx.get_anchor_state(block) {
+            Ok(anchor) => Ok(Some(anchor)),
+            Err(WorkerError::MissingAsmState(_)) => Ok(None),
+            Err(e) => Err(e),
+        },
+        |block| {
+            let header = ctx.get_l1_block_header(block.blkid())?;
+            Ok(L1BlockCommitment::new(
+                block.height() - 1,
+                header.prev_blockhash.to_l1_block_id(),
+            ))
+        },
+    )
+    .map_err(|e| match e {
+        SyncError::ReachedFloor { .. } => {
             error!(%target, genesis_height, "ASM hasn't found base anchor state at genesis");
-            return Err(crate::WorkerError::MissingGenesisState);
+            WorkerError::MissingGenesisState
         }
-
-        // Walking back the chain only needs each block's `prev_blockhash`, so
-        // read just the header: a deep reorg can span many blocks, and holding
-        // every full block in memory until the forward pass could OOM. The full
-        // block is fetched per-height while processing.
-        let header = ctx.get_l1_block_header(cursor.blkid())?;
-        pending.push(cursor);
-
-        let parent_height = cursor.height() - 1;
-        cursor = L1BlockCommitment::new(parent_height, header.prev_blockhash.to_l1_block_id());
-    }
+        SyncError::Provider(e) => e,
+    })
 }
 
 /// Runs the STF for `block_id`, then persists the results in a deliberate
@@ -359,7 +347,7 @@ mod tests {
     ///
     /// `plan.pending` is stored newest-first; reversing here keeps the test
     /// expectations ascending, which is easier to read.
-    fn pending_heights(plan: &ProcessingPlan) -> Vec<u32> {
+    fn pending_heights(plan: &SyncPlan<AsmState>) -> Vec<u32> {
         plan.pending.iter().rev().map(|b| b.height()).collect()
     }
 

@@ -13,6 +13,7 @@ mod message;
 mod service;
 mod state;
 mod subscription;
+mod sync;
 #[cfg(any(test, feature = "test-utils"))]
 pub mod test_utils;
 mod traits;
@@ -26,4 +27,5 @@ pub use message::{AsmWorkerMessage, SubprotocolMessage};
 pub use service::{AsmWorkerService, AsmWorkerStatus};
 pub use state::AsmWorkerServiceState;
 pub use subscription::Subscription;
+pub use sync::{SyncError, SyncPlan, plan_sync};
 pub use traits::{AnchorStateStore, AuxDataStore, L1DataProvider, ManifestMmrStore, WorkerContext};
