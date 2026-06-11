@@ -36,6 +36,8 @@ jobs:
 
       - name: Install protoc
         uses: arduino/setup-protoc@c65c819552d16ad3c9b72d9dfd5ba5237b9c906b # v3.0.0
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
 
       # `--all-features` pulls in `sp1-core-executor-runner`, whose build.rs
       # embeds a nested-built helper that breaks clippy on a cache hit; the
