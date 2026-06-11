@@ -4,7 +4,8 @@
 //! subscription (a [`Subscription<L1BlockCommitment>`](strata_asm_worker::Subscription)
 //! adapted into a [`StreamInput`](strata_service::StreamInput)). Each emitted
 //! commitment is folded into a new [`MohoState`](moho_types::MohoState) and
-//! persisted.
+//! persisted, then re-emitted on the worker's own subscription so the prover
+//! chains off the Moho commit rather than racing the ASM one.
 
 use std::marker::PhantomData;
 
@@ -54,6 +55,14 @@ where
         // without yielding. A processing error exits the worker — the commit
         // stream cannot be skipped without leaving a gap.
         process_block(state, input)?;
+
+        // Notify subscribers only after the MohoState is durably committed, so
+        // any consumer (the prover) that reads it for this block is guaranteed a
+        // hit. Mirrors the ASM worker's post-commit fan-out; non-blocking, an
+        // unbounded enqueue per subscriber. Startup catch-up (`sync_to_tip`)
+        // deliberately does not emit — it runs before any subscriber attaches,
+        // and the stream has no replay, matching the ASM commit stream.
+        state.subscribers.emit(input);
         Ok(Response::Continue)
     }
 }

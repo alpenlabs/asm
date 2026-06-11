@@ -115,7 +115,7 @@ pub(crate) async fn bootstrap(
             moho_state_db.clone(),
             export_entries_db.clone(),
         );
-        let _moho_worker = MohoWorkerBuilder::new()
+        let moho_worker = MohoWorkerBuilder::new()
             .with_context(moho_context)
             .with_subscription(asm_worker.subscribe_blocks())
             .with_genesis_block(params.anchor.block)
@@ -135,18 +135,18 @@ pub(crate) async fn bootstrap(
         );
         let input_builder = InputBuilder::new(params.anchor.block, asm_predicate, moho_predicate);
 
-        // Subscribe before the block watcher (spawned below) starts feeding the
-        // worker. The stream has no replay buffer, but the worker only commits
-        // blocks the watcher hands it, so subscribing here misses nothing.
+        // Drive the prover from the *Moho* worker's commit stream, not the ASM
+        // worker's: the Moho worker emits a block only after it has persisted
+        // that block's MohoState, so any block the prover sees here already has
+        // its MohoState available for proof-input assembly. This serializes the
+        // ASM → Moho → prover chain and removes the race that existed when the
+        // prover and the Moho worker subscribed to the ASM stream independently.
         //
-        // FIXME(STR-3699/STR-3698): the prover orchestrator and the Moho worker
-        // subscribe to the same commit stream independently, so a block's proof
-        // input may be assembled before the Moho worker has persisted that
-        // block's MohoState. The orchestrator reads the *parent*'s MohoState
-        // (written on the prior commit), so this is unlikely in practice, but the
-        // ordering is no longer guaranteed the way it was when the ASM worker
-        // wrote MohoState inline. Revisit if proof input assembly races moho-state.
-        let block_subscription = asm_worker.subscribe_blocks();
+        // Subscribe before the block watcher (spawned below) starts feeding the
+        // ASM worker. The stream has no replay buffer, but commits only flow once
+        // the watcher hands the ASM worker blocks, so subscribing here misses
+        // nothing.
+        let block_subscription = moho_worker.subscribe_blocks();
 
         // The prover proving path is now `Send` (it calls the host's
         // `start_proving`/`get_status`/`get_proof` directly rather than the

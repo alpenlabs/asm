@@ -1,6 +1,7 @@
 //! Service state for the Moho worker.
 
 use moho_types::MohoState;
+use strata_asm_worker::Subscribers;
 use strata_identifiers::L1BlockCommitment;
 use strata_predicate::PredicateKey;
 use strata_service::ServiceState;
@@ -37,6 +38,12 @@ pub struct MohoWorkerServiceState<W> {
     /// The chain genesis block. Its Moho state is always seeded, so it is the
     /// floor the startup sync walk terminates at.
     genesis_block: L1BlockCommitment,
+
+    /// Registry of Moho-commit subscribers. After each live commit's Moho state
+    /// is durably stored, the service fans the block out to these so downstream
+    /// consumers (the prover) chain off the Moho commit rather than racing the
+    /// ASM one; see [`crate::MohoWorkerHandle::subscribe_blocks`].
+    pub(crate) subscribers: Subscribers<L1BlockCommitment>,
 }
 
 impl<W: MohoWorkerContext> MohoWorkerServiceState<W> {
@@ -45,10 +52,18 @@ impl<W: MohoWorkerContext> MohoWorkerServiceState<W> {
     ///
     /// Genesis is seeded from the ASM anchor state already committed for
     /// `genesis_block`; `asm_predicate` becomes the genesis Moho predicate.
+    ///
+    /// `subscribers` is the same registry the handle hands out [`Subscription`]s
+    /// from, so the service emits into the list the handle registers into.
+    /// Construction goes through [`MohoWorkerBuilder`], which owns it.
+    ///
+    /// [`Subscription`]: strata_asm_worker::Subscription
+    /// [`MohoWorkerBuilder`]: crate::MohoWorkerBuilder
     pub(crate) fn new(
         context: W,
         genesis_block: L1BlockCommitment,
         asm_predicate: PredicateKey,
+        subscribers: Subscribers<L1BlockCommitment>,
     ) -> MohoWorkerResult<Self> {
         let (cur_block, cur_moho) = match context.get_latest_moho_state()? {
             Some((blk, moho)) => {
@@ -69,6 +84,7 @@ impl<W: MohoWorkerContext> MohoWorkerServiceState<W> {
             cur_moho,
             cur_block,
             genesis_block,
+            subscribers,
         })
     }
 
@@ -269,8 +285,13 @@ mod tests {
         let ctx = MockContext::default();
         ctx.insert_anchor(genesis_blk, anchor.clone());
 
-        let state =
-            MohoWorkerServiceState::new(ctx, genesis_blk, PredicateKey::always_accept()).unwrap();
+        let state = MohoWorkerServiceState::new(
+            ctx,
+            genesis_blk,
+            PredicateKey::always_accept(),
+            Subscribers::default(),
+        )
+        .unwrap();
 
         assert_eq!(state.cur_block(), genesis_blk);
         // Genesis moho was persisted and its inner commitment matches the anchor.
@@ -299,8 +320,13 @@ mod tests {
             compute::construct_genesis_moho_state(PredicateKey::always_accept(), &anchor);
         ctx.store_moho_state(&later_blk, &later_moho).unwrap();
 
-        let state =
-            MohoWorkerServiceState::new(ctx, genesis_blk, PredicateKey::always_accept()).unwrap();
+        let state = MohoWorkerServiceState::new(
+            ctx,
+            genesis_blk,
+            PredicateKey::always_accept(),
+            Subscribers::default(),
+        )
+        .unwrap();
 
         assert_eq!(state.cur_block(), later_blk);
     }
@@ -318,8 +344,13 @@ mod tests {
         ctx.link_parent(blk1, genesis_blk);
         ctx.link_parent(blk2, blk1);
 
-        let mut state =
-            MohoWorkerServiceState::new(ctx, genesis_blk, PredicateKey::always_accept()).unwrap();
+        let mut state = MohoWorkerServiceState::new(
+            ctx,
+            genesis_blk,
+            PredicateKey::always_accept(),
+            Subscribers::default(),
+        )
+        .unwrap();
 
         process_block(&mut state, blk1).unwrap();
         process_block(&mut state, blk2).unwrap();
@@ -345,8 +376,13 @@ mod tests {
         ctx.link_parent(blk_a, genesis_blk);
         ctx.link_parent(blk_b, genesis_blk);
 
-        let mut state =
-            MohoWorkerServiceState::new(ctx, genesis_blk, PredicateKey::always_accept()).unwrap();
+        let mut state = MohoWorkerServiceState::new(
+            ctx,
+            genesis_blk,
+            PredicateKey::always_accept(),
+            Subscribers::default(),
+        )
+        .unwrap();
 
         process_block(&mut state, blk_a).unwrap();
         // blk_b's parent (genesis) is no longer the in-memory cur_block (blk_a),
@@ -376,8 +412,13 @@ mod tests {
         ctx.insert_anchor(orphan, child(&anchor));
         ctx.link_parent(orphan, missing_parent);
 
-        let mut state =
-            MohoWorkerServiceState::new(ctx, genesis_blk, PredicateKey::always_accept()).unwrap();
+        let mut state = MohoWorkerServiceState::new(
+            ctx,
+            genesis_blk,
+            PredicateKey::always_accept(),
+            Subscribers::default(),
+        )
+        .unwrap();
 
         let err = process_block(&mut state, orphan).unwrap_err();
         assert!(matches!(err, MohoWorkerError::MissingMohoState(_)));
@@ -393,8 +434,13 @@ mod tests {
         let blk = commitment_after(genesis_blk);
         ctx.insert_anchor(blk, child(&anchor));
 
-        let mut state =
-            MohoWorkerServiceState::new(ctx, genesis_blk, PredicateKey::always_accept()).unwrap();
+        let mut state = MohoWorkerServiceState::new(
+            ctx,
+            genesis_blk,
+            PredicateKey::always_accept(),
+            Subscribers::default(),
+        )
+        .unwrap();
 
         let err = process_block(&mut state, blk).unwrap_err();
         assert!(matches!(err, MohoWorkerError::MissingParentBlock(_)));
@@ -417,8 +463,13 @@ mod tests {
         }
 
         // Seeds genesis Moho state; ASM tip is blk3.
-        let mut state =
-            MohoWorkerServiceState::new(ctx, genesis_blk, PredicateKey::always_accept()).unwrap();
+        let mut state = MohoWorkerServiceState::new(
+            ctx,
+            genesis_blk,
+            PredicateKey::always_accept(),
+            Subscribers::default(),
+        )
+        .unwrap();
 
         sync_to_tip(&mut state).unwrap();
 
@@ -449,8 +500,13 @@ mod tests {
         ctx.store_moho_state(&blk1, &moho1).unwrap();
 
         // Resumes at blk1 (the Moho tip), ASM tip is blk2.
-        let mut state =
-            MohoWorkerServiceState::new(ctx, genesis_blk, PredicateKey::always_accept()).unwrap();
+        let mut state = MohoWorkerServiceState::new(
+            ctx,
+            genesis_blk,
+            PredicateKey::always_accept(),
+            Subscribers::default(),
+        )
+        .unwrap();
         assert_eq!(state.cur_block(), blk1);
 
         sync_to_tip(&mut state).unwrap();
@@ -466,8 +522,13 @@ mod tests {
         let ctx = MockContext::default();
         ctx.insert_anchor(genesis_blk, anchor.clone());
 
-        let mut state =
-            MohoWorkerServiceState::new(ctx, genesis_blk, PredicateKey::always_accept()).unwrap();
+        let mut state = MohoWorkerServiceState::new(
+            ctx,
+            genesis_blk,
+            PredicateKey::always_accept(),
+            Subscribers::default(),
+        )
+        .unwrap();
 
         sync_to_tip(&mut state).unwrap();
 
@@ -496,13 +557,83 @@ mod tests {
         ctx.store_moho_state(&blk_a, &moho).unwrap();
 
         // Resumes at blk_a; ASM tip is the winning sibling blk_b.
-        let mut state =
-            MohoWorkerServiceState::new(ctx, genesis_blk, PredicateKey::always_accept()).unwrap();
+        let mut state = MohoWorkerServiceState::new(
+            ctx,
+            genesis_blk,
+            PredicateKey::always_accept(),
+            Subscribers::default(),
+        )
+        .unwrap();
         assert_eq!(state.cur_block(), blk_a);
 
         sync_to_tip(&mut state).unwrap();
 
         assert_eq!(state.cur_block(), blk_b);
         assert!(state.context.moho.borrow().contains_key(&blk_b));
+    }
+
+    #[test]
+    fn live_commit_notifies_subscribers() {
+        // A subscription taken from the registry handed to `new` sees a block
+        // once the worker emits it on the live path. `process_input` is
+        // `process_block` + `emit`; the service bound (`Send + Sync`) keeps the
+        // RefCell mock out of `process_input`, so this exercises the same two
+        // steps directly to confirm the state holds the shared registry.
+        let (genesis_blk, anchor) = genesis_anchor();
+        let ctx = MockContext::default();
+        ctx.insert_anchor(genesis_blk, anchor.clone());
+
+        let blk1 = commitment_after(genesis_blk);
+        ctx.insert_anchor(blk1, child(&anchor));
+        ctx.link_parent(blk1, genesis_blk);
+
+        let subscribers = Subscribers::default();
+        let mut sub = subscribers.subscribe();
+        let mut state = MohoWorkerServiceState::new(
+            ctx,
+            genesis_blk,
+            PredicateKey::always_accept(),
+            subscribers,
+        )
+        .unwrap();
+
+        process_block(&mut state, blk1).unwrap();
+        state.subscribers.emit(blk1);
+
+        assert_eq!(sub.try_recv(), Ok(blk1));
+    }
+
+    #[test]
+    fn startup_sync_does_not_notify_subscribers() {
+        // `sync_to_tip` folds the gap through `process_block`, which must not
+        // emit: the catch-up runs before any subscriber attaches and the stream
+        // has no replay, so emitting here would deliver blocks out of band. This
+        // pins emission to the live `process_input` path only.
+        let (genesis_blk, anchor) = genesis_anchor();
+        let ctx = MockContext::default();
+        ctx.insert_anchor(genesis_blk, anchor.clone());
+
+        let blk1 = commitment_after(genesis_blk);
+        let blk2 = commitment_after(blk1);
+        for (blk, parent) in [(blk1, genesis_blk), (blk2, blk1)] {
+            ctx.insert_anchor(blk, child(&anchor));
+            ctx.link_parent(blk, parent);
+        }
+
+        let subscribers = Subscribers::default();
+        let sub = subscribers.subscribe();
+        let mut state = MohoWorkerServiceState::new(
+            ctx,
+            genesis_blk,
+            PredicateKey::always_accept(),
+            subscribers,
+        )
+        .unwrap();
+
+        sync_to_tip(&mut state).unwrap();
+
+        assert_eq!(state.cur_block(), blk2);
+        // Genesis seeding and the catch-up fold both stayed silent.
+        assert_eq!(sub.backlog(), 0);
     }
 }

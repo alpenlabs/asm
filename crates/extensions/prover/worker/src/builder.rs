@@ -18,7 +18,7 @@ use crate::{
 
 /// Builder for assembling and launching a prover worker.
 ///
-/// Wires the context, remote hosts, config, input builder, and the ASM worker's
+/// Wires the context, remote hosts, config, input builder, and the Moho worker's
 /// commit subscription into a [`ProverService`] and launches it on the
 /// `strata-service` async framework — mirroring how
 /// [`AsmWorkerBuilder`](https://docs.rs/strata-asm-worker) launches the ASM
@@ -26,6 +26,11 @@ use crate::{
 /// subscription is adapted into the service input via
 /// [`StreamInput`] + [`TickingInput`], so each committed [`L1BlockCommitment`]
 /// becomes a `TickMsg::Msg` and the periodic wakeup a `TickMsg::Tick`.
+///
+/// The subscription is the *Moho* worker's commit stream, not the ASM worker's:
+/// the Moho worker emits a block only after persisting its `MohoState`, so by the
+/// time the prover assembles a block's proof inputs that block's `MohoState` is
+/// available — the ASM → Moho → prover chain is serialized.
 #[derive(Debug)]
 pub struct ProverWorkerBuilder<C, H> {
     ctx: Option<C>,
@@ -74,7 +79,7 @@ impl<C, H> ProverWorkerBuilder<C, H> {
         self
     }
 
-    /// Sets the ASM worker commit subscription that drives the service.
+    /// Sets the Moho worker commit subscription that drives the service.
     ///
     /// Subscribe *before* the worker starts processing blocks — there is no
     /// replay buffer, so any block committed before this subscription exists is
@@ -119,7 +124,7 @@ where
 
         let state = ProverServiceState::new(ctx, asm_host, moho_host, config, input_builder);
 
-        // The ASM worker's commit subscription is a `Stream`; wrap it as a
+        // The Moho worker's commit subscription is a `Stream`; wrap it as a
         // service input and overlay the periodic wakeup tick.
         let input = TickingInput::new(tick_interval, StreamInput::new(subscription));
 

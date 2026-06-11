@@ -8,9 +8,10 @@
 //! a [`ProverWorkerBuilder`] launches the service and returns a
 //! [`ProverWorkerHandle`]. The worker defines a [`ProverContext`] umbrella trait
 //! abstracting its storage and chain-data dependencies. The service is fed by
-//! the ASM worker's commit subscription (overlaid with a periodic tick): each
-//! committed block expands into the ASM step proof and Moho recursive proof it
-//! requires. Concrete sled-backed storage lives in the sibling
+//! the Moho worker's commit subscription (overlaid with a periodic tick): each
+//! committed block — already carrying a persisted MohoState — expands into the
+//! ASM step proof and Moho recursive proof it requires. Concrete sled-backed
+//! storage lives in the sibling
 //! `strata-asm-prover-storage` crate; the binary supplies the `ProverContext`
 //! impl that wires storage and the Bitcoin client together.
 

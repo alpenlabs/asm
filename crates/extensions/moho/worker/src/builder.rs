@@ -1,6 +1,6 @@
 //! Builder for constructing and launching the Moho worker service.
 
-use strata_asm_worker::Subscription;
+use strata_asm_worker::{Subscribers, Subscription};
 use strata_identifiers::L1BlockCommitment;
 use strata_predicate::PredicateKey;
 use strata_service::{ServiceBuilder, StreamInput};
@@ -87,13 +87,25 @@ impl<W> MohoWorkerBuilder<W> {
             .asm_predicate
             .ok_or(MohoWorkerError::MissingDependency("asm_predicate"))?;
 
+        // Shared between the service state (which emits each committed block)
+        // and the handle (which hands out subscriptions), so a downstream
+        // `subscribe_blocks()` registers into the same list the service fans out
+        // to. Mirrors the ASM worker's builder.
+        let subscribers = Subscribers::default();
+
         // Seed or resume synchronously before launch, mirroring the ASM worker:
         // the genesis Moho state must exist before the first commit is folded.
-        let mut state = MohoWorkerServiceState::new(context, genesis_block, asm_predicate)?;
+        let mut state = MohoWorkerServiceState::new(
+            context,
+            genesis_block,
+            asm_predicate,
+            subscribers.clone(),
+        )?;
 
         // Catch up to the ASM tip before the subscription takes over: on restart
         // the Moho store can trail the ASM store, and the stream has no replay to
-        // bridge the gap.
+        // bridge the gap. This catch-up does not emit (no subscriber is attached
+        // yet), matching the no-replay semantics of the ASM commit stream.
         service::sync_to_tip(&mut state)?;
 
         let input = StreamInput::new(subscription);
@@ -103,7 +115,7 @@ impl<W> MohoWorkerBuilder<W> {
             .launch_async(constants::SERVICE_NAME, executor)
             .await?;
 
-        Ok(MohoWorkerHandle::new(monitor))
+        Ok(MohoWorkerHandle::new(monitor, subscribers))
     }
 }
 
