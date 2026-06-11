@@ -320,8 +320,7 @@ mod tests {
 
     use super::*;
     use crate::{
-        AnchorStateStore, AuxDataResolver, ManifestMmrStore, WorkerError,
-        subscription::AsmSubscribers,
+        AnchorStateStore, AuxDataResolver, ManifestMmrStore, Subscribers, WorkerError,
         test_utils::{
             TestAsmWorkerContext,
             fixtures::{self, TestAsmSpec},
@@ -552,7 +551,7 @@ mod tests {
         let context = fx.state.context.clone();
         let params = fixtures::genesis_params(&fx.client, 101).await;
         let reloaded =
-            AsmWorkerServiceState::new(context, TestAsmSpec, params, AsmSubscribers::default())
+            AsmWorkerServiceState::new(context, TestAsmSpec, params, Subscribers::default())
                 .unwrap();
         assert_eq!(
             reloaded.blkid, tip,

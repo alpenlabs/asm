@@ -4,17 +4,14 @@ use bitcoin::BlockHash;
 use strata_identifiers::L1BlockCommitment;
 use strata_service::{CommandHandle, ServiceError, ServiceMonitor};
 
-use crate::{
-    AsmWorkerStatus, Subscription, WorkerError, message::AsmWorkerMessage,
-    subscription::AsmSubscribers,
-};
+use crate::{AsmWorkerStatus, Subscribers, Subscription, WorkerError, message::AsmWorkerMessage};
 
 /// Handle for interacting with the ASM worker service.
 #[derive(Debug)]
 pub struct AsmWorkerHandle {
     command_handle: CommandHandle<AsmWorkerMessage>,
     monitor: ServiceMonitor<AsmWorkerStatus>,
-    subscribers: AsmSubscribers,
+    subscribers: Subscribers<L1BlockCommitment>,
 }
 
 impl AsmWorkerHandle {
@@ -25,7 +22,7 @@ impl AsmWorkerHandle {
     pub(crate) fn new(
         command_handle: CommandHandle<AsmWorkerMessage>,
         monitor: ServiceMonitor<AsmWorkerStatus>,
-        subscribers: AsmSubscribers,
+        subscribers: Subscribers<L1BlockCommitment>,
     ) -> Self {
         Self {
             command_handle,

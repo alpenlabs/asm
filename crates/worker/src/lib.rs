@@ -26,6 +26,6 @@ pub use handle::AsmWorkerHandle;
 pub use message::{AsmWorkerMessage, SubprotocolMessage};
 pub use service::{AsmWorkerService, AsmWorkerStatus};
 pub use state::AsmWorkerServiceState;
-pub use subscription::Subscription;
+pub use subscription::{Subscribers, Subscription};
 pub use sync::{SyncError, SyncPlan, plan_sync};
 pub use traits::{AnchorStateStore, AuxDataStore, L1DataProvider, ManifestMmrStore, WorkerContext};
