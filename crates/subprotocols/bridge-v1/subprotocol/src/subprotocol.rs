@@ -197,8 +197,11 @@ impl Subprotocol for BridgeV1Subproto {
                 }
 
                 BridgeIncomingMsg::Defcon(_) => {
-                    info!("Activating safe harbour on Defcon signal from admin subprotocol");
                     state.activate_safe_harbour();
+                    info!(
+                        active_address = ?state.safe_harbour().address(),
+                        "Activated safe harbour on Defcon signal from admin subprotocol"
+                    );
                 }
             }
         }

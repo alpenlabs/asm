@@ -48,7 +48,7 @@ pub(crate) fn handle_parsed_tx(
             let drt_tx = verified_aux_data
                 .get_bitcoin_tx(drt_txid)
                 .unwrap_or_else(|e| {
-                    error!(error = %e, %drt_txid, "invalid aux data for deposit tx");
+                    error!(error = %e, %drt_txid, "Invalid aux data for deposit tx");
                     panic!("invalid aux: deposit DRT not provided");
                 });
             let drt_info = parse_drt(drt_tx).map_err(DepositValidationError::from)?;
@@ -70,6 +70,7 @@ pub(crate) fn handle_parsed_tx(
             info!(
                 deposit_idx = info.header_aux().deposit_idx(),
                 amount_sat = info.amt().to_sat(),
+                destination = ?drt_info.header_aux().destination(),
                 "Added deposit",
             );
             Ok(())
@@ -107,7 +108,7 @@ pub(crate) fn handle_parsed_tx(
             let stake_connector_txout = verified_aux_data
                 .get_bitcoin_txout(outpoint)
                 .unwrap_or_else(|e| {
-                    error!(error = %e, %outpoint, "invalid aux data for slash tx");
+                    error!(error = %e, %outpoint, "Invalid aux data for slash tx");
                     panic!("invalid aux: stake connector tx not provided");
                 });
             validate_slash_stake_connector(state, &stake_connector_txout.script_pubkey)?;
@@ -122,7 +123,7 @@ pub(crate) fn handle_parsed_tx(
             let stake_connector_txout = verified_aux_data
                 .get_bitcoin_txout(outpoint)
                 .unwrap_or_else(|e| {
-                    error!(error = %e, %outpoint, "invalid aux data for unstake tx");
+                    error!(error = %e, %outpoint, "Invalid aux data for unstake tx");
                     panic!("invalid aux: stake connector tx not provided");
                 });
             validate_unstake_info(state, &info, &stake_connector_txout.script_pubkey)?;

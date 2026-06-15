@@ -49,9 +49,9 @@ pub fn parse_tx<'t>(tx: &'t TxInputRef<'t>) -> Option<ParsedTx> {
     let bridge_tx_type: BridgeTxType = match raw_tx_type.try_into() {
         Ok(t) => t,
         Err(e) => {
-            // `tx_id` is computed inside the macro, because logging is compiled to noop in ZkVM.
+            // `txid` is computed inside the macro, because logging is compiled to noop in ZkVM.
             warn!(
-                tx_id = %tx.tx().compute_txid(),
+                txid = %tx.tx().compute_txid(),
                 raw_tx_type,
                 error = %e,
                 "Skipping tx with unsupported bridge tx type",
@@ -76,7 +76,7 @@ pub fn parse_tx<'t>(tx: &'t TxInputRef<'t>) -> Option<ParsedTx> {
         // not an error, so we log at debug level only.
         BridgeTxType::DepositRequest => {
             debug!(
-                tx_id = %tx.tx().compute_txid(),
+                txid = %tx.tx().compute_txid(),
                 "Skipping DepositRequest tx; processed as auxiliary input for its Deposit",
             );
             return None;
@@ -84,7 +84,7 @@ pub fn parse_tx<'t>(tx: &'t TxInputRef<'t>) -> Option<ParsedTx> {
         // Commit transactions are not currently supported by the bridge subprotocol.
         BridgeTxType::Commit => {
             debug!(
-                tx_id = %tx.tx().compute_txid(),
+                txid = %tx.tx().compute_txid(),
                 "Skipping Commit tx; not supported by bridge subprotocol",
             );
             return None;
@@ -97,7 +97,7 @@ pub fn parse_tx<'t>(tx: &'t TxInputRef<'t>) -> Option<ParsedTx> {
         Ok(parsed) => Some(parsed),
         Err(e) => {
             warn!(
-                tx_id = %tx.tx().compute_txid(),
+                txid = %tx.tx().compute_txid(),
                 error = %e,
                 "Failed to parse bridge tx; skipping",
             );
