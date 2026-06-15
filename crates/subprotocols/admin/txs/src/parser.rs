@@ -53,15 +53,20 @@ pub fn parse_tx(tx: &TxInputRef<'_>) -> Result<SignedPayload, AdministrationTxPa
     let payload_script = tx.tx().input[0]
         .witness
         .taproot_leaf_script()
-        .ok_or(AdministrationTxParseError::MalformedTransaction(tx_type))?
+        .ok_or(AdministrationTxParseError::MissingPayloadScript(tx_type))?
         .script;
 
     // Parse the envelope payload from the script
     let envelope_payload = parse_envelope_payload(&payload_script.into())?;
 
-    // Deserialize the signed payload (action + signatures) from the envelope
-    let signed_payload = SignedPayload::from_ssz_bytes(&envelope_payload)
-        .map_err(|_| AdministrationTxParseError::MalformedTransaction(tx_type))?;
+    // Deserialize the signed payload (action + signatures) from the envelope. Preserve the
+    // underlying decode error so a malformed governance tx is diagnosable from the logs.
+    let signed_payload = SignedPayload::from_ssz_bytes(&envelope_payload).map_err(|e| {
+        AdministrationTxParseError::MalformedPayload {
+            tx_type,
+            reason: format!("{e:?}"),
+        }
+    })?;
 
     Ok(signed_payload)
 }
