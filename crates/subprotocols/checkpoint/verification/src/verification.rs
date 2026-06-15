@@ -15,7 +15,9 @@ use zkaleido_logging as logging;
 
 use crate::{
     CheckpointState,
-    errors::{CheckpointValidationResult, InvalidCheckpointPayload, InvalidSequencerPredicate},
+    errors::{
+        CheckpointValidationResult, InvalidCheckpointPayload, InvalidSequencerPredicate, hex_encode,
+    },
 };
 
 /// L1 block range of a checkpoint, returned by [`verify_progression`].
@@ -222,7 +224,11 @@ pub(crate) fn extract_withdrawal_intents(
         let withdrawal_data = match log.try_into_log::<SimpleWithdrawalIntentLogData>() {
             Ok(data) => data,
             Err(e) => {
-                logging::trace!(err = ?e, "skipping non-withdrawal-intent OL log");
+                logging::trace!(
+                    account = %log.account_serial(),
+                    error = ?e,
+                    "skipping non-withdrawal-intent OL log"
+                );
                 continue;
             }
         };
@@ -233,8 +239,14 @@ pub(crate) fn extract_withdrawal_intents(
             Err(e) => {
                 // CRITICAL: User funds are destroyed on L2 but cannot be withdrawn on L1.
                 // Since the extraction is done after the proof verification, this should have been
-                // a proper descriptor.
-                logging::error!(error = %e, "Failed to parse withdrawal destination descriptor");
+                // a proper descriptor. Log the raw intent so the lost withdrawal can be traced.
+                logging::error!(
+                    amount_sat = withdrawal_data.amt(),
+                    dest = %hex_encode(withdrawal_data.dest()),
+                    operator = withdrawal_data.selected_operator,
+                    error = %e,
+                    "failed to parse withdrawal destination descriptor; user funds unrecoverable"
+                );
                 return Err(InvalidCheckpointPayload::MalformedWithdrawalDestDesc.into());
             }
         };

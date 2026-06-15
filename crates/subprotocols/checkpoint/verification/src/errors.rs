@@ -122,7 +122,7 @@ pub enum InvalidCheckpointPayload {
 }
 
 /// Encode bytes as a hex string for error display.
-fn hex_encode(bytes: &[u8]) -> String {
+pub(crate) fn hex_encode(bytes: &[u8]) -> String {
     bytes
         .iter()
         .fold(String::with_capacity(bytes.len() * 2), |mut s, b| {

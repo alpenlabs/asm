@@ -66,8 +66,8 @@ impl DepositPool {
             self.denomination = amount;
         } else if amount != self.denomination {
             logging::error!(
-                expected = ?self.denomination,
-                actual = ?amount,
+                expected_sat = self.denomination.to_sat(),
+                actual_sat = amount.to_sat(),
                 "deposit amount does not match established denomination; skipping",
             );
             return;
