@@ -11,7 +11,6 @@ use strata_asm_proto_admin_txs::{
 use strata_asm_proto_bridge_v1_msgs::{BridgeIncomingMsg, DefconPayload, UpdateOperatorSetPayload};
 use strata_asm_proto_bridge_v1_types::SafeHarbourAddress;
 use strata_asm_proto_checkpoint_msgs::CheckpointIncomingMsg;
-use strata_crypto::threshold_signature::ThresholdConfigUpdate;
 use strata_identifiers::{AccountSerial, Buf32, L1Height, SYSTEM_RESERVED_ACCTS};
 use strata_predicate::{PredicateKey, PredicateTypeId};
 
@@ -34,11 +33,25 @@ pub(crate) fn handle_pending_updates(
 ) {
     // Get all the update actions that are ready to be enacted
     let queued_updates = state.process_queued(current_height);
+    if queued_updates.is_empty() {
+        return;
+    }
+
+    debug!(
+        count = queued_updates.len(),
+        %current_height,
+        "enacting queued admin updates that reached activation height"
+    );
     for queued in queued_updates {
         let (update_id, action) = queued.into_id_and_action();
         let tx_type = action.update_tx_type();
-        handle_update(state, relayer, action);
-        info!(%update_id, %tx_type, "handled queued update");
+        let role = action.required_role();
+        match handle_update(state, relayer, action) {
+            Ok(()) => info!(%update_id, %tx_type, %role, "enacted queued admin update"),
+            Err(e) => {
+                error!(%update_id, %tx_type, %role, error = %e, "failed to enact queued admin update")
+            }
+        }
     }
 }
 
@@ -77,18 +90,35 @@ pub(crate) fn handle_action(
         MultisigAction::Update(update) => {
             // Generate a unique ID for this update
             let id = state.next_update_id();
+            let tx_type = update.update_tx_type();
 
             // Updates with a non-zero confirmation depth are queued and enacted only after
             // `delay` more L1 blocks; until then they remain cancellable. A depth of zero
             // (surfaced as `None`) means "apply immediately" and bypasses the queue.
-            match state.confirmation_depth(update.update_tx_type()) {
+            match state.confirmation_depth(tx_type) {
                 Some(delay) => {
                     let activation_height = current_height + delay as u32;
                     let queued_update = QueuedUpdate::new(id, update, activation_height);
                     state.enqueue(queued_update);
+                    info!(
+                        update_id = %id,
+                        %tx_type,
+                        %role,
+                        %activation_height,
+                        delay,
+                        "queued admin update for delayed enactment"
+                    );
                 }
                 None => {
-                    handle_update(state, relayer, update);
+                    info!(
+                        update_id = %id,
+                        %tx_type,
+                        %role,
+                        "applying admin update immediately (zero confirmation depth)"
+                    );
+                    if let Err(e) = handle_update(state, relayer, update) {
+                        error!(update_id = %id, %tx_type, %role, error = %e, "failed to apply admin update");
+                    }
                 }
             }
 
@@ -108,6 +138,7 @@ pub(crate) fn handle_action(
                 });
             }
             state.remove_queued(cancel.target_id());
+            info!(target_id = %cancel.target_id(), %role, "cancelled queued admin update");
         }
     }
 
@@ -124,26 +155,25 @@ pub(crate) fn handle_action(
 ///
 /// Shared by both apply paths: the queue-drain in [`handle_pending_updates`] and the
 /// immediate-apply branch in [`handle_action`] for updates whose confirmation depth is
-/// zero. Errors are logged here with per-variant context (e.g. the affected role) and
-/// then swallowed; the caller does not need to handle them and continues processing the
-/// next update.
+/// zero. Only multisig config updates can fail; the error is returned so the caller can
+/// log it with full context (update id, tx type, role) and continue with the next update.
 fn handle_update(
     state: &mut AdministrationSubprotoState,
     relayer: &mut impl MsgRelayer,
     update: UpdateAction,
-) {
+) -> Result<(), AdministrationError> {
     match update {
         UpdateAction::StrataAdminMultisig(update) => {
-            apply_multisig(state, Role::StrataAdministrator, update.config());
+            state.apply_multisig_update(Role::StrataAdministrator, update.config())?;
         }
         UpdateAction::StrataSeqManagerMultisig(update) => {
-            apply_multisig(state, Role::StrataSequencerManager, update.config());
+            state.apply_multisig_update(Role::StrataSequencerManager, update.config())?;
         }
         UpdateAction::AlpenAdminMultisig(update) => {
-            apply_multisig(state, Role::AlpenAdministrator, update.config());
+            state.apply_multisig_update(Role::AlpenAdministrator, update.config())?;
         }
         UpdateAction::StrataSecurityCouncilMultisig(update) => {
-            apply_multisig(state, Role::StrataSecurityCouncil, update.config());
+            state.apply_multisig_update(Role::StrataSecurityCouncil, update.config())?;
         }
         UpdateAction::OperatorSet(update) => {
             let (add_members, remove_members) = update.into_inner();
@@ -157,9 +187,12 @@ fn handle_update(
             relay_checkpoint_predicate(relayer, update.into_key());
         }
         UpdateAction::AsmStfVk(update) => {
-            let log_entry = AsmLogEntry::from_log(&AsmStfUpdate::new(update.into_key()))
+            let key = update.into_key();
+            debug!(?key, "new ASM STF verifying key");
+            let log_entry = AsmLogEntry::from_log(&AsmStfUpdate::new(key))
                 .expect("AsmStfUpdate encoding is infallible");
             relayer.emit_log(log_entry);
+            info!("emitted ASM STF verifying key update log");
         }
         UpdateAction::EeStfVk(update) => {
             relay_alpen_predicate_update(relayer, update.into_key());
@@ -169,27 +202,19 @@ fn handle_update(
             relay_bridge_safe_harbour_address_update(relayer, update.into_inner());
         }
     }
-}
 
-fn apply_multisig(
-    state: &mut AdministrationSubprotoState,
-    role: Role,
-    config: &ThresholdConfigUpdate,
-) {
-    if let Err(e) = state.apply_multisig_update(role, config) {
-        error!(?role, error = %e, "Failed to apply multisig update");
-    }
+    Ok(())
 }
 
 fn relay_alpen_predicate_update(relayer: &mut impl MsgRelayer, key: PredicateKey) {
     // Alpen is the first account on the OL, so its serial is the first
     // non-reserved account index.
     const ALPEN_EE_ACCOUNT_SERIAL: AccountSerial = AccountSerial::new(SYSTEM_RESERVED_ACCTS);
-    debug!(?key, "New EE predicate key");
+    debug!(?key, "new EE predicate key");
     let log_entry = AsmLogEntry::from_log(&EePredicateKeyUpdate::new(ALPEN_EE_ACCOUNT_SERIAL, key))
         .expect("EePredicateKeyUpdate encoding is infallible");
     relayer.emit_log(log_entry);
-    info!(%ALPEN_EE_ACCOUNT_SERIAL, "Emitted EE predicate key update log");
+    info!(%ALPEN_EE_ACCOUNT_SERIAL, "emitted EE predicate key update log");
 }
 
 fn relay_checkpoint_sequencer_update(relayer: &mut impl MsgRelayer, new_key: Buf32) {
@@ -198,15 +223,15 @@ fn relay_checkpoint_sequencer_update(relayer: &mut impl MsgRelayer, new_key: Buf
         new_key.0.to_vec(),
     ));
     relayer.relay_msg(&msg);
-    info!("Forwarded sequencer key update to checkpoint subprotocol");
-    debug!(?new_key, "New sequencer key");
+    debug!(?new_key, "new sequencer key");
+    info!("forwarded sequencer key update to checkpoint subprotocol");
 }
 
 fn relay_checkpoint_predicate(relayer: &mut impl MsgRelayer, key: PredicateKey) {
-    debug!(?key, "New checkpoint predicate");
+    debug!(?key, "new checkpoint predicate");
     let msg = CheckpointIncomingMsg::UpdateCheckpointPredicate(key);
     relayer.relay_msg(&msg);
-    info!("Forwarded rollup verifying key update to checkpoint subprotocol");
+    info!("forwarded rollup verifying key update to checkpoint subprotocol");
 }
 
 fn relay_bridge_operator_set_update(
@@ -214,27 +239,27 @@ fn relay_bridge_operator_set_update(
     add_members: Vec<strata_crypto::EvenPublicKey>,
     remove_members: Vec<u32>,
 ) {
-    debug!(?add_members, ?remove_members, "Bridge operator set update");
+    debug!(?add_members, ?remove_members, "bridge operator set update");
     let msg = BridgeIncomingMsg::UpdateOperatorSet(UpdateOperatorSetPayload {
         add_members,
         remove_members,
     });
     relayer.relay_msg(&msg);
-    info!("Forwarded operator set update to bridge subprotocol");
+    info!("forwarded operator set update to bridge subprotocol");
 }
 
 fn relay_bridge_defcon(relayer: &mut impl MsgRelayer) {
     relayer.relay_msg(&BridgeIncomingMsg::Defcon(DefconPayload::default()));
-    info!("Forwarded Defcon signal to bridge subprotocol");
+    info!("forwarded Defcon signal to bridge subprotocol");
 }
 
 fn relay_bridge_safe_harbour_address_update(
     relayer: &mut impl MsgRelayer,
     address: SafeHarbourAddress,
 ) {
-    info!(?address, "New safe harbour address");
+    debug!(?address, "new safe harbour address");
     relayer.relay_msg(&BridgeIncomingMsg::UpdateSafeHarbourAddress(address));
-    info!("Forwarded safe harbour address update to bridge subprotocol");
+    info!("forwarded safe harbour address update to bridge subprotocol");
 }
 
 #[cfg(test)]
