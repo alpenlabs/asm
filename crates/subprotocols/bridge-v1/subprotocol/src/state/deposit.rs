@@ -41,7 +41,7 @@ use crate::{errors::DepositValidationError, state::operator::NnScriptIdx};
 /// this deposit when it was locked, since the active operator set may change over time. Any one
 /// honest operator from that set can process user withdrawals. Rather than copying the operator
 /// bitmap into every deposit, we store the index of the configuration in the operator table's
-/// [`NnScriptHistory`](super::operator::NnScriptHistory), which holds the bitmap once.
+/// `NnScriptHistory`, which holds the bitmap once.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, Encode, Decode)]
 pub struct DepositEntry {
     /// Unique deposit identifier assigned by the bridge and provided in the deposit transaction.
@@ -91,7 +91,7 @@ impl DepositEntry {
     /// Returns the index of the N/N multisig configuration that controls this deposit.
     ///
     /// Resolve it against the operator table's
-    /// [`NnScriptHistory`](super::operator::NnScriptHistory) to recover the notary operator bitmap.
+    /// `NnScriptHistory` to recover the notary operator bitmap.
     pub fn notary_set(&self) -> NnScriptIdx {
         self.notary_set
     }

@@ -82,9 +82,9 @@ pub(crate) fn build_nn_script(agg_key: &BitcoinXOnlyPublicKey) -> BitcoinScriptB
     ))
 }
 
-/// Position of a [`HistoricalNnScript`] within [`NnScriptHistory`].
+/// Position of a `HistoricalNnScript` within `NnScriptHistory`.
 ///
-/// Because the history is append-only (see [`NnScriptHistory`]), an entry's position is a stable
+/// Because the history is append-only (see `NnScriptHistory`), an entry's position is a stable
 /// handle for its lifetime. Deposits store such an index to bind their notary set to a recognized
 /// historical N/N configuration instead of duplicating the operator bitmap.
 pub type NnScriptIdx = u32;
