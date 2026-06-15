@@ -18,7 +18,7 @@ pub(crate) fn validate_deposit_info(
     info: &DepositInfo,
     drt_info: &DepositRequestInfo,
 ) -> Result<(), DepositValidationError> {
-    let expected_script = state.operators().current_nn_script();
+    let expected_script = state.operators().current_nn_script().script();
     if info.locked_script() != expected_script {
         return Err(DepositValidationError::WrongOutputLock(Mismatch {
             expected: expected_script.clone(),
@@ -102,9 +102,9 @@ mod tests {
         );
         let drt_info = drt_info_from_aux(&info, &aux);
 
-        let old_script = state.operators().current_nn_script().clone();
+        let old_script = state.operators().current_nn_script().script().clone();
         state.remove_operator(1);
-        let new_script = state.operators().current_nn_script().clone();
+        let new_script = state.operators().current_nn_script().script().clone();
 
         let err = validate_deposit_info(&state, &info, &drt_info).unwrap_err();
         let DepositValidationError::WrongOutputLock(mismatch) = err else {
@@ -132,7 +132,7 @@ mod tests {
         let new_agg_key = state.operators().agg_key();
 
         // Set the correct locked script
-        let locked_script = state.operators().current_nn_script().clone();
+        let locked_script = state.operators().current_nn_script().script().clone();
         info.set_locked_script(locked_script);
 
         let err = validate_deposit_info(&state, &info, &drt_info).unwrap_err();

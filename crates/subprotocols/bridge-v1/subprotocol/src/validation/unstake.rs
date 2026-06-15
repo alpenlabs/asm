@@ -39,7 +39,7 @@ pub(crate) fn validate_unstake_info(
     if !state
         .operators()
         .historical_nn_scripts()
-        .any(|script| script == nn_keypath_script.inner())
+        .any(|config| config.script() == nn_keypath_script.inner())
     {
         return Err(UnstakeValidationError::UnknownNnKey);
     }

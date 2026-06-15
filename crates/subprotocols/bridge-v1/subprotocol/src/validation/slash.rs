@@ -11,7 +11,7 @@ pub(crate) fn validate_slash_stake_connector(
     if !state
         .operators()
         .historical_nn_scripts()
-        .any(|script| script == stake_connector_script)
+        .any(|config| config.script() == stake_connector_script)
     {
         return Err(SlashValidationError::InvalidStakeConnectorScript);
     }
