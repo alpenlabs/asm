@@ -142,21 +142,13 @@ pub struct OperatorTable {
     /// **Invariant**: MUST be sorted by `OperatorEntry::idx` field.
     operators: SortedVec<OperatorEntry>,
 
-    /// Bitmap indicating which operators are currently active in the N/N multisig.
-    ///
-    /// Each bit position corresponds to an operator index, where a set bit (1) indicates
-    /// the operator at that index is currently active in the multisig configuration.
-    /// This bitmap is used to efficiently track active operator membership and coordinate
-    /// with the aggregated public key for signature operations.
-    active_operators: OperatorBitmap,
-
     /// Aggregated public key derived from operator MuSig2 keys that are currently active in the
     /// N/N multisig.
     ///
-    /// This key is computed by aggregating the MuSig2 public keys of only those operators
-    /// marked as active in the `active_operators` bitmap, using the MuSig2 key aggregation
-    /// protocol. It serves as the collective public key for multi-signature operations and is
-    /// used for:
+    /// This key is computed by aggregating the MuSig2 public keys of only those operators active
+    /// in the current N/N multisig (the bitmap stored in the last `historical_nn_scripts` entry),
+    /// using the MuSig2 key aggregation protocol. It serves as the collective public key for
+    /// multi-signature operations and is used for:
     ///
     /// - Generating deposit addresses for the bridge
     /// - Verifying multi-signatures from the current operator set
@@ -182,7 +174,6 @@ pub struct OperatorTable {
 struct OperatorTableSsz {
     next_idx: OperatorIdx,
     operators: Vec<OperatorEntry>,
-    active_operators: OperatorBitmap,
     agg_key: BitcoinXOnlyPublicKey,
     historical_nn_scripts: Vec<HistoricalNnScript>,
 }
@@ -192,7 +183,6 @@ impl From<&OperatorTable> for OperatorTableSsz {
         Self {
             next_idx: value.next_idx,
             operators: value.operators.to_vec(),
-            active_operators: value.active_operators.clone(),
             agg_key: value.agg_key,
             historical_nn_scripts: value.historical_nn_scripts.clone(),
         }
@@ -226,7 +216,6 @@ impl SszDecode for OperatorTable {
         Ok(Self {
             next_idx: payload.next_idx,
             operators,
-            active_operators: payload.active_operators,
             agg_key: payload.agg_key,
             historical_nn_scripts: payload.historical_nn_scripts,
         })
@@ -262,7 +251,6 @@ impl OperatorTable {
         let mut table = Self {
             next_idx: 0,
             operators: SortedVec::new_empty(),
-            active_operators: OperatorBitmap::new_empty(),
             agg_key: placeholder_agg_key,
             historical_nn_scripts: Vec::new(),
         };
@@ -345,15 +333,16 @@ impl OperatorTable {
     /// `true` if the operator is active, `false` otherwise (even if the index is
     /// out-of-bounds).
     pub fn is_in_current_multisig(&self, idx: OperatorIdx) -> bool {
-        self.active_operators.is_active(idx)
+        self.current_multisig().is_active(idx)
     }
 
     /// Returns a reference to the bitmap of currently active operators.
     ///
     /// The bitmap tracks which operators are currently active in the N/N multisig configuration.
-    /// This is used for assignment creation and deposit processing.
+    /// It is the membership recorded in the latest `historical_nn_scripts` entry and is used for
+    /// assignment creation and deposit processing.
     pub fn current_multisig(&self) -> &OperatorBitmap {
-        &self.active_operators
+        self.current_nn_script().operators()
     }
 
     /// Atomically applies membership changes by adding new operators and removing existing ones,
@@ -381,15 +370,23 @@ impl OperatorTable {
         add_members: &[EvenPublicKey],
         remove_members: &[OperatorIdx],
     ) {
-        self.add_operators(add_members);
-        self.remove_operators(remove_members);
+        // Start from the current active set, mutate it locally, then record it alongside the new
+        // script. The set is empty only while bootstrapping, before the first script is pushed.
+        let mut active = self
+            .historical_nn_scripts
+            .last()
+            .map(|h| h.operators().clone())
+            .unwrap_or_else(OperatorBitmap::new_empty);
+
+        self.add_operators(&mut active, add_members);
+        self.remove_operators(&mut active, remove_members);
 
         let did_change = !remove_members.is_empty() || !add_members.is_empty();
         if did_change {
-            self.calculate_aggregated_key();
+            self.calculate_aggregated_key(&active);
             self.historical_nn_scripts.push(HistoricalNnScript {
                 script: build_nn_script(&self.agg_key),
-                operators: self.active_operators.clone(),
+                operators: active,
             });
             // The recomputed aggregated key changes the N/N deposit lock script, so surface it.
             info!(
@@ -412,7 +409,7 @@ impl OperatorTable {
     /// Panics if:
     /// - Sequential operator insertion fails (bitmap index management error)
     /// - `next_idx` reaches `u32::MAX` (reserved as the "no selected operator" sentinel)
-    fn add_operators(&mut self, operators: &[EvenPublicKey]) {
+    fn add_operators(&mut self, active: &mut OperatorBitmap, operators: &[EvenPublicKey]) {
         for musig2_pk in operators {
             // Check if it already exists in the table (which handles both existing operators
             // and internal duplicates in the input list, as the first occurrence is added)
@@ -435,7 +432,7 @@ impl OperatorTable {
             self.operators.insert(entry);
 
             // Set new operator as active in bitmap
-            self.active_operators
+            active
                 .try_set(idx, true)
                 .expect("Sequential operator insertion should always succeed");
 
@@ -445,7 +442,7 @@ impl OperatorTable {
     }
 
     /// Deactivates existing operators by their indices.
-    fn remove_operators(&mut self, indices: &[OperatorIdx]) {
+    fn remove_operators(&mut self, active: &mut OperatorBitmap, indices: &[OperatorIdx]) {
         for &idx in indices {
             // Only update if the operator exists
             if self
@@ -455,8 +452,8 @@ impl OperatorTable {
                 .is_ok()
             {
                 // For existing operators, we can set their status directly
-                if (idx as usize) < self.active_operators.len() {
-                    self.active_operators
+                if (idx as usize) < active.len() {
+                    active
                         .try_set(idx, false)
                         .expect("Setting existing operator status should succeed");
                     debug!(operator_idx = idx, "Deactivated operator");
@@ -472,9 +469,8 @@ impl OperatorTable {
     /// # Panics
     ///
     /// Panics if there are no active operators.
-    fn calculate_aggregated_key(&mut self) {
-        let active_keys: Vec<Buf32> = self
-            .active_operators
+    fn calculate_aggregated_key(&mut self, active: &OperatorBitmap) {
+        let active_keys: Vec<Buf32> = active
             .active_indices()
             .filter_map(|op| {
                 self.get_operator(op)
