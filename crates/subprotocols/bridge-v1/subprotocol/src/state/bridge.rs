@@ -1,5 +1,5 @@
 use ssz_derive::{Decode, Encode};
-use strata_asm_common::logging::{info, warn};
+use strata_asm_common::logging::{debug, info, warn};
 use strata_asm_params::BridgeV1InitConfig;
 use strata_asm_proto_bridge_v1_txs::{deposit::DepositInfo, errors::Mismatch};
 use strata_asm_proto_bridge_v1_types::{
@@ -245,6 +245,12 @@ impl BridgeV1State {
         }
 
         let n = amt / denom;
+        debug!(
+            total_amount_sat = amt,
+            denomination_sat = denom,
+            assignments = n,
+            "Decomposing batch withdrawal"
+        );
         let single_intent = WithdrawalIntent::new(
             withdrawal_intent.destination().clone(),
             self.denomination,
