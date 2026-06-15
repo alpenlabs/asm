@@ -2,7 +2,7 @@ use std::fmt::Debug;
 
 use bitcoin::ScriptBuf;
 use strata_asm_proto_bridge_v1_txs::errors::{Mismatch, TxStructureError};
-use strata_asm_proto_bridge_v1_types::OperatorBitmapError;
+use strata_asm_proto_bridge_v1_types::{OperatorBitmapError, OperatorIdx};
 use strata_btc_types::BitcoinAmount;
 use thiserror::Error;
 
@@ -98,6 +98,11 @@ pub enum SlashValidationError {
     /// Stake connector input is not locked to the expected N/N multisig script
     #[error("stake connector not locked to N/N multisig script")]
     InvalidStakeConnectorScript,
+
+    /// The operator being slashed was not a member of the N/N multisig the stake connector is
+    /// locked to.
+    #[error("operator {0} is not part of the referenced N/N multisig")]
+    OperatorNotInMultisig(OperatorIdx),
 }
 
 #[derive(Debug, Error)]
@@ -110,6 +115,11 @@ pub enum UnstakeValidationError {
     /// `(stake_hash, N/N pubkey)`.
     #[error("spent prevout does not match the canonical stake connector scriptPubKey")]
     StakeConnectorMismatch,
+
+    /// The operator being unstaked was not a member of the N/N multisig identified by the
+    /// witness-pushed pubkey.
+    #[error("operator {0} is not part of the referenced N/N multisig")]
+    OperatorNotInMultisig(OperatorIdx),
 }
 
 /// Errors that can occur when creating or managing withdrawal assignments.

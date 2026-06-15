@@ -111,8 +111,12 @@ pub(crate) fn handle_parsed_tx(
                     error!(error = %e, %outpoint, "Invalid aux data for slash tx");
                     panic!("invalid aux: stake connector tx not provided");
                 });
-            validate_slash_stake_connector(state, &stake_connector_txout.script_pubkey)?;
             let operator_idx = info.header_aux().operator_idx();
+            validate_slash_stake_connector(
+                state,
+                operator_idx,
+                &stake_connector_txout.script_pubkey,
+            )?;
             state.remove_operator(operator_idx);
 
             info!(operator_idx, "Removed operator via slash");
