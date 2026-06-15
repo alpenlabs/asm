@@ -52,6 +52,12 @@ impl Subprotocol for CheckpointSubprotocol {
                         let prev_height = state.verified_tip().l1_height;
                         let new_height = envelope.payload.new_tip().l1_height;
                         if prev_height < new_height {
+                            logging::trace!(
+                                txid = %tx.tx().compute_txid(),
+                                start = prev_height + 1,
+                                end = new_height,
+                                "requesting manifest hashes"
+                            );
                             collector.request_manifest_hashes(
                                 (prev_height + 1) as u64,
                                 new_height as u64,
@@ -59,10 +65,12 @@ impl Subprotocol for CheckpointSubprotocol {
                         }
                     }
                     Err(e) => {
-                        logging::warn!(
+                        // The handler authoritatively warns on this same failure during
+                        // `process_txs`; keep this at debug to avoid double-logging per block.
+                        logging::debug!(
                             txid = %tx.tx().compute_txid(),
                             error = %e,
-                            "Failed to parse checkpoint transaction in pre_process_txs"
+                            "failed to parse checkpoint tx in pre_process; skipping aux request"
                         );
                     }
                 }
@@ -92,15 +100,27 @@ impl Subprotocol for CheckpointSubprotocol {
         for msg in msgs {
             match msg {
                 CheckpointIncomingMsg::DepositProcessed(amount) => {
-                    logging::info!(amount_sat = amount.to_sat(), "Recording processed deposit");
                     state.record_deposit(*amount);
+                    logging::info!(
+                        amount_sat = amount.to_sat(),
+                        total_sat = state.available_deposit_sum(),
+                        "recording processed deposit"
+                    );
                 }
                 CheckpointIncomingMsg::UpdateSequencerKey(new_predicate) => {
-                    logging::info!("Updating sequencer predicate");
+                    logging::info!(
+                        old = state.sequencer_predicate().id(),
+                        new = new_predicate.id(),
+                        "updating sequencer predicate"
+                    );
                     state.update_sequencer_predicate(new_predicate.clone());
                 }
                 CheckpointIncomingMsg::UpdateCheckpointPredicate(new_predicate) => {
-                    logging::info!("Updating checkpoint predicate");
+                    logging::info!(
+                        old = state.checkpoint_predicate().id(),
+                        new = new_predicate.id(),
+                        "updating checkpoint predicate"
+                    );
                     state.update_checkpoint_predicate(new_predicate.clone());
                 }
             }

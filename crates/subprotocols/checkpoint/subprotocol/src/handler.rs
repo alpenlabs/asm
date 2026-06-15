@@ -28,23 +28,29 @@ pub(crate) fn handle_checkpoint_tx(
     verified_aux_data: &VerifiedAuxData,
     relayer: &mut impl MsgRelayer,
 ) {
-    let Ok(envelope) = extract_checkpoint_from_envelope(tx) else {
-        logging::warn!(
-            txid = %tx.tx().compute_txid(),
-            "failed to extract checkpoint payload from envelope, ignoring"
-        );
-        return;
+    let envelope = match extract_checkpoint_from_envelope(tx) {
+        Ok(envelope) => envelope,
+        Err(e) => {
+            // `compute_txid` stays inside the macro: in zkVM the logging shim is a no-op
+            // that discards its args, so the hash is never computed there.
+            logging::warn!(
+                txid = %tx.tx().compute_txid(),
+                error = %e,
+                "failed to extract checkpoint payload from envelope, ignoring"
+            );
+            return;
+        }
     };
     let epoch = envelope.payload.new_tip().epoch;
 
-    logging::debug!(epoch, "processing checkpoint transaction");
+    logging::debug!(txid = %tx.tx().compute_txid(), epoch, "processing checkpoint transaction");
 
     // Authenticate the envelope against the sequencer predicate before doing any
     // progression or proof work.
     if let Err(e) =
         verify_sequencer_predicate(state.sequencer_predicate(), &envelope.envelope_pubkey)
     {
-        logging::warn!(epoch, error = %e, "checkpoint envelope authentication failed");
+        logging::warn!(txid = %tx.tx().compute_txid(), epoch, error = %e, "checkpoint envelope authentication failed");
         return;
     }
 
@@ -57,7 +63,7 @@ pub(crate) fn handle_checkpoint_tx(
     ) {
         Ok(c) => c,
         Err(e) => {
-            logging::warn!(epoch, error = %e, "checkpoint progression verification failed");
+            logging::warn!(txid = %tx.tx().compute_txid(), epoch, error = %e, "checkpoint progression verification failed");
             return;
         }
     };
@@ -76,8 +82,18 @@ pub(crate) fn handle_checkpoint_tx(
             let manifest_hashes = verified_aux_data
                 .get_manifest_hashes(*start_height as u64, *end_height as u64)
                 .unwrap_or_else(|e| {
-                    logging::error!(epoch, error = %e, "invalid aux data");
-                    panic!("invalid aux");
+                    logging::error!(
+                        txid = %tx.tx().compute_txid(),
+                        epoch,
+                        start_height,
+                        end_height,
+                        error = %e,
+                        "manifest hashes missing from verified aux data"
+                    );
+                    panic!(
+                        "checkpoint aux data missing for L1 range {start_height}..={end_height} \
+                         (epoch {epoch}): {e}"
+                    );
                 });
             compute_asm_manifests_hash_from_leaves(&manifest_hashes)
         }
@@ -88,14 +104,19 @@ pub(crate) fn handle_checkpoint_tx(
     let withdrawal_intents = match state.advance(&envelope.payload, asm_manifests_hash) {
         Ok(v) => v,
         Err(e) => {
-            logging::warn!(epoch, error = %e, "checkpoint proof verification failed");
+            logging::warn!(txid = %tx.tx().compute_txid(), epoch, error = %e, "checkpoint rejected");
             return;
         }
     };
 
-    logging::info!(epoch, "checkpoint validated successfully");
-
     let new_tip = envelope.payload.new_tip;
+
+    logging::info!(
+        txid = %tx.tx().compute_txid(),
+        new_tip = ?new_tip,
+        withdrawals = withdrawal_intents.len(),
+        "checkpoint validated"
+    );
 
     let checkpoint_tip_update = CheckpointTipUpdate::new(new_tip);
     let log_entry = AsmLogEntry::from_log(&checkpoint_tip_update)
