@@ -119,6 +119,11 @@ impl Subprotocol for BridgeV1Subproto {
                 // bridge's fundamental 1/N honesty assumption. This means no operators remain
                 // available to fulfill withdrawals, representing an unrecoverable protocol breach
                 // that poses significant risk of fund loss.
+                error!(
+                    l1_height = header_vs.last_verified_block.height(),
+                    error = %e,
+                    "Failed to reassign expired assignments; 1/N honesty assumption violated"
+                );
                 panic!("Failed to reassign expired assignments {e}");
             }
         }
@@ -164,6 +169,11 @@ impl Subprotocol for BridgeV1Subproto {
                     if let Err(e) = state.create_batch_withdrawal_assignments(payload, l1ref) {
                         // PANIC: Withdrawal assignment failure indicates catastrophic system
                         // compromise.
+                        error!(
+                            l1_height = l1ref.height(),
+                            error = %e,
+                            "Failed to create withdrawal assignment"
+                        );
                         panic!("Failed to create withdrawal assignment: {e}",);
                     }
                 }
