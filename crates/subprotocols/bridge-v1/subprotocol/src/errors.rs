@@ -44,11 +44,6 @@ pub enum DepositValidationError {
     #[error("Deposit index {0} already exists in deposits table")]
     DepositIdxAlreadyExists(u32),
 
-    /// Cannot create deposit entry with empty operators list.
-    /// Each deposit must have at least one notary operator.
-    #[error("Cannot create deposit entry with empty operators.")]
-    EmptyOperators,
-
     /// The DRT output script does not match the expected locking script.
     #[error("DRT output script mismatch {0}")]
     DrtOutputScriptMismatch(Mismatch<ScriptBuf>),

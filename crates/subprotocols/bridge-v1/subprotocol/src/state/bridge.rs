@@ -146,12 +146,8 @@ impl BridgeV1State {
     /// - The internal key doesn't match the current aggregated operator key
     /// - The deposit index already exists in the deposits table
     pub fn add_deposit(&mut self, info: &DepositInfo) -> Result<(), DepositValidationError> {
-        let notary_operators = self.operators.current_multisig().clone();
-        let entry = DepositEntry::new(
-            info.header_aux().deposit_idx(),
-            notary_operators,
-            info.amt(),
-        )?;
+        let notary_set = self.operators.current_nn_script_index();
+        let entry = DepositEntry::new(info.header_aux().deposit_idx(), notary_set, info.amt());
         self.deposits.insert_deposit(entry)?;
 
         Ok(())
@@ -197,10 +193,16 @@ impl BridgeV1State {
         let selected_operator = withdrawal_intent.selected_operator();
         let deposit_idx = deposit.idx();
         let amount_sat = deposit.amt().to_sat();
+        let notary_operators = self
+            .operators
+            .nn_script(deposit.notary_set())
+            .expect("deposit references a known N/N configuration")
+            .operators();
         let result = self.assignments.add_new_assignment(
             deposit,
             withdrawal_intent.clone(),
             self.operator_fee,
+            notary_operators,
             self.operators.current_multisig(),
             l1_block,
         );
@@ -289,9 +291,11 @@ impl BridgeV1State {
         &mut self,
         current_block: &L1BlockCommitment,
     ) -> Result<Vec<u32>, WithdrawalAssignmentError> {
-        let reassigned_deposits = self
-            .assignments
-            .reassign_expired_assignments(self.operators.current_multisig(), current_block)?;
+        let reassigned_deposits = self.assignments.reassign_expired_assignments(
+            self.operators.nn_history(),
+            self.operators.current_multisig(),
+            current_block,
+        )?;
 
         for deposit_idx in &reassigned_deposits {
             if let Some(assignment) = self.assignments.get_assignment(*deposit_idx) {

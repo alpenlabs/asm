@@ -82,6 +82,13 @@ pub(crate) fn build_nn_script(agg_key: &BitcoinXOnlyPublicKey) -> BitcoinScriptB
     ))
 }
 
+/// Position of a [`HistoricalNnScript`] within [`NnScriptHistory`].
+///
+/// Because the history is append-only (see [`NnScriptHistory`]), an entry's position is a stable
+/// handle for its lifetime. Deposits store such an index to bind their notary set to a recognized
+/// historical N/N configuration instead of duplicating the operator bitmap.
+pub type NnScriptIdx = u32;
+
 /// A historical N/N multisig configuration of the bridge.
 ///
 /// Pairs the P2TR script that represented the bridge for a given operator set with the bitmap of
@@ -98,6 +105,11 @@ pub struct HistoricalNnScript {
 }
 
 impl HistoricalNnScript {
+    /// Creates a configuration pairing a key-path-only P2TR `script` with its active `operators`.
+    pub(crate) fn new(script: BitcoinScriptBuf, operators: OperatorBitmap) -> Self {
+        Self { script, operators }
+    }
+
     /// Returns the key-path-only P2TR script for this configuration.
     pub fn script(&self) -> &ScriptBuf {
         self.script.inner()
@@ -106,6 +118,85 @@ impl HistoricalNnScript {
     /// Returns the bitmap of operators that were active in this configuration.
     pub fn operators(&self) -> &OperatorBitmap {
         &self.operators
+    }
+}
+
+/// Append-only history of the bridge's N/N multisig configurations, oldest first.
+///
+/// A new entry is appended on every operator membership change, so the last entry always describes
+/// the current operator set. Entries are **never removed or reordered**: this keeps each entry's
+/// position (a [`NnScriptIdx`]) stable so deposits can reference the configuration they were locked
+/// under without copying its bitmap. Validation also walks the history to recognize stake
+/// connectors from previous operator sets.
+#[derive(Clone, Debug, Eq, PartialEq, Encode, Decode)]
+pub struct NnScriptHistory {
+    /// Configurations in chronological order. Append-only; the last entry is the current set.
+    scripts: Vec<HistoricalNnScript>,
+}
+
+impl NnScriptHistory {
+    /// Creates an empty history. Only used during bootstrap, before the first set is recorded.
+    pub(crate) fn new_empty() -> Self {
+        Self {
+            scripts: Vec::new(),
+        }
+    }
+
+    /// Appends a configuration and returns its stable index.
+    pub(crate) fn push(&mut self, entry: HistoricalNnScript) -> NnScriptIdx {
+        self.scripts.push(entry);
+        (self.scripts.len() - 1) as NnScriptIdx
+    }
+
+    /// Returns the configuration at `idx`, or `None` if it is out of range.
+    pub fn get(&self, idx: NnScriptIdx) -> Option<&HistoricalNnScript> {
+        self.scripts.get(idx as usize)
+    }
+
+    /// Returns the index of the current (most recent) configuration.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the history is empty, which can only happen before bootstrap completes.
+    pub fn current_index(&self) -> NnScriptIdx {
+        assert!(
+            !self.scripts.is_empty(),
+            "N/N script history should never be empty"
+        );
+        (self.scripts.len() - 1) as NnScriptIdx
+    }
+
+    /// Returns the current (most recent) configuration.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the history is empty, which can only happen before bootstrap completes.
+    pub fn current(&self) -> &HistoricalNnScript {
+        self.scripts
+            .last()
+            .expect("N/N script history should never be empty")
+    }
+
+    /// Returns an iterator over all configurations in chronological order.
+    pub fn iter(&self) -> impl Iterator<Item = &HistoricalNnScript> {
+        self.scripts.iter()
+    }
+}
+
+#[cfg(test)]
+impl NnScriptHistory {
+    /// Builds a history with a single configuration holding `operators` (index 0).
+    ///
+    /// The script is derived from a placeholder key, since tests resolving a notary set only care
+    /// about the recorded operator bitmap.
+    pub(crate) fn single_for_test(operators: OperatorBitmap) -> Self {
+        let placeholder_agg_key = BitcoinXOnlyPublicKey::new([1u8; 32].into()).unwrap();
+        let mut history = Self::new_empty();
+        history.push(HistoricalNnScript::new(
+            build_nn_script(&placeholder_agg_key),
+            operators,
+        ));
+        history
     }
 }
 
@@ -158,16 +249,13 @@ pub struct OperatorTable {
     /// updated, ensuring it always reflects the current active multisig participants.
     agg_key: BitcoinXOnlyPublicKey,
 
-    /// Historical N/N multisig scripts from previous operator set configurations.
+    /// Append-only history of N/N multisig configurations across membership changes.
     ///
-    /// This vector tracks all P2TR scripts that represented the bridge across membership changes
-    /// due to operator entries/exits. Each script is a key-path-only P2TR output (merkle root =
-    /// None) constructed from the aggregated public key of the operator set at that time.
-    ///
-    /// By storing the ScriptBuf directly instead of just keys, we avoid recomputing P2TR scripts
-    /// during validation, improving performance. Each entry also carries the [`OperatorBitmap`] of
-    /// the operators that were active when the script was current.
-    historical_nn_scripts: Vec<HistoricalNnScript>,
+    /// Each entry stores the key-path-only P2TR script (merkle root = None) built from the
+    /// aggregated public key of the operator set at that time, alongside the bitmap of operators
+    /// active then. Storing the script avoids recomputing P2TR scripts during validation, and the
+    /// stable per-entry index lets deposits reference their notary set (see [`NnScriptHistory`]).
+    historical_nn_scripts: NnScriptHistory,
 }
 
 #[derive(Debug, Encode, Decode)]
@@ -175,7 +263,7 @@ struct OperatorTableSsz {
     next_idx: OperatorIdx,
     operators: Vec<OperatorEntry>,
     agg_key: BitcoinXOnlyPublicKey,
-    historical_nn_scripts: Vec<HistoricalNnScript>,
+    historical_nn_scripts: NnScriptHistory,
 }
 
 impl From<&OperatorTable> for OperatorTableSsz {
@@ -252,7 +340,7 @@ impl OperatorTable {
             next_idx: 0,
             operators: SortedVec::new_empty(),
             agg_key: placeholder_agg_key,
-            historical_nn_scripts: Vec::new(),
+            historical_nn_scripts: NnScriptHistory::new_empty(),
         };
 
         // Reuse membership change flow to handle deduplication and seed script history.
@@ -293,14 +381,29 @@ impl OperatorTable {
         self.historical_nn_scripts.iter()
     }
 
+    /// Returns the full N/N multisig configuration history.
+    pub fn nn_history(&self) -> &NnScriptHistory {
+        &self.historical_nn_scripts
+    }
+
+    /// Returns the configuration at `idx`, or `None` if it is out of range.
+    pub fn nn_script(&self, idx: NnScriptIdx) -> Option<&HistoricalNnScript> {
+        self.historical_nn_scripts.get(idx)
+    }
+
+    /// Returns the index of the current N/N multisig configuration.
+    ///
+    /// New deposits record this index to bind their notary set to the active configuration.
+    pub fn current_nn_script_index(&self) -> NnScriptIdx {
+        self.historical_nn_scripts.current_index()
+    }
+
     /// Returns the current N/N multisig configuration for the active operator set.
     ///
-    /// The latest configuration is stored as the last entry in `historical_nn_scripts` and is
-    /// reused for validating new slash transactions and stake connectors without recomputing.
+    /// The latest configuration is the last entry in the history and is reused for validating new
+    /// slash transactions and stake connectors without recomputing.
     pub fn current_nn_script(&self) -> &HistoricalNnScript {
-        self.historical_nn_scripts
-            .last()
-            .expect("N/N script history should never be empty")
+        self.historical_nn_scripts.current()
     }
 
     /// Retrieves an operator entry by its unique index.
@@ -374,6 +477,7 @@ impl OperatorTable {
         // script. The set is empty only while bootstrapping, before the first script is pushed.
         let mut active = self
             .historical_nn_scripts
+            .iter()
             .last()
             .map(|h| h.operators().clone())
             .unwrap_or_else(OperatorBitmap::new_empty);
@@ -384,16 +488,16 @@ impl OperatorTable {
         let did_change = !remove_members.is_empty() || !add_members.is_empty();
         if did_change {
             self.calculate_aggregated_key(&active);
-            self.historical_nn_scripts.push(HistoricalNnScript {
-                script: build_nn_script(&self.agg_key),
-                operators: active,
-            });
             // The recomputed aggregated key changes the N/N deposit lock script, so surface it.
             info!(
-                active_operators = self.active_operators.active_indices().count(),
+                active_operators = active.active_indices().count(),
                 agg_key = ?self.agg_key,
                 "Recomputed N/N aggregated key after membership change"
             );
+            self.historical_nn_scripts.push(HistoricalNnScript::new(
+                build_nn_script(&self.agg_key),
+                active,
+            ));
         }
     }
 
