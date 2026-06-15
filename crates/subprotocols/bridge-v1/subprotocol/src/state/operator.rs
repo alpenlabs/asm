@@ -8,7 +8,10 @@ use bitcoin::{ScriptBuf, secp256k1::SECP256K1};
 use serde::{Deserialize, Serialize};
 use ssz::{Decode as SszDecode, DecodeError, Encode as SszEncode};
 use ssz_derive::{Decode, Encode};
-use strata_asm_common::{logging::warn, sorted_vec::SortedVec};
+use strata_asm_common::{
+    logging::{debug, info, warn},
+    sorted_vec::SortedVec,
+};
 use strata_asm_proto_bridge_v1_types::{OperatorBitmap, OperatorIdx};
 use strata_btc_types::{BitcoinScriptBuf, BitcoinXOnlyPublicKey};
 use strata_crypto::{EvenPublicKey, aggregate_schnorr_keys};
@@ -358,6 +361,12 @@ impl OperatorTable {
             self.calculate_aggregated_key();
             self.historical_nn_scripts
                 .push(build_nn_script(&self.agg_key));
+            // The recomputed aggregated key changes the N/N deposit lock script, so surface it.
+            info!(
+                active_operators = self.active_operators.active_indices().count(),
+                agg_key = ?self.agg_key,
+                "Recomputed N/N aggregated key after membership change"
+            );
         }
     }
 
@@ -400,6 +409,7 @@ impl OperatorTable {
                 .try_set(idx, true)
                 .expect("Sequential operator insertion should always succeed");
 
+            debug!(operator_idx = idx, "Added operator");
             self.next_idx += 1;
         }
     }
@@ -419,7 +429,10 @@ impl OperatorTable {
                     self.active_operators
                         .try_set(idx, false)
                         .expect("Setting existing operator status should succeed");
+                    debug!(operator_idx = idx, "Deactivated operator");
                 }
+            } else {
+                warn!(operator_idx = idx, "Skipping removal of unknown operator");
             }
         }
     }
