@@ -29,6 +29,14 @@ pub trait L1DataProvider {
     /// Fetches a Bitcoin block [`Header`], without the block's transactions.
     fn get_l1_block_header(&self, blockid: &L1BlockId) -> WorkerResult<Header>;
 
+    /// Fetches the [`Header`] of the active-chain block at a given L1 height.
+    ///
+    /// Unlike [`get_l1_block_header`](Self::get_l1_block_header), this resolves
+    /// by height rather than id. Used at startup to validate the configured
+    /// anchor against L1, where the anchor block and its difficulty-epoch start
+    /// block are known only by height.
+    fn get_l1_block_header_at_height(&self, height: u64) -> WorkerResult<Header>;
+
     /// Fetches the L1 height of the block with the given id.
     ///
     /// A submitted block carries only its id; the worker resolves it to a

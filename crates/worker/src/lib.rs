@@ -19,7 +19,7 @@ mod traits;
 pub use asm_state::AsmState;
 pub use aux_resolver::AuxDataResolver;
 pub use builder::AsmWorkerBuilder;
-pub use errors::{WorkerError, WorkerResult};
+pub use errors::{AnchorMismatch, WorkerError, WorkerResult};
 pub use handle::AsmWorkerHandle;
 pub use message::{AsmWorkerMessage, SubprotocolMessage};
 pub use service::{AsmWorkerService, AsmWorkerStatus};
