@@ -4,13 +4,13 @@ use moho_types::MohoState;
 use ssz::{Decode, Encode};
 use strata_identifiers::L1BlockCommitment;
 
-use super::encode_moho_key;
+use super::{decode_moho_key, encode_moho_key};
 use crate::MohoStateDb;
 
 /// Sled-backed store for [`MohoState`] snapshots keyed by [`L1BlockCommitment`].
 ///
-/// Values are SSZ-encoded; keys use the same big-endian height encoding as the
-/// proof trees so lexicographic range scans match block-height ordering.
+/// Values are SSZ-encoded; keys use big-endian height encoding so lexicographic
+/// range scans match block-height ordering.
 #[derive(Debug, Clone)]
 pub struct SledMohoStateDb {
     moho_states: sled::Tree,
@@ -19,19 +19,20 @@ pub struct SledMohoStateDb {
 impl SledMohoStateDb {
     /// Opens the Moho-state tree on an already-open sled database.
     ///
-    /// Callers open the [`sled::Db`] themselves so multiple handles — e.g.
-    /// [`super::SledProofDb`] — can share the same on-disk directory; sled
-    /// does not allow opening the same path twice in a process.
+    /// Callers open the [`sled::Db`] themselves so multiple handles can share
+    /// the same on-disk directory; sled does not allow opening the same path
+    /// twice in a process.
     pub fn open(db: &sled::Db) -> Result<Self, sled::Error> {
         Ok(Self {
             moho_states: db.open_tree("moho_states")?,
         })
     }
 
-    /// Synchronous variant of [`MohoStateDb::store_moho_state`]. The ASM
-    /// worker runs on a sync thread (via `ServiceBuilder::launch_sync`) and
-    /// its genesis-seed path is invoked from an async bootstrap task, where
-    /// `Handle::block_on` would panic. Calling this directly avoids that.
+    /// Synchronous variant of [`MohoStateDb::store_moho_state`]. The Moho worker
+    /// interacts with storage through synchronous traits (`MohoStateStore`), and
+    /// it runs as an async service where a nested `Handle::block_on` would panic,
+    /// so the worker calls these sync methods directly rather than the async
+    /// trait below.
     pub fn store(&self, l1ref: L1BlockCommitment, state: MohoState) -> Result<(), sled::Error> {
         self.moho_states
             .insert(encode_moho_key(&l1ref), state.as_ssz_bytes())?;
@@ -44,6 +45,21 @@ impl SledMohoStateDb {
             .moho_states
             .get(encode_moho_key(&l1ref))?
             .map(|v| MohoState::from_ssz_bytes(&v).expect("stored state should be valid SSZ")))
+    }
+
+    /// Returns the highest-height stored Moho state and the block it is anchored
+    /// to, or `None` when the store is empty.
+    ///
+    /// Keys are big-endian `[height‖blkid]`, so the last entry is the
+    /// highest-height one (ties broken by block id). The Moho worker uses this to
+    /// resume from its latest committed state across restarts.
+    pub fn get_latest(&self) -> Result<Option<(L1BlockCommitment, MohoState)>, sled::Error> {
+        let Some((key, value)) = self.moho_states.last()? else {
+            return Ok(None);
+        };
+        let commitment = decode_moho_key(&key);
+        let state = MohoState::from_ssz_bytes(&value).expect("stored state should be valid SSZ");
+        Ok(Some((commitment, state)))
     }
 
     /// Synchronous variant of [`MohoStateDb::prune`]. See [`Self::store`].
@@ -110,6 +126,36 @@ mod tests {
                 ExportState::new(vec![]).unwrap(),
             )
         })
+    }
+
+    fn moho_state(inner: u8) -> MohoState {
+        MohoState::new(
+            InnerStateCommitment::from([inner; 32]),
+            PredicateKey::always_accept(),
+            ExportState::new(vec![]).unwrap(),
+        )
+    }
+
+    #[test]
+    fn get_latest_on_empty_returns_none() {
+        let (db, _dir) = temp_moho_db();
+        assert!(db.get_latest().unwrap().is_none());
+    }
+
+    #[test]
+    fn get_latest_returns_highest_height() {
+        let (db, _dir) = temp_moho_db();
+        let low = L1BlockCommitment::new(7, L1BlockId::from(Buf32::from([0x11; 32])));
+        let high = L1BlockCommitment::new(42, L1BlockId::from(Buf32::from([0x22; 32])));
+
+        // Store out of height order to prove ordering comes from the key, not
+        // insertion order.
+        db.store(high, moho_state(0xbb)).unwrap();
+        db.store(low, moho_state(0xaa)).unwrap();
+
+        let (blk, state) = db.get_latest().unwrap().unwrap();
+        assert_eq!(blk, high);
+        assert_eq!(state, moho_state(0xbb));
     }
 
     proptest! {

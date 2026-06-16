@@ -3,7 +3,7 @@
 use std::{fmt::Display, sync::Arc, time::Instant};
 
 use anyhow::Result;
-use asm_storage::{ExportEntriesDb, SledAsmManifestDb, SledAsmStateDb};
+use asm_storage::{SledAsmManifestDb, SledAsmStateDb};
 use async_trait::async_trait;
 use bitcoin::BlockHash;
 use bitcoind_async_client::{Client, traits::Reader};
@@ -14,7 +14,8 @@ use jsonrpsee::{
 };
 use ssz::{Decode, Encode};
 use strata_asm_common::{AnchorState, AsmManifest};
-use strata_asm_proof_db::{ProofDb, SledMohoStateDb, SledProofDb};
+use strata_asm_moho_storage::{SledExportEntriesDb, SledMohoStateDb};
+use strata_asm_proof_db::{ProofDb, SledProofDb};
 use strata_asm_proof_types::{AsmProof, L1Range, MohoProof};
 use strata_asm_proto_bridge_v1::{AssignmentEntry, BridgeV1State, DepositEntry};
 use strata_asm_proto_bridge_v1_txs::BRIDGE_V1_SUBPROTOCOL_ID;
@@ -177,7 +178,7 @@ impl AsmStateApiServer for AsmRpcServer {
 pub(crate) struct AsmProofRpcDeps {
     pub proof_db: SledProofDb,
     pub moho_state_db: SledMohoStateDb,
-    pub export_entries_db: ExportEntriesDb,
+    pub export_entries_db: SledExportEntriesDb,
 }
 
 /// RPC handlers serving ASM and Moho proofs plus the per-block Moho state they're built on.
@@ -185,7 +186,7 @@ pub(crate) struct AsmProofRpcServer {
     bitcoin_client: Arc<Client>,
     proof_db: SledProofDb,
     moho_state_db: SledMohoStateDb,
-    export_entries_db: ExportEntriesDb,
+    export_entries_db: SledExportEntriesDb,
 }
 
 impl AsmProofRpcServer {
@@ -273,7 +274,7 @@ enum MmrProofError {
 /// for bad input or storage failures.
 fn build_export_entry_mmr_proof(
     moho_state_db: &SledMohoStateDb,
-    export_entries_db: &ExportEntriesDb,
+    export_entries_db: &SledExportEntriesDb,
     commitment: L1BlockCommitment,
     container_id: u8,
     leaf: &[u8],
@@ -364,7 +365,7 @@ pub(crate) async fn run_rpc_server(
 mod tests {
     //! Tests for [`build_export_entry_mmr_proof`] against real sled storage.
     //! Mirrors the worker's invariant: each `NewExportEntry` hits both `ExportState` and
-    //! `ExportEntriesDb` in order.
+    //! `SledExportEntriesDb` in order.
     use moho_types::{ExportState, InnerStateCommitment, MohoState};
     use ssz::Decode;
     use strata_identifiers::{Buf32, L1BlockCommitment, L1BlockId};
@@ -380,13 +381,13 @@ mod tests {
     fn temp_dbs() -> (
         sled::Db,
         SledMohoStateDb,
-        ExportEntriesDb,
+        SledExportEntriesDb,
         tempfile::TempDir,
     ) {
         let dir = tempfile::tempdir().unwrap();
         let sled_db = sled::open(dir.path()).unwrap();
         let moho_state_db = SledMohoStateDb::open(&sled_db).unwrap();
-        let export_entries_db = ExportEntriesDb::open(&sled_db).unwrap();
+        let export_entries_db = SledExportEntriesDb::open(&sled_db).unwrap();
         (sled_db, moho_state_db, export_entries_db, dir)
     }
 
@@ -399,10 +400,10 @@ mod tests {
     }
 
     /// Same dual-write the worker does per block: each entry hits both the
-    /// `ExportState` MMR and the `ExportEntriesDb` leaf log.
+    /// `ExportState` MMR and the `SledExportEntriesDb` leaf log.
     fn apply_block(
         moho: &SledMohoStateDb,
-        idx: &ExportEntriesDb,
+        idx: &SledExportEntriesDb,
         prev: MohoState,
         at: L1BlockCommitment,
         entries: &[(u8, [u8; 32])],

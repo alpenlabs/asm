@@ -1,18 +1,21 @@
 [package]
-name = "strata-asm-proof-db"
+name = "strata-asm-moho-storage"
 version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-strata-asm-proof-types.workspace = true
+moho-types.workspace = true
 strata-identifiers.workspace = true
+strata-merkle = { workspace = true, features = ["ssz"] }
+strata-merkle-node-store.workspace = true
 
-borsh.workspace = true
+anyhow.workspace = true
 sled.workspace = true
-zkaleido.workspace = true
+ssz.workspace = true
 
 [dev-dependencies]
 proptest.workspace = true
+strata-predicate.workspace = true
 tempfile.workspace = true
 tokio.workspace = true
 

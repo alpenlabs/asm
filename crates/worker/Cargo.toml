@@ -32,10 +32,7 @@ tracing.workspace = true
 [features]
 # Exposes `test_utils` (the regtest-backed `TestAsmWorkerContext`) to downstream
 # integration tests. The worker's own unit tests reach it via `cfg(test)`.
-test-utils = [
-  "dep:bitcoind-async-client",
-  "dep:strata-merkle-node-store",
-]
+test-utils = ["dep:bitcoind-async-client", "dep:strata-merkle-node-store"]
 
 [dev-dependencies]
 strata-l1-txfmt.workspace = true

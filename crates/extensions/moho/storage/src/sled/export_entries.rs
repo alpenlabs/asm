@@ -1,8 +1,4 @@
-//! Sled-backed index of per-container export entries.
-//!
-//! `MohoState` keeps only each container's compact MMR (peaks), so the
-//! original 32-byte leaves can't be recovered from it. We mirror them here so
-//! the RPC can rebuild inclusion proofs on demand.
+//! [`ExportEntriesDb`](crate::ExportEntriesDb) implementation backed by sled.
 //!
 //! Backed by [`strata_merkle_node_store`]: every MMR node is persisted, so a
 //! proof is `O(log n)` with no leaf replay. Containers share one node tree,
@@ -13,6 +9,8 @@
 use anyhow::{Context, Result};
 use strata_merkle::{MerkleProofB32, Sha256Hasher};
 use strata_merkle_node_store::{MmrNodeStore, NodePos, StoredMmr};
+
+use crate::ExportEntriesDb;
 
 /// Decodes a stored 32-byte node value into a hash.
 ///
@@ -66,17 +64,17 @@ impl MmrNodeStore for ContainerNodes<'_> {
     }
 }
 
-/// Per-container export-entry store: a namespaced MMR node tree plus a
-/// `(container_id, index) → height` map and a reverse
+/// Sled-backed per-container export-entry store: a namespaced MMR node tree plus
+/// a `(container_id, index) → height` map and a reverse
 /// `(container_id, hash) → index` map.
 #[derive(Debug, Clone)]
-pub struct ExportEntriesDb {
+pub struct SledExportEntriesDb {
     nodes: sled::Tree,
     heights: sled::Tree,
     index_by_hash: sled::Tree,
 }
 
-impl ExportEntriesDb {
+impl SledExportEntriesDb {
     /// Opens or creates the export entries trees in the given sled instance.
     pub fn open(db: &sled::Db) -> Result<Self> {
         Ok(Self {
@@ -104,11 +102,11 @@ impl ExportEntriesDb {
         }
     }
 
-    /// Appends an entry for `container_id` and returns its `mmr_index`.
+    /// Synchronous variant of [`ExportEntriesDb::append_entry`].
     ///
-    /// Idempotent: a duplicate `(container_id, entry)` returns the original
-    /// index unchanged, so block replays after restart are a no-op. Assumes
-    /// `(container_id, entry_hash)` is unique within a correct chain.
+    /// The Moho worker appends entries from its synchronous `ExportEntryStore`
+    /// impl while running as an async service, so it calls these sync methods
+    /// directly rather than the async trait below.
     pub fn append(&self, container_id: u8, height: u32, entry: [u8; 32]) -> Result<u64> {
         let hash_key = encode_hash_key(container_id, &entry);
         if let Some(existing) = self.index_by_hash.get(hash_key)? {
@@ -126,15 +124,14 @@ impl ExportEntriesDb {
         Ok(index)
     }
 
-    /// Returns the number of entries currently stored for `container_id`.
+    /// Synchronous variant of [`ExportEntriesDb::entry_count`]. See [`Self::append`].
     pub fn num_entries(&self, container_id: u8) -> Result<u64> {
         Ok(StoredMmr::<Sha256Hasher>::leaf_count(
             &self.container(container_id),
         )?)
     }
 
-    /// Reverse lookup: returns `(mmr_index, insertion_height)` for `hash`
-    /// under `container_id`, or `None` if absent.
+    /// Synchronous variant of [`ExportEntriesDb::find_entry_index`]. See [`Self::append`].
     pub fn find_index(&self, container_id: u8, hash: &[u8; 32]) -> Result<Option<(u64, u32)>> {
         let hash_key = encode_hash_key(container_id, hash);
         let Some(idx_bytes) = self.index_by_hash.get(hash_key)? else {
@@ -147,7 +144,7 @@ impl ExportEntriesDb {
         Ok(Some((mmr_index, height)))
     }
 
-    /// Fetches `(insertion_height, entry_hash)` at `(container_id, mmr_index)`.
+    /// Synchronous variant of [`ExportEntriesDb::get_entry`]. See [`Self::append`].
     pub fn get(&self, container_id: u8, mmr_index: u64) -> Result<Option<(u32, [u8; 32])>> {
         let Some(hash) =
             StoredMmr::<Sha256Hasher>::get_leaf(&self.container(container_id), mmr_index)?
@@ -160,8 +157,7 @@ impl ExportEntriesDb {
         Ok(Some((height, hash)))
     }
 
-    /// Generates an inclusion proof for `mmr_index` against the container's
-    /// MMR at size `at_leaf_count`.
+    /// Synchronous variant of [`ExportEntriesDb::generate_entry_proof`]. See [`Self::append`].
     ///
     /// `O(log n)`: walks the stored sibling path rather than replaying leaves.
     /// The store yields a generic [`MerkleProof`](strata_merkle::MerkleProof);
@@ -179,6 +175,39 @@ impl ExportEntriesDb {
             at_leaf_count,
         )?;
         Ok(MerkleProofB32::from_generic(&proof))
+    }
+}
+
+impl ExportEntriesDb for SledExportEntriesDb {
+    type Error = anyhow::Error;
+
+    async fn append_entry(&self, container_id: u8, height: u32, entry: [u8; 32]) -> Result<u64> {
+        self.append(container_id, height, entry)
+    }
+
+    async fn entry_count(&self, container_id: u8) -> Result<u64> {
+        self.num_entries(container_id)
+    }
+
+    async fn find_entry_index(
+        &self,
+        container_id: u8,
+        hash: [u8; 32],
+    ) -> Result<Option<(u64, u32)>> {
+        self.find_index(container_id, &hash)
+    }
+
+    async fn get_entry(&self, container_id: u8, mmr_index: u64) -> Result<Option<(u32, [u8; 32])>> {
+        self.get(container_id, mmr_index)
+    }
+
+    async fn generate_entry_proof(
+        &self,
+        container_id: u8,
+        mmr_index: u64,
+        at_leaf_count: u64,
+    ) -> Result<MerkleProofB32> {
+        self.generate_proof(container_id, mmr_index, at_leaf_count)
     }
 }
 
@@ -206,6 +235,7 @@ fn decode_idx(bytes: &[u8]) -> Result<u64> {
 mod tests {
     use ssz::{Decode, Encode};
     use strata_merkle::{Mmr, Mmr64B32, MmrState, Sha256Hasher};
+    use tokio::runtime::Runtime;
 
     use super::*;
 
@@ -226,7 +256,7 @@ mod tests {
     #[test]
     fn append_assigns_monotonic_indices_per_container() {
         let db = test_db();
-        let store = ExportEntriesDb::open(&db).unwrap();
+        let store = SledExportEntriesDb::open(&db).unwrap();
 
         assert_eq!(store.append(1, 10, hash(0xa1)).unwrap(), 0);
         assert_eq!(store.append(1, 11, hash(0xa2)).unwrap(), 1);
@@ -238,7 +268,7 @@ mod tests {
     #[test]
     fn num_entries_matches_appends() {
         let db = test_db();
-        let store = ExportEntriesDb::open(&db).unwrap();
+        let store = SledExportEntriesDb::open(&db).unwrap();
 
         assert_eq!(store.num_entries(7).unwrap(), 0);
         for i in 0..5u8 {
@@ -251,7 +281,7 @@ mod tests {
     #[test]
     fn get_returns_none_for_unknown() {
         let db = test_db();
-        let store = ExportEntriesDb::open(&db).unwrap();
+        let store = SledExportEntriesDb::open(&db).unwrap();
         store.append(1, 42, hash(0xaa)).unwrap();
 
         assert!(store.get(1, 1).unwrap().is_none());
@@ -261,7 +291,7 @@ mod tests {
     #[test]
     fn get_returns_height_and_hash() {
         let db = test_db();
-        let store = ExportEntriesDb::open(&db).unwrap();
+        let store = SledExportEntriesDb::open(&db).unwrap();
         store.append(3, 999, hash(0xcc)).unwrap();
 
         let (height, got) = store.get(3, 0).unwrap().unwrap();
@@ -272,7 +302,7 @@ mod tests {
     #[test]
     fn find_index_returns_match_with_height() {
         let db = test_db();
-        let store = ExportEntriesDb::open(&db).unwrap();
+        let store = SledExportEntriesDb::open(&db).unwrap();
         store.append(1, 10, hash(0xa0)).unwrap();
         store.append(1, 11, hash(0xa1)).unwrap();
         store.append(1, 12, hash(0xa2)).unwrap();
@@ -287,7 +317,7 @@ mod tests {
     #[test]
     fn append_is_idempotent_on_duplicate_hash() {
         let db = test_db();
-        let store = ExportEntriesDb::open(&db).unwrap();
+        let store = SledExportEntriesDb::open(&db).unwrap();
 
         let idx0 = store.append(1, 10, hash(0xa0)).unwrap();
         let idx1 = store.append(1, 11, hash(0xa1)).unwrap();
@@ -303,7 +333,7 @@ mod tests {
 
     /// Reference compact-peaks MMR built by replaying the first `size` leaves
     /// of `container_id`, matching the accumulators that proofs verify against.
-    fn rebuild_compact_mmr(store: &ExportEntriesDb, container_id: u8, size: u64) -> Mmr64B32 {
+    fn rebuild_compact_mmr(store: &SledExportEntriesDb, container_id: u8, size: u64) -> Mmr64B32 {
         let mut compact = Mmr64B32::new_empty();
         for i in 0..size {
             let (_h, hash) = store.get(container_id, i).unwrap().unwrap();
@@ -315,7 +345,7 @@ mod tests {
     #[test]
     fn generate_and_verify_proof_single_leaf() {
         let db = test_db();
-        let store = ExportEntriesDb::open(&db).unwrap();
+        let store = SledExportEntriesDb::open(&db).unwrap();
         let h = hash(0x01);
         store.append(4, 100, h).unwrap();
 
@@ -327,7 +357,7 @@ mod tests {
     #[test]
     fn generate_proofs_for_all_leaves() {
         let db = test_db();
-        let store = ExportEntriesDb::open(&db).unwrap();
+        let store = SledExportEntriesDb::open(&db).unwrap();
         for i in 0u8..8 {
             store.append(5, 1000 + i as u32, hash(i)).unwrap();
         }
@@ -344,7 +374,7 @@ mod tests {
     #[test]
     fn proof_at_earlier_size_is_valid() {
         let db = test_db();
-        let store = ExportEntriesDb::open(&db).unwrap();
+        let store = SledExportEntriesDb::open(&db).unwrap();
 
         for i in 0u8..4 {
             store.append(6, 100 + i as u32, hash(i)).unwrap();
@@ -362,7 +392,7 @@ mod tests {
     #[test]
     fn proof_ssz_roundtrip_verifies() {
         let db = test_db();
-        let store = ExportEntriesDb::open(&db).unwrap();
+        let store = SledExportEntriesDb::open(&db).unwrap();
         for i in 0u8..5 {
             store.append(9, 200 + i as u32, hash(i)).unwrap();
         }
@@ -373,5 +403,27 @@ mod tests {
 
         let compact = rebuild_compact_mmr(&store, 9, 5);
         assert!(compact.verify(&decoded, &hash(3)));
+    }
+
+    /// Exercises the async [`ExportEntriesDb`] trait surface, proving the
+    /// methods delegate to their synchronous counterparts.
+    #[test]
+    fn async_trait_delegates_to_sync() {
+        let db = test_db();
+        let store = SledExportEntriesDb::open(&db).unwrap();
+
+        Runtime::new().unwrap().block_on(async {
+            assert_eq!(store.append_entry(1, 10, hash(0xa1)).await.unwrap(), 0);
+            assert_eq!(store.entry_count(1).await.unwrap(), 1);
+            assert_eq!(
+                store.find_entry_index(1, hash(0xa1)).await.unwrap(),
+                Some((0, 10))
+            );
+            assert_eq!(store.get_entry(1, 0).await.unwrap(), Some((10, hash(0xa1))));
+
+            let proof = store.generate_entry_proof(1, 0, 1).await.unwrap();
+            let compact = rebuild_compact_mmr(&store, 1, 1);
+            assert!(compact.verify(&proof, &hash(0xa1)));
+        });
     }
 }

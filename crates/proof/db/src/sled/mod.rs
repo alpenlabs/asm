@@ -8,15 +8,11 @@
 use strata_asm_proof_types::L1Range;
 use strata_identifiers::{Buf32, L1BlockCommitment, L1BlockId};
 
-mod moho_state;
 mod proof_db;
 mod remote_mapping;
 mod remote_status;
 
-pub use self::{
-    moho_state::SledMohoStateDb, remote_mapping::RemoteProofMappingError,
-    remote_status::RemoteProofStatusError,
-};
+pub use self::{remote_mapping::RemoteProofMappingError, remote_status::RemoteProofStatusError};
 
 /// Sled-backed proof database.
 ///
@@ -41,9 +37,9 @@ pub struct SledProofDb {
 impl SledProofDb {
     /// Opens the proof trees on an already-open sled database.
     ///
-    /// Callers open the [`sled::Db`] themselves so multiple handles — e.g.
-    /// [`SledMohoStateDb`] — can share the same on-disk directory; sled does
-    /// not allow opening the same path twice in a process.
+    /// Callers open the [`sled::Db`] themselves so multiple handles — e.g. the
+    /// `strata-asm-moho-storage` state store — can share the same on-disk
+    /// directory; sled does not allow opening the same path twice in a process.
     pub fn open(db: &sled::Db) -> Result<Self, sled::Error> {
         Ok(Self {
             asm_proofs: db.open_tree("asm_proofs")?,
