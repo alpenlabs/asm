@@ -17,7 +17,10 @@ pub(crate) fn validate_slash_stake_connector(
         .ok_or(SlashValidationError::InvalidStakeConnectorScript)?;
 
     if !config.operators().is_active(operator_idx) {
-        return Err(SlashValidationError::OperatorNotInMultisig(operator_idx));
+        return Err(SlashValidationError::OperatorNotInMultisig {
+            operator: operator_idx,
+            script: config.script().clone(),
+        });
     }
 
     Ok(())
@@ -87,7 +90,7 @@ mod tests {
             .unwrap_err();
         assert!(matches!(
             err,
-            SlashValidationError::OperatorNotInMultisig(idx) if idx == genesis_count
+            SlashValidationError::OperatorNotInMultisig { operator, .. } if operator == genesis_count
         ));
     }
 }

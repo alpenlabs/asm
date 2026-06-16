@@ -45,7 +45,10 @@ pub(crate) fn validate_unstake_info(
     // The operator being unstaked must have been a member of that historical N/N multisig.
     let operator_idx = info.header_aux().operator_idx();
     if !config.operators().is_active(operator_idx) {
-        return Err(UnstakeValidationError::OperatorNotInMultisig(operator_idx));
+        return Err(UnstakeValidationError::OperatorNotInMultisig {
+            operator: operator_idx,
+            script: config.script().clone(),
+        });
     }
 
     // The spent prevout must be the canonical stake connector committing to that key.
@@ -126,7 +129,7 @@ mod tests {
         let err = validate_unstake_info(&state, &info, &spk).unwrap_err();
         assert!(matches!(
             err,
-            UnstakeValidationError::OperatorNotInMultisig(idx) if idx == genesis_count
+            UnstakeValidationError::OperatorNotInMultisig { operator, .. } if operator == genesis_count
         ));
     }
 }

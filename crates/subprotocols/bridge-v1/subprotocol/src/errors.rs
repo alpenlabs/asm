@@ -95,9 +95,12 @@ pub enum SlashValidationError {
     InvalidStakeConnectorScript,
 
     /// The operator being slashed was not a member of the N/N multisig the stake connector is
-    /// locked to.
-    #[error("operator {0} is not part of the referenced N/N multisig")]
-    OperatorNotInMultisig(OperatorIdx),
+    /// locked to. Carries the N/N script so the offending multisig can be identified later.
+    #[error("operator {operator} is not part of the referenced N/N multisig {script:?}")]
+    OperatorNotInMultisig {
+        operator: OperatorIdx,
+        script: ScriptBuf,
+    },
 }
 
 #[derive(Debug, Error)]
@@ -112,9 +115,13 @@ pub enum UnstakeValidationError {
     StakeConnectorMismatch,
 
     /// The operator being unstaked was not a member of the N/N multisig identified by the
-    /// witness-pushed pubkey.
-    #[error("operator {0} is not part of the referenced N/N multisig")]
-    OperatorNotInMultisig(OperatorIdx),
+    /// witness-pushed pubkey. Carries the N/N script so the offending multisig can be identified
+    /// later.
+    #[error("operator {operator} is not part of the referenced N/N multisig {script:?}")]
+    OperatorNotInMultisig {
+        operator: OperatorIdx,
+        script: ScriptBuf,
+    },
 }
 
 /// Errors that can occur when creating or managing withdrawal assignments.
