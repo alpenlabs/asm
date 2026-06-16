@@ -492,18 +492,19 @@ impl OperatorTable {
     ) {
         // Start from the current active set and mutate a copy. The set is empty only while
         // bootstrapping, before the first script is pushed.
-        let mut active = self
+        let initial_active = self
             .historical_nn_scripts
             .iter()
             .last()
             .map(|h| h.operators().clone())
             .unwrap_or_else(OperatorBitmap::new_empty);
 
+        let mut active = initial_active.clone();
         self.add_operators(&mut active, add_members);
         self.remove_operators(&mut active, remove_members);
 
-        let did_change = !remove_members.is_empty() || !add_members.is_empty();
-        if did_change {
+        // Record a new configuration only if the resolved set actually changed.
+        if active != initial_active {
             self.record_nn_script(active);
         }
     }
@@ -814,6 +815,27 @@ mod tests {
         assert_ne!(initial_script, second_script);
         assert_ne!(second_script, third_script);
         assert_ne!(initial_script, third_script);
+    }
+
+    #[test]
+    fn test_no_op_membership_change_does_not_grow_history() {
+        let operators = create_test_operator_pubkeys(3);
+        let mut table = OperatorTable::from_operator_list(&operators);
+        assert_eq!(table.historical_nn_scripts().count(), 1);
+
+        // Removing an operator that isn't registered resolves to the same active set.
+        table.apply_membership_changes(&[], &[99]);
+        assert_eq!(table.historical_nn_scripts().count(), 1);
+
+        // Re-adding an operator that is already active is deduplicated away.
+        table.apply_membership_changes(&[operators[0]], &[]);
+        assert_eq!(table.historical_nn_scripts().count(), 1);
+
+        // Removing an operator that is already inactive is also a no-op.
+        table.apply_membership_changes(&[], &[0]);
+        assert_eq!(table.historical_nn_scripts().count(), 2);
+        table.apply_membership_changes(&[], &[0]);
+        assert_eq!(table.historical_nn_scripts().count(), 2);
     }
 
     #[test]
