@@ -94,6 +94,18 @@ pub type NnScriptIdx = u32;
 /// Pairs the P2TR script that represented the bridge for a given operator set with the bitmap of
 /// operators that were active in that set. Storing the membership alongside the script lets
 /// validation recover which operators backed a historical configuration without recomputing it.
+///
+/// # Coherence Invariant
+///
+/// `script` **MUST** be the key-path-only P2TR derived from the MuSig2 aggregation of exactly the
+/// operators set in `operators`. The two fields are not independent: validation trusts that
+/// resolving the notary set from `operators` and matching stake connectors against `script` refer
+/// to the same operator set, so a mismatch silently breaks the binding this type exists to record.
+///
+/// Construction does **not** verify this — the constructor cannot, since it does not hold the
+/// operator public keys needed to recompute the aggregation. In-crate, coherence is guaranteed
+/// because the only production path that builds an entry is `OperatorTable::record_nn_script`,
+/// which derives the script from the freshly aggregated key over the same bitmap it stores.
 #[derive(Clone, Debug, Eq, PartialEq, Encode, Decode)]
 pub struct HistoricalNnScript {
     /// Key-path-only P2TR script (merkle root = `None`) built from the aggregated public key of
@@ -106,6 +118,11 @@ pub struct HistoricalNnScript {
 
 impl HistoricalNnScript {
     /// Creates a configuration pairing a key-path-only P2TR `script` with its active `operators`.
+    ///
+    /// The caller **MUST** uphold the coherence invariant documented on [`HistoricalNnScript`]:
+    /// `script` has to be the P2TR derived from the MuSig2 aggregation of exactly `operators`. This
+    /// constructor performs no validation. Prefer `OperatorTable::record_nn_script`, which
+    /// upholds the invariant by construction.
     pub(crate) fn new(script: BitcoinScriptBuf, operators: OperatorBitmap) -> Self {
         Self { script, operators }
     }
@@ -473,8 +490,8 @@ impl OperatorTable {
         add_members: &[EvenPublicKey],
         remove_members: &[OperatorIdx],
     ) {
-        // Start from the current active set, mutate it locally, then record it alongside the new
-        // script. The set is empty only while bootstrapping, before the first script is pushed.
+        // Start from the current active set and mutate a copy. The set is empty only while
+        // bootstrapping, before the first script is pushed.
         let mut active = self
             .historical_nn_scripts
             .iter()
@@ -487,18 +504,27 @@ impl OperatorTable {
 
         let did_change = !remove_members.is_empty() || !add_members.is_empty();
         if did_change {
-            self.calculate_aggregated_key(&active);
-            // The recomputed aggregated key changes the N/N deposit lock script, so surface it.
-            info!(
-                active_operators = active.active_indices().count(),
-                agg_key = ?self.agg_key,
-                "Recomputed N/N aggregated key after membership change"
-            );
-            self.historical_nn_scripts.push(HistoricalNnScript::new(
-                build_nn_script(&self.agg_key),
-                active,
-            ));
+            self.record_nn_script(active);
         }
+    }
+
+    /// Recomputes the aggregated key for `active` and records the resulting N/N configuration.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `active` has no active operators.
+    fn record_nn_script(&mut self, active: OperatorBitmap) {
+        self.agg_key = self.calculate_aggregated_key(&active);
+        // The recomputed aggregated key changes the N/N deposit lock script, so surface it.
+        info!(
+            active_operators = active.active_indices().count(),
+            agg_key = ?self.agg_key,
+            "Recomputed N/N aggregated key after membership change"
+        );
+        self.historical_nn_scripts.push(HistoricalNnScript::new(
+            build_nn_script(&self.agg_key),
+            active,
+        ));
     }
 
     /// Adds new operators to the table and marks them as active.
@@ -568,12 +594,15 @@ impl OperatorTable {
         }
     }
 
-    /// Calculates the aggregated key based on currently active operators.
+    /// Computes the aggregated MuSig2 key for the given active operator set.
+    ///
+    /// This is a pure calculation: it does not mutate the table. The sole writer of `self.agg_key`
+    /// is `Self::record_nn_script`, which pairs the key with the configuration it records.
     ///
     /// # Panics
     ///
     /// Panics if there are no active operators.
-    fn calculate_aggregated_key(&mut self, active: &OperatorBitmap) {
+    fn calculate_aggregated_key(&self, active: &OperatorBitmap) -> BitcoinXOnlyPublicKey {
         let active_keys: Vec<Buf32> = active
             .active_indices()
             .filter_map(|op| {
@@ -586,9 +615,9 @@ impl OperatorTable {
             panic!("Cannot have empty multisig - at least one operator must be active");
         }
 
-        self.agg_key = aggregate_schnorr_keys(active_keys.iter())
+        aggregate_schnorr_keys(active_keys.iter())
             .expect("Failed to generate aggregated key")
-            .into();
+            .into()
     }
 }
 
