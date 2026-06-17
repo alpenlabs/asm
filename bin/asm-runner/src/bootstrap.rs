@@ -76,12 +76,19 @@ pub(crate) async fn bootstrap(
         genesis_height,
     );
 
-    // 5. Launch ASM worker
-    let asm_worker = AsmWorkerBuilder::new()
-        .with_context(worker_context)
-        .with_asm_spec(StrataAsmSpec)
-        .with_params(params.clone())
-        .launch(&executor)?;
+    // 5. Launch ASM worker.
+    //
+    // `launch` builds the worker state synchronously, and that now includes validating the
+    // anchor against L1 — which drives blocking `WorkerContext` RPC calls (`block_on`). We are
+    // on a runtime worker thread here, so wrap the build in `block_in_place` to allow blocking;
+    // the worker's own loop runs on a dedicated sync thread where blocking is already fine.
+    let asm_worker = task::block_in_place(|| {
+        AsmWorkerBuilder::new()
+            .with_context(worker_context)
+            .with_asm_spec(StrataAsmSpec)
+            .with_params(params.clone())
+            .launch(&executor)
+    })?;
 
     let asm_worker = Arc::new(asm_worker);
 
