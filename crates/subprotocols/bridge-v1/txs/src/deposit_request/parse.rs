@@ -43,7 +43,15 @@ pub fn parse_drt(tx: &Transaction) -> Result<DepositRequestInfo, TxStructureErro
             )
         })?
         .clone()
-        .into();
+        .try_into()
+        .map_err(|e| {
+            TxStructureError::invalid_output(
+                BridgeTxType::DepositRequest,
+                DRT_OUTPUT_INDEX,
+                e,
+                "deposit request output",
+            )
+        })?;
 
     // Construct the validated deposit request information
     Ok(DepositRequestInfo::new(aux_data, drt_output))
@@ -77,7 +85,13 @@ mod tests {
 
         let (drt, _dt) =
             create_connected_drt_and_dt(&drt_aux, dt_aux, amount.into(), recovery_delay, &sks);
-        let info = DepositRequestInfo::new(drt_aux, drt.output[DRT_OUTPUT_INDEX].clone().into());
+        let info = DepositRequestInfo::new(
+            drt_aux,
+            drt.output[DRT_OUTPUT_INDEX]
+                .clone()
+                .try_into()
+                .expect("deposit request script within size bound"),
+        );
 
         (info, drt)
     }

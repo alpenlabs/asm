@@ -715,7 +715,7 @@ checksum = "f8ca58f447f06ed17d5fc4043ce1b10dd205e060fb3ce5b979b8ed8e59ff3f79"
 [[package]]
 name = "moho-recursive-proof"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/moho?tag=v0.1-alpha.8#9499bce0ed87d6d2d84bc694ade6867858808244"
+source = "git+https://github.com/alpenlabs/moho?tag=v0.1-alpha.9#58e13bf221fd47ee4d8c8f8f2086c1383268bf2b"
 dependencies = [
  "moho-types",
  "ssz",
@@ -731,7 +731,7 @@ dependencies = [
 [[package]]
 name = "moho-types"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/moho?tag=v0.1-alpha.8#9499bce0ed87d6d2d84bc694ade6867858808244"
+source = "git+https://github.com/alpenlabs/moho?tag=v0.1-alpha.9#58e13bf221fd47ee4d8c8f8f2086c1383268bf2b"
 dependencies = [
  "hex",
  "sha2 0.11.0",
@@ -1265,9 +1265,9 @@ checksum = "0c790de23124f9ab44544d7ac05d60440adc586479ce501c1d6d7da3cd8c9cf5"
 
 [[package]]
 name = "slop-algebra"
-version = "6.2.2"
+version = "6.2.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3e8abf7cfad18c0580576e8adc01f7fa27b1cb19432e451e82950c9a445a7cfc"
+checksum = "00314224ceced0f2cbd45abd20536e9387c723985d05b8685e8785b0fe3409ce"
 dependencies = [
  "itertools 0.14.0",
  "p3-field",
@@ -1276,9 +1276,9 @@ dependencies = [
 
 [[package]]
 name = "slop-bn254"
-version = "6.2.2"
+version = "6.2.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c327e0927fabf9c0ae9a7b0333027dc04431e5981ab80d7bbe994d6c4ce35fc1"
+checksum = "5398ee7e1dd84faa4144b71f9dc4bacaafb13b2667bcd08b7850756e72fc7632"
 dependencies = [
  "ff",
  "p3-bn254-fr",
@@ -1291,9 +1291,9 @@ dependencies = [
 
 [[package]]
 name = "slop-challenger"
-version = "6.2.2"
+version = "6.2.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c263e731bb694d4465eedae7ecd6faf1f277198e751f3c209a1c4186d80d1b6b"
+checksum = "75cd94d7bf435f998c28bc055c4b0fa1b451e7dae4b0dbea82fb23dd4a37c6e7"
 dependencies = [
  "futures",
  "p3-challenger",
@@ -1304,9 +1304,9 @@ dependencies = [
 
 [[package]]
 name = "slop-koala-bear"
-version = "6.2.2"
+version = "6.2.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0a8cdc74f04d13e738b4628312b16dfec6a2e547bde697c8bdcf556884c6e91f"
+checksum = "9b03d39f8c4605527970396a1a74c8e72b2adc265431fa004161aadfcfb123ff"
 dependencies = [
  "lazy_static",
  "p3-koala-bear",
@@ -1319,27 +1319,27 @@ dependencies = [
 
 [[package]]
 name = "slop-poseidon2"
-version = "6.2.2"
+version = "6.2.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3aedfc3bf87cf2694bd108c039d663c346c7bb807491a7db6701eb9dff5c6e5d"
+checksum = "a17a10d1cfa6f7a18cc62d4348b0612d49eb14b7aeb289a6a14252676c04dd77"
 dependencies = [
  "p3-poseidon2",
 ]
 
 [[package]]
 name = "slop-primitives"
-version = "6.2.2"
+version = "6.2.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f30e6e332c3cb103541bed9f5f477b769df1b5fb6076b5e2386569c94b1475dc"
+checksum = "62cc9b1ba7261571e853287064780a6e7f489f024d544e6344d6004f243cdf81"
 dependencies = [
  "slop-algebra",
 ]
 
 [[package]]
 name = "slop-symmetric"
-version = "6.2.2"
+version = "6.2.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4cb1de854325a8c36a1bdfee5514e1d4c9f39290ae19eeaecb21ca6ee88d96d6"
+checksum = "362b7c414a3b5abee0d84e7418520b24d928f03bc02e0a1a05a09cf49a6a7ab8"
 dependencies = [
  "p3-symmetric",
 ]
@@ -1352,9 +1352,9 @@ checksum = "67b1b7a3b5fe4f1376887184045fcf45c69e92af734b7aaddc05fb777b6fbd03"
 
 [[package]]
 name = "sp1-lib"
-version = "6.2.0"
+version = "6.2.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d1ce7f8d6098c930fb0c03c60f1c8b0ef61b6625811b210b2c694801ceb62f78"
+checksum = "9281c105496b6b8d20b25f0be936242e5b747cc7711a68706ffbb3719d16145d"
 dependencies = [
  "bincode",
  "elliptic-curve",
@@ -1364,9 +1364,9 @@ dependencies = [
 
 [[package]]
 name = "sp1-primitives"
-version = "6.2.0"
+version = "6.2.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "03476134330b0677d5eee5dec288cf2b0f883511c7496e55dcc9c15cf8debb47"
+checksum = "cd38fbc3cf2e151b1d899919def510c80e7f6ca7b8fe7fdaac0e6614cd2bd286"
 dependencies = [
  "bincode",
  "blake3",
@@ -1388,9 +1388,9 @@ dependencies = [
 
 [[package]]
 name = "sp1-zkvm"
-version = "6.2.0"
+version = "6.2.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e3e476bb1645d2d0a7fc79bdf561b410024a6c54d70b677a1f49ad65a7d1b015"
+checksum = "ecd04e9c2b82cb6621116e7aebad425f98cc2f9c51b349265caec447f7041a37"
 dependencies = [
  "cfg-if",
  "critical-section",
@@ -1486,7 +1486,7 @@ dependencies = [
 [[package]]
 name = "strata-codec"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/strata-common?tag=v0.1.0-alpha-rc25#064ebd8a932936bb3255a7a80db235c2f50bf04a"
+source = "git+https://github.com/alpenlabs/strata-common?tag=v0.1.0-alpha-rc26#f2c6703b2a641838e0058730bb076fdf9a9dbdff"
 dependencies = [
  "thiserror",
 ]
@@ -1494,7 +1494,7 @@ dependencies = [
 [[package]]
 name = "strata-merkle"
 version = "0.2.0"
-source = "git+https://github.com/alpenlabs/strata-common?tag=v0.1.0-alpha-rc25#064ebd8a932936bb3255a7a80db235c2f50bf04a"
+source = "git+https://github.com/alpenlabs/strata-common?tag=v0.1.0-alpha-rc26#f2c6703b2a641838e0058730bb076fdf9a9dbdff"
 dependencies = [
  "borsh",
  "digest 0.10.7",
@@ -1514,7 +1514,7 @@ dependencies = [
 [[package]]
 name = "strata-predicate"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/strata-common?tag=v0.1.0-alpha-rc25#064ebd8a932936bb3255a7a80db235c2f50bf04a"
+source = "git+https://github.com/alpenlabs/strata-common?tag=v0.1.0-alpha-rc26#f2c6703b2a641838e0058730bb076fdf9a9dbdff"
 dependencies = [
  "k256",
  "signature",
@@ -1827,7 +1827,7 @@ checksum = "b97154e67e32c85465826e8bcc1c59429aaaf107c1e4a9e53c8d8ccd5eff88d0"
 [[package]]
 name = "zkaleido"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/zkaleido?tag=v0.1-beta.4#5ea37d52d253ff890efbfbd1422aad4c3def58f7"
+source = "git+https://github.com/alpenlabs/zkaleido?tag=v0.1-beta.5#0ee0c39cd1a05a79db91266126550f9aa61b4524"
 dependencies = [
  "bincode",
  "borsh",
@@ -1839,7 +1839,7 @@ dependencies = [
 [[package]]
 name = "zkaleido-native-adapter"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/zkaleido?tag=v0.1-beta.4#5ea37d52d253ff890efbfbd1422aad4c3def58f7"
+source = "git+https://github.com/alpenlabs/zkaleido?tag=v0.1-beta.5#0ee0c39cd1a05a79db91266126550f9aa61b4524"
 dependencies = [
  "bincode",
  "k256",
@@ -1851,7 +1851,7 @@ dependencies = [
 [[package]]
 name = "zkaleido-sp1-groth16-verifier"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/zkaleido?tag=v0.1-beta.4#5ea37d52d253ff890efbfbd1422aad4c3def58f7"
+source = "git+https://github.com/alpenlabs/zkaleido?tag=v0.1-beta.5#0ee0c39cd1a05a79db91266126550f9aa61b4524"
 dependencies = [
  "blake3",
  "borsh",
@@ -1866,7 +1866,7 @@ dependencies = [
 [[package]]
 name = "zkaleido-sp1-guest-env"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/zkaleido?tag=v0.1-beta.4#5ea37d52d253ff890efbfbd1422aad4c3def58f7"
+source = "git+https://github.com/alpenlabs/zkaleido?tag=v0.1-beta.5#0ee0c39cd1a05a79db91266126550f9aa61b4524"
 dependencies = [
  "bincode",
  "cfg-if",

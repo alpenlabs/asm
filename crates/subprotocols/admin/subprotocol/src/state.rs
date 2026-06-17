@@ -393,8 +393,12 @@ mod tests {
         let new_size = initial_members.len() + add_members.len() - remove_members.len();
         let new_threshold = NonZero::new(2).unwrap();
 
-        let update =
-            ThresholdConfigUpdate::new(add_members.clone(), remove_members.clone(), new_threshold);
+        let update = ThresholdConfigUpdate::try_new(
+            add_members.clone(),
+            remove_members.clone(),
+            new_threshold,
+        )
+        .expect("valid threshold config");
 
         state.apply_multisig_update(role, &update).unwrap();
 
