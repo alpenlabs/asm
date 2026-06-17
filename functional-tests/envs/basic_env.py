@@ -4,7 +4,11 @@ import flexitest
 
 from constants import ASM_MAGIC_BYTES, INITIAL_BLOCKS
 from factory.asm_rpc.config_cfg import OrchestratorConfig
-from factory.common.asm_params import build_asm_params, write_asm_params_json
+from factory.common.asm_params import (
+    build_asm_params,
+    epoch_start_height,
+    write_asm_params_json,
+)
 from utils.utils import wait_until_bitcoind_ready
 
 # x-only MuSig2 test key material; compressed form is prefixed with 0x02 in params builder.
@@ -53,11 +57,18 @@ class BasicEnv(flexitest.EnvConfig):
         genesis_height = max(0, INITIAL_BLOCKS - ASM_GENESIS_OFFSET)
         genesis_hash = bitcoin_rpc.proxy.getblockhash(genesis_height)
         genesis_header = bitcoin_rpc.proxy.getblockheader(genesis_hash)
+
+        # The worker re-derives the anchor's epoch-start timestamp from the first block of
+        # its difficulty epoch, so the params must carry that block's header, not the anchor's.
+        epoch_start_hash = bitcoin_rpc.proxy.getblockhash(epoch_start_height(genesis_height))
+        epoch_start_hdr = bitcoin_rpc.proxy.getblockheader(epoch_start_hash)
+
         asm_params = build_asm_params(
             musig2_keys=DEFAULT_MUSIG2_KEYS,
             genesis_height=genesis_height,
             block_hash=genesis_hash,
             header=genesis_header,
+            epoch_start_header=epoch_start_hdr,
             magic=ASM_MAGIC_BYTES,
         )
 

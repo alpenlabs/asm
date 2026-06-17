@@ -89,25 +89,44 @@ class AsmParams:
         }
 
 
+# Bitcoin's difficulty-adjustment epoch length, in blocks. Same on every network.
+DIFFICULTY_ADJUSTMENT_INTERVAL = 2016
+
+
 def parse_bits_to_target(bits: int | str) -> int:
     if isinstance(bits, str):
         return int(bits, 16)
     return int(bits)
 
 
+def epoch_start_height(anchor_height: int) -> int:
+    """Height of the first block of the difficulty epoch containing `anchor_height`."""
+    return (anchor_height // DIFFICULTY_ADJUSTMENT_INTERVAL) * DIFFICULTY_ADJUSTMENT_INTERVAL
+
+
 def build_l1_anchor(
     genesis_height: int,
     block_hash: str,
     header: dict[str, Any],
+    epoch_start_header: dict[str, Any],
     network: str = "regtest",
 ) -> L1Anchor:
-    header_time = int(header["time"])
+    # The worker validates the anchor against L1 at startup, re-deriving every field, so
+    # these must match what header verification would compute (see crates/worker state.rs).
+    #
+    # `epoch_start_timestamp` is the timestamp of the *first* block of the anchor's
+    # difficulty epoch, not the anchor block's own timestamp.
+    epoch_start_timestamp = int(epoch_start_header["time"])
+
+    # `next_target` is the target the anchor's successor must satisfy. On regtest
+    # retargeting is disabled, so it is always the anchor block's own target; the
+    # difficulty-boundary retarget branch (genesis at a 2016 multiple) never triggers.
     next_target = parse_bits_to_target(header["bits"])
 
     return L1Anchor(
         block=Block(height=genesis_height, blkid=block_hash),
         next_target=next_target,
-        epoch_start_timestamp=header_time,
+        epoch_start_timestamp=epoch_start_timestamp,
         network=network,
     )
 
@@ -181,6 +200,7 @@ def build_asm_params(
     genesis_height: int,
     block_hash: str,
     header: dict[str, Any],
+    epoch_start_header: dict[str, Any],
     magic: str = ASM_MAGIC_BYTES,
     denomination: int = 1_000_000_000,
     assignment_duration: int = 10_000,
@@ -188,7 +208,7 @@ def build_asm_params(
     recovery_delay: int = 1_008,
     safe_harbour_address: str = DEFAULT_SAFE_HARBOUR_ADDRESS,
 ) -> AsmParams:
-    anchor = build_l1_anchor(genesis_height, block_hash, header)
+    anchor = build_l1_anchor(genesis_height, block_hash, header, epoch_start_header)
     subprotocols = build_subprotocols(
         musig2_keys,
         genesis_height,
