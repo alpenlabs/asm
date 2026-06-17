@@ -8,9 +8,8 @@ workspace = true
 
 [dependencies]
 strata-asm-manifest-types.workspace = true
-strata-codec.workspace = true
 strata-identifiers.workspace = true
-strata-msg-fmt.workspace = true
+strata-ol-logs.workspace = true
 
 ssz.workspace = true
 ssz_derive.workspace = true
