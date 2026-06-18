@@ -9,8 +9,8 @@ use tree_hash::{Sha256Hasher, TreeHash};
 
 use crate::{
     CheckpointPayload, CheckpointPayloadError, CheckpointSidecar, CheckpointTip,
-    MAX_OL_LOGS_PER_CHECKPOINT, MAX_PROOF_LEN, MAX_TOTAL_LOG_PAYLOAD_BYTES, OL_DA_DIFF_MAX_SIZE,
-    OLLog, TerminalHeaderComplement,
+    MAX_OL_LOGS_PER_CHECKPOINT, MAX_PROOF_LEN, OL_DA_DIFF_MAX_SIZE, OLLog,
+    TerminalHeaderComplement,
 };
 
 impl CheckpointTip {
@@ -96,8 +96,6 @@ impl CheckpointSidecar {
             }
         })?;
 
-        validate_ol_logs_payloads(&ol_logs)?;
-
         let ol_logs_len = ol_logs.len() as u64;
         let ol_logs =
             VariableList::new(ol_logs).map_err(|_| CheckpointPayloadError::OLLogsTooLarge {
@@ -126,26 +124,6 @@ impl CheckpointSidecar {
     pub fn terminal_header_complement(&self) -> &TerminalHeaderComplement {
         &self.terminal_header_complement
     }
-}
-
-fn validate_ol_logs_payloads(ol_logs: &[OLLog]) -> Result<(), CheckpointPayloadError> {
-    let mut total_payload = 0u64;
-    for log in ol_logs {
-        let payload_len = log.payload().len() as u64;
-        total_payload = total_payload.checked_add(payload_len).ok_or(
-            CheckpointPayloadError::OLLogsTotalPayloadTooLarge {
-                provided: u64::MAX,
-                max: MAX_TOTAL_LOG_PAYLOAD_BYTES as u64,
-            },
-        )?;
-        if total_payload > MAX_TOTAL_LOG_PAYLOAD_BYTES as u64 {
-            return Err(CheckpointPayloadError::OLLogsTotalPayloadTooLarge {
-                provided: total_payload,
-                max: MAX_TOTAL_LOG_PAYLOAD_BYTES as u64,
-            });
-        }
-    }
-    Ok(())
 }
 
 impl CheckpointPayload {
@@ -184,30 +162,45 @@ impl_borsh_via_ssz!(CheckpointPayload);
 
 #[cfg(test)]
 mod tests {
-    use strata_identifiers::{AccountSerial, Buf32, OLBlockId};
+    // The sidecar/payload strategies span the full valid size range (state diffs up to
+    // `OL_DA_DIFF_MAX_SIZE`, up to `MAX_OL_LOGS_PER_CHECKPOINT` logs), so each case is expensive to
+    // encode/hash. Cap the case count rather than run `ssz_proptest!`'s default 256, which here
+    // takes ~50s.
+    mod ssz_roundtrip {
+        use strata_ssz_tests::{
+            Sha256Hasher,
+            proptest::prelude::*,
+            ssz::{Decode, Encode},
+            tree_hash::TreeHash,
+        };
 
-    use super::*;
-    use crate::MAX_LOG_PAYLOAD_LEN;
+        use crate::{
+            CheckpointPayload, CheckpointSidecar,
+            test_utils::{checkpoint_payload_strategy, checkpoint_sidecar_strategy},
+        };
 
-    fn default_terminal_header_complement() -> TerminalHeaderComplement {
-        TerminalHeaderComplement::new(0, OLBlockId::null(), Buf32::zero(), Buf32::zero())
-    }
+        proptest! {
+            #![proptest_config(ProptestConfig::with_cases(32))]
 
-    // `OLLog` envelope/typed-log behaviour is owned and tested by the `strata-ol-logs` crate; this
-    // module only covers the checkpoint-local aggregate limits enforced by `CheckpointSidecar`.
-    #[test]
-    fn test_checkpoint_sidecar_rejects_total_log_payload() {
-        let mut logs = Vec::new();
-        let max_log_payload = MAX_LOG_PAYLOAD_LEN as usize;
-        for _ in 0..(MAX_TOTAL_LOG_PAYLOAD_BYTES / max_log_payload + 1) {
-            logs.push(OLLog::new(AccountSerial::one(), vec![0u8; max_log_payload]));
+            #[test]
+            fn checkpoint_sidecar(val in checkpoint_sidecar_strategy()) {
+                let decoded = CheckpointSidecar::from_ssz_bytes(&val.as_ssz_bytes()).unwrap();
+                prop_assert_eq!(&val, &decoded);
+                prop_assert_eq!(
+                    val.tree_hash_root::<Sha256Hasher>(),
+                    decoded.tree_hash_root::<Sha256Hasher>()
+                );
+            }
+
+            #[test]
+            fn checkpoint_payload(val in checkpoint_payload_strategy()) {
+                let decoded = CheckpointPayload::from_ssz_bytes(&val.as_ssz_bytes()).unwrap();
+                prop_assert_eq!(&val, &decoded);
+                prop_assert_eq!(
+                    val.tree_hash_root::<Sha256Hasher>(),
+                    decoded.tree_hash_root::<Sha256Hasher>()
+                );
+            }
         }
-
-        let result = CheckpointSidecar::new(vec![], logs, default_terminal_header_complement());
-
-        assert!(matches!(
-            result,
-            Err(CheckpointPayloadError::OLLogsTotalPayloadTooLarge { .. })
-        ));
     }
 }

@@ -12,7 +12,8 @@ use strata_identifiers::{
 
 use crate::{
     CheckpointClaim, CheckpointPayload, CheckpointSidecar, CheckpointTip, L2BlockRange,
-    MAX_LOG_PAYLOAD_LEN, TerminalHeaderComplement,
+    MAX_LOG_PAYLOAD_LEN, MAX_OL_LOGS_PER_CHECKPOINT, MAX_PROOF_LEN, OL_DA_DIFF_MAX_SIZE, OLLog,
+    TerminalHeaderComplement,
 };
 
 /// Creates a minimal [`CheckpointPayload`] for the given epoch using validated constructors.
@@ -40,26 +41,70 @@ pub fn checkpoint_tip_strategy() -> impl Strategy<Value = CheckpointTip> {
         })
 }
 
-/// Strategy for generating random state diff bytes of varying sizes.
+/// Strategy for generating state diff bytes spanning the full valid size range.
+///
+/// The state diff is an opaque blob bounded only by [`OL_DA_DIFF_MAX_SIZE`], the cap
+/// [`CheckpointSidecar::new`] enforces; on this repo the implicit Bitcoin transaction size limit
+/// keeps real payloads well under it, but the type accepts anything up to the cap.
 fn state_diff_strategy() -> impl Strategy<Value = Vec<u8>> {
-    prop::collection::vec(any::<u8>(), 0..1024)
+    prop::collection::vec(any::<u8>(), 0..=OL_DA_DIFF_MAX_SIZE as usize)
 }
 
-/// Strategy for generating random proof bytes of varying sizes.
+/// Strategy for generating proof bytes spanning the full valid size range.
+///
+/// Bounded by [`MAX_PROOF_LEN`], the cap [`CheckpointPayload::new`] enforces.
 fn proof_strategy() -> impl Strategy<Value = Vec<u8>> {
-    prop::collection::vec(any::<u8>(), 0..512)
+    prop::collection::vec(any::<u8>(), 0..=MAX_PROOF_LEN as usize)
 }
 
-/// Strategy for generating random OL logs of varying sizes.
-fn ol_logs_strategy() -> impl Strategy<Value = Vec<crate::OLLog>> {
+/// Upper bound on the summed log payload a single draw will materialize.
+///
+/// This is purely a proptest-tractability knob: the type imposes no total-log-payload cap, so
+/// the schema caps alone ([`MAX_OL_LOGS_PER_CHECKPOINT`] logs × [`MAX_LOG_PAYLOAD_LEN`] bytes each)
+/// would let one draw allocate tens of MiB. Overall checkpoint size is bounded implicitly by the
+/// Bitcoin transaction limit and checked downstream at construction, not by this crate. Reuse
+/// [`OL_DA_DIFF_MAX_SIZE`] as a representative ceiling rather than inventing another figure.
+const GENERATED_LOG_PAYLOAD_BUDGET: usize = OL_DA_DIFF_MAX_SIZE as usize;
+
+/// Strategy for candidate OL-log payload *sizes*, bounded by the two schema caps
+/// [`CheckpointSidecar::new`] enforces: at most [`MAX_OL_LOGS_PER_CHECKPOINT`] logs, each payload
+/// at most [`MAX_LOG_PAYLOAD_LEN`] bytes (enforced by [`OLLog`]). A large `ol_state_diff` reduces
+/// neither.
+///
+/// Sizes are returned rather than materialized logs so [`checkpoint_sidecar_strategy`] can apply
+/// [`GENERATED_LOG_PAYLOAD_BUDGET`] before allocating any payload bytes — the schema caps alone
+/// would otherwise let one draw materialize tens of MiB.
+fn ol_log_sizes_strategy() -> impl Strategy<Value = Vec<usize>> {
     prop::collection::vec(
-        (
-            any::<u32>().prop_map(AccountSerial::from),
-            prop::collection::vec(any::<u8>(), 0..=MAX_LOG_PAYLOAD_LEN as usize),
-        )
-            .prop_map(|(account_serial, payload)| crate::OLLog::new(account_serial, payload)),
-        0..10,
+        0..=MAX_LOG_PAYLOAD_LEN as usize,
+        0..=MAX_OL_LOGS_PER_CHECKPOINT as usize,
     )
+}
+
+/// Builds the OL logs for a sidecar from candidate payload sizes, keeping the longest prefix whose
+/// cumulative payload fits [`GENERATED_LOG_PAYLOAD_BUDGET`].
+///
+/// The budget is only a generation guard, not a validity bound (the type imposes no total-log cap);
+/// truncating before materializing keeps a draw bounded while still exercising both regimes — large
+/// payloads fill the budget after a few logs, near-empty payloads extend the prefix toward the
+/// [`MAX_OL_LOGS_PER_CHECKPOINT`] count cap.
+fn bounded_ol_logs(sizes: Vec<usize>) -> Vec<OLLog> {
+    let mut total = 0usize;
+    sizes
+        .into_iter()
+        .enumerate()
+        .map_while(|(index, size)| {
+            total += size;
+            if total > GENERATED_LOG_PAYLOAD_BUDGET {
+                return None;
+            }
+            // Vary the account serial and payload bytes per log so the round-trip exercises real
+            // content rather than a single repeated value.
+            let account_serial = AccountSerial::from(index as u32);
+            let payload = (0..size).map(|byte| (index + byte) as u8).collect();
+            Some(OLLog::new(account_serial, payload))
+        })
+        .collect()
 }
 
 /// Strategy for generating random [`crate::TerminalHeaderComplement`] values.
@@ -79,12 +124,14 @@ fn terminal_header_complement_strategy() -> impl Strategy<Value = crate::Termina
 pub fn checkpoint_sidecar_strategy() -> impl Strategy<Value = CheckpointSidecar> {
     (
         state_diff_strategy(),
-        ol_logs_strategy(),
+        ol_log_sizes_strategy(),
         terminal_header_complement_strategy(),
     )
-        .prop_map(|(state_diff, ol_logs, terminal_header_complement)| {
+        .prop_map(|(state_diff, log_sizes, terminal_header_complement)| {
+            // Limit the logs to the generation budget here, where the whole sidecar is assembled.
+            let ol_logs = bounded_ol_logs(log_sizes);
             CheckpointSidecar::new(state_diff, ol_logs, terminal_header_complement)
-                .expect("valid sidecar")
+                .expect("schema caps satisfied by construction")
         })
 }
 

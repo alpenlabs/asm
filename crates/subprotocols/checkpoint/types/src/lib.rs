@@ -72,16 +72,12 @@ pub use ssz_generated::ssz::payload::{
 pub use ssz_generated::ssz::payload::{
     MAX_OL_LOGS_PER_CHECKPOINT, MAX_PROOF_LEN, OL_DA_DIFF_MAX_SIZE,
 };
-pub use strata_ol_logs::{
-    LogDecodeError, MAX_LOG_PAYLOAD_LEN, OLLog, OLLogRef, OLLogType,
-    SIMPLE_WITHDRAWAL_INTENT_LOG_TYPE_ID, SimpleWithdrawalIntentLogData, decode_typed_logs,
-};
-
-/// Maximum total OL log payload size per checkpoint (16 KiB per SPS-ol-chain-structures).
-pub const MAX_TOTAL_LOG_PAYLOAD_BYTES: usize = 16 * 1024;
-
 // Re-export OLLog for consumers parsing checkpoint sidecar logs
 // Re-export manifest hash functions and the range-hash type from the canonical source.
 pub use strata_asm_manifest_types::{
     AsmManifestRangeHash, compute_asm_manifests_hash, compute_asm_manifests_hash_from_leaves,
+};
+pub use strata_ol_logs::{
+    LogDecodeError, MAX_LOG_PAYLOAD_LEN, OLLog, OLLogRef, OLLogType,
+    SIMPLE_WITHDRAWAL_INTENT_LOG_TYPE_ID, SimpleWithdrawalIntentLogData, decode_typed_logs,
 };
