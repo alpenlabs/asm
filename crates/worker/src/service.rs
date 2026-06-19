@@ -95,10 +95,10 @@ where
 ///    goes. Processing a height already handled on the old branch overwrites that branch's leaf in
 ///    place, which is why the manifest MMR supports leaf replacement. See [`apply_block`].
 ///
-/// When `target` is already processed (a resync, or a reorg back to an
-/// already-stored ancestor) the plan has no blocks to apply, so the base itself
-/// is committed as the latest anchor — moving the durable pointer so the
-/// rollback, not the abandoned higher branch, survives a restart.
+/// When `target` already has a stored anchor the plan has no blocks to apply: it
+/// has been processed before. That is a duplicate or lagging notification, not a
+/// reorg (a genuine reorg always carries at least one new block on the new
+/// branch), so the worker leaves its tip untouched and returns without writing.
 ///
 /// Returns the commitments processed, oldest first — possibly several blocks for
 /// one submit, or empty when the target is already processed or before genesis.
@@ -148,13 +148,21 @@ where
     );
     drop(plan_span_guard);
 
-    // A reorg surfaces here as a base (fork point) that isn't the current
-    // in-memory tip: the backward walk followed `target`'s own ancestry, so
-    // landing on a stored anchor below our tip means the prior branch's blocks
-    // above the fork are being abandoned and their manifests/anchor state
-    // rewritten. Flag it — otherwise a reorg (including a rollback to an
-    // already-stored ancestor, where `pending` is empty) is indistinguishable
-    // from a normal forward extension in the logs.
+    // An empty plan means `target` already has a stored anchor: it has been
+    // processed before, and there is no new work. So return early.
+    if pending.is_empty() {
+        warn!(
+            %target,
+            tip = %state.blkid,
+            "block already processed; ignoring duplicate or stale notification"
+        );
+        return Ok(vec![]);
+    }
+
+    // A non-empty plan whose base isn't the current in-memory tip is a genuine
+    // reorg: the backward walk followed `target`'s ancestry to a fork point
+    // below the tip, so the prior branch's blocks above the fork are abandoned
+    // and rewritten in place by the forward pass below.
     if base_block != state.blkid {
         warn!(
             old_tip = %state.blkid,
@@ -163,17 +171,6 @@ where
             abandoned_blocks = state.blkid.height().saturating_sub(base_block.height()),
             "ASM L1 reorg detected"
         );
-    }
-
-    // When the target is already processed (`pending` empty — a resync, or a
-    // reorg that rolls the active tip back to an already-stored ancestor), the
-    // forward pass below applies no block, so it never moves the durable
-    // `latest` anchor pointer off the prior — possibly higher — branch. Without
-    // this, a restart would reload that stale branch from `get_latest_asm_state`
-    // instead of resuming from the rollback target. Re-commit the base as the
-    // latest anchor; the write is an idempotent overwrite (see `apply_block`).
-    if pending.is_empty() {
-        state.context.store_anchor_state(&base_block, &base_state)?;
     }
 
     state.update_anchor_state(base_state, base_block);
@@ -490,10 +487,13 @@ mod tests {
         assert_eq!(fx.state.context.mmr_leaf_count(), 105);
     }
 
-    /// Re-submitting an already-processed block repositions the in-memory anchor
-    /// to it but stores nothing new (the plan has no pending blocks).
+    /// Re-submitting an already-processed block — a duplicate or lagging ZMQ
+    /// notification for an ancestor of the current tip — is a no-op: it processes
+    /// nothing, leaves the in-memory tip where it was, and writes nothing.
+    /// Rolling the tip back here is the phantom reorg that corrupted derived
+    /// state (see `sync_to_block`).
     #[tokio::test(flavor = "multi_thread")]
-    async fn sync_resync_repositions_anchor_without_reprocessing() {
+    async fn sync_duplicate_already_processed_block_is_noop() {
         let mut fx = fixtures::setup_state(101).await;
         let mined = fixtures::mine(&fx.node, &fx.client, 2).await; // 102, 103
         let earlier = mined[0];
@@ -510,8 +510,8 @@ mod tests {
             "an already-processed target applies nothing",
         );
         assert_eq!(
-            fx.state.blkid, earlier,
-            "anchor repositions to the resynced block",
+            fx.state.blkid, tip,
+            "the tip stays put — a stale notification must not roll it back",
         );
         assert_eq!(
             fx.state.context.mmr_leaf_count(),
@@ -520,13 +520,11 @@ mod tests {
         );
     }
 
-    /// Rolling the tip back to an already-processed block must move the
-    /// *durable* latest pointer, not just the in-memory anchor — the plan has no
-    /// pending blocks, so nothing in the forward pass advances it. Reloading the
-    /// state over the same store confirms a restart resumes from the rollback
-    /// target rather than the stale higher branch left behind.
+    /// A duplicate or stale notification for an already-processed ancestor must
+    /// not disturb the durable `latest` pointer: it stays on the real tip, so a
+    /// restart resumes there rather than rolling back to the re-delivered block.
     #[tokio::test(flavor = "multi_thread")]
-    async fn sync_resync_persists_latest_across_restart() {
+    async fn sync_stale_notification_keeps_latest_at_tip() {
         let mut fx = fixtures::setup_state(101).await;
         let mined = fixtures::mine(&fx.node, &fx.client, 2).await; // 102, 103
         let earlier = mined[0];
@@ -540,29 +538,29 @@ mod tests {
                 .unwrap()
                 .map(|(b, _)| b),
             Some(tip),
-            "latest tracks the higher branch after the initial sync",
+            "latest tracks the tip after the initial sync",
         );
 
         sync_to_block(&mut fx.state, earlier.blkid()).expect("resync to the earlier block");
 
-        // The durable pointer follows the rollback...
+        // The durable pointer is unmoved by the stale notification...
         assert_eq!(
             fx.state
                 .context
                 .get_latest_asm_state()
                 .unwrap()
                 .map(|(b, _)| b),
-            Some(earlier),
-            "latest moved to the rollback target",
+            Some(tip),
+            "latest stays at the real tip",
         );
 
-        // ...so a restart over the same store resumes there, not at the stale tip.
+        // ...so a restart over the same store resumes at the tip.
         let context = fx.state.context.clone();
         let params = fixtures::genesis_params(&fx.client, 101).await;
         let reloaded = AsmWorkerServiceState::new(context, TestAsmSpec, params).unwrap();
         assert_eq!(
-            reloaded.blkid, earlier,
-            "restart resumes from the rollback target",
+            reloaded.blkid, tip,
+            "restart resumes from the tip, not the stale notification",
         );
     }
 
