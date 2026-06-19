@@ -92,10 +92,10 @@ pub(crate) fn process_block<W: MohoWorkerContext>(
     // between the leaves and the `ExportState` MMR that commits to them.
     // TODO(STR-3723): unlike manifest MMR we need to handle the reorg differently since there might
     // be multiple ExportEntry in a single block.
-    for (container_id, entry) in compute::export_entries_from_logs(&logs) {
+    for (container_id, entries) in compute::export_entries_from_logs(&logs) {
         state
             .context
-            .append_export_entry(container_id, block.height(), entry)?;
+            .store_export_entries(container_id, block.height(), entries)?;
     }
     state.context.store_moho_state(&block, &moho)?;
 

@@ -156,15 +156,17 @@ impl MohoStateStore for MohoWorkerContextImpl {
 }
 
 impl ExportEntryStore for MohoWorkerContextImpl {
-    fn append_export_entry(
+    fn store_export_entries(
         &self,
         container_id: u8,
         height: u32,
-        entry: [u8; 32],
+        entries: Vec<[u8; 32]>,
     ) -> MohoWorkerResult<()> {
-        self.export_entries_db
-            .append(container_id, height, entry)
-            .map(|_index| ())
-            .map_err(|e| MohoWorkerError::Storage(e.to_string()))
+        for entry in entries {
+            self.export_entries_db
+                .append(container_id, height, entry)
+                .map_err(|e| MohoWorkerError::Storage(e.to_string()))?;
+        }
+        Ok(())
     }
 }

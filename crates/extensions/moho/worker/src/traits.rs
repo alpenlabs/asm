@@ -89,16 +89,21 @@ pub trait MohoStateStore {
 /// mirrors them here as it folds each block — from the same `NewExportEntry`
 /// logs that advance the MMR — so the RPC can rebuild inclusion proofs.
 pub trait ExportEntryStore {
-    /// Appends one export-entry leaf for `container_id` inserted at `height`.
+    /// Stores the export-entry leaves for `container_id` inserted at `height`,
+    /// in MMR-append order.
+    ///
+    /// A single block can append several leaves to one container's MMR, so the
+    /// worker hands them over per container in one call rather than one leaf at
+    /// a time.
     ///
     /// Must be idempotent in `(container_id, entry)`: the worker reprocesses a
-    /// block whose fold did not reach its commit point, so the same leaf can be
-    /// appended more than once and must not be duplicated.
-    fn append_export_entry(
+    /// block whose fold did not reach its commit point, so the same leaves can
+    /// be stored more than once and must not be duplicated.
+    fn store_export_entries(
         &self,
         container_id: u8,
         height: u32,
-        entry: [u8; 32],
+        entries: Vec<[u8; 32]>,
     ) -> MohoWorkerResult<()>;
 }
 

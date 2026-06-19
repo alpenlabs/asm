@@ -6,6 +6,8 @@
 //! for the block. Neither requires re-running the STF — everything needed lives
 //! in the committed [`AnchorState`] and its [`AsmLogEntry`]s.
 
+use std::collections::BTreeMap;
+
 use moho_runtime_interface::MohoProgram;
 use moho_types::{ExportState, MohoState};
 use strata_asm_common::{AnchorState, AsmLogEntry};
@@ -42,15 +44,24 @@ pub(crate) fn construct_next_moho_state(
     MohoState::new(inner, next_predicate, next_export_state)
 }
 
-/// Extracts the `(container_id, entry)` leaves a block's [`NewExportEntry`] logs
-/// append to the `ExportState` MMR, in log order.
+/// Groups a block's [`NewExportEntry`] leaves by `container_id`, preserving log
+/// order within each container.
 ///
 /// These are the same leaves [`advance_export_state_with_logs`] folds into the
 /// state's compact per-container MMR; the worker persists them so the RPC can
-/// rebuild inclusion proofs the compact MMR no longer carries.
-pub(crate) fn export_entries_from_logs(logs: &[AsmLogEntry]) -> Vec<(u8, [u8; 32])> {
-    logs.iter()
+/// rebuild inclusion proofs the compact MMR no longer carries. A block can
+/// append several leaves to one container, so they are grouped per container —
+/// per-container order is the MMR-append order and must be preserved.
+pub(crate) fn export_entries_from_logs(logs: &[AsmLogEntry]) -> BTreeMap<u8, Vec<[u8; 32]>> {
+    let mut grouped: BTreeMap<u8, Vec<[u8; 32]>> = BTreeMap::new();
+    for entry in logs
+        .iter()
         .filter_map(|log| log.try_into_log::<NewExportEntry>().ok())
-        .map(|entry| (entry.container_id(), *entry.entry_data()))
-        .collect()
+    {
+        grouped
+            .entry(entry.container_id())
+            .or_default()
+            .push(*entry.entry_data());
+    }
+    grouped
 }
