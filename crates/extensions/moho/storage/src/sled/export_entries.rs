@@ -4,13 +4,14 @@
 //! proof is `O(log n)` with no leaf replay. Containers share one node tree,
 //! namespaced by `container_id`. Alongside the nodes we keep three small indexes
 //! the MMR itself does not carry: the insertion height per leaf, a reverse
-//! `hash → index` map for lookups and per-entry dedup, and a
-//! `height → first index` map locating where each block's leaves begin.
+//! `hash → index` map for lookups, and a `height → first index` map locating
+//! where each block's leaves begin.
+//!
+//! Appends are unconditional — the store does not deduplicate. A consumer that
+//! might reprocess a block (after a crash or an L1 reorg) prunes from the
+//! block's height first, so re-stored leaves always extend a clean prefix.
 
-use std::{
-    collections::{BTreeMap, BTreeSet},
-    ops::Range,
-};
+use std::{collections::BTreeSet, ops::Range};
 
 use anyhow::{Context, Result};
 use strata_merkle::{MerkleProofB32, Sha256Hasher};
@@ -86,39 +87,25 @@ impl ContainerView<'_> {
         }
     }
 
-    /// See [`SledExportEntriesDb::put`].
-    fn put(&self, height: u32, entries: Vec<[u8; 32]>) -> Result<()> {
-        let height_key = self.height_key(height);
-        // Record this height's run start lazily, on the first leaf actually
-        // appended, so an all-duplicate replay records nothing.
-        let mut start_recorded = self.index_by_height.get(height_key)?.is_some();
+    /// See [`SledExportEntriesDb::append`].
+    fn append(&self, height: u32, entries: Vec<[u8; 32]>) -> Result<()> {
+        if entries.is_empty() {
+            return Ok(());
+        }
+
+        // The first leaf of this height lands at the current count; record the
+        // run's start. Appends are unconditional — deduplicating reprocessed
+        // blocks is the caller's job (it prunes from the block's height first),
+        // so the store appends exactly what it is handed.
+        self.index_by_height
+            .insert(self.height_key(height), &self.num_entries()?.to_be_bytes())?;
 
         for entry in entries {
-            let hash_key = self.hash_key(&entry);
-            // Skip entries already stored: the worker reprocesses a block whose
-            // fold did not reach its commit point, so the same leaves can arrive
-            // more than once and must not be duplicated.
-            if self.index_by_hash.get(hash_key)?.is_some() {
-                continue;
-            }
-
-            // The first new leaf of this height lands at the current count.
-            // Record the run's start before the reverse-index gate below, so a
-            // crash mid-block has the replay observe it as present and skip it.
-            if !start_recorded {
-                self.index_by_height
-                    .insert(height_key, &self.num_entries()?.to_be_bytes())?;
-                start_recorded = true;
-            }
-
-            // Append the leaf (and its recomputed ancestors), then record its
-            // height. The reverse index is the dedup gate, written last: a crash
-            // before it leaves the entry uncommitted and it is reprocessed on
-            // restart.
             let index = StoredMmr::<Sha256Hasher>::append_leaf(self, entry)?;
             self.heights
                 .insert(self.leaf_key(index), &height.to_be_bytes())?;
-            self.index_by_hash.insert(hash_key, &index.to_be_bytes())?;
+            self.index_by_hash
+                .insert(self.hash_key(&entry), &index.to_be_bytes())?;
         }
         Ok(())
     }
@@ -178,12 +165,34 @@ impl ContainerView<'_> {
         Ok(MerkleProofB32::from_generic(&proof))
     }
 
-    /// Truncates this container to its first `keep` leaves and clears the index
-    /// rows for the dropped suffix. `from_height` is the prune target: the
-    /// height-start rows at or above it map exactly onto the truncated leaves.
+    /// Drops every leaf this container gained at `from_height` or above,
+    /// truncating its MMR back to the leaves below `from_height` and clearing
+    /// their height, reverse-index and height-start rows. A no-op when nothing
+    /// sits at or above `from_height`.
+    ///
     /// The per-container half of [`SledExportEntriesDb::prune_from`]; its crash
     /// safety is documented there.
-    fn truncate(&self, keep: u64, from_height: u32) -> Result<()> {
+    fn prune(&self, from_height: u32) -> Result<()> {
+        // keep = the leaves below `from_height`. They are appended in ascending
+        // height, so the survivors are a prefix and the dropped leaves a
+        // contiguous suffix; the survivor count is the truncation point.
+        // Counting only the retained rows — which the truncation never deletes —
+        // keeps `keep` stable across crash-replays.
+        let mut keep = 0u64;
+        let mut has_suffix = false;
+        for kv in self.heights.scan_prefix([self.id]) {
+            let (_key, value) = kv?;
+            let stored = u32::from_be_bytes(value.as_ref().try_into().context("invalid height")?);
+            if stored < from_height {
+                keep += 1;
+            } else {
+                has_suffix = true;
+            }
+        }
+        if !has_suffix {
+            return Ok(());
+        }
+
         // Truncate the MMR first. Identifying the rows to clean below works off
         // the index trees, not the leaves, so it survives this removing them;
         // doing it first keeps the still-intact height rows as the re-run marker.
@@ -309,14 +318,15 @@ impl SledExportEntriesDb {
         }
     }
 
-    /// Synchronous variant of [`ExportEntriesDb::put_entries`].
+    /// Synchronous variant of [`ExportEntriesDb::append_entries`].
     ///
-    /// Appends `entries` for `container_id` in MMR order, each at `height`.
-    /// Idempotent per entry: a duplicate `(container_id, entry)` is skipped, so
-    /// block replays after restart are a no-op. Also records where the height's
-    /// run of leaves begins, so [`Self::leaf_range_at_height`] can bracket it.
-    pub fn put(&self, container_id: u8, height: u32, entries: Vec<[u8; 32]>) -> Result<()> {
-        self.container(container_id).put(height, entries)
+    /// Appends `entries` for `container_id` in MMR order, each at `height`, and
+    /// records where the height's run of leaves begins so
+    /// [`Self::leaf_range_at_height`] can bracket it. Appends unconditionally:
+    /// the caller prunes from a block's height before re-appending, so the store
+    /// does not deduplicate.
+    pub fn append(&self, container_id: u8, height: u32, entries: Vec<[u8; 32]>) -> Result<()> {
+        self.container(container_id).append(height, entries)
     }
 
     /// Synchronous variant of [`ExportEntriesDb::entry_count`].
@@ -341,36 +351,25 @@ impl SledExportEntriesDb {
 
     /// Synchronous variant of [`ExportEntriesDb::prune_entries_from`].
     ///
-    /// Drops every leaf inserted at `height` or above from all containers:
-    /// truncates each container's MMR to the leaves below `height` and removes
-    /// their height and reverse-index rows. Leaves are appended in ascending
-    /// height, so within a container the dropped ones form a contiguous suffix.
+    /// Drops every leaf inserted at `height` or above, across all containers,
+    /// truncating each container's MMR to the leaves below `height`. Leaves are
+    /// appended in ascending height, so the dropped ones form a contiguous
+    /// suffix of each container.
     ///
-    /// Idempotent and safe to re-run after a crash: the survivor count per
-    /// container is derived from the retained `height < target` rows — which
-    /// this never deletes — so it is stable across replays. The height rows are
-    /// the marker of pending work and are removed last, after the MMR is
-    /// truncated and the reverse index cleaned; a prune interrupted before they
-    /// are gone leaves the container looking unpruned and re-runs to completion.
+    /// Idempotent and safe to re-run after a crash: each container recomputes
+    /// its truncation point from the retained `height < target` rows — which it
+    /// never deletes — and removes its height rows last, so a prune interrupted
+    /// midway re-runs to completion. See [`ContainerView::prune`].
     pub fn prune_from(&self, height: u32) -> Result<()> {
-        // One pass over the height index: tally the survivors (`height < target`)
-        // per container and note which containers carry anything to drop.
-        let mut survivors: BTreeMap<u8, u64> = BTreeMap::new();
-        let mut to_prune: BTreeSet<u8> = BTreeSet::new();
+        // Prune every container that holds leaves; `ContainerView::prune` is a
+        // no-op for any whose leaves all sit below `height`.
+        let mut containers = BTreeSet::new();
         for kv in self.heights.iter() {
-            let (key, value) = kv?;
-            let container_id = key[0];
-            let stored = u32::from_be_bytes(value.as_ref().try_into().context("invalid height")?);
-            if stored < height {
-                *survivors.entry(container_id).or_insert(0) += 1;
-            } else {
-                to_prune.insert(container_id);
-            }
+            let (key, _) = kv?;
+            containers.insert(key[0]);
         }
-
-        for container_id in to_prune {
-            let keep = survivors.get(&container_id).copied().unwrap_or(0);
-            self.container(container_id).truncate(keep, height)?;
+        for container_id in containers {
+            self.container(container_id).prune(height)?;
         }
         Ok(())
     }
@@ -405,13 +404,13 @@ impl SledExportEntriesDb {
 impl ExportEntriesDb for SledExportEntriesDb {
     type Error = anyhow::Error;
 
-    async fn put_entries(
+    async fn append_entries(
         &self,
         container_id: u8,
         height: u32,
         entries: Vec<[u8; 32]>,
     ) -> Result<()> {
-        self.put(container_id, height, entries)
+        self.append(container_id, height, entries)
     }
 
     async fn entry_count(&self, container_id: u8) -> Result<u64> {
@@ -481,15 +480,15 @@ mod tests {
     }
 
     #[test]
-    fn put_assigns_monotonic_indices_per_container() {
+    fn append_assigns_monotonic_indices_per_container() {
         let db = test_db();
         let store = SledExportEntriesDb::open(&db).unwrap();
 
-        store.put(1, 10, vec![hash(0xa1)]).unwrap();
-        store.put(1, 11, vec![hash(0xa2)]).unwrap();
-        store.put(2, 11, vec![hash(0xb1)]).unwrap();
-        store.put(1, 12, vec![hash(0xa3)]).unwrap();
-        store.put(2, 12, vec![hash(0xb2)]).unwrap();
+        store.append(1, 10, vec![hash(0xa1)]).unwrap();
+        store.append(1, 11, vec![hash(0xa2)]).unwrap();
+        store.append(2, 11, vec![hash(0xb1)]).unwrap();
+        store.append(1, 12, vec![hash(0xa3)]).unwrap();
+        store.append(2, 12, vec![hash(0xb2)]).unwrap();
 
         // Indices run from zero per container, in append order.
         assert_eq!(store.find_index(1, &hash(0xa1)).unwrap(), Some((0, 10)));
@@ -500,12 +499,12 @@ mod tests {
     }
 
     #[test]
-    fn num_entries_matches_puts() {
+    fn num_entries_matches_appends() {
         let db = test_db();
         let store = SledExportEntriesDb::open(&db).unwrap();
 
         assert_eq!(store.num_entries(7).unwrap(), 0);
-        store.put(7, 100, (0..5u8).map(hash).collect()).unwrap();
+        store.append(7, 100, (0..5u8).map(hash).collect()).unwrap();
         assert_eq!(store.num_entries(7).unwrap(), 5);
         assert_eq!(store.num_entries(8).unwrap(), 0);
     }
@@ -514,7 +513,7 @@ mod tests {
     fn get_returns_none_for_unknown() {
         let db = test_db();
         let store = SledExportEntriesDb::open(&db).unwrap();
-        store.put(1, 42, vec![hash(0xaa)]).unwrap();
+        store.append(1, 42, vec![hash(0xaa)]).unwrap();
 
         assert!(store.get(1, 1).unwrap().is_none());
         assert!(store.get(2, 0).unwrap().is_none());
@@ -524,7 +523,7 @@ mod tests {
     fn get_returns_height_and_hash() {
         let db = test_db();
         let store = SledExportEntriesDb::open(&db).unwrap();
-        store.put(3, 999, vec![hash(0xcc)]).unwrap();
+        store.append(3, 999, vec![hash(0xcc)]).unwrap();
 
         let (height, got) = store.get(3, 0).unwrap().unwrap();
         assert_eq!(height, 999);
@@ -535,12 +534,10 @@ mod tests {
     fn find_index_returns_match_with_height() {
         let db = test_db();
         let store = SledExportEntriesDb::open(&db).unwrap();
-        store
-            .put(1, 10, vec![hash(0xa0)])
-            .and_then(|()| store.put(1, 11, vec![hash(0xa1)]))
-            .and_then(|()| store.put(1, 12, vec![hash(0xa2)]))
-            .unwrap();
-        store.put(2, 10, vec![hash(0xa1)]).unwrap(); // same hash, different container
+        store.append(1, 10, vec![hash(0xa0)]).unwrap();
+        store.append(1, 11, vec![hash(0xa1)]).unwrap();
+        store.append(1, 12, vec![hash(0xa2)]).unwrap();
+        store.append(2, 10, vec![hash(0xa1)]).unwrap(); // same hash, different container
 
         assert_eq!(store.find_index(1, &hash(0xa1)).unwrap(), Some((1, 11)));
         assert_eq!(store.find_index(2, &hash(0xa1)).unwrap(), Some((0, 10)));
@@ -549,24 +546,35 @@ mod tests {
     }
 
     #[test]
-    fn put_is_idempotent_on_duplicate_hash() {
+    fn append_does_not_deduplicate() {
         let db = test_db();
         let store = SledExportEntriesDb::open(&db).unwrap();
 
-        store.put(1, 10, vec![hash(0xa0)]).unwrap();
-        store.put(1, 11, vec![hash(0xa1)]).unwrap();
-
-        // Replay the original block — the duplicate must not be re-appended,
-        // bump the count, or overwrite the stored (height, hash).
-        store.put(1, 10, vec![hash(0xa0)]).unwrap();
+        // The store trusts the caller: re-appending the same hash appends it
+        // again rather than deduplicating. Reprocessing is the caller's job,
+        // handled by pruning first (see `prune_then_reappend_restores_state`).
+        store.append(1, 10, vec![hash(0xa0)]).unwrap();
+        store.append(1, 10, vec![hash(0xa0)]).unwrap();
         assert_eq!(store.num_entries(1).unwrap(), 2);
-        assert_eq!(store.get(1, 0).unwrap().unwrap(), (10, hash(0xa0)));
-        assert_eq!(store.get(1, 1).unwrap().unwrap(), (11, hash(0xa1)));
+    }
 
-        // A duplicate hash surfacing at a fresh height records no phantom start.
-        store.put(1, 999, vec![hash(0xa0)]).unwrap();
-        assert_eq!(store.num_entries(1).unwrap(), 2);
-        assert_eq!(store.leaf_range_at_height(1, 999).unwrap(), None);
+    #[test]
+    fn prune_then_reappend_restores_state() {
+        let db = test_db();
+        let store = SledExportEntriesDb::open(&db).unwrap();
+        store.append(1, 10, vec![hash(0xa0)]).unwrap();
+        store.append(1, 11, vec![hash(0xa1), hash(0xa2)]).unwrap();
+
+        // The consumer's reprocess pattern: prune the block's height, then
+        // re-store. The prune — not any store-side dedup — is what makes
+        // reprocessing converge to the same state.
+        store.prune_from(11).unwrap();
+        store.append(1, 11, vec![hash(0xa1), hash(0xa2)]).unwrap();
+
+        assert_eq!(store.num_entries(1).unwrap(), 3);
+        assert_eq!(store.find_index(1, &hash(0xa1)).unwrap(), Some((1, 11)));
+        assert_eq!(store.find_index(1, &hash(0xa2)).unwrap(), Some((2, 11)));
+        assert_eq!(store.leaf_range_at_height(1, 11).unwrap(), Some(1..3));
     }
 
     /// Reference compact-peaks MMR built by replaying the first `size` leaves
@@ -585,7 +593,7 @@ mod tests {
         let db = test_db();
         let store = SledExportEntriesDb::open(&db).unwrap();
         let h = hash(0x01);
-        store.put(4, 100, vec![h]).unwrap();
+        store.append(4, 100, vec![h]).unwrap();
 
         let proof = store.generate_proof(4, 0, 1).unwrap();
         let compact = rebuild_compact_mmr(&store, 4, 1);
@@ -597,7 +605,7 @@ mod tests {
         let db = test_db();
         let store = SledExportEntriesDb::open(&db).unwrap();
         for i in 0u8..8 {
-            store.put(5, 1000 + i as u32, vec![hash(i)]).unwrap();
+            store.append(5, 1000 + i as u32, vec![hash(i)]).unwrap();
         }
 
         let compact = rebuild_compact_mmr(&store, 5, 8);
@@ -615,12 +623,12 @@ mod tests {
         let store = SledExportEntriesDb::open(&db).unwrap();
 
         for i in 0u8..4 {
-            store.put(6, 100 + i as u32, vec![hash(i)]).unwrap();
+            store.append(6, 100 + i as u32, vec![hash(i)]).unwrap();
         }
         let compact_at_4 = rebuild_compact_mmr(&store, 6, 4);
 
         for i in 4u8..8 {
-            store.put(6, 100 + i as u32, vec![hash(i)]).unwrap();
+            store.append(6, 100 + i as u32, vec![hash(i)]).unwrap();
         }
 
         let proof = store.generate_proof(6, 2, 4).unwrap();
@@ -632,7 +640,7 @@ mod tests {
         let db = test_db();
         let store = SledExportEntriesDb::open(&db).unwrap();
         for i in 0u8..5 {
-            store.put(9, 200 + i as u32, vec![hash(i)]).unwrap();
+            store.append(9, 200 + i as u32, vec![hash(i)]).unwrap();
         }
 
         let proof = store.generate_proof(9, 3, 5).unwrap();
@@ -649,10 +657,10 @@ mod tests {
         let store = SledExportEntriesDb::open(&db).unwrap();
 
         // Heights 10 (2 leaves), 12 (1 leaf), 15 (3 leaves); 11, 13, 14 empty.
-        store.put(1, 10, vec![hash(0xa0), hash(0xa1)]).unwrap();
-        store.put(1, 12, vec![hash(0xa2)]).unwrap();
+        store.append(1, 10, vec![hash(0xa0), hash(0xa1)]).unwrap();
+        store.append(1, 12, vec![hash(0xa2)]).unwrap();
         store
-            .put(1, 15, vec![hash(0xa3), hash(0xa4), hash(0xa5)])
+            .append(1, 15, vec![hash(0xa3), hash(0xa4), hash(0xa5)])
             .unwrap();
 
         assert_eq!(store.leaf_range_at_height(1, 10).unwrap(), Some(0..2));
@@ -673,8 +681,8 @@ mod tests {
 
         // Same height in two containers; the range must stay within container 1
         // and not run into container 2's leaves.
-        store.put(1, 10, vec![hash(0xa0)]).unwrap();
-        store.put(2, 11, vec![hash(0xb0), hash(0xb1)]).unwrap();
+        store.append(1, 10, vec![hash(0xa0)]).unwrap();
+        store.append(2, 11, vec![hash(0xb0), hash(0xb1)]).unwrap();
 
         assert_eq!(store.leaf_range_at_height(1, 10).unwrap(), Some(0..1));
         assert_eq!(store.leaf_range_at_height(2, 11).unwrap(), Some(0..2));
@@ -684,8 +692,8 @@ mod tests {
     fn prune_from_clears_height_starts_and_reappends() {
         let db = test_db();
         let store = SledExportEntriesDb::open(&db).unwrap();
-        store.put(1, 10, vec![hash(0xa0)]).unwrap();
-        store.put(1, 11, vec![hash(0xa1), hash(0xa2)]).unwrap();
+        store.append(1, 10, vec![hash(0xa0)]).unwrap();
+        store.append(1, 11, vec![hash(0xa1), hash(0xa2)]).unwrap();
 
         store.prune_from(11).unwrap();
 
@@ -694,7 +702,7 @@ mod tests {
         assert_eq!(store.leaf_range_at_height(1, 10).unwrap(), Some(0..1));
 
         // Re-appending at the freed height records a fresh start index.
-        store.put(1, 11, vec![hash(0xc0)]).unwrap();
+        store.append(1, 11, vec![hash(0xc0)]).unwrap();
         assert_eq!(store.leaf_range_at_height(1, 11).unwrap(), Some(1..2));
     }
 
@@ -704,11 +712,11 @@ mod tests {
         let store = SledExportEntriesDb::open(&db).unwrap();
 
         // Container 1: heights 10, 10, 11, 12. Container 2: heights 11, 12.
-        store.put(1, 10, vec![hash(0xa0), hash(0xa1)]).unwrap();
-        store.put(1, 11, vec![hash(0xa2)]).unwrap();
-        store.put(1, 12, vec![hash(0xa3)]).unwrap();
-        store.put(2, 11, vec![hash(0xb0)]).unwrap();
-        store.put(2, 12, vec![hash(0xb1)]).unwrap();
+        store.append(1, 10, vec![hash(0xa0), hash(0xa1)]).unwrap();
+        store.append(1, 11, vec![hash(0xa2)]).unwrap();
+        store.append(1, 12, vec![hash(0xa3)]).unwrap();
+        store.append(2, 11, vec![hash(0xb0)]).unwrap();
+        store.append(2, 12, vec![hash(0xb1)]).unwrap();
 
         store.prune_from(11).unwrap();
 
@@ -729,8 +737,8 @@ mod tests {
     fn prune_from_above_tip_is_noop() {
         let db = test_db();
         let store = SledExportEntriesDb::open(&db).unwrap();
-        store.put(1, 10, vec![hash(0xa0)]).unwrap();
-        store.put(1, 11, vec![hash(0xa1)]).unwrap();
+        store.append(1, 10, vec![hash(0xa0)]).unwrap();
+        store.append(1, 11, vec![hash(0xa1)]).unwrap();
 
         store.prune_from(99).unwrap();
 
@@ -743,7 +751,7 @@ mod tests {
         let db = test_db();
         let store = SledExportEntriesDb::open(&db).unwrap();
         for i in 0u8..4 {
-            store.put(1, 10 + i as u32, vec![hash(i)]).unwrap();
+            store.append(1, 10 + i as u32, vec![hash(i)]).unwrap();
         }
 
         store.prune_from(11).unwrap();
@@ -753,8 +761,8 @@ mod tests {
 
         // After pruning the MMR is appendable again, assigning the freed indices
         // and producing proofs that verify against a fresh replay.
-        store.put(1, 11, vec![hash(0xc0)]).unwrap();
-        store.put(1, 12, vec![hash(0xc1)]).unwrap();
+        store.append(1, 11, vec![hash(0xc0)]).unwrap();
+        store.append(1, 12, vec![hash(0xc1)]).unwrap();
         assert_eq!(store.find_index(1, &hash(0xc0)).unwrap(), Some((1, 11)));
         assert_eq!(store.find_index(1, &hash(0xc1)).unwrap(), Some((2, 12)));
 
@@ -772,7 +780,7 @@ mod tests {
 
         Runtime::new().unwrap().block_on(async {
             store
-                .put_entries(1, 10, vec![hash(0xa1), hash(0xa2)])
+                .append_entries(1, 10, vec![hash(0xa1), hash(0xa2)])
                 .await
                 .unwrap();
             assert_eq!(store.entry_count(1).await.unwrap(), 2);

@@ -87,11 +87,15 @@ pub(crate) fn process_block<W: MohoWorkerContext>(
     // Persist the export-entry leaves before the Moho state. The worker tracks
     // progress via the Moho store (`get_latest_moho_state`), so `store_moho_state`
     // is this block's commit point: a crash before it leaves progress unadvanced
-    // and the block is reprocessed on restart, re-appending the same
-    // (idempotent) leaves. Writing them after the commit point would risk a gap
-    // between the leaves and the `ExportState` MMR that commits to them.
-    // TODO(STR-3723): unlike manifest MMR we need to handle the reorg differently since there might
-    // be multiple ExportEntry in a single block.
+    // and the block is reprocessed on restart. Writing the leaves after the
+    // commit point would risk a gap between them and the `ExportState` MMR that
+    // commits to them.
+    //
+    // TODO(STR-3723): `store_export_entries` no longer deduplicates, so a
+    // reprocess (crash-replay or reorg) must `prune_export_entries_from` this
+    // block's height before re-storing; otherwise the leaves are appended twice.
+    // A reorg also has to be handled differently from the manifest MMR, since a
+    // single block can contribute several leaves to one container.
     for (container_id, entries) in compute::export_entries_from_logs(&logs) {
         state
             .context

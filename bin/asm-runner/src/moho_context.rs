@@ -163,7 +163,7 @@ impl ExportEntryStore for MohoWorkerContextImpl {
         entries: Vec<[u8; 32]>,
     ) -> MohoWorkerResult<()> {
         self.export_entries_db
-            .put(container_id, height, entries)
+            .append(container_id, height, entries)
             .map_err(|e| MohoWorkerError::Storage(e.to_string()))
     }
 

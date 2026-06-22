@@ -96,9 +96,12 @@ pub trait ExportEntryStore {
     /// worker hands them over per container in one call rather than one leaf at
     /// a time.
     ///
-    /// Must be idempotent in `(container_id, entry)`: the worker reprocesses a
-    /// block whose fold did not reach its commit point, so the same leaves can
-    /// be stored more than once and must not be duplicated.
+    /// Appends unconditionally — the store does not deduplicate. Before
+    /// reprocessing a block (after a crash or an L1 reorg) the worker first
+    /// prunes its height via [`prune_export_entries_from`], so the leaves it
+    /// then stores always extend a clean prefix.
+    ///
+    /// [`prune_export_entries_from`]: Self::prune_export_entries_from
     fn store_export_entries(
         &self,
         container_id: u8,

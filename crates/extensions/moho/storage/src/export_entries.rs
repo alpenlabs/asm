@@ -19,11 +19,13 @@ pub trait ExportEntriesDb {
     ///
     /// Mirrors the worker's batched `store_export_entries`: a single block can
     /// contribute several leaves to one container, handed over in one call.
-    /// Idempotent in `(container_id, entry)` — a duplicate resolves to its
-    /// original index and is not re-appended, so block replays after restart are
-    /// a no-op. Assumes `(container_id, entry_hash)` is unique within a correct
-    /// chain.
-    fn put_entries(
+    /// Appends unconditionally and does not deduplicate; a consumer that may
+    /// reprocess a block (after a crash or reorg) prunes from the block's height
+    /// via [`prune_entries_from`] first, so the leaves it then stores extend a
+    /// clean prefix.
+    ///
+    /// [`prune_entries_from`]: Self::prune_entries_from
+    fn append_entries(
         &self,
         container_id: u8,
         height: u32,
