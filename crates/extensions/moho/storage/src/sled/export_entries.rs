@@ -425,7 +425,7 @@ impl SledExportEntriesDb {
     /// rows at or above `target` are both the source of its truncation point and
     /// the marker that the prune is pending, and are removed last (lowest height
     /// last), so a prune interrupted midway recomputes the same point and re-runs
-    /// to completion. See [`ContainerView::prune`].
+    /// to completion. See `ContainerView::prune`.
     pub fn prune_from(&self, height: u32) -> Result<()> {
         // Container ids span the whole `u8` domain, so prune every possible one
         // rather than first scanning the height index to discover which exist.

@@ -98,7 +98,7 @@ pub trait ExportEntryStore {
     ///
     /// Appends unconditionally — the store does not deduplicate. Before
     /// reprocessing a block (after a crash or an L1 reorg) the worker first
-    /// prunes its height via [`prune_export_entries_from`], so the leaves it
+    /// prunes its height via [`Self::prune_export_entries_from`], so the leaves it
     /// then stores always extend a clean prefix.
     fn store_export_entries(
         &self,
@@ -118,7 +118,7 @@ pub trait ExportEntryStore {
     /// blocks in ascending height, so the leaves at or above `height` are always
     /// a contiguous suffix of each container's MMR.
     ///
-    /// Must be idempotent in `height`: like [`store_export_entries`], this runs
+    /// Must be idempotent in `height`: like [`Self::store_export_entries`], this runs
     /// before the block's commit point, so a crash mid-reorg has the worker
     /// reprocess the block and prune again. Pruning an already-pruned range must
     /// be a no-op.
