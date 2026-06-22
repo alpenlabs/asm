@@ -2,10 +2,11 @@
 //!
 //! Backed by [`strata_merkle_node_store`]: every MMR node is persisted, so a
 //! proof is `O(log n)` with no leaf replay. Containers share one node tree,
-//! namespaced by `container_id`. Alongside the nodes we keep three small indexes
-//! the MMR itself does not carry: the insertion height per leaf, a reverse
-//! `hash → index` map for lookups, and a `height → first index` map locating
-//! where each block's leaves begin.
+//! namespaced by `container_id`. Alongside the nodes we keep two small indexes
+//! the MMR itself does not carry: a reverse `hash → index` map for lookups, and
+//! a `height → first index` map locating where each block's leaves begin. The
+//! latter doubles as the per-leaf height source: runs are contiguous, so the
+//! height of any leaf is the height whose run starts at or before its index.
 //!
 //! Appends are unconditional — the store does not deduplicate. A consumer that
 //! might reprocess a block (after a crash or an L1 reorg) prunes from the
@@ -30,17 +31,28 @@ fn decode_node(value: sled::IVec) -> [u8; 32] {
         .expect("mmr node value must be 32 bytes")
 }
 
-/// One container's view onto the shared trees, namespacing every key with its
-/// `id` so each container is an independent MMR with its own height and hash
-/// indexes. All per-container reads and writes go through here; the keys never
-/// escape this type. Implements [`MmrNodeStore`] over the node tree, so the
-/// [`StoredMmr`] operations apply directly to `self`.
+/// One container's view onto the shared trees, with its [`id`](Self::id) the
+/// isolation boundary: every key is prefixed with `id`, so each container is an
+/// independent MMR with its own height and hash indexes. All per-container reads
+/// and writes go through here, and the prefixed keys never escape this type.
+/// Implements [`MmrNodeStore`] over the node tree, so the [`StoredMmr`]
+/// operations apply directly to `self`.
+///
+/// Every field below shares the `id`-prefixed key space; the key/value shapes
+/// noted on each are the bytes *after* that prefix.
 #[derive(Debug)]
 struct ContainerView<'a> {
+    /// Container this view is scoped to; the prefix on every key.
     id: u8,
+    /// MMR nodes, `node_pos → node`. Backs the [`StoredMmr`] that owns leaves,
+    /// hashing, and the root.
     nodes: &'a sled::Tree,
-    heights: &'a sled::Tree,
+    /// Reverse index `entry_hash → mmr_index`, for looking a leaf up by its hash.
     index_by_hash: &'a sled::Tree,
+    /// `height → first mmr_index`, the start of the contiguous run of leaves a
+    /// height contributed; the run's end is the next populated height (or the
+    /// leaf count). Drives [`SledExportEntriesDb::leaf_range_at_height`] and, since
+    /// runs are contiguous, the per-leaf height lookup in [`Self::height_at`].
     index_by_height: &'a sled::Tree,
 }
 
@@ -50,14 +62,6 @@ impl ContainerView<'_> {
         let mut key = [0u8; 10];
         key[0] = self.id;
         key[1..].copy_from_slice(&pos.to_key());
-        key
-    }
-
-    /// `id || mmr_index` — key into the per-leaf height map.
-    fn leaf_key(&self, mmr_index: u64) -> [u8; 9] {
-        let mut key = [0u8; 9];
-        key[0] = self.id;
-        key[1..].copy_from_slice(&mmr_index.to_be_bytes());
         key
     }
 
@@ -77,14 +81,31 @@ impl ContainerView<'_> {
         key
     }
 
-    /// Reads the insertion height stored for `mmr_index`.
+    /// Resolves the insertion height of the leaf at `mmr_index`.
+    ///
+    /// There is no per-leaf height row; the height is derived from
+    /// [`Self::index_by_height`], which records the start index of each populated
+    /// height's run. Runs are appended in ascending height with monotonically
+    /// increasing starts, so the run containing `mmr_index` is the one with the
+    /// greatest start `<= mmr_index`. Scans this container's height rows in order
+    /// and keeps the last whose start does not exceed `mmr_index`. `O(heights)`
+    /// rather than a point lookup, which the `get`/`find_index` read paths absorb
+    /// since they call it once per query.
+    ///
+    /// Returns `None` only when no run starts at or before `mmr_index` — an empty
+    /// container — which callers treat as a missing leaf.
     fn height_at(&self, mmr_index: u64) -> Result<Option<u32>> {
-        match self.heights.get(self.leaf_key(mmr_index))? {
-            Some(bytes) => Ok(Some(u32::from_be_bytes(
-                bytes.as_ref().try_into().context("invalid height bytes")?,
-            ))),
-            None => Ok(None),
+        let mut height = None;
+        for kv in self.index_by_height.scan_prefix([self.id]) {
+            let (key, start_bytes) = kv?;
+            if decode_idx(start_bytes.as_ref())? > mmr_index {
+                break;
+            }
+            height = Some(u32::from_be_bytes(
+                key[1..].try_into().context("invalid height bytes")?,
+            ));
         }
+        Ok(height)
     }
 
     /// See [`SledExportEntriesDb::append`].
@@ -102,8 +123,6 @@ impl ContainerView<'_> {
 
         for entry in entries {
             let index = StoredMmr::<Sha256Hasher>::append_leaf(self, entry)?;
-            self.heights
-                .insert(self.leaf_key(index), &height.to_be_bytes())?;
             self.index_by_hash
                 .insert(self.hash_key(&entry), &index.to_be_bytes())?;
         }
@@ -167,35 +186,31 @@ impl ContainerView<'_> {
 
     /// Drops every leaf this container gained at `from_height` or above,
     /// truncating its MMR back to the leaves below `from_height` and clearing
-    /// their height, reverse-index and height-start rows. A no-op when nothing
-    /// sits at or above `from_height`.
+    /// their reverse-index and height-start rows. A no-op when nothing sits at
+    /// or above `from_height`.
     ///
     /// The per-container half of [`SledExportEntriesDb::prune_from`]; its crash
     /// safety is documented there.
     fn prune(&self, from_height: u32) -> Result<()> {
-        // keep = the leaves below `from_height`. They are appended in ascending
-        // height, so the survivors are a prefix and the dropped leaves a
-        // contiguous suffix; the survivor count is the truncation point.
-        // Counting only the retained rows — which the truncation never deletes —
-        // keeps `keep` stable across crash-replays.
-        let mut keep = 0u64;
-        let mut has_suffix = false;
-        for kv in self.heights.scan_prefix([self.id]) {
-            let (_key, value) = kv?;
-            let stored = u32::from_be_bytes(value.as_ref().try_into().context("invalid height")?);
-            if stored < from_height {
-                keep += 1;
-            } else {
-                has_suffix = true;
+        // keep = the survivor count = the start index of the earliest populated
+        // height at or above `from_height`. Leaves are appended in ascending
+        // height with monotonic starts, so that start is the boundary between the
+        // surviving prefix and the dropped suffix. No populated height reaches
+        // `from_height` means nothing to drop.
+        let mut keep = None;
+        for kv in self.index_by_height.scan_prefix([self.id]) {
+            let (key, start_bytes) = kv?;
+            let h = u32::from_be_bytes(key[1..].try_into().context("invalid height")?);
+            if h >= from_height {
+                keep = Some(decode_idx(start_bytes.as_ref())?);
+                break;
             }
         }
-        if !has_suffix {
+        let Some(keep) = keep else {
             return Ok(());
-        }
+        };
 
-        // Truncate the MMR first. Identifying the rows to clean below works off
-        // the index trees, not the leaves, so it survives this removing them;
-        // doing it first keeps the still-intact height rows as the re-run marker.
+        // Truncate the MMR back to the survivors.
         StoredMmr::<Sha256Hasher>::prune_after(self, LeafPos::new(keep))?;
 
         // Clear reverse-index rows pointing past the survivors. Scanning by
@@ -212,9 +227,13 @@ impl ContainerView<'_> {
             self.index_by_hash.remove(key)?;
         }
 
-        // Clear the height-start rows for the dropped heights. Keyed by height,
-        // so the rows at or above the target map exactly onto the truncated
-        // leaves.
+        // Clear the height-start rows at or above `from_height` last: they are
+        // both the source of `keep` and the marker that this prune is pending, so
+        // leaving them until the truncation and reverse-index cleanup are done
+        // means a crash mid-prune re-runs the whole operation. Delete them
+        // highest-height first so the lowest — the one that yields `keep` —
+        // survives longest; a re-run keeps recomputing the same `keep` until that
+        // final removal, then sees nothing left at or above `from_height`.
         let mut stale_starts = Vec::new();
         for kv in self.index_by_height.scan_prefix([self.id]) {
             let (key, _) = kv?;
@@ -223,22 +242,8 @@ impl ContainerView<'_> {
                 stale_starts.push(key);
             }
         }
-        for key in stale_starts {
+        for key in stale_starts.into_iter().rev() {
             self.index_by_height.remove(key)?;
-        }
-
-        // Clear the height rows last: they mark the prune as pending, so they
-        // outlive the MMR truncation and reverse-index cleanup above.
-        let mut stale_heights = Vec::new();
-        for kv in self.heights.scan_prefix([self.id]) {
-            let (key, _) = kv?;
-            let idx = u64::from_be_bytes(key[1..].try_into().context("invalid mmr_index")?);
-            if idx >= keep {
-                stale_heights.push(key);
-            }
-        }
-        for key in stale_heights {
-            self.heights.remove(key)?;
         }
         Ok(())
     }
@@ -281,13 +286,17 @@ impl MmrNodeStore for ContainerView<'_> {
     }
 }
 
-/// Sled-backed per-container export-entry store: a namespaced MMR node tree plus
-/// a `(container_id, index) → height` map, a reverse `(container_id, hash) →
-/// index` map, and a `(container_id, height) → first index` map.
+/// Sled-backed export-entry store: one independent MMR per container, with the
+/// indexes needed to look entries up by height or by hash.
+///
+/// The trees are shared across all containers; every key is namespaced by a
+/// leading `container_id` byte (see [`ContainerView`]), so a container behaves as
+/// its own isolated MMR.
 #[derive(Debug, Clone)]
 pub struct SledExportEntriesDb {
+    /// The shared trees; per-tree key layouts and semantics are documented on
+    /// [`ContainerView`], the per-container view that owns the read/write logic.
     nodes: sled::Tree,
-    heights: sled::Tree,
     index_by_hash: sled::Tree,
     index_by_height: sled::Tree,
 }
@@ -297,7 +306,6 @@ impl SledExportEntriesDb {
     pub fn open(db: &sled::Db) -> Result<Self> {
         Ok(Self {
             nodes: db.open_tree("export_entry_nodes")?,
-            heights: db.open_tree("export_entry_heights")?,
             index_by_hash: db.open_tree("export_entries_by_hash")?,
             index_by_height: db.open_tree("export_entries_by_height")?,
         })
@@ -311,7 +319,6 @@ impl SledExportEntriesDb {
     fn container(&self, container_id: u8) -> ContainerView<'_> {
         ContainerView {
             nodes: &self.nodes,
-            heights: &self.heights,
             index_by_hash: &self.index_by_hash,
             index_by_height: &self.index_by_height,
             id: container_id,
@@ -356,15 +363,16 @@ impl SledExportEntriesDb {
     /// appended in ascending height, so the dropped ones form a contiguous
     /// suffix of each container.
     ///
-    /// Idempotent and safe to re-run after a crash: each container recomputes
-    /// its truncation point from the retained `height < target` rows — which it
-    /// never deletes — and removes its height rows last, so a prune interrupted
-    /// midway re-runs to completion. See [`ContainerView::prune`].
+    /// Idempotent and safe to re-run after a crash: each container's height-start
+    /// rows at or above `target` are both the source of its truncation point and
+    /// the marker that the prune is pending, and are removed last (lowest height
+    /// last), so a prune interrupted midway recomputes the same point and re-runs
+    /// to completion. See [`ContainerView::prune`].
     pub fn prune_from(&self, height: u32) -> Result<()> {
         // Prune every container that holds leaves; `ContainerView::prune` is a
         // no-op for any whose leaves all sit below `height`.
         let mut containers = BTreeSet::new();
-        for kv in self.heights.iter() {
+        for kv in self.index_by_height.iter() {
             let (key, _) = kv?;
             containers.insert(key[0]);
         }
