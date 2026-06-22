@@ -6,9 +6,11 @@
 //! the MMR itself does not carry: the insertion height per leaf, and a reverse
 //! `hash → index` map for lookups and append idempotency.
 
+use std::collections::{BTreeMap, BTreeSet};
+
 use anyhow::{Context, Result};
 use strata_merkle::{MerkleProofB32, Sha256Hasher};
-use strata_merkle_node_store::{MmrNodeStore, NodePos, StoredMmr};
+use strata_merkle_node_store::{LeafPos, MmrNodeStore, NodePos, StoredMmr};
 
 use crate::ExportEntriesDb;
 
@@ -145,6 +147,78 @@ impl SledExportEntriesDb {
         )?)
     }
 
+    /// Synchronous variant of [`ExportEntriesDb::prune_entries_from`]. See [`Self::append`].
+    ///
+    /// Drops every leaf inserted at `height` or above from all containers:
+    /// truncates each container's MMR to the leaves below `height` and removes
+    /// their height and reverse-index rows. Leaves are appended in ascending
+    /// height, so within a container the dropped ones form a contiguous suffix.
+    ///
+    /// Idempotent and safe to re-run after a crash: the survivor count per
+    /// container is derived from the retained `height < target` rows — which
+    /// this never deletes — so it is stable across replays. The height rows are
+    /// the marker of pending work and are removed last, after the MMR is
+    /// truncated and the reverse index cleaned; a prune interrupted before they
+    /// are gone leaves the container looking unpruned and re-runs to completion.
+    pub fn prune_from(&self, height: u32) -> Result<()> {
+        // One pass over the height index: tally the survivors (`height < target`)
+        // per container and note which containers carry anything to drop.
+        let mut survivors: BTreeMap<u8, u64> = BTreeMap::new();
+        let mut to_prune: BTreeSet<u8> = BTreeSet::new();
+        for kv in self.heights.iter() {
+            let (key, value) = kv?;
+            let container_id = key[0];
+            let stored = u32::from_be_bytes(value.as_ref().try_into().context("invalid height")?);
+            if stored < height {
+                *survivors.entry(container_id).or_insert(0) += 1;
+            } else {
+                to_prune.insert(container_id);
+            }
+        }
+
+        for container_id in to_prune {
+            let keep = survivors.get(&container_id).copied().unwrap_or(0);
+
+            // Truncate the MMR first. Identifying the rows to clean below works
+            // off the index trees, not the leaves, so it survives this removing
+            // them; doing it first keeps the still-intact height rows as the
+            // re-run marker.
+            StoredMmr::<Sha256Hasher>::prune_after(
+                &self.container(container_id),
+                LeafPos::new(keep),
+            )?;
+
+            // Clear reverse-index rows pointing past the survivors. Scanning by
+            // stored index avoids reading leaf hashes back out of the now
+            // truncated MMR.
+            let mut stale_hashes = Vec::new();
+            for kv in self.index_by_hash.scan_prefix([container_id]) {
+                let (key, idx) = kv?;
+                if decode_idx(idx.as_ref())? >= keep {
+                    stale_hashes.push(key);
+                }
+            }
+            for key in stale_hashes {
+                self.index_by_hash.remove(key)?;
+            }
+
+            // Clear the height rows last: they mark the prune as pending, so they
+            // outlive the MMR truncation and reverse-index cleanup above.
+            let mut stale_heights = Vec::new();
+            for kv in self.heights.scan_prefix([container_id]) {
+                let (key, _) = kv?;
+                let idx = u64::from_be_bytes(key[1..].try_into().context("invalid mmr_index")?);
+                if idx >= keep {
+                    stale_heights.push(key);
+                }
+            }
+            for key in stale_heights {
+                self.heights.remove(key)?;
+            }
+        }
+        Ok(())
+    }
+
     /// Synchronous variant of [`ExportEntriesDb::find_entry_index`]. See [`Self::append`].
     pub fn find_index(&self, container_id: u8, hash: &[u8; 32]) -> Result<Option<(u64, u32)>> {
         let hash_key = encode_hash_key(container_id, hash);
@@ -222,6 +296,10 @@ impl ExportEntriesDb for SledExportEntriesDb {
         at_leaf_count: u64,
     ) -> Result<MerkleProofB32> {
         self.generate_proof(container_id, mmr_index, at_leaf_count)
+    }
+
+    async fn prune_entries_from(&self, height: u32) -> Result<()> {
+        self.prune_from(height)
     }
 }
 
@@ -417,6 +495,70 @@ mod tests {
 
         let compact = rebuild_compact_mmr(&store, 9, 5);
         assert!(compact.verify(&decoded, &hash(3)));
+    }
+
+    #[test]
+    fn prune_from_drops_suffix_at_or_above_height() {
+        let db = test_db();
+        let store = SledExportEntriesDb::open(&db).unwrap();
+
+        // Container 1: heights 10, 10, 11, 12. Container 2: heights 11, 12.
+        store.append(1, 10, hash(0xa0)).unwrap();
+        store.append(1, 10, hash(0xa1)).unwrap();
+        store.append(1, 11, hash(0xa2)).unwrap();
+        store.append(1, 12, hash(0xa3)).unwrap();
+        store.append(2, 11, hash(0xb0)).unwrap();
+        store.append(2, 12, hash(0xb1)).unwrap();
+
+        store.prune_from(11).unwrap();
+
+        // Only the height-10 leaves of container 1 survive; container 2 is empty.
+        assert_eq!(store.num_entries(1).unwrap(), 2);
+        assert_eq!(store.num_entries(2).unwrap(), 0);
+        assert_eq!(store.get(1, 0).unwrap(), Some((10, hash(0xa0))));
+        assert_eq!(store.get(1, 1).unwrap(), Some((10, hash(0xa1))));
+        assert!(store.get(1, 2).unwrap().is_none());
+
+        // The reverse index drops the pruned hashes too.
+        assert_eq!(store.find_index(1, &hash(0xa1)).unwrap(), Some((1, 10)));
+        assert_eq!(store.find_index(1, &hash(0xa2)).unwrap(), None);
+        assert_eq!(store.find_index(2, &hash(0xb0)).unwrap(), None);
+    }
+
+    #[test]
+    fn prune_from_above_tip_is_noop() {
+        let db = test_db();
+        let store = SledExportEntriesDb::open(&db).unwrap();
+        store.append(1, 10, hash(0xa0)).unwrap();
+        store.append(1, 11, hash(0xa1)).unwrap();
+
+        store.prune_from(99).unwrap();
+
+        assert_eq!(store.num_entries(1).unwrap(), 2);
+        assert_eq!(store.find_index(1, &hash(0xa1)).unwrap(), Some((1, 11)));
+    }
+
+    #[test]
+    fn prune_from_is_idempotent_and_reappendable() {
+        let db = test_db();
+        let store = SledExportEntriesDb::open(&db).unwrap();
+        for i in 0u8..4 {
+            store.append(1, 10 + i as u32, hash(i)).unwrap();
+        }
+
+        store.prune_from(11).unwrap();
+        // Re-running converges to the same state.
+        store.prune_from(11).unwrap();
+        assert_eq!(store.num_entries(1).unwrap(), 1);
+
+        // After pruning the MMR is appendable again, assigning the freed indices
+        // and producing proofs that verify against a fresh replay.
+        assert_eq!(store.append(1, 11, hash(0xc0)).unwrap(), 1);
+        assert_eq!(store.append(1, 12, hash(0xc1)).unwrap(), 2);
+
+        let compact = rebuild_compact_mmr(&store, 1, 3);
+        let proof = store.generate_proof(1, 2, 3).unwrap();
+        assert!(compact.verify(&proof, &hash(0xc1)));
     }
 
     /// Exercises the async [`ExportEntriesDb`] trait surface, proving the

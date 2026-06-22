@@ -169,4 +169,10 @@ impl ExportEntryStore for MohoWorkerContextImpl {
         }
         Ok(())
     }
+
+    fn prune_export_entries_from(&self, height: u32) -> MohoWorkerResult<()> {
+        self.export_entries_db
+            .prune_from(height)
+            .map_err(|e| MohoWorkerError::Storage(e.to_string()))
+    }
 }

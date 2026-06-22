@@ -105,6 +105,25 @@ pub trait ExportEntryStore {
         height: u32,
         entries: Vec<[u8; 32]>,
     ) -> MohoWorkerResult<()>;
+
+    /// Drops every export-entry leaf inserted at `height` or above, across all
+    /// containers, rolling each container's MMR back to the leaves contributed
+    /// by blocks below `height`.
+    ///
+    /// Called when an L1 reorg replaces the block at `height`: the replacement
+    /// can append a different set of leaves than the block it evicts, so the
+    /// stale leaves — and everything appended after them — must be cleared
+    /// before the new block is folded and re-appends its own. The worker folds
+    /// blocks in ascending height, so the leaves at or above `height` are always
+    /// a contiguous suffix of each container's MMR.
+    ///
+    /// Must be idempotent in `height`: like [`store_export_entries`], this runs
+    /// before the block's commit point, so a crash mid-reorg has the worker
+    /// reprocess the block and prune again. Pruning an already-pruned range must
+    /// be a no-op.
+    ///
+    /// [`store_export_entries`]: Self::store_export_entries
+    fn prune_export_entries_from(&self, height: u32) -> MohoWorkerResult<()>;
 }
 
 /// Context the Moho worker interacts with the outside world through.

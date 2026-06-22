@@ -57,4 +57,16 @@ pub trait ExportEntriesDb {
         mmr_index: u64,
         at_leaf_count: u64,
     ) -> impl Future<Output = Result<MerkleProofB32, Self::Error>> + Send;
+
+    /// Removes every entry inserted at `height` or above, across all containers,
+    /// truncating each container's MMR back to the leaves below `height`.
+    ///
+    /// Used to undo an L1 reorg before the replacement block at `height`
+    /// re-appends its own entries. Entries are appended in ascending height, so
+    /// those at or above `height` form a contiguous suffix of each container.
+    /// Idempotent: pruning an already-pruned range resolves to no change.
+    fn prune_entries_from(
+        &self,
+        height: u32,
+    ) -> impl Future<Output = Result<(), Self::Error>> + Send;
 }

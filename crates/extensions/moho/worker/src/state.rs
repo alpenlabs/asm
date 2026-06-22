@@ -229,6 +229,13 @@ mod tests {
             }
             Ok(())
         }
+
+        fn prune_export_entries_from(&self, height: u32) -> MohoWorkerResult<()> {
+            self.export_entries
+                .borrow_mut()
+                .retain(|(_, h, _)| *h < height);
+            Ok(())
+        }
     }
 
     /// Builds a genesis anchor state and its commitment from arbitrary params.
