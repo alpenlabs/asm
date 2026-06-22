@@ -216,15 +216,26 @@ impl ContainerView<'_> {
     ///
     /// Leaves are appended in ascending height with monotonic start indices, so
     /// the first height at or above `from_height` owns the lowest dropped index.
+    /// Two `O(log n)` seeks find it: the cutoff itself if that height is
+    /// populated, else the next populated height above it. On forward progress —
+    /// the common per-block prune, where nothing sits at or above `from_height` —
+    /// both miss within this container without scanning its height rows.
     fn first_dropped_index(&self, from_height: u32) -> Result<Option<u64>> {
-        for kv in self.index_by_height.scan_prefix([self.id]) {
-            let (key, start_bytes) = kv?;
-            let h = decode_height(&key[1..]);
-            if h >= from_height {
-                return Ok(Some(decode_idx(start_bytes.as_ref())));
-            }
+        let cutoff = self.height_key(from_height);
+
+        // The cutoff height is itself populated: its run is the first dropped.
+        if let Some(start_bytes) = self.index_by_height.get(cutoff)? {
+            return Ok(Some(decode_idx(start_bytes.as_ref())));
         }
-        Ok(None)
+
+        // Otherwise the first populated height above it. The next key could
+        // belong to the following container, so bound the seek to this one.
+        match self.index_by_height.get_gt(cutoff)? {
+            Some((next_key, start_bytes)) if next_key[0] == self.id => {
+                Ok(Some(decode_idx(start_bytes.as_ref())))
+            }
+            _ => Ok(None),
+        }
     }
 
     /// Truncates the MMR to the leaves below `first_dropped`, discarding that
