@@ -29,39 +29,224 @@ fn decode_node(value: sled::IVec) -> [u8; 32] {
         .expect("mmr node value must be 32 bytes")
 }
 
-/// One container's view onto the shared node tree, namespacing every key with
-/// `container_id` so each container is an independent MMR.
+/// One container's view onto the shared trees, namespacing every key with its
+/// `id` so each container is an independent MMR with its own height and hash
+/// indexes. All per-container reads and writes go through here; the keys never
+/// escape this type. Implements [`MmrNodeStore`] over the node tree, so the
+/// [`StoredMmr`] operations apply directly to `self`.
 #[derive(Debug)]
-struct ContainerNodes<'a> {
-    tree: &'a sled::Tree,
-    container_id: u8,
+struct ContainerView<'a> {
+    nodes: &'a sled::Tree,
+    heights: &'a sled::Tree,
+    index_by_hash: &'a sled::Tree,
+    index_by_height: &'a sled::Tree,
+    id: u8,
 }
 
-impl ContainerNodes<'_> {
-    /// `container_id || NodePos::to_key()`.
-    fn key(&self, pos: NodePos) -> [u8; 10] {
+impl ContainerView<'_> {
+    /// `id || NodePos::to_key()` — key into the MMR node tree.
+    fn node_key(&self, pos: NodePos) -> [u8; 10] {
         let mut key = [0u8; 10];
-        key[0] = self.container_id;
+        key[0] = self.id;
         key[1..].copy_from_slice(&pos.to_key());
         key
     }
+
+    /// `id || mmr_index` — key into the per-leaf height map.
+    fn leaf_key(&self, mmr_index: u64) -> [u8; 9] {
+        let mut key = [0u8; 9];
+        key[0] = self.id;
+        key[1..].copy_from_slice(&mmr_index.to_be_bytes());
+        key
+    }
+
+    /// `id || hash` — key into the reverse `hash → index` map.
+    fn hash_key(&self, hash: &[u8; 32]) -> [u8; 33] {
+        let mut key = [0u8; 33];
+        key[0] = self.id;
+        key[1..].copy_from_slice(hash);
+        key
+    }
+
+    /// `id || height` — key into the `height → first index` map.
+    fn height_key(&self, height: u32) -> [u8; 5] {
+        let mut key = [0u8; 5];
+        key[0] = self.id;
+        key[1..].copy_from_slice(&height.to_be_bytes());
+        key
+    }
+
+    /// Reads the insertion height stored for `mmr_index`.
+    fn height_at(&self, mmr_index: u64) -> Result<Option<u32>> {
+        match self.heights.get(self.leaf_key(mmr_index))? {
+            Some(bytes) => Ok(Some(u32::from_be_bytes(
+                bytes.as_ref().try_into().context("invalid height bytes")?,
+            ))),
+            None => Ok(None),
+        }
+    }
+
+    /// See [`SledExportEntriesDb::append`].
+    fn append(&self, height: u32, entry: [u8; 32]) -> Result<u64> {
+        let hash_key = self.hash_key(&entry);
+        if let Some(existing) = self.index_by_hash.get(hash_key)? {
+            return decode_idx(existing.as_ref());
+        }
+
+        // Append the leaf (and its recomputed ancestors) to the node store,
+        // then record its height and reverse index. The reverse index is the
+        // dedup gate, so it is written last: a crash before it leaves the
+        // block uncommitted and the worker reprocesses it on restart.
+        let index = StoredMmr::<Sha256Hasher>::append_leaf(self, entry)?;
+        self.heights
+            .insert(self.leaf_key(index), &height.to_be_bytes())?;
+        // Record where this height's leaves begin, on the first leaf of the
+        // height only — later leaves of the same block extend the run and must
+        // not move its start.
+        let height_key = self.height_key(height);
+        if self.index_by_height.get(height_key)?.is_none() {
+            self.index_by_height
+                .insert(height_key, &index.to_be_bytes())?;
+        }
+        self.index_by_hash.insert(hash_key, &index.to_be_bytes())?;
+        Ok(index)
+    }
+
+    /// See [`SledExportEntriesDb::put`].
+    fn put(&self, height: u32, entries: Vec<[u8; 32]>) -> Result<()> {
+        for entry in entries {
+            self.append(height, entry)?;
+        }
+        Ok(())
+    }
+
+    /// See [`SledExportEntriesDb::num_entries`].
+    fn num_entries(&self) -> Result<u64> {
+        Ok(StoredMmr::<Sha256Hasher>::leaf_count(self)?)
+    }
+
+    /// See [`SledExportEntriesDb::find_index`].
+    fn find_index(&self, hash: &[u8; 32]) -> Result<Option<(u64, u32)>> {
+        let Some(idx_bytes) = self.index_by_hash.get(self.hash_key(hash))? else {
+            return Ok(None);
+        };
+        let mmr_index = decode_idx(idx_bytes.as_ref())?;
+        let height = self
+            .height_at(mmr_index)?
+            .context("secondary index points at missing primary entry")?;
+        Ok(Some((mmr_index, height)))
+    }
+
+    /// See [`SledExportEntriesDb::get`].
+    fn get(&self, mmr_index: u64) -> Result<Option<(u32, [u8; 32])>> {
+        let Some(hash) = StoredMmr::<Sha256Hasher>::get_leaf(self, mmr_index)? else {
+            return Ok(None);
+        };
+        let height = self
+            .height_at(mmr_index)?
+            .context("leaf present but its height is missing")?;
+        Ok(Some((height, hash)))
+    }
+
+    /// See [`SledExportEntriesDb::leaf_range_at_height`].
+    fn leaf_range_at_height(&self, height: u32) -> Result<Option<Range<u64>>> {
+        let start_key = self.height_key(height);
+        let Some(start_bytes) = self.index_by_height.get(start_key)? else {
+            return Ok(None);
+        };
+        let start = decode_idx(start_bytes.as_ref())?;
+
+        // The end is the start of the next populated height in this container.
+        // The next key in the tree could belong to the following container, so
+        // bound the scan to this one and fall back to the leaf count.
+        let end = match self.index_by_height.get_gt(start_key)? {
+            Some((next_key, next_bytes)) if next_key[0] == self.id => {
+                decode_idx(next_bytes.as_ref())?
+            }
+            _ => self.num_entries()?,
+        };
+        Ok(Some(start..end))
+    }
+
+    /// See [`SledExportEntriesDb::generate_proof`].
+    fn generate_proof(&self, mmr_index: u64, at_leaf_count: u64) -> Result<MerkleProofB32> {
+        let proof =
+            StoredMmr::<Sha256Hasher>::generate_proof_at_size(self, mmr_index, at_leaf_count)?;
+        Ok(MerkleProofB32::from_generic(&proof))
+    }
+
+    /// Truncates this container to its first `keep` leaves and clears the index
+    /// rows for the dropped suffix. `from_height` is the prune target: the
+    /// height-start rows at or above it map exactly onto the truncated leaves.
+    /// The per-container half of [`SledExportEntriesDb::prune_from`]; its crash
+    /// safety is documented there.
+    fn truncate(&self, keep: u64, from_height: u32) -> Result<()> {
+        // Truncate the MMR first. Identifying the rows to clean below works off
+        // the index trees, not the leaves, so it survives this removing them;
+        // doing it first keeps the still-intact height rows as the re-run marker.
+        StoredMmr::<Sha256Hasher>::prune_after(self, LeafPos::new(keep))?;
+
+        // Clear reverse-index rows pointing past the survivors. Scanning by
+        // stored index avoids reading leaf hashes back out of the now truncated
+        // MMR.
+        let mut stale_hashes = Vec::new();
+        for kv in self.index_by_hash.scan_prefix([self.id]) {
+            let (key, idx) = kv?;
+            if decode_idx(idx.as_ref())? >= keep {
+                stale_hashes.push(key);
+            }
+        }
+        for key in stale_hashes {
+            self.index_by_hash.remove(key)?;
+        }
+
+        // Clear the height-start rows for the dropped heights. Keyed by height,
+        // so the rows at or above the target map exactly onto the truncated
+        // leaves.
+        let mut stale_starts = Vec::new();
+        for kv in self.index_by_height.scan_prefix([self.id]) {
+            let (key, _) = kv?;
+            let h = u32::from_be_bytes(key[1..].try_into().context("invalid height")?);
+            if h >= from_height {
+                stale_starts.push(key);
+            }
+        }
+        for key in stale_starts {
+            self.index_by_height.remove(key)?;
+        }
+
+        // Clear the height rows last: they mark the prune as pending, so they
+        // outlive the MMR truncation and reverse-index cleanup above.
+        let mut stale_heights = Vec::new();
+        for kv in self.heights.scan_prefix([self.id]) {
+            let (key, _) = kv?;
+            let idx = u64::from_be_bytes(key[1..].try_into().context("invalid mmr_index")?);
+            if idx >= keep {
+                stale_heights.push(key);
+            }
+        }
+        for key in stale_heights {
+            self.heights.remove(key)?;
+        }
+        Ok(())
+    }
 }
 
-impl MmrNodeStore for ContainerNodes<'_> {
+impl MmrNodeStore for ContainerView<'_> {
     type Hash = [u8; 32];
     type Error = sled::Error;
 
     fn get_node(&self, pos: NodePos) -> Result<Option<[u8; 32]>, sled::Error> {
-        Ok(self.tree.get(self.key(pos))?.map(decode_node))
+        Ok(self.nodes.get(self.node_key(pos))?.map(decode_node))
     }
 
     fn put_node(&self, pos: NodePos, value: [u8; 32]) -> Result<(), sled::Error> {
-        self.tree.insert(self.key(pos), value.as_slice())?;
+        self.nodes.insert(self.node_key(pos), value.as_slice())?;
         Ok(())
     }
 
     fn delete_node(&self, pos: NodePos) -> Result<(), sled::Error> {
-        self.tree.remove(self.key(pos))?;
+        self.nodes.remove(self.node_key(pos))?;
         Ok(())
     }
 
@@ -74,13 +259,13 @@ impl MmrNodeStore for ContainerNodes<'_> {
         // Apply deletes before writes so a position in both ends up stored, per
         // the `MmrNodeStore::commit` contract.
         for pos in deletes {
-            batch.remove(self.key(*pos).as_slice());
+            batch.remove(self.node_key(*pos).as_slice());
         }
         for (pos, value) in writes {
-            let key = self.key(*pos);
+            let key = self.node_key(*pos);
             batch.insert(key.as_slice(), value.as_slice());
         }
-        self.tree.apply_batch(batch)
+        self.nodes.apply_batch(batch)
     }
 }
 
@@ -106,73 +291,43 @@ impl SledExportEntriesDb {
         })
     }
 
-    /// The MMR view for `container_id`.
-    fn container(&self, container_id: u8) -> ContainerNodes<'_> {
-        ContainerNodes {
-            tree: &self.nodes,
-            container_id,
-        }
-    }
-
-    /// Reads the insertion height stored for `(container_id, mmr_index)`.
-    fn height_at(&self, container_id: u8, mmr_index: u64) -> Result<Option<u32>> {
-        match self.heights.get(encode_key(container_id, mmr_index))? {
-            Some(bytes) => Ok(Some(u32::from_be_bytes(
-                bytes.as_ref().try_into().context("invalid height bytes")?,
-            ))),
-            None => Ok(None),
-        }
-    }
-
-    /// Synchronous variant of [`ExportEntriesDb::append_entry`].
+    /// One container's view onto the shared trees.
     ///
-    /// The Moho worker appends entries from its synchronous `ExportEntryStore`
-    /// impl while running as an async service, so it calls these sync methods
-    /// directly rather than the async trait below.
-    pub fn append(&self, container_id: u8, height: u32, entry: [u8; 32]) -> Result<u64> {
-        let hash_key = encode_hash_key(container_id, &entry);
-        if let Some(existing) = self.index_by_hash.get(hash_key)? {
-            return decode_idx(existing.as_ref());
+    /// The Moho worker drives these synchronous methods from its
+    /// `ExportEntryStore` impl while running as an async service, so it calls
+    /// them directly rather than the async [`ExportEntriesDb`] trait below.
+    fn container(&self, container_id: u8) -> ContainerView<'_> {
+        ContainerView {
+            nodes: &self.nodes,
+            heights: &self.heights,
+            index_by_hash: &self.index_by_hash,
+            index_by_height: &self.index_by_height,
+            id: container_id,
         }
-
-        // Append the leaf (and its recomputed ancestors) to the node store,
-        // then record its height and reverse index. The reverse index is the
-        // dedup gate, so it is written last: a crash before it leaves the
-        // block uncommitted and the worker reprocesses it on restart.
-        let index = StoredMmr::<Sha256Hasher>::append_leaf(&self.container(container_id), entry)?;
-        self.heights
-            .insert(encode_key(container_id, index), &height.to_be_bytes())?;
-        // Record where this height's leaves begin, on the first leaf of the
-        // height only — later leaves of the same block extend the run and must
-        // not move its start.
-        let height_key = encode_height_key(container_id, height);
-        if self.index_by_height.get(height_key)?.is_none() {
-            self.index_by_height
-                .insert(height_key, &index.to_be_bytes())?;
-        }
-        self.index_by_hash.insert(hash_key, &index.to_be_bytes())?;
-        Ok(index)
     }
 
-    /// Synchronous variant of [`ExportEntriesDb::put_entries`]. See [`Self::append`].
+    /// Appends `entry` for `container_id` and resolves to its `mmr_index`.
+    ///
+    /// Idempotent: a duplicate `(container_id, entry)` resolves to the original
+    /// index unchanged, so block replays after restart are a no-op.
+    pub fn append(&self, container_id: u8, height: u32, entry: [u8; 32]) -> Result<u64> {
+        self.container(container_id).append(height, entry)
+    }
+
+    /// Synchronous variant of [`ExportEntriesDb::put_entries`].
     ///
     /// Appends `entries` in order, each at `height`, idempotent per entry like
     /// [`Self::append`].
     pub fn put(&self, container_id: u8, height: u32, entries: Vec<[u8; 32]>) -> Result<()> {
-        for entry in entries {
-            self.append(container_id, height, entry)?;
-        }
-        Ok(())
+        self.container(container_id).put(height, entries)
     }
 
-    /// Synchronous variant of [`ExportEntriesDb::entry_count`]. See [`Self::append`].
+    /// Synchronous variant of [`ExportEntriesDb::entry_count`].
     pub fn num_entries(&self, container_id: u8) -> Result<u64> {
-        Ok(StoredMmr::<Sha256Hasher>::leaf_count(
-            &self.container(container_id),
-        )?)
+        self.container(container_id).num_entries()
     }
 
-    /// Synchronous variant of [`ExportEntriesDb::entry_range_at_height`]. See [`Self::append`].
+    /// Synchronous variant of [`ExportEntriesDb::entry_range_at_height`].
     ///
     /// Returns the half-open range of leaf indices `container_id` gained at
     /// `height`, or `None` if no leaf was inserted at that height. Leaves are
@@ -184,25 +339,10 @@ impl SledExportEntriesDb {
         container_id: u8,
         height: u32,
     ) -> Result<Option<Range<u64>>> {
-        let start_key = encode_height_key(container_id, height);
-        let Some(start_bytes) = self.index_by_height.get(start_key)? else {
-            return Ok(None);
-        };
-        let start = decode_idx(start_bytes.as_ref())?;
-
-        // The end is the start of the next populated height in this container.
-        // The next key in the tree could belong to the following container, so
-        // bound the scan to this one and fall back to the leaf count.
-        let end = match self.index_by_height.get_gt(start_key)? {
-            Some((next_key, next_bytes)) if next_key[0] == container_id => {
-                decode_idx(next_bytes.as_ref())?
-            }
-            _ => self.num_entries(container_id)?,
-        };
-        Ok(Some(start..end))
+        self.container(container_id).leaf_range_at_height(height)
     }
 
-    /// Synchronous variant of [`ExportEntriesDb::prune_entries_from`]. See [`Self::append`].
+    /// Synchronous variant of [`ExportEntriesDb::prune_entries_from`].
     ///
     /// Drops every leaf inserted at `height` or above from all containers:
     /// truncates each container's MMR to the leaves below `height` and removes
@@ -233,89 +373,22 @@ impl SledExportEntriesDb {
 
         for container_id in to_prune {
             let keep = survivors.get(&container_id).copied().unwrap_or(0);
-
-            // Truncate the MMR first. Identifying the rows to clean below works
-            // off the index trees, not the leaves, so it survives this removing
-            // them; doing it first keeps the still-intact height rows as the
-            // re-run marker.
-            StoredMmr::<Sha256Hasher>::prune_after(
-                &self.container(container_id),
-                LeafPos::new(keep),
-            )?;
-
-            // Clear reverse-index rows pointing past the survivors. Scanning by
-            // stored index avoids reading leaf hashes back out of the now
-            // truncated MMR.
-            let mut stale_hashes = Vec::new();
-            for kv in self.index_by_hash.scan_prefix([container_id]) {
-                let (key, idx) = kv?;
-                if decode_idx(idx.as_ref())? >= keep {
-                    stale_hashes.push(key);
-                }
-            }
-            for key in stale_hashes {
-                self.index_by_hash.remove(key)?;
-            }
-
-            // Clear the height-start rows for the dropped heights. Keyed by
-            // height, so the rows at or above the target map exactly onto the
-            // truncated leaves.
-            let mut stale_starts = Vec::new();
-            for kv in self.index_by_height.scan_prefix([container_id]) {
-                let (key, _) = kv?;
-                let h = u32::from_be_bytes(key[1..].try_into().context("invalid height")?);
-                if h >= height {
-                    stale_starts.push(key);
-                }
-            }
-            for key in stale_starts {
-                self.index_by_height.remove(key)?;
-            }
-
-            // Clear the height rows last: they mark the prune as pending, so they
-            // outlive the MMR truncation and reverse-index cleanup above.
-            let mut stale_heights = Vec::new();
-            for kv in self.heights.scan_prefix([container_id]) {
-                let (key, _) = kv?;
-                let idx = u64::from_be_bytes(key[1..].try_into().context("invalid mmr_index")?);
-                if idx >= keep {
-                    stale_heights.push(key);
-                }
-            }
-            for key in stale_heights {
-                self.heights.remove(key)?;
-            }
+            self.container(container_id).truncate(keep, height)?;
         }
         Ok(())
     }
 
-    /// Synchronous variant of [`ExportEntriesDb::find_entry_index`]. See [`Self::append`].
+    /// Synchronous variant of [`ExportEntriesDb::find_entry_index`].
     pub fn find_index(&self, container_id: u8, hash: &[u8; 32]) -> Result<Option<(u64, u32)>> {
-        let hash_key = encode_hash_key(container_id, hash);
-        let Some(idx_bytes) = self.index_by_hash.get(hash_key)? else {
-            return Ok(None);
-        };
-        let mmr_index = decode_idx(idx_bytes.as_ref())?;
-        let height = self
-            .height_at(container_id, mmr_index)?
-            .context("secondary index points at missing primary entry")?;
-        Ok(Some((mmr_index, height)))
+        self.container(container_id).find_index(hash)
     }
 
-    /// Synchronous variant of [`ExportEntriesDb::get_entry`]. See [`Self::append`].
+    /// Synchronous variant of [`ExportEntriesDb::get_entry`].
     pub fn get(&self, container_id: u8, mmr_index: u64) -> Result<Option<(u32, [u8; 32])>> {
-        let Some(hash) =
-            StoredMmr::<Sha256Hasher>::get_leaf(&self.container(container_id), mmr_index)?
-        else {
-            return Ok(None);
-        };
-        let height = self
-            .height_at(container_id, mmr_index)?
-            .context("leaf present but its height is missing")?;
-        Ok(Some((height, hash)))
+        self.container(container_id).get(mmr_index)
     }
 
-    /// Synchronous variant of [`ExportEntriesDb::generate_entry_proof`]. See [`Self::append`].
+    /// Synchronous variant of [`ExportEntriesDb::generate_entry_proof`].
     ///
     /// `O(log n)`: walks the stored sibling path rather than replaying leaves.
     /// The store yields a generic [`MerkleProof`](strata_merkle::MerkleProof);
@@ -327,12 +400,8 @@ impl SledExportEntriesDb {
         mmr_index: u64,
         at_leaf_count: u64,
     ) -> Result<MerkleProofB32> {
-        let proof = StoredMmr::<Sha256Hasher>::generate_proof_at_size(
-            &self.container(container_id),
-            mmr_index,
-            at_leaf_count,
-        )?;
-        Ok(MerkleProofB32::from_generic(&proof))
+        self.container(container_id)
+            .generate_proof(mmr_index, at_leaf_count)
     }
 }
 
@@ -384,27 +453,6 @@ impl ExportEntriesDb for SledExportEntriesDb {
     ) -> Result<Option<Range<u64>>> {
         self.leaf_range_at_height(container_id, height)
     }
-}
-
-fn encode_key(container_id: u8, mmr_index: u64) -> [u8; 9] {
-    let mut key = [0u8; 9];
-    key[0] = container_id;
-    key[1..].copy_from_slice(&mmr_index.to_be_bytes());
-    key
-}
-
-fn encode_height_key(container_id: u8, height: u32) -> [u8; 5] {
-    let mut key = [0u8; 5];
-    key[0] = container_id;
-    key[1..].copy_from_slice(&height.to_be_bytes());
-    key
-}
-
-fn encode_hash_key(container_id: u8, hash: &[u8; 32]) -> [u8; 33] {
-    let mut key = [0u8; 33];
-    key[0] = container_id;
-    key[1..].copy_from_slice(hash);
-    key
 }
 
 fn decode_idx(bytes: &[u8]) -> Result<u64> {
