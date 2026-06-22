@@ -140,6 +140,17 @@ impl SledExportEntriesDb {
         Ok(index)
     }
 
+    /// Synchronous variant of [`ExportEntriesDb::put_entries`]. See [`Self::append`].
+    ///
+    /// Appends `entries` in order, each at `height`, idempotent per entry like
+    /// [`Self::append`].
+    pub fn put(&self, container_id: u8, height: u32, entries: Vec<[u8; 32]>) -> Result<()> {
+        for entry in entries {
+            self.append(container_id, height, entry)?;
+        }
+        Ok(())
+    }
+
     /// Synchronous variant of [`ExportEntriesDb::entry_count`]. See [`Self::append`].
     pub fn num_entries(&self, container_id: u8) -> Result<u64> {
         Ok(StoredMmr::<Sha256Hasher>::leaf_count(
@@ -269,8 +280,13 @@ impl SledExportEntriesDb {
 impl ExportEntriesDb for SledExportEntriesDb {
     type Error = anyhow::Error;
 
-    async fn append_entry(&self, container_id: u8, height: u32, entry: [u8; 32]) -> Result<u64> {
-        self.append(container_id, height, entry)
+    async fn put_entries(
+        &self,
+        container_id: u8,
+        height: u32,
+        entries: Vec<[u8; 32]>,
+    ) -> Result<()> {
+        self.put(container_id, height, entries)
     }
 
     async fn entry_count(&self, container_id: u8) -> Result<u64> {
@@ -569,8 +585,11 @@ mod tests {
         let store = SledExportEntriesDb::open(&db).unwrap();
 
         Runtime::new().unwrap().block_on(async {
-            assert_eq!(store.append_entry(1, 10, hash(0xa1)).await.unwrap(), 0);
-            assert_eq!(store.entry_count(1).await.unwrap(), 1);
+            store
+                .put_entries(1, 10, vec![hash(0xa1), hash(0xa2)])
+                .await
+                .unwrap();
+            assert_eq!(store.entry_count(1).await.unwrap(), 2);
             assert_eq!(
                 store.find_entry_index(1, hash(0xa1)).await.unwrap(),
                 Some((0, 10))
@@ -580,6 +599,9 @@ mod tests {
             let proof = store.generate_entry_proof(1, 0, 1).await.unwrap();
             let compact = rebuild_compact_mmr(&store, 1, 1);
             assert!(compact.verify(&proof, &hash(0xa1)));
+
+            store.prune_entries_from(10).await.unwrap();
+            assert_eq!(store.entry_count(1).await.unwrap(), 0);
         });
     }
 }

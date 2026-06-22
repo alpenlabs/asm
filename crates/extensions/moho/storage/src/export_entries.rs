@@ -15,17 +15,20 @@ pub trait ExportEntriesDb {
     /// The error type returned by database operations.
     type Error: Debug;
 
-    /// Appends an entry for `container_id` and resolves to its `mmr_index`.
+    /// Appends `entries` for `container_id` in order, each tagged with `height`.
     ///
-    /// Idempotent: a duplicate `(container_id, entry)` resolves to the original
-    /// index unchanged, so block replays after restart are a no-op. Assumes
-    /// `(container_id, entry_hash)` is unique within a correct chain.
-    fn append_entry(
+    /// Mirrors the worker's batched `store_export_entries`: a single block can
+    /// contribute several leaves to one container, handed over in one call.
+    /// Idempotent in `(container_id, entry)` — a duplicate resolves to its
+    /// original index and is not re-appended, so block replays after restart are
+    /// a no-op. Assumes `(container_id, entry_hash)` is unique within a correct
+    /// chain.
+    fn put_entries(
         &self,
         container_id: u8,
         height: u32,
-        entry: [u8; 32],
-    ) -> impl Future<Output = Result<u64, Self::Error>> + Send;
+        entries: Vec<[u8; 32]>,
+    ) -> impl Future<Output = Result<(), Self::Error>> + Send;
 
     /// Resolves to the number of entries currently stored for `container_id`.
     fn entry_count(

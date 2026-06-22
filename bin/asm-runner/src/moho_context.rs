@@ -162,12 +162,9 @@ impl ExportEntryStore for MohoWorkerContextImpl {
         height: u32,
         entries: Vec<[u8; 32]>,
     ) -> MohoWorkerResult<()> {
-        for entry in entries {
-            self.export_entries_db
-                .append(container_id, height, entry)
-                .map_err(|e| MohoWorkerError::Storage(e.to_string()))?;
-        }
-        Ok(())
+        self.export_entries_db
+            .put(container_id, height, entries)
+            .map_err(|e| MohoWorkerError::Storage(e.to_string()))
     }
 
     fn prune_export_entries_from(&self, height: u32) -> MohoWorkerResult<()> {
