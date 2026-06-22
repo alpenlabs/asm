@@ -411,7 +411,7 @@ mod tests {
         let mut export = prev.export_state().clone();
         for (container_id, hash) in entries {
             export.add_entry(*container_id, *hash).unwrap();
-            idx.append(*container_id, at.height(), *hash).unwrap();
+            idx.put(*container_id, at.height(), vec![*hash]).unwrap();
         }
         let next = MohoState::new(
             InnerStateCommitment::from([0u8; 32]),
