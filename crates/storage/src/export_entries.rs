@@ -56,8 +56,22 @@ impl MmrNodeStore for ContainerNodes<'_> {
         Ok(())
     }
 
-    fn commit(&self, writes: &[(NodePos, [u8; 32])]) -> Result<(), sled::Error> {
+    fn delete_node(&self, pos: NodePos) -> Result<(), sled::Error> {
+        self.tree.remove(self.key(pos))?;
+        Ok(())
+    }
+
+    fn commit(
+        &self,
+        writes: &[(NodePos, [u8; 32])],
+        deletes: &[NodePos],
+    ) -> Result<(), sled::Error> {
         let mut batch = sled::Batch::default();
+        // Apply deletes before writes so a position in both ends up stored, per
+        // the `MmrNodeStore::commit` contract.
+        for pos in deletes {
+            batch.remove(self.key(*pos).as_slice());
+        }
         for (pos, value) in writes {
             let key = self.key(*pos);
             batch.insert(key.as_slice(), value.as_slice());

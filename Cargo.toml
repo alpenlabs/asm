@@ -91,30 +91,30 @@ strata-test-utils-btcio = { path = "crates/test-utils/btcio" }
 strata-test-utils-checkpoint = { path = "crates/test-utils/checkpoint" }
 
 # Dependencies from alpenlabs/moho
-moho-recursive-proof = { git = "https://github.com/alpenlabs/moho", tag = "v0.1-alpha.9" }
-moho-runtime-impl = { git = "https://github.com/alpenlabs/moho", tag = "v0.1-alpha.9" }
-moho-runtime-interface = { git = "https://github.com/alpenlabs/moho", tag = "v0.1-alpha.9" }
-moho-types = { git = "https://github.com/alpenlabs/moho", tag = "v0.1-alpha.9" }
+moho-recursive-proof = { git = "https://github.com/alpenlabs/moho", tag = "v0.3.0-rc.1" }
+moho-runtime-impl = { git = "https://github.com/alpenlabs/moho", tag = "v0.3.0-rc.1" }
+moho-runtime-interface = { git = "https://github.com/alpenlabs/moho", tag = "v0.3.0-rc.1" }
+moho-types = { git = "https://github.com/alpenlabs/moho", tag = "v0.3.0-rc.1" }
 
 # Dependencies from alpenlabs/strata-common
-strata-btc-types = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.1.0-alpha-rc26" }
+strata-btc-types = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.3.0-rc.1" }
 strata-codec = { git = "https://github.com/alpenlabs/strata-common", features = [
   "derive",
-], tag = "v0.1.0-alpha-rc26" }
-strata-codec-utils = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.1.0-alpha-rc26" }
-strata-crypto = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.1.0-alpha-rc26" }
-strata-identifiers = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.1.0-alpha-rc26" }
-strata-l1-envelope-fmt = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.1.0-alpha-rc26" }
-strata-l1-txfmt = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.1.0-alpha-rc26" }
-strata-logging = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.1.0-alpha-rc26" }
-strata-merkle = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.1.0-alpha-rc26" }
-strata-merkle-node-store = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.1.0-alpha-rc26" }
-strata-msg-fmt = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.1.0-alpha-rc26" }
-strata-ol-logs = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.1.0-alpha-rc26" }
-strata-predicate = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.1.0-alpha-rc26" }
-strata-service = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.1.0-alpha-rc26" }
-strata-ssz-tests = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.1.0-alpha-rc26" }
-strata-tasks = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.1.0-alpha-rc26" }
+], tag = "v0.3.0-rc.1" }
+strata-codec-utils = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.3.0-rc.1" }
+strata-crypto = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.3.0-rc.1" }
+strata-identifiers = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.3.0-rc.1" }
+strata-l1-envelope-fmt = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.3.0-rc.1" }
+strata-l1-txfmt = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.3.0-rc.1" }
+strata-logging = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.3.0-rc.1" }
+strata-merkle = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.3.0-rc.1" }
+strata-merkle-node-store = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.3.0-rc.1" }
+strata-msg-fmt = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.3.0-rc.1" }
+strata-ol-logs = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.3.0-rc.1" }
+strata-predicate = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.3.0-rc.1" }
+strata-service = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.3.0-rc.1" }
+strata-ssz-tests = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.3.0-rc.1" }
+strata-tasks = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.3.0-rc.1" }
 
 # dependencies from alpenlabs/ssz-gen
 ssz = { git = "https://github.com/alpenlabs/ssz-gen", tag = "v0.16.0" }
@@ -126,17 +126,17 @@ tree_hash = { git = "https://github.com/alpenlabs/ssz-gen", tag = "v0.16.0" }
 tree_hash_derive = { git = "https://github.com/alpenlabs/ssz-gen", tag = "v0.16.0" }
 
 # dependencies from alpenlabs/zkaleido
-zkaleido = { git = "https://github.com/alpenlabs/zkaleido", tag = "v0.1-beta.5", features = [
+zkaleido = { git = "https://github.com/alpenlabs/zkaleido", tag = "v0.3.0-rc.1", features = [
   "borsh",
   "remote-prover",
   "serde",
 ] }
-zkaleido-logging = { git = "https://github.com/alpenlabs/zkaleido", tag = "v0.1-beta.5" }
-zkaleido-native-adapter = { git = "https://github.com/alpenlabs/zkaleido", tag = "v0.1-beta.5", features = [
+zkaleido-logging = { git = "https://github.com/alpenlabs/zkaleido", tag = "v0.3.0-rc.1" }
+zkaleido-native-adapter = { git = "https://github.com/alpenlabs/zkaleido", tag = "v0.3.0-rc.1", features = [
   "remote-prover",
 ] }
-zkaleido-sp1-groth16-verifier = { git = "https://github.com/alpenlabs/zkaleido", tag = "v0.1-beta.5" }
-zkaleido-sp1-host = { git = "https://github.com/alpenlabs/zkaleido", tag = "v0.1-beta.5" }
+zkaleido-sp1-groth16-verifier = { git = "https://github.com/alpenlabs/zkaleido", tag = "v0.3.0-rc.1" }
+zkaleido-sp1-host = { git = "https://github.com/alpenlabs/zkaleido", tag = "v0.3.0-rc.1" }
 
 sp1-sdk = "6.2.0"
 sp1-verifier = "6.2.0"
