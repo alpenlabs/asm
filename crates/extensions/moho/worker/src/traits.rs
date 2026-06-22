@@ -100,8 +100,6 @@ pub trait ExportEntryStore {
     /// reprocessing a block (after a crash or an L1 reorg) the worker first
     /// prunes its height via [`prune_export_entries_from`], so the leaves it
     /// then stores always extend a clean prefix.
-    ///
-    /// [`prune_export_entries_from`]: Self::prune_export_entries_from
     fn store_export_entries(
         &self,
         container_id: u8,
@@ -124,8 +122,6 @@ pub trait ExportEntryStore {
     /// before the block's commit point, so a crash mid-reorg has the worker
     /// reprocess the block and prune again. Pruning an already-pruned range must
     /// be a no-op.
-    ///
-    /// [`store_export_entries`]: Self::store_export_entries
     fn prune_export_entries_from(&self, height: u32) -> MohoWorkerResult<()>;
 }
 

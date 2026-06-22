@@ -338,7 +338,7 @@ impl MmrNodeStore for ContainerView<'_> {
 /// indexes needed to look entries up by height or by hash.
 ///
 /// The trees are shared across all containers; every key is namespaced by a
-/// leading `container_id` byte (see [`ContainerView`]), so a container behaves as
+/// leading `container_id` byte, so a container behaves as
 /// its own isolated MMR.
 ///
 /// The synchronous methods below are the primary surface: the Moho worker drives
@@ -347,8 +347,6 @@ impl MmrNodeStore for ContainerView<'_> {
 /// bottom of this file.
 #[derive(Debug, Clone)]
 pub struct SledExportEntriesDb {
-    /// The shared trees; per-tree key layouts and semantics are documented on
-    /// [`ContainerView`], the per-container view that owns the read/write logic.
     nodes: sled::Tree,
     index_by_hash: sled::Tree,
     index_by_height: sled::Tree,
