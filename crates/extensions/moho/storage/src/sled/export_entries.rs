@@ -2,11 +2,15 @@
 //!
 //! Backed by [`strata_merkle_node_store`]: every MMR node is persisted, so a
 //! proof is `O(log n)` with no leaf replay. Containers share one node tree,
-//! namespaced by `container_id`. Alongside the nodes we keep two small indexes
-//! the MMR itself does not carry: the insertion height per leaf, and a reverse
-//! `hash → index` map for lookups and append idempotency.
+//! namespaced by `container_id`. Alongside the nodes we keep three small indexes
+//! the MMR itself does not carry: the insertion height per leaf, a reverse
+//! `hash → index` map for lookups and append idempotency, and a
+//! `height → first index` map locating where each block's leaves begin.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    ops::Range,
+};
 
 use anyhow::{Context, Result};
 use strata_merkle::{MerkleProofB32, Sha256Hasher};
@@ -81,13 +85,14 @@ impl MmrNodeStore for ContainerNodes<'_> {
 }
 
 /// Sled-backed per-container export-entry store: a namespaced MMR node tree plus
-/// a `(container_id, index) → height` map and a reverse
-/// `(container_id, hash) → index` map.
+/// a `(container_id, index) → height` map, a reverse `(container_id, hash) →
+/// index` map, and a `(container_id, height) → first index` map.
 #[derive(Debug, Clone)]
 pub struct SledExportEntriesDb {
     nodes: sled::Tree,
     heights: sled::Tree,
     index_by_hash: sled::Tree,
+    index_by_height: sled::Tree,
 }
 
 impl SledExportEntriesDb {
@@ -97,6 +102,7 @@ impl SledExportEntriesDb {
             nodes: db.open_tree("export_entry_nodes")?,
             heights: db.open_tree("export_entry_heights")?,
             index_by_hash: db.open_tree("export_entries_by_hash")?,
+            index_by_height: db.open_tree("export_entries_by_height")?,
         })
     }
 
@@ -136,6 +142,14 @@ impl SledExportEntriesDb {
         let index = StoredMmr::<Sha256Hasher>::append_leaf(&self.container(container_id), entry)?;
         self.heights
             .insert(encode_key(container_id, index), &height.to_be_bytes())?;
+        // Record where this height's leaves begin, on the first leaf of the
+        // height only — later leaves of the same block extend the run and must
+        // not move its start.
+        let height_key = encode_height_key(container_id, height);
+        if self.index_by_height.get(height_key)?.is_none() {
+            self.index_by_height
+                .insert(height_key, &index.to_be_bytes())?;
+        }
         self.index_by_hash.insert(hash_key, &index.to_be_bytes())?;
         Ok(index)
     }
@@ -156,6 +170,36 @@ impl SledExportEntriesDb {
         Ok(StoredMmr::<Sha256Hasher>::leaf_count(
             &self.container(container_id),
         )?)
+    }
+
+    /// Synchronous variant of [`ExportEntriesDb::entry_range_at_height`]. See [`Self::append`].
+    ///
+    /// Returns the half-open range of leaf indices `container_id` gained at
+    /// `height`, or `None` if no leaf was inserted at that height. Leaves are
+    /// appended in ascending height, so a height owns a contiguous run: it
+    /// begins at the recorded start index and ends where the next populated
+    /// height begins, or at the leaf count if it is the most recent.
+    pub fn leaf_range_at_height(
+        &self,
+        container_id: u8,
+        height: u32,
+    ) -> Result<Option<Range<u64>>> {
+        let start_key = encode_height_key(container_id, height);
+        let Some(start_bytes) = self.index_by_height.get(start_key)? else {
+            return Ok(None);
+        };
+        let start = decode_idx(start_bytes.as_ref())?;
+
+        // The end is the start of the next populated height in this container.
+        // The next key in the tree could belong to the following container, so
+        // bound the scan to this one and fall back to the leaf count.
+        let end = match self.index_by_height.get_gt(start_key)? {
+            Some((next_key, next_bytes)) if next_key[0] == container_id => {
+                decode_idx(next_bytes.as_ref())?
+            }
+            _ => self.num_entries(container_id)?,
+        };
+        Ok(Some(start..end))
     }
 
     /// Synchronous variant of [`ExportEntriesDb::prune_entries_from`]. See [`Self::append`].
@@ -211,6 +255,21 @@ impl SledExportEntriesDb {
             }
             for key in stale_hashes {
                 self.index_by_hash.remove(key)?;
+            }
+
+            // Clear the height-start rows for the dropped heights. Keyed by
+            // height, so the rows at or above the target map exactly onto the
+            // truncated leaves.
+            let mut stale_starts = Vec::new();
+            for kv in self.index_by_height.scan_prefix([container_id]) {
+                let (key, _) = kv?;
+                let h = u32::from_be_bytes(key[1..].try_into().context("invalid height")?);
+                if h >= height {
+                    stale_starts.push(key);
+                }
+            }
+            for key in stale_starts {
+                self.index_by_height.remove(key)?;
             }
 
             // Clear the height rows last: they mark the prune as pending, so they
@@ -317,12 +376,27 @@ impl ExportEntriesDb for SledExportEntriesDb {
     async fn prune_entries_from(&self, height: u32) -> Result<()> {
         self.prune_from(height)
     }
+
+    async fn entry_range_at_height(
+        &self,
+        container_id: u8,
+        height: u32,
+    ) -> Result<Option<Range<u64>>> {
+        self.leaf_range_at_height(container_id, height)
+    }
 }
 
 fn encode_key(container_id: u8, mmr_index: u64) -> [u8; 9] {
     let mut key = [0u8; 9];
     key[0] = container_id;
     key[1..].copy_from_slice(&mmr_index.to_be_bytes());
+    key
+}
+
+fn encode_height_key(container_id: u8, height: u32) -> [u8; 5] {
+    let mut key = [0u8; 5];
+    key[0] = container_id;
+    key[1..].copy_from_slice(&height.to_be_bytes());
     key
 }
 
@@ -511,6 +585,61 @@ mod tests {
 
         let compact = rebuild_compact_mmr(&store, 9, 5);
         assert!(compact.verify(&decoded, &hash(3)));
+    }
+
+    #[test]
+    fn leaf_range_at_height_brackets_each_height() {
+        let db = test_db();
+        let store = SledExportEntriesDb::open(&db).unwrap();
+
+        // Heights 10 (2 leaves), 12 (1 leaf), 15 (3 leaves); 11, 13, 14 empty.
+        store.put(1, 10, vec![hash(0xa0), hash(0xa1)]).unwrap();
+        store.put(1, 12, vec![hash(0xa2)]).unwrap();
+        store
+            .put(1, 15, vec![hash(0xa3), hash(0xa4), hash(0xa5)])
+            .unwrap();
+
+        assert_eq!(store.leaf_range_at_height(1, 10).unwrap(), Some(0..2));
+        // A populated height ends where the next populated height begins, even
+        // across the empty 13/14 gap.
+        assert_eq!(store.leaf_range_at_height(1, 12).unwrap(), Some(2..3));
+        // The most recent height runs to the leaf count.
+        assert_eq!(store.leaf_range_at_height(1, 15).unwrap(), Some(3..6));
+        // Heights with no leaves, and an unknown container, resolve to None.
+        assert_eq!(store.leaf_range_at_height(1, 11).unwrap(), None);
+        assert_eq!(store.leaf_range_at_height(2, 10).unwrap(), None);
+    }
+
+    #[test]
+    fn leaf_range_at_height_does_not_leak_across_containers() {
+        let db = test_db();
+        let store = SledExportEntriesDb::open(&db).unwrap();
+
+        // Same height in two containers; the range must stay within container 1
+        // and not run into container 2's leaves.
+        store.put(1, 10, vec![hash(0xa0)]).unwrap();
+        store.put(2, 11, vec![hash(0xb0), hash(0xb1)]).unwrap();
+
+        assert_eq!(store.leaf_range_at_height(1, 10).unwrap(), Some(0..1));
+        assert_eq!(store.leaf_range_at_height(2, 11).unwrap(), Some(0..2));
+    }
+
+    #[test]
+    fn prune_from_clears_height_starts_and_reappends() {
+        let db = test_db();
+        let store = SledExportEntriesDb::open(&db).unwrap();
+        store.put(1, 10, vec![hash(0xa0)]).unwrap();
+        store.put(1, 11, vec![hash(0xa1), hash(0xa2)]).unwrap();
+
+        store.prune_from(11).unwrap();
+
+        // The pruned height's start row is gone; the survivor's stays.
+        assert_eq!(store.leaf_range_at_height(1, 11).unwrap(), None);
+        assert_eq!(store.leaf_range_at_height(1, 10).unwrap(), Some(0..1));
+
+        // Re-appending at the freed height records a fresh start index.
+        store.put(1, 11, vec![hash(0xc0)]).unwrap();
+        assert_eq!(store.leaf_range_at_height(1, 11).unwrap(), Some(1..2));
     }
 
     #[test]

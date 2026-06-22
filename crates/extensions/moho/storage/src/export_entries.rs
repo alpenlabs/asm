@@ -6,7 +6,7 @@
 //! proofs on demand. Containers are namespaced by `container_id`; each behaves
 //! as an independent MMR over its entry hashes.
 
-use std::fmt::Debug;
+use std::{fmt::Debug, ops::Range};
 
 use strata_merkle::MerkleProofB32;
 
@@ -72,4 +72,16 @@ pub trait ExportEntriesDb {
         &self,
         height: u32,
     ) -> impl Future<Output = Result<(), Self::Error>> + Send;
+
+    /// Resolves to the half-open range of leaf indices `container_id` gained at
+    /// `height`, or `None` if no entry was inserted at that height.
+    ///
+    /// Entries are appended in ascending height, so a height owns a contiguous
+    /// run of leaves; the range locates a block's entries within the MMR for,
+    /// e.g., rebuilding the proofs it committed to.
+    fn entry_range_at_height(
+        &self,
+        container_id: u8,
+        height: u32,
+    ) -> impl Future<Output = Result<Option<Range<u64>>, Self::Error>> + Send;
 }
