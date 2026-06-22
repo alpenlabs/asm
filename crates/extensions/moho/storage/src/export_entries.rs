@@ -32,8 +32,8 @@ pub trait ExportEntriesDb {
         entries: Vec<[u8; 32]>,
     ) -> impl Future<Output = Result<(), Self::Error>> + Send;
 
-    /// Reverse lookup: resolves to `(mmr_index, insertion_height)` for `hash`
-    /// under `container_id`, or `None` if absent.
+    /// Reverse lookup: resolves to the `mmr_index` of `hash` under
+    /// `container_id`, or `None` if absent.
     ///
     /// If multiple entries share the same `hash`, only one is returned: the most
     /// recently appended one (the highest `mmr_index`). Consumers for which
@@ -43,15 +43,23 @@ pub trait ExportEntriesDb {
         &self,
         container_id: u8,
         hash: [u8; 32],
-    ) -> impl Future<Output = Result<Option<(u64, u32)>, Self::Error>> + Send;
+    ) -> impl Future<Output = Result<Option<u64>, Self::Error>> + Send;
 
-    /// Resolves to `(insertion_height, entry_hash)` at `(container_id, mmr_index)`,
-    /// or `None` if absent.
+    /// Resolves to the entry hash at `(container_id, mmr_index)`, or `None` if
+    /// absent.
     fn get_entry(
         &self,
         container_id: u8,
         mmr_index: u64,
-    ) -> impl Future<Output = Result<Option<(u32, [u8; 32])>, Self::Error>> + Send;
+    ) -> impl Future<Output = Result<Option<[u8; 32]>, Self::Error>> + Send;
+
+    /// Resolves to the L1 height at which the leaf at `(container_id, mmr_index)`
+    /// was inserted, or `None` if absent.
+    fn entry_height(
+        &self,
+        container_id: u8,
+        mmr_index: u64,
+    ) -> impl Future<Output = Result<Option<u32>, Self::Error>> + Send;
 
     /// Generates an inclusion proof for `mmr_index` against the container's MMR
     /// at size `at_leaf_count`.

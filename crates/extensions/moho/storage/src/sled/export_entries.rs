@@ -102,32 +102,41 @@ impl ContainerView<'_> {
         Ok(())
     }
 
+    /// See [`SledExportEntriesDb::get`].
+    fn get(&self, mmr_index: u64) -> Result<Option<[u8; 32]>> {
+        Ok(StoredMmr::<Sha256Hasher>::get_leaf(self, mmr_index)?)
+    }
+
     /// See [`SledExportEntriesDb::num_entries`].
     fn num_entries(&self) -> Result<u64> {
         Ok(StoredMmr::<Sha256Hasher>::leaf_count(self)?)
     }
 
+    /// See [`SledExportEntriesDb::generate_proof`].
+    fn generate_proof(&self, mmr_index: u64, at_leaf_count: u64) -> Result<MerkleProofB32> {
+        let proof =
+            StoredMmr::<Sha256Hasher>::generate_proof_at_size(self, mmr_index, at_leaf_count)?;
+        Ok(MerkleProofB32::from_generic(&proof))
+    }
+
     /// See [`SledExportEntriesDb::find_index`].
-    fn find_index(&self, hash: &[u8; 32]) -> Result<Option<(u64, u32)>> {
+    fn find_index(&self, hash: &[u8; 32]) -> Result<Option<u64>> {
         let Some(idx_bytes) = self.index_by_hash.get(self.hash_key(hash))? else {
             return Ok(None);
         };
-        let mmr_index = decode_idx(idx_bytes.as_ref())?;
-        let height = self
-            .height_at(mmr_index)?
-            .context("secondary index points at missing primary entry")?;
-        Ok(Some((mmr_index, height)))
+        Ok(Some(decode_idx(idx_bytes.as_ref())?))
     }
 
-    /// See [`SledExportEntriesDb::get`].
-    fn get(&self, mmr_index: u64) -> Result<Option<(u32, [u8; 32])>> {
-        let Some(hash) = StoredMmr::<Sha256Hasher>::get_leaf(self, mmr_index)? else {
+    /// See [`SledExportEntriesDb::entry_height`].
+    fn entry_height(&self, mmr_index: u64) -> Result<Option<u32>> {
+        // Guard on leaf presence so an out-of-range index resolves to `None`
+        // rather than the height of the last run, which `height_at` would return.
+        if StoredMmr::<Sha256Hasher>::get_leaf(self, mmr_index)?.is_none() {
             return Ok(None);
-        };
-        let height = self
-            .height_at(mmr_index)?
-            .context("leaf present but its height is missing")?;
-        Ok(Some((height, hash)))
+        }
+        self.height_at(mmr_index)?
+            .context("leaf present but its height is missing")
+            .map(Some)
     }
 
     /// See [`SledExportEntriesDb::leaf_range_at_height`].
@@ -148,13 +157,6 @@ impl ContainerView<'_> {
             _ => self.num_entries()?,
         };
         Ok(Some(start..end))
-    }
-
-    /// See [`SledExportEntriesDb::generate_proof`].
-    fn generate_proof(&self, mmr_index: u64, at_leaf_count: u64) -> Result<MerkleProofB32> {
-        let proof =
-            StoredMmr::<Sha256Hasher>::generate_proof_at_size(self, mmr_index, at_leaf_count)?;
-        Ok(MerkleProofB32::from_generic(&proof))
     }
 
     /// Drops every leaf this container gained at `from_height` or above,
@@ -386,13 +388,18 @@ impl SledExportEntriesDb {
     }
 
     /// Synchronous variant of [`ExportEntriesDb::find_entry_index`].
-    pub fn find_index(&self, container_id: u8, hash: &[u8; 32]) -> Result<Option<(u64, u32)>> {
+    pub fn find_index(&self, container_id: u8, hash: &[u8; 32]) -> Result<Option<u64>> {
         self.container(container_id).find_index(hash)
     }
 
     /// Synchronous variant of [`ExportEntriesDb::get_entry`].
-    pub fn get(&self, container_id: u8, mmr_index: u64) -> Result<Option<(u32, [u8; 32])>> {
+    pub fn get(&self, container_id: u8, mmr_index: u64) -> Result<Option<[u8; 32]>> {
         self.container(container_id).get(mmr_index)
+    }
+
+    /// Synchronous variant of [`ExportEntriesDb::entry_height`].
+    pub fn entry_height(&self, container_id: u8, mmr_index: u64) -> Result<Option<u32>> {
+        self.container(container_id).entry_height(mmr_index)
     }
 
     /// Synchronous variant of [`ExportEntriesDb::generate_entry_proof`].
@@ -424,16 +431,16 @@ impl ExportEntriesDb for SledExportEntriesDb {
         self.append(container_id, height, entries)
     }
 
-    async fn find_entry_index(
-        &self,
-        container_id: u8,
-        hash: [u8; 32],
-    ) -> Result<Option<(u64, u32)>> {
+    async fn find_entry_index(&self, container_id: u8, hash: [u8; 32]) -> Result<Option<u64>> {
         self.find_index(container_id, &hash)
     }
 
-    async fn get_entry(&self, container_id: u8, mmr_index: u64) -> Result<Option<(u32, [u8; 32])>> {
+    async fn get_entry(&self, container_id: u8, mmr_index: u64) -> Result<Option<[u8; 32]>> {
         self.get(container_id, mmr_index)
+    }
+
+    async fn entry_height(&self, container_id: u8, mmr_index: u64) -> Result<Option<u32>> {
+        SledExportEntriesDb::entry_height(self, container_id, mmr_index)
     }
 
     async fn generate_entry_proof(
@@ -498,11 +505,11 @@ mod tests {
         store.append(2, 12, vec![hash(0xb2)]).unwrap();
 
         // Indices run from zero per container, in append order.
-        assert_eq!(store.find_index(1, &hash(0xa1)).unwrap(), Some((0, 10)));
-        assert_eq!(store.find_index(1, &hash(0xa2)).unwrap(), Some((1, 11)));
-        assert_eq!(store.find_index(1, &hash(0xa3)).unwrap(), Some((2, 12)));
-        assert_eq!(store.find_index(2, &hash(0xb1)).unwrap(), Some((0, 11)));
-        assert_eq!(store.find_index(2, &hash(0xb2)).unwrap(), Some((1, 12)));
+        assert_eq!(store.find_index(1, &hash(0xa1)).unwrap(), Some(0));
+        assert_eq!(store.find_index(1, &hash(0xa2)).unwrap(), Some(1));
+        assert_eq!(store.find_index(1, &hash(0xa3)).unwrap(), Some(2));
+        assert_eq!(store.find_index(2, &hash(0xb1)).unwrap(), Some(0));
+        assert_eq!(store.find_index(2, &hash(0xb2)).unwrap(), Some(1));
     }
 
     #[test]
@@ -527,18 +534,32 @@ mod tests {
     }
 
     #[test]
-    fn get_returns_height_and_hash() {
+    fn get_returns_hash() {
         let db = test_db();
         let store = SledExportEntriesDb::open(&db).unwrap();
         store.append(3, 999, vec![hash(0xcc)]).unwrap();
 
-        let (height, got) = store.get(3, 0).unwrap().unwrap();
-        assert_eq!(height, 999);
-        assert_eq!(got, hash(0xcc));
+        assert_eq!(store.get(3, 0).unwrap(), Some(hash(0xcc)));
     }
 
     #[test]
-    fn find_index_returns_match_with_height() {
+    fn entry_height_resolves_insertion_height() {
+        let db = test_db();
+        let store = SledExportEntriesDb::open(&db).unwrap();
+        store.append(3, 100, vec![hash(0xc0)]).unwrap();
+        store.append(3, 105, vec![hash(0xc1), hash(0xc2)]).unwrap();
+
+        assert_eq!(store.entry_height(3, 0).unwrap(), Some(100));
+        assert_eq!(store.entry_height(3, 1).unwrap(), Some(105));
+        assert_eq!(store.entry_height(3, 2).unwrap(), Some(105));
+        // Out-of-range indices and unknown containers resolve to None rather than
+        // the most recent run's height.
+        assert_eq!(store.entry_height(3, 3).unwrap(), None);
+        assert_eq!(store.entry_height(4, 0).unwrap(), None);
+    }
+
+    #[test]
+    fn find_index_returns_match() {
         let db = test_db();
         let store = SledExportEntriesDb::open(&db).unwrap();
         store.append(1, 10, vec![hash(0xa0)]).unwrap();
@@ -546,8 +567,8 @@ mod tests {
         store.append(1, 12, vec![hash(0xa2)]).unwrap();
         store.append(2, 10, vec![hash(0xa1)]).unwrap(); // same hash, different container
 
-        assert_eq!(store.find_index(1, &hash(0xa1)).unwrap(), Some((1, 11)));
-        assert_eq!(store.find_index(2, &hash(0xa1)).unwrap(), Some((0, 10)));
+        assert_eq!(store.find_index(1, &hash(0xa1)).unwrap(), Some(1));
+        assert_eq!(store.find_index(2, &hash(0xa1)).unwrap(), Some(0));
         assert_eq!(store.find_index(1, &hash(0xff)).unwrap(), None);
         assert_eq!(store.find_index(3, &hash(0xa1)).unwrap(), None);
     }
@@ -579,8 +600,8 @@ mod tests {
         store.append(1, 11, vec![hash(0xa1), hash(0xa2)]).unwrap();
 
         assert_eq!(store.num_entries(1).unwrap(), 3);
-        assert_eq!(store.find_index(1, &hash(0xa1)).unwrap(), Some((1, 11)));
-        assert_eq!(store.find_index(1, &hash(0xa2)).unwrap(), Some((2, 11)));
+        assert_eq!(store.find_index(1, &hash(0xa1)).unwrap(), Some(1));
+        assert_eq!(store.find_index(1, &hash(0xa2)).unwrap(), Some(2));
         assert_eq!(store.leaf_range_at_height(1, 11).unwrap(), Some(1..3));
     }
 
@@ -589,7 +610,7 @@ mod tests {
     fn rebuild_compact_mmr(store: &SledExportEntriesDb, container_id: u8, size: u64) -> Mmr64B32 {
         let mut compact = Mmr64B32::new_empty();
         for i in 0..size {
-            let (_h, hash) = store.get(container_id, i).unwrap().unwrap();
+            let hash = store.get(container_id, i).unwrap().unwrap();
             Mmr::<Sha256Hasher>::add_leaf(&mut compact, hash).unwrap();
         }
         compact
@@ -730,12 +751,13 @@ mod tests {
         // Only the height-10 leaves of container 1 survive; container 2 is empty.
         assert_eq!(store.num_entries(1).unwrap(), 2);
         assert_eq!(store.num_entries(2).unwrap(), 0);
-        assert_eq!(store.get(1, 0).unwrap(), Some((10, hash(0xa0))));
-        assert_eq!(store.get(1, 1).unwrap(), Some((10, hash(0xa1))));
+        assert_eq!(store.get(1, 0).unwrap(), Some(hash(0xa0)));
+        assert_eq!(store.get(1, 1).unwrap(), Some(hash(0xa1)));
         assert!(store.get(1, 2).unwrap().is_none());
+        assert_eq!(store.entry_height(1, 1).unwrap(), Some(10));
 
         // The reverse index drops the pruned hashes too.
-        assert_eq!(store.find_index(1, &hash(0xa1)).unwrap(), Some((1, 10)));
+        assert_eq!(store.find_index(1, &hash(0xa1)).unwrap(), Some(1));
         assert_eq!(store.find_index(1, &hash(0xa2)).unwrap(), None);
         assert_eq!(store.find_index(2, &hash(0xb0)).unwrap(), None);
     }
@@ -750,7 +772,7 @@ mod tests {
         store.prune_from(99).unwrap();
 
         assert_eq!(store.num_entries(1).unwrap(), 2);
-        assert_eq!(store.find_index(1, &hash(0xa1)).unwrap(), Some((1, 11)));
+        assert_eq!(store.find_index(1, &hash(0xa1)).unwrap(), Some(1));
     }
 
     #[test]
@@ -770,8 +792,8 @@ mod tests {
         // and producing proofs that verify against a fresh replay.
         store.append(1, 11, vec![hash(0xc0)]).unwrap();
         store.append(1, 12, vec![hash(0xc1)]).unwrap();
-        assert_eq!(store.find_index(1, &hash(0xc0)).unwrap(), Some((1, 11)));
-        assert_eq!(store.find_index(1, &hash(0xc1)).unwrap(), Some((2, 12)));
+        assert_eq!(store.find_index(1, &hash(0xc0)).unwrap(), Some(1));
+        assert_eq!(store.find_index(1, &hash(0xc1)).unwrap(), Some(2));
 
         let compact = rebuild_compact_mmr(&store, 1, 3);
         let proof = store.generate_proof(1, 2, 3).unwrap();
@@ -793,9 +815,13 @@ mod tests {
             assert_eq!(store.num_entries(1).unwrap(), 2);
             assert_eq!(
                 store.find_entry_index(1, hash(0xa1)).await.unwrap(),
-                Some((0, 10))
+                Some(0)
             );
-            assert_eq!(store.get_entry(1, 0).await.unwrap(), Some((10, hash(0xa1))));
+            assert_eq!(store.get_entry(1, 0).await.unwrap(), Some(hash(0xa1)));
+            assert_eq!(
+                ExportEntriesDb::entry_height(&store, 1, 0).await.unwrap(),
+                Some(10)
+            );
 
             let proof = store.generate_entry_proof(1, 0, 1).await.unwrap();
             let compact = rebuild_compact_mmr(&store, 1, 1);

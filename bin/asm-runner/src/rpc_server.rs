@@ -298,7 +298,7 @@ fn build_export_entry_mmr_proof(
 
     let at_leaf_count = container.entries_mmr().num_entries();
 
-    let Some((mmr_index, _height)) = export_entries_db.find_index(container_id, &leaf_hash)? else {
+    let Some(mmr_index) = export_entries_db.find_index(container_id, &leaf_hash)? else {
         return Ok(None);
     };
 
