@@ -31,6 +31,33 @@ fn decode_node(value: sled::IVec) -> [u8; 32] {
         .expect("mmr node value must be 32 bytes")
 }
 
+/// Encodes an mmr index as its 8-byte big-endian stored form.
+fn encode_idx(idx: u64) -> [u8; 8] {
+    idx.to_be_bytes()
+}
+
+/// Decodes a stored 8-byte big-endian value into an mmr index.
+///
+/// Like [`decode_node`], the store only ever writes 8-byte indices, so a wrong
+/// length is disk corruption rather than a recoverable condition.
+fn decode_idx(bytes: &[u8]) -> u64 {
+    u64::from_be_bytes(bytes.try_into().expect("mmr index value must be 8 bytes"))
+}
+
+/// Encodes a block height as its 4-byte big-endian stored form, the suffix of
+/// every height-indexed key.
+fn encode_height(height: u32) -> [u8; 4] {
+    height.to_be_bytes()
+}
+
+/// Decodes the 4-byte big-endian height suffix of a height-index key.
+///
+/// Like [`decode_idx`], the store only ever writes 4-byte heights, so a wrong
+/// length is disk corruption rather than a recoverable condition.
+fn decode_height(bytes: &[u8]) -> u32 {
+    u32::from_be_bytes(bytes.try_into().expect("mmr height key must be 4 bytes"))
+}
+
 /// One container's view onto the shared trees, with its [`id`](Self::id) the
 /// isolation boundary: every key is prefixed with `id`, so each container is an
 /// independent MMR with its own height and hash indexes. All per-container reads
@@ -77,7 +104,7 @@ impl ContainerView<'_> {
     fn height_key(&self, height: u32) -> [u8; 5] {
         let mut key = [0u8; 5];
         key[0] = self.id;
-        key[1..].copy_from_slice(&height.to_be_bytes());
+        key[1..].copy_from_slice(&encode_height(height));
         key
     }
 }
@@ -90,16 +117,14 @@ impl ContainerView<'_> {
         }
 
         // The first leaf of this height lands at the current count; record the
-        // run's start. Appends are unconditional — deduplicating reprocessed
-        // blocks is the caller's job (it prunes from the block's height first),
-        // so the store appends exactly what it is handed.
+        // run's start so `leaf_range_at_height` can bracket it.
         self.index_by_height
-            .insert(self.height_key(height), &self.num_entries()?.to_be_bytes())?;
+            .insert(self.height_key(height), &encode_idx(self.num_entries()?))?;
 
         for entry in entries {
             let index = StoredMmr::<Sha256Hasher>::append_leaf(self, entry)?;
             self.index_by_hash
-                .insert(self.hash_key(&entry), &index.to_be_bytes())?;
+                .insert(self.hash_key(&entry), &encode_idx(index))?;
         }
         Ok(())
     }
@@ -126,7 +151,7 @@ impl ContainerView<'_> {
         let Some(idx_bytes) = self.index_by_hash.get(self.hash_key(hash))? else {
             return Ok(None);
         };
-        Ok(Some(decode_idx(idx_bytes.as_ref())?))
+        Ok(Some(decode_idx(idx_bytes.as_ref())))
     }
 
     /// See [`SledExportEntriesDb::entry_height`].
@@ -152,12 +177,10 @@ impl ContainerView<'_> {
         let mut height = None;
         for kv in self.index_by_height.scan_prefix([self.id]) {
             let (key, start_bytes) = kv?;
-            if decode_idx(start_bytes.as_ref())? > mmr_index {
+            if decode_idx(start_bytes.as_ref()) > mmr_index {
                 break;
             }
-            height = Some(u32::from_be_bytes(
-                key[1..].try_into().context("invalid height bytes")?,
-            ));
+            height = Some(decode_height(&key[1..]));
         }
         // The leaf is present (guarded above), so its run must exist.
         height
@@ -196,9 +219,9 @@ impl ContainerView<'_> {
     fn first_dropped_index(&self, from_height: u32) -> Result<Option<u64>> {
         for kv in self.index_by_height.scan_prefix([self.id]) {
             let (key, start_bytes) = kv?;
-            let h = u32::from_be_bytes(key[1..].try_into().context("invalid height")?);
+            let h = decode_height(&key[1..]);
             if h >= from_height {
-                return Ok(Some(decode_idx(start_bytes.as_ref())?));
+                return Ok(Some(decode_idx(start_bytes.as_ref())));
             }
         }
         Ok(None)
@@ -220,7 +243,7 @@ impl ContainerView<'_> {
         let mut stale = Vec::new();
         for kv in self.index_by_hash.scan_prefix([self.id]) {
             let (key, idx) = kv?;
-            if decode_idx(idx.as_ref())? >= first_dropped {
+            if decode_idx(idx.as_ref()) >= first_dropped {
                 stale.push(key);
             }
         }
@@ -242,7 +265,7 @@ impl ContainerView<'_> {
         let mut stale = Vec::new();
         for kv in self.index_by_height.scan_prefix([self.id]) {
             let (key, _) = kv?;
-            let h = u32::from_be_bytes(key[1..].try_into().context("invalid height")?);
+            let h = decode_height(&key[1..]);
             if h >= from_height {
                 stale.push(key);
             }
@@ -259,14 +282,14 @@ impl ContainerView<'_> {
         let Some(start_bytes) = self.index_by_height.get(start_key)? else {
             return Ok(None);
         };
-        let start = decode_idx(start_bytes.as_ref())?;
+        let start = decode_idx(start_bytes.as_ref());
 
         // The end is the start of the next populated height in this container.
         // The next key in the tree could belong to the following container, so
         // bound the scan to this one and fall back to the leaf count.
         let end = match self.index_by_height.get_gt(start_key)? {
             Some((next_key, next_bytes)) if next_key[0] == self.id => {
-                decode_idx(next_bytes.as_ref())?
+                decode_idx(next_bytes.as_ref())
             }
             _ => self.num_entries()?,
         };
@@ -317,6 +340,11 @@ impl MmrNodeStore for ContainerView<'_> {
 /// The trees are shared across all containers; every key is namespaced by a
 /// leading `container_id` byte (see [`ContainerView`]), so a container behaves as
 /// its own isolated MMR.
+///
+/// The synchronous methods below are the primary surface: the Moho worker drives
+/// them from its `ExportEntryStore` impl while running as an async service, so it
+/// calls them directly rather than the async [`ExportEntriesDb`] trait at the
+/// bottom of this file.
 #[derive(Debug, Clone)]
 pub struct SledExportEntriesDb {
     /// The shared trees; per-tree key layouts and semantics are documented on
@@ -337,10 +365,6 @@ impl SledExportEntriesDb {
     }
 
     /// One container's view onto the shared trees.
-    ///
-    /// The Moho worker drives these synchronous methods from its
-    /// `ExportEntryStore` impl while running as an async service, so it calls
-    /// them directly rather than the async [`ExportEntriesDb`] trait below.
     fn container(&self, container_id: u8) -> ContainerView<'_> {
         ContainerView {
             nodes: &self.nodes,
@@ -480,12 +504,6 @@ impl ExportEntriesDb for SledExportEntriesDb {
     ) -> Result<Option<Range<u64>>> {
         self.leaf_range_at_height(container_id, height)
     }
-}
-
-fn decode_idx(bytes: &[u8]) -> Result<u64> {
-    Ok(u64::from_be_bytes(
-        bytes.try_into().context("invalid mmr_index bytes")?,
-    ))
 }
 
 #[cfg(test)]
