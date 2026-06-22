@@ -336,7 +336,7 @@ impl SledExportEntriesDb {
         self.container(container_id).append(height, entries)
     }
 
-    /// Synchronous variant of [`ExportEntriesDb::entry_count`].
+    /// The number of entries currently stored for `container_id`.
     pub fn num_entries(&self, container_id: u8) -> Result<u64> {
         self.container(container_id).num_entries()
     }
@@ -419,10 +419,6 @@ impl ExportEntriesDb for SledExportEntriesDb {
         entries: Vec<[u8; 32]>,
     ) -> Result<()> {
         self.append(container_id, height, entries)
-    }
-
-    async fn entry_count(&self, container_id: u8) -> Result<u64> {
-        self.num_entries(container_id)
     }
 
     async fn find_entry_index(
@@ -791,7 +787,7 @@ mod tests {
                 .append_entries(1, 10, vec![hash(0xa1), hash(0xa2)])
                 .await
                 .unwrap();
-            assert_eq!(store.entry_count(1).await.unwrap(), 2);
+            assert_eq!(store.num_entries(1).unwrap(), 2);
             assert_eq!(
                 store.find_entry_index(1, hash(0xa1)).await.unwrap(),
                 Some((0, 10))
@@ -803,7 +799,7 @@ mod tests {
             assert!(compact.verify(&proof, &hash(0xa1)));
 
             store.prune_entries_from(10).await.unwrap();
-            assert_eq!(store.entry_count(1).await.unwrap(), 0);
+            assert_eq!(store.num_entries(1).unwrap(), 0);
         });
     }
 }

@@ -32,12 +32,6 @@ pub trait ExportEntriesDb {
         entries: Vec<[u8; 32]>,
     ) -> impl Future<Output = Result<(), Self::Error>> + Send;
 
-    /// Resolves to the number of entries currently stored for `container_id`.
-    fn entry_count(
-        &self,
-        container_id: u8,
-    ) -> impl Future<Output = Result<u64, Self::Error>> + Send;
-
     /// Reverse lookup: resolves to `(mmr_index, insertion_height)` for `hash`
     /// under `container_id`, or `None` if absent.
     fn find_entry_index(
