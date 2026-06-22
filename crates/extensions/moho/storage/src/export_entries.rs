@@ -34,6 +34,11 @@ pub trait ExportEntriesDb {
 
     /// Reverse lookup: resolves to `(mmr_index, insertion_height)` for `hash`
     /// under `container_id`, or `None` if absent.
+    ///
+    /// If multiple entries share the same `hash`, only one is returned: the most
+    /// recently appended one (the highest `mmr_index`). Consumers for which
+    /// duplicate hashes are meaningful must not rely on this and should handle
+    /// the ambiguity themselves.
     fn find_entry_index(
         &self,
         container_id: u8,

@@ -81,33 +81,6 @@ impl ContainerView<'_> {
         key
     }
 
-    /// Resolves the insertion height of the leaf at `mmr_index`.
-    ///
-    /// There is no per-leaf height row; the height is derived from
-    /// [`Self::index_by_height`], which records the start index of each populated
-    /// height's run. Runs are appended in ascending height with monotonically
-    /// increasing starts, so the run containing `mmr_index` is the one with the
-    /// greatest start `<= mmr_index`. Scans this container's height rows in order
-    /// and keeps the last whose start does not exceed `mmr_index`. `O(heights)`
-    /// rather than a point lookup, which the `get`/`find_index` read paths absorb
-    /// since they call it once per query.
-    ///
-    /// Returns `None` only when no run starts at or before `mmr_index` — an empty
-    /// container — which callers treat as a missing leaf.
-    fn height_at(&self, mmr_index: u64) -> Result<Option<u32>> {
-        let mut height = None;
-        for kv in self.index_by_height.scan_prefix([self.id]) {
-            let (key, start_bytes) = kv?;
-            if decode_idx(start_bytes.as_ref())? > mmr_index {
-                break;
-            }
-            height = Some(u32::from_be_bytes(
-                key[1..].try_into().context("invalid height bytes")?,
-            ));
-        }
-        Ok(height)
-    }
-
     /// See [`SledExportEntriesDb::append`].
     fn append(&self, height: u32, entries: Vec<[u8; 32]>) -> Result<()> {
         if entries.is_empty() {
@@ -246,6 +219,36 @@ impl ContainerView<'_> {
             self.index_by_height.remove(key)?;
         }
         Ok(())
+    }
+
+    /// Resolves the insertion height of the leaf at `mmr_index`.
+    ///
+    /// The height is derived from [`Self::index_by_height`], which records the
+    /// start index of each populated height's run. Runs are appended in ascending
+    /// height with monotonically increasing starts, so the run containing
+    /// `mmr_index` is the one with the greatest start `<= mmr_index`: scan this
+    /// container's height rows in order and keep the last whose start does not
+    /// exceed `mmr_index`.
+    ///
+    /// Returns `None` only when no run starts at or before `mmr_index` — an empty
+    /// container — which callers treat as a missing leaf.
+    ///
+    /// # Performance
+    ///
+    /// Linear in the number of *populated* heights for this container — one row
+    /// each, empty heights have none — rather than a point lookup.
+    fn height_at(&self, mmr_index: u64) -> Result<Option<u32>> {
+        let mut height = None;
+        for kv in self.index_by_height.scan_prefix([self.id]) {
+            let (key, start_bytes) = kv?;
+            if decode_idx(start_bytes.as_ref())? > mmr_index {
+                break;
+            }
+            height = Some(u32::from_be_bytes(
+                key[1..].try_into().context("invalid height bytes")?,
+            ));
+        }
+        Ok(height)
     }
 }
 
