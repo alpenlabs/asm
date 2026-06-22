@@ -84,18 +84,19 @@ pub(crate) fn process_block<W: MohoWorkerContext>(
     let logs = state.context.get_anchor_logs(&block)?;
     let moho = compute::construct_next_moho_state(&parent_moho, &anchor_state, &logs);
 
+    // Prune this block's height first so a reprocess (crash-replay or reorg)
+    // re-stores onto a clean prefix: `store_export_entries` does not dedup, and a
+    // single block can contribute several leaves per container, so the suffix is
+    // cleared by height rather than popped per block. On forward progress nothing
+    // sits at this height yet, so the prune is a no-op.
+    state.context.prune_export_entries_from(block.height())?;
+
     // Persist the export-entry leaves before the Moho state. The worker tracks
     // progress via the Moho store (`get_latest_moho_state`), so `store_moho_state`
     // is this block's commit point: a crash before it leaves progress unadvanced
     // and the block is reprocessed on restart. Writing the leaves after the
     // commit point would risk a gap between them and the `ExportState` MMR that
     // commits to them.
-    //
-    // TODO(STR-3723): `store_export_entries` no longer deduplicates, so a
-    // reprocess (crash-replay or reorg) must `prune_export_entries_from` this
-    // block's height before re-storing; otherwise the leaves are appended twice.
-    // A reorg also has to be handled differently from the manifest MMR, since a
-    // single block can contribute several leaves to one container.
     for (container_id, entries) in compute::export_entries_from_logs(&logs) {
         state
             .context
