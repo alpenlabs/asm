@@ -12,7 +12,7 @@
 //! might reprocess a block (after a crash or an L1 reorg) prunes from the
 //! block's height first, so re-stored leaves always extend a clean prefix.
 
-use std::{collections::BTreeSet, ops::Range};
+use std::ops::Range;
 
 use anyhow::{Context, Result};
 use strata_merkle::{MerkleProofB32, Sha256Hasher};
@@ -394,14 +394,11 @@ impl SledExportEntriesDb {
     /// last), so a prune interrupted midway recomputes the same point and re-runs
     /// to completion. See [`ContainerView::prune`].
     pub fn prune_from(&self, height: u32) -> Result<()> {
-        // Prune every container that holds leaves; `ContainerView::prune` is a
-        // no-op for any whose leaves all sit below `height`.
-        let mut containers = BTreeSet::new();
-        for kv in self.index_by_height.iter() {
-            let (key, _) = kv?;
-            containers.insert(key[0]);
-        }
-        for container_id in containers {
+        // Container ids span the whole `u8` domain, so prune every possible one
+        // rather than first scanning the height index to discover which exist.
+        // `ContainerView::prune` is a cheap no-op for a container with no leaves
+        // at or above `height` (including one that holds none at all).
+        for container_id in 0..=u8::MAX {
             self.container(container_id).prune(height)?;
         }
         Ok(())
