@@ -717,6 +717,28 @@ mod tests {
     }
 
     #[test]
+    fn leaf_range_at_height_ends_at_own_next_height_despite_interleaved_heights() {
+        let db = test_db();
+        let store = SledExportEntriesDb::open(&db).unwrap();
+
+        // Container 2's height (15) is numerically between container 1's heights
+        // (10 and 20), but the `id` key prefix keeps each container contiguous in
+        // the tree, ordered as 1||10, 1||20, 2||15. So a height's run ends at its
+        // own container's next height — `get_gt` never steps across the boundary
+        // and back.
+        store.append(1, 10, vec![hash(0xa0)]).unwrap();
+        store.append(1, 20, vec![hash(0xa1)]).unwrap();
+        store.append(2, 15, vec![hash(0xb0)]).unwrap();
+
+        // Height 10 ends at height 20's start (index 1), not at container 2's leaf.
+        assert_eq!(store.leaf_range_at_height(1, 10).unwrap(), Some(0..1));
+        // Height 20 is the last in container 1, so it runs to that container's
+        // leaf count.
+        assert_eq!(store.leaf_range_at_height(1, 20).unwrap(), Some(1..2));
+        assert_eq!(store.leaf_range_at_height(2, 15).unwrap(), Some(0..1));
+    }
+
+    #[test]
     fn prune_from_clears_height_starts_and_reappends() {
         let db = test_db();
         let store = SledExportEntriesDb::open(&db).unwrap();
