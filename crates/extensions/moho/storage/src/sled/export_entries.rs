@@ -80,7 +80,9 @@ impl ContainerView<'_> {
         key[1..].copy_from_slice(&height.to_be_bytes());
         key
     }
+}
 
+impl ContainerView<'_> {
     /// See [`SledExportEntriesDb::append`].
     fn append(&self, height: u32, entries: Vec<[u8; 32]>) -> Result<()> {
         if entries.is_empty() {
@@ -169,29 +171,29 @@ impl ContainerView<'_> {
     /// or above `from_height`.
     ///
     /// The per-container half of [`SledExportEntriesDb::prune_from`]. The three
-    /// mutating steps run in a crash-safe order: truncate the MMR, then clear the
-    /// reverse index, and only then clear the height-start rows. Those rows are
-    /// both the source of the truncation point and the marker that a prune is
-    /// pending, so removing them last means a crash mid-prune recomputes the same
-    /// point and re-runs to completion. See each step for its own invariants.
+    /// mutating steps run in a crash-safe order: drop the leaves, then the
+    /// reverse-index rows, and only then the height-start rows. Those rows are
+    /// both the source of the cutoff and the marker that a prune is pending, so
+    /// removing them last means a crash mid-prune recomputes the same cutoff and
+    /// re-runs to completion. See each step for its own invariants.
     fn prune(&self, from_height: u32) -> Result<()> {
-        let Some(keep) = self.survivor_boundary(from_height)? else {
+        let Some(first_dropped) = self.first_dropped_index(from_height)? else {
             return Ok(());
         };
-        self.truncate_to(keep)?;
-        self.clear_stale_hash_index(keep)?;
-        self.clear_height_starts_from(from_height)?;
+        self.drop_leaves_from(first_dropped)?;
+        self.drop_hash_rows_from(first_dropped)?;
+        self.drop_height_rows_from(from_height)?;
         Ok(())
     }
 
-    /// The survivor count: the start index of the earliest populated height at or
-    /// above `from_height`, i.e. the boundary between the prefix `prune` keeps and
-    /// the suffix it drops. `None` when no populated height reaches `from_height`,
-    /// meaning there is nothing to drop.
+    /// The index of the first leaf to drop: the start of the earliest populated
+    /// height at or above `from_height`. Leaves below it survive; it and every
+    /// leaf after it are dropped. `None` when no populated height reaches
+    /// `from_height`, meaning there is nothing to drop.
     ///
     /// Leaves are appended in ascending height with monotonic start indices, so
     /// the first height at or above `from_height` owns the lowest dropped index.
-    fn survivor_boundary(&self, from_height: u32) -> Result<Option<u64>> {
+    fn first_dropped_index(&self, from_height: u32) -> Result<Option<u64>> {
         for kv in self.index_by_height.scan_prefix([self.id]) {
             let (key, start_bytes) = kv?;
             let h = u32::from_be_bytes(key[1..].try_into().context("invalid height")?);
@@ -202,26 +204,27 @@ impl ContainerView<'_> {
         Ok(None)
     }
 
-    /// Truncates the MMR back to its first `keep` leaves, dropping the suffix.
-    fn truncate_to(&self, keep: u64) -> Result<()> {
-        StoredMmr::<Sha256Hasher>::prune_after(self, LeafPos::new(keep))?;
+    /// Truncates the MMR to the leaves below `first_dropped`, discarding that
+    /// leaf and every one after it.
+    fn drop_leaves_from(&self, first_dropped: u64) -> Result<()> {
+        StoredMmr::<Sha256Hasher>::prune_after(self, LeafPos::new(first_dropped))?;
         Ok(())
     }
 
-    /// Removes the reverse-index rows whose stored index sits at or past `keep`,
-    /// i.e. the entries the truncation dropped.
+    /// Removes the reverse-index rows whose stored index is at or past
+    /// `first_dropped`, i.e. the entries [`Self::drop_leaves_from`] discarded.
     ///
     /// Scans by stored index rather than reading leaf hashes back out of the now
     /// truncated MMR.
-    fn clear_stale_hash_index(&self, keep: u64) -> Result<()> {
-        let mut stale_hashes = Vec::new();
+    fn drop_hash_rows_from(&self, first_dropped: u64) -> Result<()> {
+        let mut stale = Vec::new();
         for kv in self.index_by_hash.scan_prefix([self.id]) {
             let (key, idx) = kv?;
-            if decode_idx(idx.as_ref())? >= keep {
-                stale_hashes.push(key);
+            if decode_idx(idx.as_ref())? >= first_dropped {
+                stale.push(key);
             }
         }
-        for key in stale_hashes {
+        for key in stale {
             self.index_by_hash.remove(key)?;
         }
         Ok(())
@@ -231,20 +234,20 @@ impl ContainerView<'_> {
     /// first.
     ///
     /// These rows are the prune's pending-marker, so they must be cleared last
-    /// (after truncation and reverse-index cleanup) and highest-first: the lowest
-    /// — the one [`Self::survivor_boundary`] derives `keep` from — survives
-    /// longest, so a re-run after a crash keeps recomputing the same `keep` until
+    /// (after the leaves and reverse-index rows) and highest-first: the lowest —
+    /// the one [`Self::first_dropped_index`] derives the cutoff from — survives
+    /// longest, so a re-run after a crash keeps recomputing the same cutoff until
     /// that final removal, then sees nothing left at or above `from_height`.
-    fn clear_height_starts_from(&self, from_height: u32) -> Result<()> {
-        let mut stale_starts = Vec::new();
+    fn drop_height_rows_from(&self, from_height: u32) -> Result<()> {
+        let mut stale = Vec::new();
         for kv in self.index_by_height.scan_prefix([self.id]) {
             let (key, _) = kv?;
             let h = u32::from_be_bytes(key[1..].try_into().context("invalid height")?);
             if h >= from_height {
-                stale_starts.push(key);
+                stale.push(key);
             }
         }
-        for key in stale_starts.into_iter().rev() {
+        for key in stale.into_iter().rev() {
             self.index_by_height.remove(key)?;
         }
         Ok(())
@@ -845,7 +848,7 @@ mod tests {
     // out of sync with the MMR — that is the point of the isolation.
 
     #[test]
-    fn survivor_boundary_finds_first_run_at_or_above_height() {
+    fn first_dropped_index_finds_first_run_at_or_above_height() {
         let db = test_db();
         let store = SledExportEntriesDb::open(&db).unwrap();
         // Heights 10 (2 leaves, start 0), 12 (1 leaf, start 2), 15 (3 leaves,
@@ -858,26 +861,26 @@ mod tests {
 
         let c = store.container(1);
         // A height that is itself populated resolves to its own start.
-        assert_eq!(c.survivor_boundary(10).unwrap(), Some(0));
-        assert_eq!(c.survivor_boundary(12).unwrap(), Some(2));
-        assert_eq!(c.survivor_boundary(15).unwrap(), Some(3));
+        assert_eq!(c.first_dropped_index(10).unwrap(), Some(0));
+        assert_eq!(c.first_dropped_index(12).unwrap(), Some(2));
+        assert_eq!(c.first_dropped_index(15).unwrap(), Some(3));
         // An empty height resolves to the next populated run's start.
-        assert_eq!(c.survivor_boundary(11).unwrap(), Some(2));
-        assert_eq!(c.survivor_boundary(13).unwrap(), Some(3));
+        assert_eq!(c.first_dropped_index(11).unwrap(), Some(2));
+        assert_eq!(c.first_dropped_index(13).unwrap(), Some(3));
         // Below every run: the whole container is dropped.
-        assert_eq!(c.survivor_boundary(0).unwrap(), Some(0));
+        assert_eq!(c.first_dropped_index(0).unwrap(), Some(0));
         // Above the tip, and an empty container: nothing to drop.
-        assert_eq!(c.survivor_boundary(16).unwrap(), None);
-        assert_eq!(store.container(2).survivor_boundary(0).unwrap(), None);
+        assert_eq!(c.first_dropped_index(16).unwrap(), None);
+        assert_eq!(store.container(2).first_dropped_index(0).unwrap(), None);
     }
 
     #[test]
-    fn truncate_to_drops_the_leaf_suffix() {
+    fn drop_leaves_from_drops_the_leaf_suffix() {
         let db = test_db();
         let store = SledExportEntriesDb::open(&db).unwrap();
         store.append(1, 10, (0..5u8).map(hash).collect()).unwrap();
 
-        store.container(1).truncate_to(2).unwrap();
+        store.container(1).drop_leaves_from(2).unwrap();
 
         assert_eq!(store.num_entries(1).unwrap(), 2);
         assert_eq!(store.get(1, 1).unwrap(), Some(hash(1)));
@@ -885,15 +888,15 @@ mod tests {
     }
 
     #[test]
-    fn clear_stale_hash_index_removes_rows_at_or_past_keep() {
+    fn drop_hash_rows_from_removes_rows_at_or_past_cutoff() {
         let db = test_db();
         let store = SledExportEntriesDb::open(&db).unwrap();
         store.append(1, 10, (0..4u8).map(hash).collect()).unwrap();
         store.append(2, 10, vec![hash(0xb0)]).unwrap();
 
-        store.container(1).clear_stale_hash_index(2).unwrap();
+        store.container(1).drop_hash_rows_from(2).unwrap();
 
-        // Rows below `keep` survive; those at or past it are gone.
+        // Rows below the cutoff survive; those at or past it are gone.
         assert_eq!(store.find_index(1, &hash(0)).unwrap(), Some(0));
         assert_eq!(store.find_index(1, &hash(1)).unwrap(), Some(1));
         assert_eq!(store.find_index(1, &hash(2)).unwrap(), None);
@@ -903,7 +906,7 @@ mod tests {
     }
 
     #[test]
-    fn clear_height_starts_from_removes_rows_at_or_above() {
+    fn drop_height_rows_from_removes_rows_at_or_above() {
         let db = test_db();
         let store = SledExportEntriesDb::open(&db).unwrap();
         store.append(1, 10, vec![hash(0xa0)]).unwrap();
@@ -912,14 +915,14 @@ mod tests {
         store.append(2, 12, vec![hash(0xb0)]).unwrap();
 
         let c = store.container(1);
-        c.clear_height_starts_from(12).unwrap();
+        c.drop_height_rows_from(12).unwrap();
 
         // The height-10 start row survives; the rows at or above 12 are gone, so
-        // `survivor_boundary` can no longer reach them.
-        assert_eq!(c.survivor_boundary(10).unwrap(), Some(0));
-        assert_eq!(c.survivor_boundary(12).unwrap(), None);
+        // `first_dropped_index` can no longer reach them.
+        assert_eq!(c.first_dropped_index(10).unwrap(), Some(0));
+        assert_eq!(c.first_dropped_index(12).unwrap(), None);
         // Another container's height index is untouched.
-        assert_eq!(store.container(2).survivor_boundary(12).unwrap(), Some(0));
+        assert_eq!(store.container(2).first_dropped_index(12).unwrap(), Some(0));
     }
 
     /// Exercises the async [`ExportEntriesDb`] trait surface, proving the
