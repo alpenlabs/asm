@@ -1,0 +1,23 @@
+[package]
+name = "asm-dbtool"
+version = "0.1.0"
+edition = "2024"
+
+[[bin]]
+name = "dbtool"
+path = "src/main.rs"
+
+[lints]
+workspace = true
+
+[dependencies]
+asm-storage.workspace = true
+strata-asm-common.workspace = true
+strata-identifiers.workspace = true
+
+anyhow.workspace = true
+clap.workspace = true
+hex.workspace = true
+serde_json.workspace = true
+sled.workspace = true
+ssz.workspace = true

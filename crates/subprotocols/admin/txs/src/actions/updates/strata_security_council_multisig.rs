@@ -52,11 +52,14 @@ mod tests {
     #[test]
     fn renders_signing_message() {
         let member = CompressedPublicKey::from_slice(&[2u8; 33]).expect("valid compressed key");
-        let update = StrataSecurityCouncilMultisigUpdate::new(ThresholdConfigUpdate::new(
-            vec![member],
-            vec![],
-            NonZero::new(2).expect("non-zero"),
-        ));
+        let update = StrataSecurityCouncilMultisigUpdate::new(
+            ThresholdConfigUpdate::try_new(
+                vec![member],
+                vec![],
+                NonZero::new(2).expect("non-zero"),
+            )
+            .expect("valid threshold config"),
+        );
         let action = MultisigAction::Update(UpdateAction::StrataSecurityCouncilMultisig(update));
 
         let message = SigningMessage::for_action(&action, 7);

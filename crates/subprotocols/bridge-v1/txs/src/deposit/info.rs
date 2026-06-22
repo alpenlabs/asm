@@ -56,7 +56,9 @@ impl DepositInfo {
             value: amt.into(),
             script_pubkey: txout.script_pubkey,
         };
-        self.deposit_output = new_txout.into();
+        self.deposit_output = new_txout
+            .try_into()
+            .expect("deposit script within size bound");
     }
 
     pub fn locked_script(&self) -> &ScriptBuf {
@@ -72,6 +74,8 @@ impl DepositInfo {
             value: txout.value,
             script_pubkey: new_script_pubkey,
         };
-        self.deposit_output = new_txout.into();
+        self.deposit_output = new_txout
+            .try_into()
+            .expect("deposit script within size bound");
     }
 }

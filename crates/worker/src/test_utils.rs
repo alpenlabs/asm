@@ -130,6 +130,23 @@ impl L1DataProvider for TestAsmWorkerContext {
         Ok(header)
     }
 
+    fn get_l1_block_header_at_height(&self, height: u64) -> WorkerResult<Header> {
+        // See `get_l1_block` for the two-context branching rationale.
+        let client = self.client.clone();
+        let fetch = || async move {
+            let hash = client.get_block_hash(height).await?;
+            client.get_block_header(&hash).await
+        };
+        let header = if Handle::try_current().is_ok() {
+            block_in_place(|| self.tokio_handle.block_on(fetch()))
+        } else {
+            self.tokio_handle.block_on(fetch())
+        }
+        .map_err(|_| WorkerError::L1BlockNotFound { height })?;
+
+        Ok(header)
+    }
+
     fn get_l1_block_height(&self, blockid: &L1BlockId) -> WorkerResult<u64> {
         // See `get_l1_block` for the two-context branching rationale.
         let block_hash = blockid.to_block_hash();

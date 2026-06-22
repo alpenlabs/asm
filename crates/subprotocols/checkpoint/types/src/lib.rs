@@ -37,7 +37,6 @@
 
 mod claim;
 mod error;
-mod log_payloads;
 mod payload;
 
 #[cfg(any(test, feature = "test-utils"))]
@@ -57,23 +56,25 @@ mod ssz_generated {
     include!(concat!(env!("OUT_DIR"), "/generated.rs"));
 }
 
+// Re-export the OL log payload types from the shared `strata-ol-logs` crate. These are the wire
+// contract shared with strata's OL chain types; keeping a single source of truth avoids the
+// silent-divergence risk that the previous in-crate copy carried.
 // Re-export types from claim.ssz
-pub use log_payloads::{
-    OLLogDecodeError, OLLogType, SIMPLE_WITHDRAWAL_INTENT_LOG_TYPE_ID,
-    SimpleWithdrawalIntentLogData,
-};
 pub use ssz_generated::ssz::claim::{
     CheckpointClaim, CheckpointClaimRef, L2BlockRange, L2BlockRangeRef,
 };
 // Re-export types from payload.ssz
 pub use ssz_generated::ssz::payload::{
     CheckpointPayload, CheckpointPayloadRef, CheckpointSidecar, CheckpointSidecarRef,
-    CheckpointTip, CheckpointTipRef, OLLog, OLLogRef, TerminalHeaderComplement,
-    TerminalHeaderComplementRef,
+    CheckpointTip, CheckpointTipRef, TerminalHeaderComplement, TerminalHeaderComplementRef,
 };
 // Re-export constants from payload.ssz
 pub use ssz_generated::ssz::payload::{
-    MAX_LOG_PAYLOAD_LEN, MAX_OL_LOGS_PER_CHECKPOINT, MAX_PROOF_LEN, OL_DA_DIFF_MAX_SIZE,
+    MAX_OL_LOGS_PER_CHECKPOINT, MAX_PROOF_LEN, OL_DA_DIFF_MAX_SIZE,
+};
+pub use strata_ol_logs::{
+    LogDecodeError, MAX_LOG_PAYLOAD_LEN, OLLog, OLLogRef, OLLogType,
+    SIMPLE_WITHDRAWAL_INTENT_LOG_TYPE_ID, SimpleWithdrawalIntentLogData, decode_typed_logs,
 };
 
 /// Maximum total OL log payload size per checkpoint (16 KiB per SPS-ol-chain-structures).

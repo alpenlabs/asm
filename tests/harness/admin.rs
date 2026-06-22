@@ -254,11 +254,12 @@ pub fn multisig_config_update(
     remove_members: Vec<CompressedPublicKey>,
     new_threshold: u8,
 ) -> MultisigAction {
-    let config = ThresholdConfigUpdate::new(
+    let config = ThresholdConfigUpdate::try_new(
         add_members,
         remove_members,
         NonZero::new(new_threshold).expect("threshold must be non-zero"),
-    );
+    )
+    .expect("valid threshold config");
     let update = match role {
         Role::StrataAdministrator => {
             UpdateAction::StrataAdminMultisig(StrataAdminMultisigUpdate::new(config))

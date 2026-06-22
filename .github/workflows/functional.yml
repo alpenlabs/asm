@@ -107,7 +107,9 @@ jobs:
       - name: Build with coverage instrumentation
         run: |
           COV_TARGET_DIR="$GITHUB_WORKSPACE/target/llvm-cov-target"
-          RUSTFLAGS="-Cinstrument-coverage" cargo build --locked --bin strata-asm-runner --target-dir "$COV_TARGET_DIR"
+          # dbtool is exercised by the dbtool functional tests; build it into the
+          # same target dir so it lands on PATH alongside the runner.
+          RUSTFLAGS="-Cinstrument-coverage" cargo build --locked --bin strata-asm-runner --bin dbtool --target-dir "$COV_TARGET_DIR"
 
       - name: Run functional tests
         id: funcTestsRun

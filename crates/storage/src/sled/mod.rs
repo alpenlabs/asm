@@ -41,14 +41,9 @@ pub(crate) fn encode_block_commitment(
 
 /// Decodes a 36-byte buffer back into an [`L1BlockCommitment`].
 ///
-/// Keys are write-only today — `put` derives them, `get_latest` reads the value
-/// and derives the commitment from the state, and `prune` ranges on raw bytes —
-/// but this completes the encode/decode pair and is useful for key
-/// iteration/debugging.
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "completes the encode/decode pair")
-)]
+/// Used by each store's `list` to turn raw tree keys back into commitments for
+/// the inspection tooling; `put` derives keys, `get_latest` derives the
+/// commitment from the value, and `prune` ranges on raw bytes.
 pub(crate) fn decode_block_commitment(buf: &[u8]) -> L1BlockCommitment {
     let height = u32::from_be_bytes(buf[0..4].try_into().expect("key is at least 4 bytes"));
     let blkid: [u8; 32] = buf[4..36].try_into().expect("key is at least 36 bytes");

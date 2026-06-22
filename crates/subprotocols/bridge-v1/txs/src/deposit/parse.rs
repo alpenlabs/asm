@@ -39,7 +39,15 @@ pub fn parse_deposit_tx<'a>(tx_input: &TxInputRef<'a>) -> Result<DepositInfo, Tx
             )
         })?
         .clone()
-        .into();
+        .try_into()
+        .map_err(|e| {
+            TxStructureError::invalid_output(
+                BridgeTxType::Deposit,
+                DEPOSIT_OUTPUT_INDEX,
+                e,
+                "deposit output",
+            )
+        })?;
 
     // Extract the DRT inpoint
     let drt_inpoint = tx_input
@@ -104,7 +112,13 @@ mod tests {
             value: amount.into(),
             script_pubkey: ScriptBuf::new_p2tr(SECP256K1, nn_key, None),
         };
-        let info = DepositInfo::new(dt_aux, deposit_output.into(), drt_inpoint.into());
+        let info = DepositInfo::new(
+            dt_aux,
+            deposit_output
+                .try_into()
+                .expect("deposit script within size bound"),
+            drt_inpoint.into(),
+        );
         (info, dt)
     }
 

@@ -2,19 +2,15 @@
 
 use ssz_primitives::FixedBytes;
 use ssz_types::VariableList;
-use strata_codec::{decode_buf_exact, encode_to_vec};
 use strata_identifiers::{
-    AccountSerial, Buf32, Epoch, OLBlockCommitment, OLBlockId, impl_borsh_via_ssz,
-    impl_borsh_via_ssz_fixed,
+    Buf32, Epoch, OLBlockCommitment, OLBlockId, impl_borsh_via_ssz, impl_borsh_via_ssz_fixed,
 };
-use strata_msg_fmt::{Msg, MsgRef, OwnedMsg, TypeId};
 use tree_hash::{Sha256Hasher, TreeHash};
 
 use crate::{
     CheckpointPayload, CheckpointPayloadError, CheckpointSidecar, CheckpointTip,
     MAX_OL_LOGS_PER_CHECKPOINT, MAX_PROOF_LEN, MAX_TOTAL_LOG_PAYLOAD_BYTES, OL_DA_DIFF_MAX_SIZE,
     OLLog, TerminalHeaderComplement,
-    log_payloads::{OLLogDecodeError, OLLogType},
 };
 
 impl CheckpointTip {
@@ -36,70 +32,6 @@ impl CheckpointTip {
 }
 
 impl_borsh_via_ssz_fixed!(CheckpointTip);
-
-impl OLLog {
-    pub fn new(account_serial: AccountSerial, payload: Vec<u8>) -> Self {
-        Self {
-            account_serial,
-            payload: VariableList::new(payload).expect("log: payload too large"),
-        }
-    }
-
-    pub fn account_serial(&self) -> AccountSerial {
-        self.account_serial
-    }
-
-    pub fn payload(&self) -> &[u8] {
-        &self.payload
-    }
-
-    /// Builds an [`OLLog`] whose payload is the msg-fmt envelope for a typed OL log.
-    ///
-    /// Mirrors `AsmLogEntry::from_log`: the payload is `TypeId(T::TY) ++ ssz(log)`, so consumers
-    /// dispatch on the log type via [`OLLog::try_into_log`].
-    pub fn from_log<T: OLLogType>(
-        account_serial: AccountSerial,
-        log: &T,
-    ) -> Result<Self, OLLogDecodeError> {
-        let body = encode_to_vec(log)?;
-        let payload = OwnedMsg::new(T::TY, body)?.to_vec();
-        Ok(Self::new(account_serial, payload))
-    }
-
-    /// Tries to interpret the payload bytes as a msg-fmt message.
-    ///
-    /// Returns `None` if the payload is not a valid envelope.
-    pub fn try_as_msg(&self) -> Option<MsgRef<'_>> {
-        MsgRef::try_from(self.payload()).ok()
-    }
-
-    /// Returns the envelope type id, if the payload is a valid msg-fmt message.
-    pub fn ty(&self) -> Option<TypeId> {
-        self.try_as_msg().map(|msg| msg.ty())
-    }
-
-    /// Decodes the payload as a specific typed OL log.
-    ///
-    /// Parses the msg-fmt envelope, checks the type id matches `T::TY`, and decodes the body.
-    /// Returns [`OLLogDecodeError::TypeMismatch`] when the envelope carries a different log type.
-    pub fn try_into_log<T: OLLogType>(&self) -> Result<T, OLLogDecodeError> {
-        let msg = MsgRef::try_from(self.payload())?;
-        let found = msg.ty();
-        if found != T::TY {
-            return Err(OLLogDecodeError::TypeMismatch {
-                expected: T::TY,
-                found,
-            });
-        }
-        Ok(decode_buf_exact(msg.body())?)
-    }
-
-    /// Computes the hash commitment of this log using SSZ tree hash.
-    pub fn compute_hash_commitment(&self) -> Buf32 {
-        let root = TreeHash::tree_hash_root::<Sha256Hasher>(self);
-        Buf32::from(root.0)
-    }
-}
 
 /// Minimal subset of the terminal `OLBlockHeader` for L1 reconstruction.
 ///
@@ -255,14 +187,14 @@ mod tests {
     use strata_identifiers::{AccountSerial, Buf32, OLBlockId};
 
     use super::*;
-    use crate::{
-        MAX_LOG_PAYLOAD_LEN, SIMPLE_WITHDRAWAL_INTENT_LOG_TYPE_ID, SimpleWithdrawalIntentLogData,
-    };
+    use crate::MAX_LOG_PAYLOAD_LEN;
 
     fn default_terminal_header_complement() -> TerminalHeaderComplement {
         TerminalHeaderComplement::new(0, OLBlockId::null(), Buf32::zero(), Buf32::zero())
     }
 
+    // `OLLog` envelope/typed-log behaviour is owned and tested by the `strata-ol-logs` crate; this
+    // module only covers the checkpoint-local aggregate limits enforced by `CheckpointSidecar`.
     #[test]
     fn test_checkpoint_sidecar_rejects_total_log_payload() {
         let mut logs = Vec::new();
@@ -277,67 +209,5 @@ mod tests {
             result,
             Err(CheckpointPayloadError::OLLogsTotalPayloadTooLarge { .. })
         ));
-    }
-
-    fn sample_withdrawal() -> SimpleWithdrawalIntentLogData {
-        SimpleWithdrawalIntentLogData::new(123_456, b"bc1qsomedest".to_vec(), 7)
-            .expect("withdrawal intent creation should not fail")
-    }
-
-    #[test]
-    fn test_ol_log_from_log_round_trip() {
-        let withdrawal = sample_withdrawal();
-        let log = OLLog::from_log(AccountSerial::one(), &withdrawal).unwrap();
-
-        assert_eq!(log.ty(), Some(SIMPLE_WITHDRAWAL_INTENT_LOG_TYPE_ID));
-
-        let decoded = log
-            .try_into_log::<SimpleWithdrawalIntentLogData>()
-            .expect("round-trip decode");
-        assert_eq!(decoded, withdrawal);
-    }
-
-    #[test]
-    fn test_ol_log_try_into_log_type_mismatch() {
-        // Build an envelope tagged with a different type id (e.g. snark account update, 0x02).
-        let body = strata_codec::encode_to_vec(&sample_withdrawal()).unwrap();
-        let payload = OwnedMsg::new(0x02, body).unwrap().to_vec();
-        let log = OLLog::new(AccountSerial::one(), payload);
-
-        let err = log
-            .try_into_log::<SimpleWithdrawalIntentLogData>()
-            .unwrap_err();
-        assert!(matches!(
-            err,
-            OLLogDecodeError::TypeMismatch {
-                expected: SIMPLE_WITHDRAWAL_INTENT_LOG_TYPE_ID,
-                found: 0x02,
-            }
-        ));
-    }
-
-    #[test]
-    fn test_ol_log_try_into_log_corrupt_body() {
-        // Correct type id, but a body that cannot decode into the log struct.
-        let payload = OwnedMsg::new(SIMPLE_WITHDRAWAL_INTENT_LOG_TYPE_ID, vec![0xff])
-            .unwrap()
-            .to_vec();
-        let log = OLLog::new(AccountSerial::one(), payload);
-
-        let err = log
-            .try_into_log::<SimpleWithdrawalIntentLogData>()
-            .unwrap_err();
-        assert!(matches!(err, OLLogDecodeError::Codec(_)));
-    }
-
-    #[test]
-    fn test_ol_log_try_into_log_not_an_envelope() {
-        // An empty payload is not a valid msg-fmt envelope.
-        let log = OLLog::new(AccountSerial::one(), Vec::new());
-
-        let err = log
-            .try_into_log::<SimpleWithdrawalIntentLogData>()
-            .unwrap_err();
-        assert!(matches!(err, OLLogDecodeError::Envelope(_)));
     }
 }

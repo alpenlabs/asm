@@ -12,10 +12,9 @@ use serde::{Deserialize, Serialize};
 use ssz::{Decode as SszDecode, DecodeError, Encode as SszEncode};
 use ssz_derive::{Decode, Encode};
 use strata_asm_common::sorted_vec::SortedVec;
-use strata_asm_proto_bridge_v1_types::OperatorBitmap;
 use strata_btc_types::BitcoinAmount;
 
-use crate::errors::DepositValidationError;
+use crate::{errors::DepositValidationError, state::operator::NnScriptIdx};
 
 /// Bitcoin deposit entry containing UTXO reference and historical multisig operators.
 ///
@@ -23,7 +22,7 @@ use crate::errors::DepositValidationError;
 /// address where N are the notary operators. The deposit tracks:
 ///
 /// - **`deposit_idx`** - Unique identifier assigned by the bridge for this deposit
-/// - **`notary_operators`** - The N operators that make up the N/N multisig
+/// - **`notary_set`** - Index of the N/N multisig configuration that controls this deposit
 /// - **`amt`** - Amount of Bitcoin locked in this deposit
 ///
 /// # Index Assignment
@@ -38,23 +37,19 @@ use crate::errors::DepositValidationError;
 ///
 /// # Multisig Design
 ///
-/// The `notary_operators` field preserves the historical set of operators that
-/// formed the N/N multisig when this deposit was locked. Any one honest operator
-/// from this set can properly process user withdrawals. We store this historical
-/// set because the active operator set may change over time.
+/// The `notary_set` field references the historical N/N multisig configuration that controlled
+/// this deposit when it was locked, since the active operator set may change over time. Any one
+/// honest operator from that set can process user withdrawals. Rather than copying the operator
+/// bitmap into every deposit, we store the index of the configuration in the operator table's
+/// `NnScriptHistory`, which holds the bitmap once.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, Encode, Decode)]
 pub struct DepositEntry {
     /// Unique deposit identifier assigned by the bridge and provided in the deposit transaction.
     deposit_idx: u32,
 
-    /// Historical set of operators that formed the N/N multisig for this deposit.
-    ///
-    /// This preserves the specific operators who controlled the multisig when the
-    /// deposit was locked, since the active operator set may change over time.
-    /// Any one honest operator from this set can process user withdrawals.
-    ///
-    /// Uses a memory-efficient bitmap representation instead of storing operator indices.
-    notary_operators: OperatorBitmap,
+    /// Index into the operator table's N/N script history identifying the multisig configuration
+    /// that controlled this deposit when it was locked.
+    notary_set: NnScriptIdx,
 
     /// Amount of Bitcoin locked in this deposit (in satoshis).
     amt: BitcoinAmount,
@@ -78,33 +73,14 @@ impl DepositEntry {
     /// # Parameters
     ///
     /// - `idx` - Unique deposit identifier
-    /// - `output` - Bitcoin UTXO reference
-    /// - `operators` - Historical set of operators that form the N/N multisig (must be non-empty)
+    /// - `notary_set` - Index of the N/N multisig configuration controlling this deposit
     /// - `amt` - Amount of Bitcoin locked in the deposit
-    ///
-    /// # Returns
-    ///
-    /// - `Ok(DepositEntry)` if the parameters are valid
-    /// - `Err(DepositValidationError::EmptyOperators)` if the operators list is empty
-    ///
-    /// # Errors
-    ///
-    /// Returns [`DepositValidationError::EmptyOperators`] if the operators vector is empty.
-    /// Each deposit must have at least one notary operator.
-    pub fn new(
-        idx: u32,
-        notary_operators: OperatorBitmap,
-        amt: BitcoinAmount,
-    ) -> Result<Self, DepositValidationError> {
-        if notary_operators.active_count() == 0 {
-            return Err(DepositValidationError::EmptyOperators);
-        }
-
-        Ok(Self {
+    pub fn new(idx: u32, notary_set: NnScriptIdx, amt: BitcoinAmount) -> Self {
+        Self {
             deposit_idx: idx,
-            notary_operators,
+            notary_set,
             amt,
-        })
+        }
     }
 
     /// Returns the unique deposit identifier.
@@ -112,10 +88,12 @@ impl DepositEntry {
         self.deposit_idx
     }
 
-    /// Returns the reference to the bitmap of historical set of operators that formed the N/N
-    /// multisig.
-    pub fn notary_operators(&self) -> &OperatorBitmap {
-        &self.notary_operators
+    /// Returns the index of the N/N multisig configuration that controls this deposit.
+    ///
+    /// Resolve it against the operator table's
+    /// `NnScriptHistory` to recover the notary operator bitmap.
+    pub fn notary_set(&self) -> NnScriptIdx {
+        self.notary_set
     }
 
     /// Returns the amount of Bitcoin locked in this deposit.
@@ -126,24 +104,11 @@ impl DepositEntry {
 
 impl<'a> Arbitrary<'a> for DepositEntry {
     fn arbitrary(u: &mut arbitrary::Unstructured<'a>) -> arbitrary::Result<Self> {
-        // Generate a random deposit index
         let deposit_idx: u32 = u.arbitrary()?;
-
-        // Generate operator bitmap and enforce the DepositEntry invariant:
-        // deposits must have at least one notary operator.
-        let mut notary_operators: OperatorBitmap = u.arbitrary()?;
-        if notary_operators.active_count() == 0 {
-            notary_operators
-                .try_set(0, true)
-                .map_err(|_| arbitrary::Error::IncorrectFormat)?;
-        }
-
-        // Generate a random Bitcoin amount (between 1 satoshi and 21 million BTC)
+        let notary_set: NnScriptIdx = u.arbitrary()?;
         let amount: BitcoinAmount = u.arbitrary()?;
 
-        // Create the DepositEntry - this should not fail since we ensure operators is non-empty
-        Self::new(deposit_idx, notary_operators, amount)
-            .map_err(|_| arbitrary::Error::IncorrectFormat)
+        Ok(Self::new(deposit_idx, notary_set, amount))
     }
 }
 
@@ -335,27 +300,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_deposit_entry_new_empty_operators() {
-        let operators = OperatorBitmap::new_empty();
-        let amount = BitcoinAmount::from_sat(1_000_000);
-
-        let result = DepositEntry::new(1, operators, amount);
-        assert!(matches!(
-            result,
-            Err(DepositValidationError::EmptyOperators)
-        ));
-    }
-
-    #[test]
-    fn test_deposit_entry_arbitrary_has_active_notary() {
-        let mut arb = ArbitraryGenerator::new();
-        for _ in 0..256 {
-            let entry: DepositEntry = arb.generate();
-            assert!(entry.notary_operators().active_count() > 0);
-        }
-    }
-
-    #[test]
     fn test_deposits_table_insert_single() {
         let mut table = DepositsTable::new_empty();
         let entry: DepositEntry = ArbitraryGenerator::new().generate();
@@ -396,10 +340,8 @@ mod tests {
             let entry_strategies: Vec<_> = indices
                 .into_iter()
                 .map(|idx| {
-                    (1usize..=64, 1u64..=2_100_000_000_000).prop_map(move |(op_count, sats)| {
-                        let operators = OperatorBitmap::new_with_size(op_count, true);
-                        DepositEntry::new(idx, operators, BitcoinAmount::from_sat(sats))
-                            .expect("non-empty operators")
+                    (any::<u32>(), 1u64..=2_100_000_000_000).prop_map(move |(notary_set, sats)| {
+                        DepositEntry::new(idx, notary_set, BitcoinAmount::from_sat(sats))
                     })
                 })
                 .collect();

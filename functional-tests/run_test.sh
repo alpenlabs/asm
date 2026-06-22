@@ -31,6 +31,9 @@ esac
 
 pushd .. > /dev/null
 cargo build --bin strata-asm-runner ${CARGO_ARGS[@]+"${CARGO_ARGS[@]}"}
+# dbtool inspects the runner's storage DB in fn_asm_dbtool_test; it does no
+# proving, so a debug build is enough regardless of the prover backend.
+cargo build --bin dbtool
 if [[ "$ASM_PROVER_BACKEND" == "sp1" ]]; then
   # Produces guest-builder/sp1/elfs/{asm,moho}.elf, which the runner reads at startup.
   cargo build -p strata-asm-sp1-guest-builder --release

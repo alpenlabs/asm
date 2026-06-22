@@ -1,5 +1,6 @@
 use std::fmt::Debug;
 
+use strata_btc_types::ParseError;
 use strata_codec::CodecError;
 use strata_l1_txfmt::TxFmtError;
 use thiserror::Error;
@@ -16,6 +17,16 @@ pub enum TxStructureErrorKind {
     /// Missing output at the expected index.
     #[error("missing output at index {index}")]
     MissingOutput { index: usize },
+
+    /// Output at the expected index could not be converted into a validated Bitcoin output.
+    #[error("invalid output at index {index}: {source}")]
+    InvalidOutput {
+        /// Index of the offending output.
+        index: usize,
+        /// Underlying conversion failure.
+        #[source]
+        source: ParseError,
+    },
 
     /// Transaction format is invalid (failed SPS-50 parsing).
     #[error("invalid transaction format: {0}")]
@@ -102,6 +113,20 @@ impl TxStructureError {
         Self::new_with_context(
             tx_type,
             TxStructureErrorKind::MissingOutput { index },
+            Some(context),
+        )
+    }
+
+    /// Output at the expected index could not be converted into a validated Bitcoin output.
+    pub fn invalid_output(
+        tx_type: BridgeTxType,
+        index: usize,
+        err: ParseError,
+        context: &'static str,
+    ) -> Self {
+        Self::new_with_context(
+            tx_type,
+            TxStructureErrorKind::InvalidOutput { index, source: err },
             Some(context),
         )
     }

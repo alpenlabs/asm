@@ -44,8 +44,22 @@ impl MmrNodeStore for AsmManifestMmrNodeStore {
         Ok(())
     }
 
-    fn commit(&self, writes: &[(NodePos, [u8; 32])]) -> Result<(), sled::Error> {
+    fn delete_node(&self, pos: NodePos) -> Result<(), sled::Error> {
+        self.nodes.remove(pos.to_key())?;
+        Ok(())
+    }
+
+    fn commit(
+        &self,
+        writes: &[(NodePos, [u8; 32])],
+        deletes: &[NodePos],
+    ) -> Result<(), sled::Error> {
         let mut batch = sled::Batch::default();
+        // Apply deletes before writes so a position in both ends up stored, per
+        // the `MmrNodeStore::commit` contract.
+        for pos in deletes {
+            batch.remove(pos.to_key().as_slice());
+        }
         for (pos, value) in writes {
             let key = pos.to_key();
             batch.insert(key.as_slice(), value.as_slice());

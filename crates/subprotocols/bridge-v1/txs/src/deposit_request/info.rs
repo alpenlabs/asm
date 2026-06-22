@@ -47,6 +47,8 @@ impl DepositRequestInfo {
             value: amt.into(),
             script_pubkey: txout.script_pubkey,
         };
-        self.deposit_request_output = new_txout.into();
+        self.deposit_request_output = new_txout
+            .try_into()
+            .expect("deposit request script within size bound");
     }
 }

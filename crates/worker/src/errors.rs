@@ -1,9 +1,47 @@
+use bitcoin::Network;
 use strata_btc_types::BitcoinTxid;
 use strata_identifiers::{L1BlockCommitment, L1BlockId};
 use thiserror::Error;
 
 /// Return type for worker messages.
 pub type WorkerResult<T> = Result<T, WorkerError>;
+
+/// The specific way a configured anchor disagrees with the L1 chain.
+///
+/// Produced at startup by the worker's anchor validation and wrapped by
+/// [`WorkerError::AnchorMismatch`]. Each variant carries both the value the
+/// anchor declared and the value the L1 source reports.
+#[derive(Debug, Error)]
+pub enum AnchorMismatch {
+    /// The anchor's network differs from the backing L1 source.
+    #[error("network: anchor declares {anchor:?}, L1 source reports {l1:?}")]
+    Network { anchor: Network, l1: Network },
+
+    /// The anchor commits to a different block than the one at its height on
+    /// the active chain.
+    #[error("block at height {height}: anchor commits to {anchor:?}, L1 has {l1:?}")]
+    Block {
+        height: u64,
+        anchor: L1BlockId,
+        l1: L1BlockId,
+    },
+
+    /// The anchor's epoch-start timestamp differs from the timestamp of the
+    /// first block of its current difficulty-adjustment epoch.
+    #[error(
+        "epoch start timestamp: anchor declares {anchor}, L1 epoch start (height {epoch_start_height}) is {l1}"
+    )]
+    EpochStartTimestamp {
+        epoch_start_height: u64,
+        anchor: u32,
+        l1: u32,
+    },
+
+    /// The anchor's next-block target differs from the target the anchor's
+    /// successor is required to satisfy.
+    #[error("next target: anchor declares {anchor}, L1 requires {l1}")]
+    NextTarget { anchor: u32, l1: u32 },
+}
 
 #[derive(Debug, Error)]
 pub enum WorkerError {
@@ -12,6 +50,12 @@ pub enum WorkerError {
 
     #[error("missing genesis ASM state.")]
     MissingGenesisState,
+
+    /// The anchor configured in `params` does not match the actual L1 chain.
+    /// Surfaced at startup so a misconfigured anchor fails fast instead of one
+    /// L1 block later, when header verification rejects the anchor's successor.
+    #[error("configured anchor is inconsistent with the L1 chain: {0}")]
+    AnchorMismatch(#[from] AnchorMismatch),
 
     #[error("missing l1 block {0:?}")]
     MissingL1Block(L1BlockId),

@@ -9,7 +9,7 @@ use std::sync::Arc;
 use asm_storage::{SledAsmAuxDataDb, SledAsmManifestDb, SledAsmManifestMmrDb, SledAsmStateDb};
 use bitcoin::{Block, BlockHash, Network, block::Header};
 use bitcoind_async_client::{Client, error::ClientError, traits::Reader};
-use strata_asm_common::{AsmManifest, AsmManifestHash, AuxData};
+use strata_asm_common::{AsmLogEntry, AsmManifest, AsmManifestHash, AuxData};
 use strata_asm_worker::{
     AnchorStateStore, AsmState, AuxDataStore, L1DataProvider, ManifestMmrStore, WorkerError,
     WorkerResult,
@@ -60,6 +60,21 @@ impl AsmWorkerContext {
             mmr_db,
         }
     }
+
+    /// Loads the STF logs for `blockid` from the manifest store.
+    ///
+    /// The anchor state DB persists only the `AnchorState`, so the logs the STF
+    /// emitted are recovered from the block's manifest. Returns an empty vec
+    /// when no manifest is stored — e.g. the genesis anchor, seeded without
+    /// running the STF.
+    fn manifest_logs(&self, blockid: &L1BlockCommitment) -> WorkerResult<Vec<AsmLogEntry>> {
+        Ok(self
+            .manifest_db
+            .get(blockid)
+            .map_err(|_| WorkerError::DbError)?
+            .map(|manifest| manifest.logs().to_vec())
+            .unwrap_or_default())
+    }
 }
 
 impl L1DataProvider for AsmWorkerContext {
@@ -79,6 +94,31 @@ impl L1DataProvider for AsmWorkerContext {
     fn get_l1_block_header(&self, blockid: &L1BlockId) -> WorkerResult<Header> {
         let block_hash: BlockHash = blockid.to_block_hash();
         let client = &self.bitcoin_client;
+        self.runtime_handle
+            .block_on(retry_with_backoff_async(
+                "btc_get_block_header",
+                self.rpc_max_retries,
+                &self.rpc_backoff,
+                || async { client.get_block_header(&block_hash).await },
+            ))
+            .map_err(|e: ClientError| {
+                WorkerError::BtcRpc(format!("get_block_header({block_hash}): {e}"))
+            })
+    }
+
+    fn get_l1_block_header_at_height(&self, height: u64) -> WorkerResult<Header> {
+        let client = &self.bitcoin_client;
+        let block_hash = self
+            .runtime_handle
+            .block_on(retry_with_backoff_async(
+                "btc_get_block_hash",
+                self.rpc_max_retries,
+                &self.rpc_backoff,
+                || async { client.get_block_hash(height).await },
+            ))
+            .map_err(|e: ClientError| {
+                WorkerError::BtcRpc(format!("get_block_hash({height}): {e}"))
+            })?;
         self.runtime_handle
             .block_on(retry_with_backoff_async(
                 "btc_get_block_header",
@@ -141,19 +181,24 @@ impl L1DataProvider for AsmWorkerContext {
 
 impl AnchorStateStore for AsmWorkerContext {
     // The state store persists only the `AnchorState`; the worker's `AsmState`
-    // umbrella also carries logs, which live in the manifest store. The logs are
-    // not needed to drive transitions (the worker reads only `AsmState::state()`),
-    // so reads reconstruct an `AsmState` with empty logs — matching how genesis
-    // is seeded.
+    // umbrella also carries the STF logs, which live in the manifest store.
+    // Reads rejoin the two so the reconstructed `AsmState` matches what the STF
+    // produced — anything that derives from the logs (the MohoState, the
+    // export-entry index) then stays correct even when it runs over a reloaded
+    // state rather than fresh STF output. Returning empty logs here once let a
+    // re-committed anchor silently drop a block's export entries and predicate
+    // update, desyncing its persisted MohoState from the proven one.
     fn get_latest_asm_state(&self) -> WorkerResult<Option<(L1BlockCommitment, AsmState)>> {
-        Ok(self
+        let Some(anchor) = self
             .state_db
             .get_latest()
             .map_err(|_| WorkerError::DbError)?
-            .map(|anchor| {
-                let blockid = anchor.chain_view.pow_state.last_verified_block;
-                (blockid, AsmState::new(anchor, vec![]))
-            }))
+        else {
+            return Ok(None);
+        };
+        let blockid = anchor.chain_view.pow_state.last_verified_block;
+        let logs = self.manifest_logs(&blockid)?;
+        Ok(Some((blockid, AsmState::new(anchor, logs))))
     }
 
     fn get_anchor_state(&self, blockid: &L1BlockCommitment) -> WorkerResult<AsmState> {
@@ -162,7 +207,8 @@ impl AnchorStateStore for AsmWorkerContext {
             .get(blockid)
             .map_err(|_| WorkerError::DbError)?
             .ok_or(WorkerError::MissingAsmState(*blockid.blkid()))?;
-        Ok(AsmState::new(anchor, vec![]))
+        let logs = self.manifest_logs(blockid)?;
+        Ok(AsmState::new(anchor, logs))
     }
 
     fn store_anchor_state(

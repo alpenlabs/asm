@@ -4,7 +4,7 @@ use anyhow::{Context, Result};
 use strata_asm_common::AuxData;
 use strata_identifiers::L1BlockCommitment;
 
-use super::encode_block_commitment;
+use super::{decode_block_commitment, encode_block_commitment};
 use crate::AsmAuxDataDb;
 
 /// Sled-backed [`AsmAuxDataDb`] keyed by [`L1BlockCommitment`].
@@ -66,6 +66,25 @@ impl SledAsmAuxDataDb {
             self.aux.remove(&key)?;
         }
         Ok(())
+    }
+
+    /// Removes the auxiliary data for `block`, returning whether it was present.
+    ///
+    /// For inspection tooling; the worker never deletes individual entries.
+    pub fn delete(&self, block: &L1BlockCommitment) -> Result<bool> {
+        Ok(self.aux.remove(encode_block_commitment(block))?.is_some())
+    }
+
+    /// Returns every stored auxiliary-data key, in ascending height order.
+    ///
+    /// For inspection tooling: keys are decoded from the tree without reading
+    /// the values.
+    pub fn list(&self) -> Result<Vec<L1BlockCommitment>> {
+        self.aux
+            .iter()
+            .keys()
+            .map(|key| Ok(decode_block_commitment(key?.as_ref())))
+            .collect()
     }
 }
 
@@ -158,5 +177,33 @@ mod tests {
         assert!(store.get(&low).unwrap().is_some());
         assert!(store.get(&at).unwrap().is_some());
         assert!(store.get(&high).unwrap().is_none());
+    }
+
+    #[test]
+    fn delete_reports_presence_and_removes() {
+        let (db, _dir) = test_db();
+        let store = SledAsmAuxDataDb::open(&db).unwrap();
+        let commitment = make_commitment(42, 0xdd);
+        store.put(&commitment, &AuxData::default()).unwrap();
+
+        assert!(store.delete(&commitment).unwrap());
+        assert!(store.get(&commitment).unwrap().is_none());
+        // Deleting again reports absence.
+        assert!(!store.delete(&commitment).unwrap());
+    }
+
+    #[test]
+    fn list_returns_keys_in_height_order() {
+        let (db, _dir) = test_db();
+        let store = SledAsmAuxDataDb::open(&db).unwrap();
+        let high = make_commitment(7, 0x07);
+        let low = make_commitment(3, 0x03);
+        let mid = make_commitment(5, 0x05);
+        // Insert out of order; list must come back height-sorted.
+        store.put(&high, &AuxData::default()).unwrap();
+        store.put(&low, &AuxData::default()).unwrap();
+        store.put(&mid, &AuxData::default()).unwrap();
+
+        assert_eq!(store.list().unwrap(), vec![low, mid, high]);
     }
 }

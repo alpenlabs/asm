@@ -7,4 +7,5 @@ pub(crate) mod withdrawal;
 pub use assignment::AssignmentEntry;
 pub use bridge::BridgeV1State;
 pub use deposit::DepositEntry;
+pub use operator::NnScriptIdx;
 pub use withdrawal::OperatorClaimUnlock;

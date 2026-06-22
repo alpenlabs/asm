@@ -29,6 +29,6 @@ mod validation;
 mod test_utils;
 
 pub use errors::*;
-pub use state::{AssignmentEntry, BridgeV1State, DepositEntry, OperatorClaimUnlock};
+pub use state::{AssignmentEntry, BridgeV1State, DepositEntry, NnScriptIdx, OperatorClaimUnlock};
 pub use strata_asm_proto_bridge_v1_msgs::BridgeIncomingMsg;
 pub use subprotocol::BridgeV1Subproto;

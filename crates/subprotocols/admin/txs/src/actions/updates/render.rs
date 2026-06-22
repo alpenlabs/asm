@@ -83,11 +83,12 @@ mod tests {
         let a2 = arb_pubkey();
         let r1 = arb_pubkey();
         let r2 = arb_pubkey();
-        let config = ThresholdConfigUpdate::new(
+        let config = ThresholdConfigUpdate::try_new(
             vec![a1, a2],
             vec![r1, r2],
             NonZero::new(2).expect("non-zero"),
-        );
+        )
+        .expect("valid threshold config");
 
         let lines = render_lines(|details| multisig(&config, details));
 
@@ -109,8 +110,12 @@ mod tests {
     fn multisig_renders_two_adds_and_no_removes() {
         let a1 = arb_pubkey();
         let a2 = arb_pubkey();
-        let config =
-            ThresholdConfigUpdate::new(vec![a1, a2], vec![], NonZero::new(2).expect("non-zero"));
+        let config = ThresholdConfigUpdate::try_new(
+            vec![a1, a2],
+            vec![],
+            NonZero::new(2).expect("non-zero"),
+        )
+        .expect("valid threshold config");
 
         let lines = render_lines(|details| multisig(&config, details));
 
@@ -130,8 +135,12 @@ mod tests {
     fn multisig_renders_no_adds_and_two_removes() {
         let r1 = arb_pubkey();
         let r2 = arb_pubkey();
-        let config =
-            ThresholdConfigUpdate::new(vec![], vec![r1, r2], NonZero::new(1).expect("non-zero"));
+        let config = ThresholdConfigUpdate::try_new(
+            vec![],
+            vec![r1, r2],
+            NonZero::new(1).expect("non-zero"),
+        )
+        .expect("valid threshold config");
 
         let lines = render_lines(|details| multisig(&config, details));
 
@@ -149,7 +158,9 @@ mod tests {
 
     #[test]
     fn multisig_renders_no_adds_and_no_removes() {
-        let config = ThresholdConfigUpdate::new(vec![], vec![], NonZero::new(1).expect("non-zero"));
+        let config =
+            ThresholdConfigUpdate::try_new(vec![], vec![], NonZero::new(1).expect("non-zero"))
+                .expect("valid threshold config");
 
         let lines = render_lines(|details| multisig(&config, details));
 
