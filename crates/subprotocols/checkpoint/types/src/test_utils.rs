@@ -88,7 +88,7 @@ fn ol_log_sizes_strategy() -> impl Strategy<Value = Vec<usize>> {
 /// truncating before materializing keeps a draw bounded while still exercising both regimes — large
 /// payloads fill the budget after a few logs, near-empty payloads extend the prefix toward the
 /// [`MAX_OL_LOGS_PER_CHECKPOINT`] count cap.
-fn bounded_ol_logs(sizes: Vec<usize>) -> Vec<OLLog> {
+fn build_bounded_ol_logs(sizes: Vec<usize>) -> Vec<OLLog> {
     let mut total = 0usize;
     sizes
         .into_iter()
@@ -129,7 +129,7 @@ pub fn checkpoint_sidecar_strategy() -> impl Strategy<Value = CheckpointSidecar>
     )
         .prop_map(|(state_diff, log_sizes, terminal_header_complement)| {
             // Limit the logs to the generation budget here, where the whole sidecar is assembled.
-            let ol_logs = bounded_ol_logs(log_sizes);
+            let ol_logs = build_bounded_ol_logs(log_sizes);
             CheckpointSidecar::new(state_diff, ol_logs, terminal_header_complement)
                 .expect("schema caps satisfied by construction")
         })
