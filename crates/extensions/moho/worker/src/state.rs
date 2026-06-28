@@ -217,15 +217,23 @@ mod tests {
     }
 
     impl ExportEntryStore for MockContext {
-        fn append_export_entry(
+        fn store_export_entries(
             &self,
             container_id: u8,
             height: u32,
-            entry: [u8; 32],
+            entries: Vec<[u8; 32]>,
         ) -> MohoWorkerResult<()> {
+            let mut store = self.export_entries.borrow_mut();
+            for entry in entries {
+                store.push((container_id, height, entry));
+            }
+            Ok(())
+        }
+
+        fn prune_export_entries_from(&self, height: u32) -> MohoWorkerResult<()> {
             self.export_entries
                 .borrow_mut()
-                .push((container_id, height, entry));
+                .retain(|(_, h, _)| *h < height);
             Ok(())
         }
     }

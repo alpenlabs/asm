@@ -298,7 +298,7 @@ fn build_export_entry_mmr_proof(
 
     let at_leaf_count = container.entries_mmr().num_entries();
 
-    let Some((mmr_index, _height)) = export_entries_db.find_index(container_id, &leaf_hash)? else {
+    let Some(mmr_index) = export_entries_db.find_index(container_id, &leaf_hash)? else {
         return Ok(None);
     };
 
@@ -411,7 +411,7 @@ mod tests {
         let mut export = prev.export_state().clone();
         for (container_id, hash) in entries {
             export.add_entry(*container_id, *hash).unwrap();
-            idx.append(*container_id, at.height(), *hash).unwrap();
+            idx.append(*container_id, at.height(), vec![*hash]).unwrap();
         }
         let next = MohoState::new(
             InnerStateCommitment::from([0u8; 32]),
