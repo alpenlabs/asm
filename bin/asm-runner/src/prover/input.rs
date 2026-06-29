@@ -108,8 +108,8 @@ impl InputBuilder {
     /// only submitted once `Moho(H-1)` and `Asm(H)` are stored, so the existence
     /// of the highest Moho proof implies every proof at or below its height is
     /// already done. Blocks at or below it are skipped; the genuinely missing
-    /// proofs above it are re-enqueued, and [`ProofSubmitter::try_submit`] drops
-    /// any that turn out to already exist or be in flight.
+    /// proofs above it are re-enqueued, and `try_submit` drops any that turn out
+    /// to already exist or be in flight.
     pub(crate) async fn proofs_to_backfill(&self) -> Result<Vec<L1BlockCommitment>> {
         // Latest completed Moho proof height, or genesis when none exist yet.
         // Genesis is the anchor and is never proven, so it's the correct floor.
@@ -120,15 +120,11 @@ impl InputBuilder {
             .map(|(commitment, _)| commitment.height())
             .unwrap_or_else(|| self.genesis.height());
 
-        let processed = self
-            .state_db
-            .list()
-            .context("failed to list persisted anchor states")?;
-
-        Ok(processed
-            .into_iter()
-            .filter(|commitment| commitment.height() > watermark)
-            .collect())
+        // Scan only the tail above the watermark (exclusive) rather than
+        // decoding every persisted anchor key on each restart.
+        self.state_db
+            .list_from(watermark.saturating_add(1))
+            .context("failed to list persisted anchor states")
     }
 
     pub(crate) async fn check_moho_prerequisite(
