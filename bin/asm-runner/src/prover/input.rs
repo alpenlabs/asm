@@ -93,6 +93,44 @@ impl InputBuilder {
             .context("moho state not found for block")
     }
 
+    /// Returns the worker-processed L1 blocks that may still need proofs after a
+    /// restart: every persisted anchor above the latest completed Moho proof
+    /// (exclusive) and above genesis.
+    ///
+    /// The in-memory pending queue is rebuilt from this on startup. The proof
+    /// request channel only re-delivers requests for blocks the worker
+    /// *reprocesses*, and an already-processed block is a no-op — so a proof
+    /// that was pending (enqueued but not yet submitted, e.g. a Moho proof
+    /// deferred on a missing prerequisite) at restart time would otherwise be
+    /// lost, permanently stalling the recursive Moho chain behind the gap.
+    ///
+    /// The latest completed Moho proof is a sound lower watermark: `Moho(H)` is
+    /// only submitted once `Moho(H-1)` and `Asm(H)` are stored, so the existence
+    /// of the highest Moho proof implies every proof at or below its height is
+    /// already done. Blocks at or below it are skipped; the genuinely missing
+    /// proofs above it are re-enqueued, and [`ProofSubmitter::try_submit`] drops
+    /// any that turn out to already exist or be in flight.
+    pub(crate) async fn proofs_to_backfill(&self) -> Result<Vec<L1BlockCommitment>> {
+        // Latest completed Moho proof height, or genesis when none exist yet.
+        // Genesis is the anchor and is never proven, so it's the correct floor.
+        let watermark = self
+            .proof_db
+            .get_latest_moho_proof()
+            .await?
+            .map(|(commitment, _)| commitment.height())
+            .unwrap_or_else(|| self.genesis.height());
+
+        let processed = self
+            .state_db
+            .list()
+            .context("failed to list persisted anchor states")?;
+
+        Ok(processed
+            .into_iter()
+            .filter(|commitment| commitment.height() > watermark)
+            .collect())
+    }
+
     pub(crate) async fn check_moho_prerequisite(
         &self,
         block: L1BlockCommitment,
