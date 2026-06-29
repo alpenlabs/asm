@@ -55,17 +55,29 @@ impl<R: ZkVmRemoteHost> ProofOrchestrator<R> {
     pub(crate) async fn run(&mut self, shutdown: ShutdownGuard) -> Result<()> {
         info!("proof orchestrator started");
 
-        // Rebuild the in-memory pending queue from durable state before the loop.
-        // The proof request channel only carries blocks the worker (re)processes,
-        // and an already-processed block is a no-op on restart — so proofs that
-        // were pending but never submitted (e.g. a Moho proof deferred on a
-        // missing prerequisite) would otherwise be lost, stalling the recursive
-        // chain behind the gap forever.
-        if let Err(e) = self.recover_pending_proofs().await {
-            error!(?e, "failed to recover pending proofs on startup");
-        }
+        // Rebuild the in-memory pending queue from durable state. The proof
+        // request channel only carries blocks the worker (re)processes, and an
+        // already-processed block is a no-op on restart — so proofs that were
+        // pending but never submitted (e.g. a Moho proof deferred on a missing
+        // prerequisite) would otherwise be lost, stalling the recursive chain
+        // behind the gap forever.
+        //
+        // Recovery is the *only* path that re-enqueues those blocks, so a
+        // transient failure (Bitcoin RPC or sled) must not leave the queue
+        // permanently short. Retry once per tick until it succeeds rather than
+        // proceeding with a half-rebuilt queue; `proofs_to_backfill` is
+        // all-or-nothing (it errors before enqueuing anything), so each retry is
+        // clean and the successful run enqueues exactly once.
+        let mut recovered = false;
 
         loop {
+            if !recovered {
+                match self.recover_pending_proofs().await {
+                    Ok(()) => recovered = true,
+                    Err(e) => error!(?e, "failed to recover pending proofs; retrying next tick"),
+                }
+            }
+
             if let Err(e) = self.tick().await {
                 error!(?e, "orchestrator tick failed");
             }
