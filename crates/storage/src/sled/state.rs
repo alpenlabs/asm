@@ -101,20 +101,13 @@ impl SledAsmStateDb {
             .collect()
     }
 
-    /// Returns the stored anchor-state keys with height `>= from_height`, in
-    /// ascending height order.
+    /// Returns whether an anchor state is stored for `block`.
     ///
-    /// Like [`Self::list`] but bounded: keys are height-prefixed big-endian, so
-    /// this ranges over only the tail of the keyspace rather than decoding every
-    /// key. Used by startup proof recovery, which only needs blocks above the
-    /// last proven height.
-    pub fn list_from(&self, from_height: u32) -> Result<Vec<L1BlockCommitment>> {
-        let lower: &[u8] = &from_height.to_be_bytes();
-        self.states
-            .range(lower..)
-            .keys()
-            .map(|key| Ok(decode_block_commitment(key?.as_ref())))
-            .collect()
+    /// Checks key presence only — it does not read or decode the (large) value.
+    /// Used by startup proof recovery to test whether a specific canonical block
+    /// has been processed.
+    pub fn contains(&self, block: &L1BlockCommitment) -> Result<bool> {
+        Ok(self.states.contains_key(encode_block_commitment(block))?)
     }
 }
 

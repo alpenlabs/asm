@@ -103,9 +103,10 @@ impl<R: ZkVmRemoteHost> ProofOrchestrator<R> {
     /// Re-enqueues proofs that were pending at restart but are not yet completed
     /// or in flight.
     ///
-    /// Enumerates every worker-processed block above the latest completed Moho
-    /// proof (see [`InputBuilder::proofs_to_backfill`]) and enqueues its ASM and
-    /// Moho proof requests. Already-completed or already-submitted proofs are
+    /// Enumerates every worker-processed canonical block above the highest
+    /// canonical block that already has a Moho proof (see
+    /// [`InputBuilder::proofs_to_backfill`]) and enqueues its ASM and Moho proof
+    /// requests. Already-completed or already-submitted proofs are
     /// filtered out downstream by [`OrchestratorSubmitter::try_submit`], so this
     /// only resurrects the genuinely-missing work.
     async fn recover_pending_proofs(&mut self) -> Result<()> {
