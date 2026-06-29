@@ -93,6 +93,75 @@ impl InputBuilder {
             .context("moho state not found for block")
     }
 
+    /// Returns the worker-processed L1 blocks that may still need proofs after a
+    /// restart: every persisted anchor on the *canonical* chain above the highest
+    /// canonical block that already has a Moho proof, and above genesis.
+    ///
+    /// The in-memory pending queue is rebuilt from this on startup. The proof
+    /// request channel only re-delivers requests for blocks the worker
+    /// *reprocesses*, and an already-processed block is a no-op — so a proof
+    /// that was pending (enqueued but not yet submitted, e.g. a Moho proof
+    /// deferred on a missing prerequisite) at restart time would otherwise be
+    /// lost, permanently stalling the recursive Moho chain behind the gap.
+    ///
+    /// The watermark must be derived along the canonical chain, *not* from the
+    /// global-maximum Moho proof. Orphaned states and proofs from abandoned reorg
+    /// branches are never pruned (see
+    /// [`AnchorStateStore::get_latest_asm_state`](strata_asm_worker::AnchorStateStore::get_latest_asm_state)),
+    /// so an orphaned branch's proof can outrank the canonical proof frontier;
+    /// trusting the global max would skip the genuinely-pending canonical blocks
+    /// below it and stall their Moho chain forever. Instead we walk the canonical
+    /// L1 ancestry downward and stop at the first block that already has a Moho
+    /// proof: since `Moho(H)` is only submitted once `Moho(H-1)` and `Asm(H)` are
+    /// stored, a canonical proof at height H implies every canonical proof at or
+    /// below H is done. `try_submit` drops any re-enqueued proof that turns out
+    /// to already exist or be in flight.
+    pub(crate) async fn proofs_to_backfill(&self) -> Result<Vec<L1BlockCommitment>> {
+        let genesis_height = self.genesis.height();
+
+        // Highest persisted anchor. May belong to an abandoned reorg branch, so
+        // it only bounds the walk — canonicality is established per height below.
+        let Some(latest) = self.state_db.get_latest()? else {
+            return Ok(Vec::new());
+        };
+        let latest_height = latest.chain_view.pow_state.last_verified_block.height();
+
+        // Clamp to the canonical tip: after a reorg to a shorter chain the
+        // highest persisted block can outrank the current L1 tip, and
+        // `get_block_hash` would fail for a height bitcoind no longer has.
+        let tip_height = self
+            .bitcoin_client
+            .get_block_count()
+            .await
+            .context("failed to fetch L1 block count")?;
+        let mut height = latest_height.min(u32::try_from(tip_height).unwrap_or(u32::MAX));
+
+        let mut backfill = Vec::new();
+        while height > genesis_height {
+            let block_hash = self
+                .bitcoin_client
+                .get_block_hash(u64::from(height))
+                .await
+                .with_context(|| format!("failed to fetch canonical block hash at {height}"))?;
+            let commitment = L1BlockCommitment::new(height, block_hash.to_l1_block_id());
+
+            // Heights above the processed tip are not yet persisted; the worker
+            // re-processes and re-enqueues them on sync, so recovery skips them.
+            if self.state_db.contains(&commitment)? {
+                if self.proof_db.get_moho_proof(commitment).await?.is_some() {
+                    break;
+                }
+                backfill.push(commitment);
+            }
+
+            height -= 1;
+        }
+
+        // Oldest-first, the order the recursive Moho chain needs.
+        backfill.reverse();
+        Ok(backfill)
+    }
+
     pub(crate) async fn check_moho_prerequisite(
         &self,
         block: L1BlockCommitment,

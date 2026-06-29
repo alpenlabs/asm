@@ -100,6 +100,15 @@ impl SledAsmStateDb {
             .map(|key| Ok(decode_block_commitment(key?.as_ref())))
             .collect()
     }
+
+    /// Returns whether an anchor state is stored for `block`.
+    ///
+    /// Checks key presence only — it does not read or decode the (large) value.
+    /// Used by startup proof recovery to test whether a specific canonical block
+    /// has been processed.
+    pub fn contains(&self, block: &L1BlockCommitment) -> Result<bool> {
+        Ok(self.states.contains_key(encode_block_commitment(block))?)
+    }
 }
 
 impl AsmStateDb for SledAsmStateDb {

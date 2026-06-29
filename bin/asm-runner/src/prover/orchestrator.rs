@@ -9,7 +9,7 @@ use async_trait::async_trait;
 use moho_recursive_proof::MohoRecursiveProgram;
 use strata_asm_proof_db::{RemoteProofMappingDb, RemoteProofStatusDb, SledProofDb};
 use strata_asm_proof_impl::program::AsmStfProofProgram;
-use strata_asm_proof_types::{ProofId, RemoteProofId};
+use strata_asm_proof_types::{L1Range, ProofId, RemoteProofId};
 use strata_tasks::ShutdownGuard;
 use tokio::{sync::mpsc, time};
 use tracing::{debug, error, info, warn};
@@ -54,7 +54,30 @@ impl<R: ZkVmRemoteHost> ProofOrchestrator<R> {
     /// Runs the orchestrator loop until shutdown is requested or the channel is closed.
     pub(crate) async fn run(&mut self, shutdown: ShutdownGuard) -> Result<()> {
         info!("proof orchestrator started");
+
+        // Rebuild the in-memory pending queue from durable state. The proof
+        // request channel only carries blocks the worker (re)processes, and an
+        // already-processed block is a no-op on restart — so proofs that were
+        // pending but never submitted (e.g. a Moho proof deferred on a missing
+        // prerequisite) would otherwise be lost, stalling the recursive chain
+        // behind the gap forever.
+        //
+        // Recovery is the *only* path that re-enqueues those blocks, so a
+        // transient failure (Bitcoin RPC or sled) must not leave the queue
+        // permanently short. Retry once per tick until it succeeds rather than
+        // proceeding with a half-rebuilt queue; `proofs_to_backfill` is
+        // all-or-nothing (it errors before enqueuing anything), so each retry is
+        // clean and the successful run enqueues exactly once.
+        let mut recovered = false;
+
         loop {
+            if !recovered {
+                match self.recover_pending_proofs().await {
+                    Ok(()) => recovered = true,
+                    Err(e) => error!(?e, "failed to recover pending proofs; retrying next tick"),
+                }
+            }
+
             if let Err(e) = self.tick().await {
                 error!(?e, "orchestrator tick failed");
             }
@@ -87,6 +110,38 @@ impl<R: ZkVmRemoteHost> ProofOrchestrator<R> {
             debug!(?id, "received proof request");
             self.queue.enqueue(id);
         }
+    }
+
+    /// Re-enqueues proofs that were pending at restart but are not yet completed
+    /// or in flight.
+    ///
+    /// Enumerates every worker-processed canonical block above the highest
+    /// canonical block that already has a Moho proof (see
+    /// [`InputBuilder::proofs_to_backfill`]) and enqueues its ASM and Moho proof
+    /// requests. Already-completed or already-submitted proofs are
+    /// filtered out downstream by [`OrchestratorSubmitter::try_submit`], so this
+    /// only resurrects the genuinely-missing work.
+    async fn recover_pending_proofs(&mut self) -> Result<()> {
+        let backfill = self
+            .input_builder
+            .proofs_to_backfill()
+            .await
+            .context("failed to compute pending proof backfill")?;
+
+        if backfill.is_empty() {
+            return Ok(());
+        }
+
+        info!(
+            blocks = backfill.len(),
+            "re-enqueuing pending proofs after restart"
+        );
+        for commitment in backfill {
+            self.queue
+                .enqueue(ProofId::Asm(L1Range::single(commitment)));
+            self.queue.enqueue(ProofId::Moho(commitment));
+        }
+        Ok(())
     }
 
     /// Executes one orchestration cycle.
