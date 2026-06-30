@@ -21,7 +21,7 @@ use strata_asm_prover_types::{ProofId, RemoteProofId};
 use strata_identifiers::L1BlockCommitment;
 use strata_service::{AsyncService, Response, Service, TickMsg};
 use tracing::{debug, error, info, warn};
-use zkaleido::{RemoteProofStatus, ZkVmProgram, ZkVmRemoteHost};
+use zkaleido::{RemoteProofStatus, ZkVmRemoteHost, ZkVmRemoteProgram};
 
 use crate::{
     ProverContext, input::InputBuilder, message::ProverMessage, proof_store,
@@ -58,7 +58,6 @@ impl<C, H> AsyncService for ProverService<C, H>
 where
     C: ProverContext + Send + Sync + 'static,
     H: ZkVmRemoteHost + Send + Sync + 'static,
-    H::ProofId: Send + Sync,
 {
     async fn process_input(state: &mut Self::State, input: Self::Msg) -> anyhow::Result<Response> {
         match input {
@@ -85,7 +84,6 @@ async fn tick<C, H>(state: &mut ProverServiceState<C, H>) -> Result<()>
 where
     C: ProverContext + Send + Sync,
     H: ZkVmRemoteHost + Send + Sync,
-    H::ProofId: Send + Sync,
 {
     if !state.queue.is_empty() {
         debug!(pending = state.queue.len(), "prover tick");
@@ -103,7 +101,6 @@ async fn reconcile_active_proofs<C, H>(state: &ProverServiceState<C, H>) -> Resu
 where
     C: ProverContext + Send + Sync,
     H: ZkVmRemoteHost + Send + Sync,
-    H::ProofId: Send + Sync,
 {
     let in_progress = state
         .ctx
@@ -128,7 +125,6 @@ async fn reconcile_one<C, H>(
 where
     C: ProverContext + Send + Sync,
     H: ZkVmRemoteHost + Send + Sync,
-    H::ProofId: Send + Sync,
 {
     let typed_id = to_typed_proof_id::<H>(remote_id)?;
 
@@ -179,7 +175,6 @@ async fn handle_completed<C, H>(
 where
     C: ProverContext + Send + Sync,
     H: ZkVmRemoteHost + Send + Sync,
-    H::ProofId: Send + Sync,
 {
     // NOTE: As above, `get_proof` only needs a network client and the proof ID,
     // so `state.asm` works for proofs produced by either host.
@@ -218,7 +213,6 @@ async fn schedule_proofs<C, H>(state: &mut ProverServiceState<C, H>) -> Result<(
 where
     C: ProverContext + Send + Sync,
     H: ZkVmRemoteHost + Send + Sync,
-    H::ProofId: Send + Sync,
 {
     let in_flight = state
         .ctx
@@ -316,7 +310,6 @@ impl<C, H> ProofSubmitter for StateSubmitter<'_, C, H>
 where
     C: ProverContext + Send + Sync,
     H: ZkVmRemoteHost + Send + Sync,
-    H::ProofId: Send + Sync,
 {
     async fn try_submit(&mut self, proof_id: ProofId) -> Result<SubmitOutcome> {
         // Skip if already submitted.
@@ -338,32 +331,15 @@ where
         }
 
         // Build input and submit to remote prover, dispatching by proof type.
-        //
-        // We call the host's `start_proving` directly rather than the
-        // `ZkVmRemoteProgram::start_proving` convenience wrapper: that wrapper is
-        // still declared `#[async_trait(?Send)]` upstream, which would make this
-        // future `!Send` and force the whole service off the async framework.
-        // Its body is just `prepare_input` (sync) + `host.start_proving` (now
-        // `Send`), so inlining it keeps the path `Send`.
-        //
-        // TODO(zkaleido): two upstream changes would let this whole module shed
-        // its `Send` workarounds:
-        //   1. Mark `ZkVmRemoteProgram` `#[async_trait]` (its body is already `Send`-safe) — then
-        //      drop this inlining and call `AsmStfProofProgram::start_proving(&runtime_input,
-        //      self.asm)`.
-        //   2. Bound `ZkVmRemoteProver::ProofId: Send + Sync` — then drop the `H::ProofId: Send +
-        //      Sync` where-clauses threaded through this module (the concrete
-        //      `Sp1ProofId`/`NativeProofId` already satisfy it).
+        // `ZkVmRemoteProgram::start_proving` returns a `Send` future, so it drives
+        // directly on the multi-threaded async framework.
         let typed_id = match &proof_id {
             ProofId::Asm(range) => {
                 let runtime_input = self
                     .input_builder
                     .build_asm_runtime_input(self.ctx, range)
                     .await?;
-                let zkvm_input = AsmStfProofProgram::prepare_input::<H::Input<'_>>(&runtime_input)
-                    .map_err(|e| anyhow::anyhow!("failed to prepare ASM proof input: {e}"))?;
-                self.asm
-                    .start_proving(zkvm_input, AsmStfProofProgram::proof_type())
+                AsmStfProofProgram::start_proving(&runtime_input, self.asm)
                     .await
                     .map_err(|e| anyhow::anyhow!("failed to submit proof to remote prover: {e}"))?
             }
@@ -383,10 +359,7 @@ where
                     .input_builder
                     .build_moho_runtime_input(self.ctx, prerequisite, *block)
                     .await?;
-                let zkvm_input = MohoRecursiveProgram::prepare_input::<H::Input<'_>>(&input)
-                    .map_err(|e| anyhow::anyhow!("failed to prepare Moho proof input: {e}"))?;
-                self.moho
-                    .start_proving(zkvm_input, MohoRecursiveProgram::proof_type())
+                MohoRecursiveProgram::start_proving(&input, self.moho)
                     .await
                     .map_err(|e| anyhow::anyhow!("failed to submit proof to remote prover: {e}"))?
             }
