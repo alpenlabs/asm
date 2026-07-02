@@ -12,7 +12,6 @@
 
 use std::marker;
 
-use anyhow::{Context, Result};
 use async_trait::async_trait;
 use moho_recursive_proof::MohoRecursiveProgram;
 use serde::{Deserialize, Serialize};
@@ -24,8 +23,13 @@ use tracing::{debug, error, info, warn};
 use zkaleido::{RemoteProofStatus, ZkVmRemoteHost, ZkVmRemoteProgram};
 
 use crate::{
-    ProverContext, input::InputBuilder, message::ProverMessage, proof_store,
-    queue::PendingProofQueue, state::ProverServiceState,
+    ProverContext,
+    errors::{ProverError, ProverResult},
+    input::InputBuilder,
+    message::ProverMessage,
+    proof_store,
+    queue::PendingProofQueue,
+    state::ProverServiceState,
 };
 
 /// Prover service implementation using the service framework.
@@ -80,7 +84,7 @@ where
 
 /// Executes one orchestration cycle: recover pending proofs (once), reconcile
 /// in-flight proofs, then schedule pending ones.
-async fn tick<C, H>(state: &mut ProverServiceState<C, H>) -> Result<()>
+async fn tick<C, H>(state: &mut ProverServiceState<C, H>) -> ProverResult<()>
 where
     C: ProverContext + Send + Sync,
     H: ZkVmRemoteHost + Send + Sync,
@@ -123,16 +127,12 @@ where
 /// Already-completed or already-submitted proofs are filtered out downstream by
 /// the scheduler's `try_submit`, so this only resurrects the genuinely-missing
 /// work.
-async fn recover_pending_proofs<C, H>(state: &mut ProverServiceState<C, H>) -> Result<()>
+async fn recover_pending_proofs<C, H>(state: &mut ProverServiceState<C, H>) -> ProverResult<()>
 where
     C: ProverContext + Send + Sync,
     H: ZkVmRemoteHost + Send + Sync,
 {
-    let backfill = state
-        .input_builder
-        .proofs_to_backfill(&state.ctx)
-        .await
-        .context("failed to compute pending proof backfill")?;
+    let backfill = state.input_builder.proofs_to_backfill(&state.ctx).await?;
 
     if backfill.is_empty() {
         return Ok(());
@@ -154,7 +154,7 @@ where
 // ---- Step 1: Reconcile ----------------------------------------------------
 
 /// Polls all in-progress remote proofs and stores any that have completed.
-async fn reconcile_active_proofs<C, H>(state: &ProverServiceState<C, H>) -> Result<()>
+async fn reconcile_active_proofs<C, H>(state: &ProverServiceState<C, H>) -> ProverResult<()>
 where
     C: ProverContext + Send + Sync,
     H: ZkVmRemoteHost + Send + Sync,
@@ -163,7 +163,7 @@ where
         .ctx
         .get_all_in_progress()
         .await
-        .context("failed to query in-progress proofs")?;
+        .map_err(|e| ProverError::storage("failed to query in-progress proofs", e))?;
 
     for (remote_id, old_status) in in_progress {
         if let Err(e) = reconcile_one(state, &remote_id, &old_status).await {
@@ -178,7 +178,7 @@ async fn reconcile_one<C, H>(
     state: &ProverServiceState<C, H>,
     remote_id: &RemoteProofId,
     old_status: &RemoteProofStatus,
-) -> Result<()>
+) -> ProverResult<()>
 where
     C: ProverContext + Send + Sync,
     H: ZkVmRemoteHost + Send + Sync,
@@ -192,7 +192,7 @@ where
         .asm
         .get_status(&typed_id)
         .await
-        .map_err(|e| anyhow::anyhow!("failed to query remote proof status: {e}"))?;
+        .map_err(ProverError::RemoteStatus)?;
 
     if &new_status == old_status {
         return Ok(());
@@ -210,14 +210,14 @@ where
                 .ctx
                 .remove(remote_id)
                 .await
-                .context("failed to remove failed proof status")?;
+                .map_err(|e| ProverError::storage("failed to remove failed proof status", e))?;
         }
         _ => {
             state
                 .ctx
                 .update_status(remote_id, new_status)
                 .await
-                .context("failed to update proof status")?;
+                .map_err(|e| ProverError::storage("failed to update proof status", e))?;
         }
     }
     Ok(())
@@ -228,7 +228,7 @@ async fn handle_completed<C, H>(
     state: &ProverServiceState<C, H>,
     remote_id: &RemoteProofId,
     typed_id: &H::ProofId,
-) -> Result<()>
+) -> ProverResult<()>
 where
     C: ProverContext + Send + Sync,
     H: ZkVmRemoteHost + Send + Sync,
@@ -239,14 +239,16 @@ where
         .asm
         .get_proof(typed_id)
         .await
-        .map_err(|e| anyhow::anyhow!("failed to retrieve completed proof: {e}"))?;
+        .map_err(ProverError::RemoteRetrieve)?;
 
     let proof_id = state
         .ctx
         .get_proof_id(remote_id)
         .await
-        .context("failed to look up proof ID from remote ID")?
-        .context("no mapping found for completed remote proof")?;
+        .map_err(|e| ProverError::storage("failed to look up proof ID from remote ID", e))?
+        .ok_or(ProverError::NotFound(
+            "no mapping found for completed remote proof",
+        ))?;
 
     proof_store::store_completed_proof(&state.ctx, proof_id, receipt).await?;
 
@@ -254,7 +256,7 @@ where
         .ctx
         .remove(remote_id)
         .await
-        .context("failed to remove completed proof status")?;
+        .map_err(|e| ProverError::storage("failed to remove completed proof status", e))?;
 
     Ok(())
 }
@@ -266,7 +268,7 @@ where
 /// Computes the available submission capacity, then delegates the loop control
 /// flow to [`schedule_with`] through a short-lived [`StateSubmitter`] so the
 /// scheduling loop itself can be unit-tested with a fake submitter.
-async fn schedule_proofs<C, H>(state: &mut ProverServiceState<C, H>) -> Result<()>
+async fn schedule_proofs<C, H>(state: &mut ProverServiceState<C, H>) -> ProverResult<()>
 where
     C: ProverContext + Send + Sync,
     H: ZkVmRemoteHost + Send + Sync,
@@ -275,7 +277,7 @@ where
         .ctx
         .get_all_in_progress()
         .await
-        .context("failed to query in-progress proofs")?
+        .map_err(|e| ProverError::storage("failed to query in-progress proofs", e))?
         .len();
 
     let capacity = state.config.max_concurrent_proofs.saturating_sub(in_flight);
@@ -312,7 +314,7 @@ enum SubmitOutcome {
 /// [`schedule_with`] can be unit-tested against a fake submitter.
 #[async_trait]
 trait ProofSubmitter {
-    async fn try_submit(&mut self, proof_id: ProofId) -> Result<SubmitOutcome>;
+    async fn try_submit(&mut self, proof_id: ProofId) -> ProverResult<SubmitOutcome>;
 }
 
 /// Runs the scheduling loop: pulls items from `queue` and submits via
@@ -368,13 +370,13 @@ where
     C: ProverContext + Send + Sync,
     H: ZkVmRemoteHost + Send + Sync,
 {
-    async fn try_submit(&mut self, proof_id: ProofId) -> Result<SubmitOutcome> {
+    async fn try_submit(&mut self, proof_id: ProofId) -> ProverResult<SubmitOutcome> {
         // Skip if already submitted.
         if self
             .ctx
             .get_remote_proof_id(proof_id)
             .await
-            .context("failed to check remote proof mapping")?
+            .map_err(|e| ProverError::storage("failed to check remote proof mapping", e))?
             .is_some()
         {
             debug!(?proof_id, "proof already submitted, skipping");
@@ -398,7 +400,7 @@ where
                     .await?;
                 AsmStfProofProgram::start_proving(&runtime_input, self.asm)
                     .await
-                    .map_err(|e| anyhow::anyhow!("failed to submit proof to remote prover: {e}"))?
+                    .map_err(ProverError::RemoteSubmit)?
             }
             ProofId::Moho(block) => {
                 let prerequisite = match self
@@ -418,7 +420,7 @@ where
                     .await?;
                 MohoRecursiveProgram::start_proving(&input, self.moho)
                     .await
-                    .map_err(|e| anyhow::anyhow!("failed to submit proof to remote prover: {e}"))?
+                    .map_err(ProverError::RemoteSubmit)?
             }
         };
 
@@ -429,21 +431,20 @@ where
         self.ctx
             .put_remote_proof_id(proof_id, remote_id.clone())
             .await
-            .context("failed to store proof mapping")?;
+            .map_err(|e| ProverError::storage("failed to store proof mapping", e))?;
 
         self.ctx
             .put_status(&remote_id, RemoteProofStatus::Requested)
             .await
-            .context("failed to store initial proof status")?;
+            .map_err(|e| ProverError::storage("failed to store initial proof status", e))?;
 
         Ok(SubmitOutcome::Submitted)
     }
 }
 
 /// Converts a persisted [`RemoteProofId`] back into the host's typed proof ID.
-fn to_typed_proof_id<H: ZkVmRemoteHost>(remote_id: &RemoteProofId) -> Result<H::ProofId> {
-    H::ProofId::try_from(remote_id.0.clone())
-        .map_err(|_| anyhow::anyhow!("failed to decode remote proof ID"))
+fn to_typed_proof_id<H: ZkVmRemoteHost>(remote_id: &RemoteProofId) -> ProverResult<H::ProofId> {
+    H::ProofId::try_from(remote_id.0.clone()).map_err(|_| ProverError::RemoteIdDecode)
 }
 
 /// Status snapshot for the prover service, surfaced through the
@@ -512,7 +513,7 @@ mod tests {
 
     #[async_trait]
     impl ProofSubmitter for FakeSubmitter {
-        async fn try_submit(&mut self, id: ProofId) -> Result<SubmitOutcome> {
+        async fn try_submit(&mut self, id: ProofId) -> ProverResult<SubmitOutcome> {
             self.call_log.push(id);
             let next = self
                 .script
@@ -520,7 +521,7 @@ mod tests {
                 .and_then(|v| (!v.is_empty()).then(|| v.remove(0)));
             match next {
                 Some(FakeResult::Outcome(o)) => Ok(o),
-                Some(FakeResult::Err) => Err(anyhow::anyhow!("scripted error")),
+                Some(FakeResult::Err) => Err(ProverError::NotFound("scripted error")),
                 None => Ok(SubmitOutcome::Submitted),
             }
         }

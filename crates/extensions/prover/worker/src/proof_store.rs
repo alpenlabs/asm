@@ -4,21 +4,26 @@
 //! orchestrator focused on coordination logic. They operate through the
 //! [`ProofDb`] surface of the [`ProverContext`].
 
-use anyhow::{Context, Result};
 use strata_asm_prover_types::{AsmProof, MohoProof, ProofId};
 use tracing::info;
 use zkaleido::ProofReceiptWithMetadata;
 
-use crate::ProverContext;
+use crate::{
+    ProverContext,
+    errors::{ProverError, ProverResult},
+};
 
 /// Returns `true` if the proof already exists in the local proof store.
-pub(crate) async fn proof_exists<C: ProverContext>(ctx: &C, proof_id: &ProofId) -> Result<bool> {
+pub(crate) async fn proof_exists<C: ProverContext>(
+    ctx: &C,
+    proof_id: &ProofId,
+) -> ProverResult<bool> {
     match proof_id {
         ProofId::Asm(range) => {
             let exists = ctx
                 .get_asm_proof(*range)
                 .await
-                .context("failed to check ASM proof")?
+                .map_err(|e| ProverError::storage("failed to check ASM proof", e))?
                 .is_some();
             Ok(exists)
         }
@@ -26,7 +31,7 @@ pub(crate) async fn proof_exists<C: ProverContext>(ctx: &C, proof_id: &ProofId) 
             let exists = ctx
                 .get_moho_proof(*commitment)
                 .await
-                .context("failed to check Moho proof")?
+                .map_err(|e| ProverError::storage("failed to check Moho proof", e))?
                 .is_some();
             Ok(exists)
         }
@@ -38,19 +43,19 @@ pub(crate) async fn store_completed_proof<C: ProverContext>(
     ctx: &C,
     proof_id: ProofId,
     receipt: ProofReceiptWithMetadata,
-) -> Result<()> {
+) -> ProverResult<()> {
     match proof_id {
         ProofId::Asm(range) => {
             info!(?range, "storing completed ASM proof");
             ctx.store_asm_proof(range, AsmProof(receipt))
                 .await
-                .context("failed to store ASM proof")?;
+                .map_err(|e| ProverError::storage("failed to store ASM proof", e))?;
         }
         ProofId::Moho(commitment) => {
             info!(?commitment, "storing completed Moho proof");
             ctx.store_moho_proof(commitment, MohoProof(receipt))
                 .await
-                .context("failed to store Moho proof")?;
+                .map_err(|e| ProverError::storage("failed to store Moho proof", e))?;
         }
     }
     Ok(())

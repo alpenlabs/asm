@@ -132,7 +132,8 @@ where
             .with_state(state)
             .with_input(input)
             .launch_async(constants::SERVICE_NAME, executor)
-            .await?;
+            .await
+            .map_err(ProverError::Launch)?;
 
         Ok(ProverWorkerHandle::new(monitor))
     }

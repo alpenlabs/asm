@@ -22,29 +22,31 @@ use strata_asm_moho_storage::MohoStateDb;
 use strata_asm_prover_storage::{ProofDb, RemoteProofMappingDb, RemoteProofStatusDb};
 use strata_identifiers::{L1BlockCommitment, L1BlockId};
 
+use crate::errors::ProverResult;
+
 /// Reads the persisted ASM anchor state for a given L1 block.
 pub trait AnchorStateReader {
     /// Fetches the [`AnchorState`] for the block at `blockid`.
     ///
     /// Errors if the state is missing — the orchestrator only requests proofs
     /// for blocks the ASM worker has already processed.
-    fn get_anchor_state(&self, blockid: &L1BlockCommitment) -> anyhow::Result<AnchorState>;
+    fn get_anchor_state(&self, blockid: &L1BlockCommitment) -> ProverResult<AnchorState>;
 
     /// Fetches the latest persisted [`AnchorState`], if any.
     ///
     /// Used by restart recovery to bound the backfill walk; `None` when no
     /// anchor has been persisted yet. May belong to an abandoned reorg branch,
     /// so callers establish canonicality per height rather than trusting it.
-    fn get_latest_anchor_state(&self) -> anyhow::Result<Option<AnchorState>>;
+    fn get_latest_anchor_state(&self) -> ProverResult<Option<AnchorState>>;
 
     /// Reports whether an anchor state is persisted for `blockid`.
-    fn contains_anchor_state(&self, blockid: &L1BlockCommitment) -> anyhow::Result<bool>;
+    fn contains_anchor_state(&self, blockid: &L1BlockCommitment) -> ProverResult<bool>;
 }
 
 /// Reads per-block auxiliary data captured during STF execution.
 pub trait AuxDataReader {
     /// Fetches the [`AuxData`] stored for the block at `blockid`.
-    fn get_aux_data(&self, blockid: &L1BlockCommitment) -> anyhow::Result<AuxData>;
+    fn get_aux_data(&self, blockid: &L1BlockCommitment) -> ProverResult<AuxData>;
 }
 
 /// Fetches L1 blocks and headers from the backing Bitcoin source.
@@ -56,10 +58,8 @@ pub trait L1BlockProvider {
     ///
     /// The future is `Send` so the orchestration loop can run on the
     /// multi-threaded async service framework.
-    fn get_l1_block(
-        &self,
-        blockid: &L1BlockId,
-    ) -> impl Future<Output = anyhow::Result<Block>> + Send;
+    fn get_l1_block(&self, blockid: &L1BlockId)
+    -> impl Future<Output = ProverResult<Block>> + Send;
 
     /// Fetches just the [`Header`] for `blockid`.
     ///
@@ -68,20 +68,20 @@ pub trait L1BlockProvider {
     fn get_l1_block_header(
         &self,
         blockid: &L1BlockId,
-    ) -> impl Future<Output = anyhow::Result<Header>> + Send;
+    ) -> impl Future<Output = ProverResult<Header>> + Send;
 
     /// Fetches the height of the current canonical L1 tip.
     ///
     /// Used by restart recovery to clamp the backfill walk to the active chain,
     /// so a persisted block that outranks the current tip (after a reorg to a
     /// shorter chain) is not queried at a height bitcoind no longer has.
-    fn get_l1_block_count(&self) -> impl Future<Output = anyhow::Result<u64>> + Send;
+    fn get_l1_block_count(&self) -> impl Future<Output = ProverResult<u64>> + Send;
 
     /// Fetches the canonical L1 block id at `height`.
     fn get_l1_block_hash(
         &self,
         height: u64,
-    ) -> impl Future<Output = anyhow::Result<L1BlockId>> + Send;
+    ) -> impl Future<Output = ProverResult<L1BlockId>> + Send;
 }
 
 /// Umbrella context the [`ProverService`](crate::ProverService) runs
@@ -93,8 +93,9 @@ pub trait L1BlockProvider {
 /// that implements all of the concern traits automatically implements
 /// `ProverContext`, so implementors never name it directly.
 ///
-/// The associated `Error` bounds let the orchestrator surface storage failures
-/// through `anyhow::Context`; every concrete backend already satisfies them.
+/// The associated `Error` bounds let the orchestrator wrap storage failures in
+/// [`ProverError::Storage`](crate::errors::ProverError::Storage); every concrete
+/// backend already satisfies them.
 pub trait ProverContext:
     ProofDb<Error: StdError + Send + Sync + 'static>
     + RemoteProofMappingDb<Error: StdError + Send + Sync + 'static>
