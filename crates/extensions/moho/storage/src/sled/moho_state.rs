@@ -73,6 +73,42 @@ impl SledMohoStateDb {
 
         Ok(())
     }
+
+    /// Removes every entry with height strictly above `after_height`, keeping the
+    /// height itself.
+    ///
+    /// Rolls the store back to a known-good height; the worker only ever prunes
+    /// old state from below, so this exists for offline maintenance tooling.
+    pub fn prune_after(&self, after_height: u32) -> Result<(), sled::Error> {
+        let Some(first_removed) = after_height.checked_add(1) else {
+            return Ok(());
+        };
+        let lower: &[u8] = &first_removed.to_be_bytes();
+        for entry in self.moho_states.range(lower..) {
+            let (key, _) = entry?;
+            self.moho_states.remove(&key)?;
+        }
+        Ok(())
+    }
+
+    /// Removes the Moho state for `l1ref`, returning whether one was present.
+    ///
+    /// For inspection tooling; the worker never deletes individual states.
+    pub fn delete(&self, l1ref: &L1BlockCommitment) -> Result<bool, sled::Error> {
+        Ok(self.moho_states.remove(encode_moho_key(l1ref))?.is_some())
+    }
+
+    /// Returns every stored Moho-state key, in ascending height order.
+    ///
+    /// For inspection tooling: keys are decoded from the tree without reading
+    /// the (large) values.
+    pub fn list(&self) -> Result<Vec<L1BlockCommitment>, sled::Error> {
+        self.moho_states
+            .iter()
+            .keys()
+            .map(|key| Ok(decode_moho_key(&key?)))
+            .collect()
+    }
 }
 
 impl MohoStateDb for SledMohoStateDb {
@@ -156,6 +192,53 @@ mod tests {
         let (blk, state) = db.get_latest().unwrap().unwrap();
         assert_eq!(blk, high);
         assert_eq!(state, moho_state(0xbb));
+    }
+
+    #[test]
+    fn list_returns_keys_in_height_order() {
+        let (db, _dir) = temp_moho_db();
+        let low = L1BlockCommitment::new(7, L1BlockId::from(Buf32::from([0x11; 32])));
+        let high = L1BlockCommitment::new(42, L1BlockId::from(Buf32::from([0x22; 32])));
+
+        assert!(db.list().unwrap().is_empty());
+        db.store(high, moho_state(0xbb)).unwrap();
+        db.store(low, moho_state(0xaa)).unwrap();
+
+        // Keys come back in ascending height order regardless of insertion order.
+        assert_eq!(db.list().unwrap(), vec![low, high]);
+    }
+
+    #[test]
+    fn delete_removes_only_the_targeted_key() {
+        let (db, _dir) = temp_moho_db();
+        let a = L1BlockCommitment::new(7, L1BlockId::from(Buf32::from([0x11; 32])));
+        let b = L1BlockCommitment::new(42, L1BlockId::from(Buf32::from([0x22; 32])));
+        db.store(a, moho_state(0xaa)).unwrap();
+        db.store(b, moho_state(0xbb)).unwrap();
+
+        assert!(db.delete(&a).unwrap());
+        assert!(db.get(a).unwrap().is_none());
+        assert!(db.get(b).unwrap().is_some());
+        // Deleting an absent key reports no removal.
+        assert!(!db.delete(&a).unwrap());
+    }
+
+    #[test]
+    fn prune_after_removes_entries_above_height() {
+        let (db, _dir) = temp_moho_db();
+        let keep = L1BlockCommitment::new(10, L1BlockId::from(Buf32::from([0x11; 32])));
+        let boundary = L1BlockCommitment::new(20, L1BlockId::from(Buf32::from([0x22; 32])));
+        let drop = L1BlockCommitment::new(21, L1BlockId::from(Buf32::from([0x33; 32])));
+        db.store(keep, moho_state(0xaa)).unwrap();
+        db.store(boundary, moho_state(0xbb)).unwrap();
+        db.store(drop, moho_state(0xcc)).unwrap();
+
+        db.prune_after(20).unwrap();
+
+        // The boundary height is kept; strictly-higher entries are removed.
+        assert!(db.get(keep).unwrap().is_some());
+        assert!(db.get(boundary).unwrap().is_some());
+        assert!(db.get(drop).unwrap().is_none());
     }
 
     proptest! {
