@@ -13,7 +13,10 @@ workspace = true
 [dependencies]
 asm-storage.workspace = true
 strata-asm-common.workspace = true
+strata-asm-moho-storage.workspace = true
 strata-identifiers.workspace = true
+
+moho-types.workspace = true
 
 anyhow.workspace = true
 clap.workspace = true
