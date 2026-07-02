@@ -17,8 +17,8 @@ use crate::{
 /// Service state for the ASM worker.
 ///
 /// Generic over the worker context `W` and the ASM spec `S`, so callers can
-/// inject alternative specs (e.g. `DebugAsmSpec` wrapping `StrataAsmSpec` for
-/// testing) without forking the worker.
+/// inject alternative specs wrapping `StrataAsmSpec` (e.g. for testing) without
+/// forking the worker.
 #[derive(Debug)]
 pub struct AsmWorkerServiceState<W, S: AsmSpec> {
     /// Context for the state to interact with outer world.

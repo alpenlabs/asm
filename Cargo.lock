@@ -7951,25 +7951,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "strata-asm-proto-debug-v1"
-version = "0.1.0"
-dependencies = [
- "bitcoin-bosd 0.11.0",
- "serde",
- "ssz",
- "ssz_derive",
- "strata-asm-common",
- "strata-asm-logs",
- "strata-asm-proto-bridge-v1-msgs",
- "strata-asm-proto-bridge-v1-types",
- "strata-btc-types",
- "strata-codec",
- "strata-identifiers",
- "strata-l1-txfmt",
- "thiserror 2.0.18",
-]
-
-[[package]]
 name = "strata-asm-proto-txs-test-utils"
 version = "0.1.0"
 dependencies = [
@@ -8154,16 +8135,6 @@ dependencies = [
  "strata-asm-proto-bridge-v1",
  "strata-asm-proto-checkpoint",
  "strata-btc-verification",
-]
-
-[[package]]
-name = "strata-asm-spec-debug"
-version = "0.1.0"
-dependencies = [
- "strata-asm-common",
- "strata-asm-params",
- "strata-asm-proto-debug-v1",
- "strata-asm-spec",
 ]
 
 [[package]]
