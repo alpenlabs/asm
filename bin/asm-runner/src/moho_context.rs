@@ -80,7 +80,7 @@ impl AsmStateProvider for MohoWorkerContextImpl {
     fn get_anchor_state(&self, blockid: &L1BlockCommitment) -> MohoWorkerResult<AnchorState> {
         self.state_db
             .get(blockid)
-            .map_err(|e| MohoWorkerError::Storage(e.to_string()))?
+            .map_err(|e| MohoWorkerError::Storage(e.into()))?
             .ok_or(MohoWorkerError::MissingAsmState(*blockid))
     }
 
@@ -91,7 +91,7 @@ impl AsmStateProvider for MohoWorkerContextImpl {
         // manifest with no logs.
         self.manifest_db
             .get(blockid)
-            .map_err(|e| MohoWorkerError::Storage(e.to_string()))?
+            .map_err(|e| MohoWorkerError::Storage(e.into()))?
             .map(|manifest| manifest.logs().to_vec())
             .ok_or(MohoWorkerError::MissingAsmState(*blockid))
     }
@@ -100,7 +100,7 @@ impl AsmStateProvider for MohoWorkerContextImpl {
         Ok(self
             .state_db
             .get_latest()
-            .map_err(|e| MohoWorkerError::Storage(e.to_string()))?
+            .map_err(|e| MohoWorkerError::Storage(e.into()))?
             .map(|anchor| anchor.chain_view.pow_state.last_verified_block))
     }
 }
@@ -134,13 +134,13 @@ impl MohoStateStore for MohoWorkerContextImpl {
     fn get_latest_moho_state(&self) -> MohoWorkerResult<Option<(L1BlockCommitment, MohoState)>> {
         self.moho_state_db
             .get_latest()
-            .map_err(|e| MohoWorkerError::Storage(e.to_string()))
+            .map_err(|e| MohoWorkerError::Storage(e.into()))
     }
 
     fn get_moho_state(&self, blockid: &L1BlockCommitment) -> MohoWorkerResult<MohoState> {
         self.moho_state_db
             .get(*blockid)
-            .map_err(|e| MohoWorkerError::Storage(e.to_string()))?
+            .map_err(|e| MohoWorkerError::Storage(e.into()))?
             .ok_or(MohoWorkerError::MissingMohoState(*blockid))
     }
 
@@ -151,7 +151,7 @@ impl MohoStateStore for MohoWorkerContextImpl {
     ) -> MohoWorkerResult<()> {
         self.moho_state_db
             .store(*blockid, state.clone())
-            .map_err(|e| MohoWorkerError::Storage(e.to_string()))
+            .map_err(|e| MohoWorkerError::Storage(e.into()))
     }
 }
 
@@ -164,12 +164,12 @@ impl ExportEntryStore for MohoWorkerContextImpl {
     ) -> MohoWorkerResult<()> {
         self.export_entries_db
             .append(container_id, height, entries)
-            .map_err(|e| MohoWorkerError::Storage(e.to_string()))
+            .map_err(|e| MohoWorkerError::Storage(e.into()))
     }
 
     fn prune_export_entries_from(&self, height: u32) -> MohoWorkerResult<()> {
         self.export_entries_db
             .prune_from(height)
-            .map_err(|e| MohoWorkerError::Storage(e.to_string()))
+            .map_err(|e| MohoWorkerError::Storage(e.into()))
     }
 }

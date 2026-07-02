@@ -1,3 +1,5 @@
+use std::error::Error as StdError;
+
 use strata_identifiers::L1BlockCommitment;
 use thiserror::Error;
 
@@ -28,11 +30,25 @@ pub enum MohoWorkerError {
     #[error("could not resolve parent of L1 block {0:?}")]
     MissingParentBlock(L1BlockCommitment),
 
-    /// The underlying Moho-state store failed. Carries the backend's display so
-    /// the operator sees the real cause without us bucketing it.
-    #[error("moho state store: {0}")]
-    Storage(String),
+    /// A backend the worker reads from or persists to failed. Carries the
+    /// concrete backend error as a boxed [`source`](std::error::Error::source)
+    /// so its full chain stays reachable. The Display string embeds the cause
+    /// too, so a plain `%e`/`{}` log (which does not walk the source chain)
+    /// still shows it. Boxed because the four concern traits are backed by
+    /// different stores (sled, the Bitcoin client, …) with distinct error types.
+    #[error("moho worker storage backend: {0}")]
+    Storage(#[source] Box<dyn StdError + Send + Sync + 'static>),
 
     #[error("missing required dependency: {0}")]
     MissingDependency(&'static str),
+
+    /// Launching the underlying service framework failed. The framework's
+    /// `launch_async` reports `anyhow::Error`; this is the seam where that
+    /// crosses into the typed surface. Carried as a
+    /// [`source`](std::error::Error::source) so the anyhow chain stays reachable,
+    /// and embedded in the Display string so a plain `%e`/`{}` log (which does
+    /// not walk the source chain) still shows the cause. Mirrors
+    /// `strata-asm-prover-worker`'s `ProverError::Other`.
+    #[error("service launch: {0}")]
+    ServiceLaunch(#[source] anyhow::Error),
 }
