@@ -82,7 +82,7 @@ impl SledProofDb {
 
     /// Lists every stored ASM proof key, in ascending range order.
     ///
-    /// Keys decode losslessly via [`decode_asm_key`]; the (large) proof values
+    /// Keys decode losslessly via `decode_asm_key`; the (large) proof values
     /// are not read.
     pub fn list_asm(&self) -> Result<Vec<L1Range>, sled::Error> {
         self.asm_proofs
