@@ -118,11 +118,10 @@ async fn test_proof_program_reflects_predicate_update() {
     harness.mine_block(None).await.unwrap();
 
     // Capture the pre-state before the activation block.
-    let (_, pre_asm_state) = harness
+    let (_, pre_anchor_state) = harness
         .get_latest_asm_state()
         .unwrap()
         .expect("ASM state must exist before activation block");
-    let pre_anchor_state = pre_asm_state.state().clone();
 
     // Mine the activation block (confirmation_depth=2 reached).
     let activation_block_hash = harness.mine_block(None).await.unwrap();

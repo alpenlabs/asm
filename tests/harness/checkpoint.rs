@@ -90,15 +90,14 @@ impl CheckpointExt for AsmTestHarness {
         let (_, asm_state) = self
             .get_latest_asm_state()?
             .ok_or_else(|| anyhow::anyhow!("No ASM state available"))?;
-        extract_checkpoint_state(asm_state.state())
+        extract_checkpoint_state(&asm_state)
     }
 
     fn checkpoint_tip_update_logs(&self) -> anyhow::Result<Vec<CheckpointTip>> {
-        let (_, asm_state) = self
+        let (block, _) = self
             .get_latest_asm_state()?
             .ok_or_else(|| anyhow::anyhow!("No ASM state available"))?;
-        asm_state
-            .logs()
+        self.get_logs_at(&block)
             .iter()
             .filter(|entry| entry.ty() == Some(CheckpointTipUpdate::TY))
             .map(|entry| {

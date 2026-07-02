@@ -13,7 +13,7 @@ use std::{
 
 use bitcoin::{Block, BlockHash, Network, Txid, block::Header, params::Params};
 use bitcoind_async_client::{Client, traits::Reader};
-use strata_asm_common::{AsmManifest, AsmManifestHash};
+use strata_asm_common::{AnchorState, AsmManifest, AsmManifestHash};
 use strata_btc_types::{BitcoinTxid, BlockHashExt, L1BlockIdBitcoinExt, RawBitcoinTx};
 use strata_btc_verification::{L1Anchor, get_relative_difficulty_adjustment_height};
 use strata_identifiers::{L1BlockCommitment, L1BlockId};
@@ -22,8 +22,7 @@ use strata_merkle_node_store::{MemMmr, StoredMmr};
 use tokio::{runtime::Handle, task::block_in_place};
 
 use crate::{
-    AnchorStateStore, AsmState, AuxDataStore, L1DataProvider, ManifestMmrStore, WorkerError,
-    WorkerResult,
+    AnchorStateStore, AuxDataStore, L1DataProvider, ManifestMmrStore, WorkerError, WorkerResult,
 };
 
 /// Shared mutable state for the test worker context.
@@ -33,10 +32,10 @@ use crate::{
 /// insertion order) close together.
 #[derive(Debug, Default)]
 pub struct TestWorkerStateInner {
-    /// ASM states indexed by L1 block commitment
-    pub asm_states: HashMap<L1BlockCommitment, AsmState>,
-    /// Latest ASM state
-    pub latest_asm_state: Option<(L1BlockCommitment, AsmState)>,
+    /// ASM anchor states indexed by L1 block commitment
+    pub asm_states: HashMap<L1BlockCommitment, AnchorState>,
+    /// Latest ASM anchor state
+    pub latest_asm_state: Option<(L1BlockCommitment, AnchorState)>,
     /// Height-indexed manifest-hash MMR. A full node store, so inclusion proofs
     /// come straight from stored nodes in `O(log n)`. The leading entries are
     /// sentinel-prefill for L1 heights up to genesis; real manifest hashes
@@ -184,7 +183,7 @@ impl L1DataProvider for TestAsmWorkerContext {
 }
 
 impl AnchorStateStore for TestAsmWorkerContext {
-    fn get_anchor_state(&self, blockid: &L1BlockCommitment) -> WorkerResult<AsmState> {
+    fn get_anchor_state(&self, blockid: &L1BlockCommitment) -> WorkerResult<AnchorState> {
         self.inner
             .lock()
             .unwrap()
@@ -194,14 +193,14 @@ impl AnchorStateStore for TestAsmWorkerContext {
             .ok_or(WorkerError::MissingAsmState(*blockid.blkid()))
     }
 
-    fn get_latest_asm_state(&self) -> WorkerResult<Option<(L1BlockCommitment, AsmState)>> {
+    fn get_latest_asm_state(&self) -> WorkerResult<Option<(L1BlockCommitment, AnchorState)>> {
         Ok(self.inner.lock().unwrap().latest_asm_state.clone())
     }
 
     fn store_anchor_state(
         &self,
         blockid: &L1BlockCommitment,
-        state: &AsmState,
+        state: &AnchorState,
     ) -> WorkerResult<()> {
         let mut inner = self.inner.lock().unwrap();
         inner.asm_states.insert(*blockid, state.clone());

@@ -3,7 +3,6 @@
 //! The `strata-asm-worker` crate provides a dedicated asynchronous worker
 //! for managing Strata's Anchor state (ASM).
 
-mod asm_state;
 mod aux_resolver;
 mod builder;
 mod constants;
@@ -18,7 +17,6 @@ mod sync;
 pub mod test_utils;
 mod traits;
 
-pub use asm_state::AsmState;
 pub use aux_resolver::AuxDataResolver;
 pub use builder::AsmWorkerBuilder;
 pub use errors::{AnchorMismatch, WorkerError, WorkerResult};

@@ -110,13 +110,13 @@ async fn test_bridge_publishes_increasing_accumulated_pow() {
     for _ in 0..4 {
         harness.mine_block(None).await.unwrap();
 
-        let (_, asm_state) = harness
+        let (block, _) = harness
             .get_latest_asm_state()
             .unwrap()
             .expect("ASM state available");
 
         // An empty block emits exactly one log: the bridge's accumulated-pow update.
-        let logs = asm_state.logs();
+        let logs = harness.get_logs_at(&block);
         assert_eq!(logs.len(), 1, "expected exactly one emitted log per block");
         let update = logs[0]
             .try_into_log::<ExportExtraDataUpdate>()

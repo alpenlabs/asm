@@ -1,5 +1,5 @@
 use bitcoin::{Block, CompactTarget, params::Params};
-use strata_asm_common::{AsmSpec, AuxData, HeaderVerificationState};
+use strata_asm_common::{AnchorState, AsmSpec, AuxData, HeaderVerificationState};
 use strata_asm_stf::AsmStfOutput;
 use strata_btc_types::BlockHashExt;
 use strata_btc_verification::{
@@ -10,8 +10,8 @@ use strata_service::ServiceState;
 use tracing::field::Empty;
 
 use crate::{
-    AnchorMismatch, AsmState, L1DataProvider, Subscribers, WorkerContext, WorkerError,
-    WorkerResult, aux_resolver::AuxDataResolver, constants,
+    AnchorMismatch, L1DataProvider, Subscribers, WorkerContext, WorkerError, WorkerResult,
+    aux_resolver::AuxDataResolver, constants,
 };
 
 /// Service state for the ASM worker.
@@ -27,8 +27,8 @@ pub struct AsmWorkerServiceState<W, S: AsmSpec> {
     /// ASM spec driving the subprotocol pipeline.
     pub(crate) spec: S,
 
-    /// Current ASM state.
-    pub anchor: AsmState,
+    /// Current ASM anchor state.
+    pub anchor: AnchorState,
 
     /// Current anchor block.
     pub blkid: L1BlockCommitment,
@@ -86,9 +86,8 @@ where
                 let genesis_blk = genesis_state.chain_view.pow_state.last_verified_block;
                 tracing::info!(%genesis_blk, "no stored ASM state; initializing genesis anchor");
 
-                let state = AsmState::new(genesis_state, vec![]);
-                context.store_anchor_state(&genesis_blk, &state)?;
-                (state, genesis_blk)
+                context.store_anchor_state(&genesis_blk, &genesis_state)?;
+                (genesis_state, genesis_blk)
             }
         };
 
@@ -118,7 +117,7 @@ where
             let span = tracing::debug_span!("asm.stf.pre_process", protocol_txs = Empty);
             let _guard = span.enter();
 
-            let result = strata_asm_stf::pre_process_asm(&self.spec, cur_state.state(), block)
+            let result = strata_asm_stf::pre_process_asm(&self.spec, cur_state, block)
                 .map_err(WorkerError::AsmError)?;
 
             span.record("protocol_txs", result.txs.len());
@@ -133,7 +132,7 @@ where
             // Snapshot proofs at the accumulator's own leaf count: a verifier
             // checks them against this accumulator's committed root, so the
             // snapshot size must be that accumulator's.
-            let accumulator = &cur_state.state().chain_view.history_accumulator;
+            let accumulator = &cur_state.chain_view.history_accumulator;
             let resolver = AuxDataResolver::new(&self.context, accumulator.num_entries());
             resolver.resolve(&pre_process.aux_requests)?
         };
@@ -146,7 +145,7 @@ where
 
         strata_asm_stf::compute_asm_transition(
             &self.spec,
-            cur_state.state(),
+            cur_state,
             block,
             &aux_data,
             Some(&coinbase_inclusion_proof),
@@ -156,7 +155,7 @@ where
     }
 
     /// Updates anchor related bookkeeping.
-    pub(crate) fn update_anchor_state(&mut self, anchor: AsmState, blkid: L1BlockCommitment) {
+    pub(crate) fn update_anchor_state(&mut self, anchor: AnchorState, blkid: L1BlockCommitment) {
         self.anchor = anchor;
         self.blkid = blkid;
     }

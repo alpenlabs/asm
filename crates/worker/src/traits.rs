@@ -4,7 +4,7 @@
 //! distinct subsystem in production:
 //!
 //! - [`L1DataProvider`] — reads L1 data from the Bitcoin node (blocks, txs, network).
-//! - [`AnchorStateStore`] — persists and loads [`AsmState`].
+//! - [`AnchorStateStore`] — persists and loads the [`AnchorState`].
 //! - [`ManifestMmrStore`] — manifest persistence and the manifest-hash MMR.
 //! - [`AuxDataStore`] — per-block [`AuxData`] for prover consumption.
 //!
@@ -14,12 +14,14 @@
 //! the narrower trait instead of the whole context.
 
 use bitcoin::{Block, Network, block::Header};
-use strata_asm_common::{AsmManifest, AsmManifestHash, AuxData, MMR_SENTINEL_DUMMY_LEAF};
+use strata_asm_common::{
+    AnchorState, AsmManifest, AsmManifestHash, AuxData, MMR_SENTINEL_DUMMY_LEAF,
+};
 use strata_btc_types::{BitcoinTxid, RawBitcoinTx};
 use strata_identifiers::{L1BlockCommitment, L1BlockId};
 use strata_merkle::MerkleProofB32;
 
-use crate::{AsmState, WorkerResult};
+use crate::WorkerResult;
 
 /// Reads L1 data from the backing Bitcoin source.
 pub trait L1DataProvider {
@@ -56,10 +58,10 @@ pub trait L1DataProvider {
 
 /// Persists and loads the ASM anchor state.
 pub trait AnchorStateStore {
-    /// Fetches the [`AsmState`] given the block id.
-    fn get_anchor_state(&self, blockid: &L1BlockCommitment) -> WorkerResult<AsmState>;
+    /// Fetches the [`AnchorState`] given the block id.
+    fn get_anchor_state(&self, blockid: &L1BlockCommitment) -> WorkerResult<AnchorState>;
 
-    /// Fetches the latest [`AsmState`] — the one at the highest stored block.
+    /// Fetches the latest [`AnchorState`] — the one at the highest stored block.
     ///
     /// This is a best-effort startup resume hint, *not* a guaranteed canonical
     /// tip. Orphaned states from abandoned reorg branches are never pruned, so
@@ -72,11 +74,14 @@ pub trait AnchorStateStore {
     /// the base by walking the L1 target's ancestry (see `plan_block_processing`)
     /// and resets the anchor before applying any block, so a stale hint here is
     /// overwritten on the first sync and never drives a transition.
-    fn get_latest_asm_state(&self) -> WorkerResult<Option<(L1BlockCommitment, AsmState)>>;
+    fn get_latest_asm_state(&self) -> WorkerResult<Option<(L1BlockCommitment, AnchorState)>>;
 
-    /// Puts the [`AsmState`] into DB.
-    fn store_anchor_state(&self, blockid: &L1BlockCommitment, state: &AsmState)
-    -> WorkerResult<()>;
+    /// Puts the [`AnchorState`] into DB.
+    fn store_anchor_state(
+        &self,
+        blockid: &L1BlockCommitment,
+        state: &AnchorState,
+    ) -> WorkerResult<()>;
 }
 
 /// Persists L1 manifests and maintains the manifest-hash MMR.
