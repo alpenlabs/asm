@@ -4,50 +4,54 @@ use borsh::BorshDeserialize;
 use strata_asm_prover_types::{AsmProof, L1Range, MohoProof};
 use strata_identifiers::L1BlockCommitment;
 
-use super::{SledProofDb, decode_moho_key, encode_asm_key, encode_moho_key};
+use super::{SledProofDb, decode_asm_key, decode_moho_key, encode_asm_key, encode_moho_key};
 use crate::ProofDb;
 
-impl ProofDb for SledProofDb {
-    type Error = sled::Error;
-
-    async fn store_asm_proof(&self, range: L1Range, proof: AsmProof) -> Result<(), Self::Error> {
+/// Synchronous proof accessors.
+///
+/// The [`ProofDb`] async trait below delegates to these; the worker uses the
+/// trait, while offline tooling (the dbtool) drives them directly to stay
+/// synchronous. `list_*`/`delete_*` have no async-trait counterpart — they exist
+/// only for that tooling.
+impl SledProofDb {
+    /// Stores an ASM step proof for `range`.
+    pub fn store_asm(&self, range: &L1Range, proof: &AsmProof) -> Result<(), sled::Error> {
         let bytes = borsh::to_vec(&proof.0).expect("borsh serialization should not fail");
-        self.asm_proofs.insert(encode_asm_key(&range), bytes)?;
+        self.asm_proofs.insert(encode_asm_key(range), bytes)?;
         Ok(())
     }
 
-    async fn get_asm_proof(&self, range: L1Range) -> Result<Option<AsmProof>, Self::Error> {
-        Ok(self.asm_proofs.get(encode_asm_key(&range))?.map(|v| {
+    /// Retrieves the ASM step proof for `range`, if one exists.
+    pub fn get_asm(&self, range: &L1Range) -> Result<Option<AsmProof>, sled::Error> {
+        Ok(self.asm_proofs.get(encode_asm_key(range))?.map(|v| {
             AsmProof(
                 BorshDeserialize::try_from_slice(&v).expect("stored proof should be valid borsh"),
             )
         }))
     }
 
-    async fn store_moho_proof(
+    /// Stores a Moho recursive proof anchored at `l1ref`.
+    pub fn store_moho(
         &self,
-        l1ref: L1BlockCommitment,
-        proof: MohoProof,
-    ) -> Result<(), Self::Error> {
+        l1ref: &L1BlockCommitment,
+        proof: &MohoProof,
+    ) -> Result<(), sled::Error> {
         let bytes = borsh::to_vec(&proof.0).expect("borsh serialization should not fail");
-        self.moho_proofs.insert(encode_moho_key(&l1ref), bytes)?;
+        self.moho_proofs.insert(encode_moho_key(l1ref), bytes)?;
         Ok(())
     }
 
-    async fn get_moho_proof(
-        &self,
-        l1ref: L1BlockCommitment,
-    ) -> Result<Option<MohoProof>, Self::Error> {
-        Ok(self.moho_proofs.get(encode_moho_key(&l1ref))?.map(|v| {
+    /// Retrieves the Moho proof anchored at `l1ref`, if one exists.
+    pub fn get_moho(&self, l1ref: &L1BlockCommitment) -> Result<Option<MohoProof>, sled::Error> {
+        Ok(self.moho_proofs.get(encode_moho_key(l1ref))?.map(|v| {
             MohoProof(
                 BorshDeserialize::try_from_slice(&v).expect("stored proof should be valid borsh"),
             )
         }))
     }
 
-    async fn get_latest_moho_proof(
-        &self,
-    ) -> Result<Option<(L1BlockCommitment, MohoProof)>, Self::Error> {
+    /// Returns the highest-height Moho proof and its anchor, or `None` if empty.
+    pub fn get_latest_moho(&self) -> Result<Option<(L1BlockCommitment, MohoProof)>, sled::Error> {
         Ok(self.moho_proofs.last()?.map(|(k, v)| {
             let commitment = decode_moho_key(&k);
             let proof = MohoProof(
@@ -57,7 +61,8 @@ impl ProofDb for SledProofDb {
         }))
     }
 
-    async fn prune(&self, before_height: u32) -> Result<(), Self::Error> {
+    /// Removes both ASM and Moho proofs for blocks below `before_height`.
+    pub fn prune_before(&self, before_height: u32) -> Result<(), sled::Error> {
         let upper: &[u8] = &before_height.to_be_bytes();
 
         // Remove all moho proofs with height < before_height.
@@ -74,10 +79,87 @@ impl ProofDb for SledProofDb {
 
         Ok(())
     }
+
+    /// Lists every stored ASM proof key, in ascending range order.
+    ///
+    /// Keys decode losslessly via [`decode_asm_key`]; the (large) proof values
+    /// are not read.
+    pub fn list_asm(&self) -> Result<Vec<L1Range>, sled::Error> {
+        self.asm_proofs
+            .iter()
+            .keys()
+            .map(|key| {
+                let key = key?;
+                let bytes: &[u8; super::ENCODED_L1_RANGE_SIZE] = key
+                    .as_ref()
+                    .try_into()
+                    .expect("asm proof key is a fixed-size range key");
+                Ok(decode_asm_key(bytes))
+            })
+            .collect()
+    }
+
+    /// Lists every stored Moho proof anchor, in ascending height order.
+    pub fn list_moho(&self) -> Result<Vec<L1BlockCommitment>, sled::Error> {
+        self.moho_proofs
+            .iter()
+            .keys()
+            .map(|key| Ok(decode_moho_key(&key?)))
+            .collect()
+    }
+
+    /// Removes the ASM proof for `range`, returning whether one was present.
+    pub fn delete_asm(&self, range: &L1Range) -> Result<bool, sled::Error> {
+        Ok(self.asm_proofs.remove(encode_asm_key(range))?.is_some())
+    }
+
+    /// Removes the Moho proof for `l1ref`, returning whether one was present.
+    pub fn delete_moho(&self, l1ref: &L1BlockCommitment) -> Result<bool, sled::Error> {
+        Ok(self.moho_proofs.remove(encode_moho_key(l1ref))?.is_some())
+    }
+}
+
+impl ProofDb for SledProofDb {
+    type Error = sled::Error;
+
+    async fn store_asm_proof(&self, range: L1Range, proof: AsmProof) -> Result<(), Self::Error> {
+        self.store_asm(&range, &proof)
+    }
+
+    async fn get_asm_proof(&self, range: L1Range) -> Result<Option<AsmProof>, Self::Error> {
+        self.get_asm(&range)
+    }
+
+    async fn store_moho_proof(
+        &self,
+        l1ref: L1BlockCommitment,
+        proof: MohoProof,
+    ) -> Result<(), Self::Error> {
+        self.store_moho(&l1ref, &proof)
+    }
+
+    async fn get_moho_proof(
+        &self,
+        l1ref: L1BlockCommitment,
+    ) -> Result<Option<MohoProof>, Self::Error> {
+        self.get_moho(&l1ref)
+    }
+
+    async fn get_latest_moho_proof(
+        &self,
+    ) -> Result<Option<(L1BlockCommitment, MohoProof)>, Self::Error> {
+        self.get_latest_moho()
+    }
+
+    async fn prune(&self, before_height: u32) -> Result<(), Self::Error> {
+        self.prune_before(before_height)
+    }
 }
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeSet;
+
     use proptest::{collection::vec, prelude::*};
     use strata_identifiers::{Buf32, L1BlockId};
     use tokio::runtime::Runtime;
@@ -124,6 +206,56 @@ mod tests {
 
                 Ok(())
             })?;
+        }
+    }
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(20))]
+
+        /// Property: `list_asm` returns every stored range, sorted, and
+        /// `delete_asm` removes exactly the targeted range.
+        #[test]
+        fn list_and_delete_asm(entries in vec((arb_l1_range(), arb_asm_proof()), 1..5)) {
+            let (db, _dir) = temp_db();
+            for (range, proof) in &entries {
+                db.store_asm(range, proof).unwrap();
+            }
+
+            // Same range key overwrites, so the stored set is the dedup'd input.
+            let expected: BTreeSet<_> = entries.iter().map(|(r, _)| *r).collect();
+            let listed = db.list_asm().unwrap();
+            prop_assert_eq!(listed.iter().copied().collect::<BTreeSet<_>>(), expected.clone());
+
+            let mut sorted = listed.clone();
+            sorted.sort();
+            prop_assert_eq!(&listed, &sorted, "list_asm must be ascending");
+
+            for range in &expected {
+                prop_assert!(db.delete_asm(range).unwrap());
+            }
+            prop_assert!(db.list_asm().unwrap().is_empty());
+            // Deleting an absent range reports no removal.
+            prop_assert!(!db.delete_asm(expected.iter().next().unwrap()).unwrap());
+        }
+
+        /// Property: `list_moho` returns every stored anchor, sorted, and
+        /// `delete_moho` removes exactly the targeted anchor.
+        #[test]
+        fn list_and_delete_moho(entries in vec((arb_l1_block_commitment(), arb_moho_proof()), 1..5)) {
+            let (db, _dir) = temp_db();
+            for (commitment, proof) in &entries {
+                db.store_moho(commitment, proof).unwrap();
+            }
+
+            let expected: BTreeSet<_> = entries.iter().map(|(c, _)| *c).collect();
+            let listed = db.list_moho().unwrap();
+            prop_assert_eq!(listed.iter().copied().collect::<BTreeSet<_>>(), expected.clone());
+
+            for commitment in &expected {
+                prop_assert!(db.delete_moho(commitment).unwrap());
+            }
+            prop_assert!(db.list_moho().unwrap().is_empty());
+            prop_assert!(!db.delete_moho(expected.iter().next().unwrap()).unwrap());
         }
     }
 

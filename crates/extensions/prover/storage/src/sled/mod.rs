@@ -91,13 +91,6 @@ pub(crate) fn encode_asm_key(range: &L1Range) -> [u8; ENCODED_L1_RANGE_SIZE] {
 }
 
 /// Decodes a 72-byte ASM proof key back into an [`L1Range`].
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "completes the encode/decode pair; useful for key iteration/debugging"
-    )
-)]
 pub(crate) fn decode_asm_key(key: &[u8; ENCODED_L1_RANGE_SIZE]) -> L1Range {
     let start = decode_block_commitment(&key[..ENCODED_L1_COMMITMENT_SIZE]);
     let end = decode_block_commitment(&key[ENCODED_L1_COMMITMENT_SIZE..]);
