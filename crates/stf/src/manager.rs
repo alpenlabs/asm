@@ -62,7 +62,8 @@ impl<S: Subprotocol, R: MsgRelayer> SubprotoHandler for HandlerImpl<S, R> {
 
     fn process_buffered_msgs(&mut self, l1ref: &L1BlockCommitment) {
         // TODO(STR-2416): allow multi rounds of interproto msg passing
-        S::process_msgs(&mut self.state, &self.interproto_msg_buf, l1ref)
+        let msgs = std::mem::take(&mut self.interproto_msg_buf);
+        S::process_msgs(&mut self.state, &msgs, l1ref)
     }
 
     fn to_section(&self) -> Result<SectionState, AsmError> {

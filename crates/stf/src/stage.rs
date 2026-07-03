@@ -110,6 +110,13 @@ impl<'c> ProcessStage<'c> {
 
 impl Stage for ProcessStage<'_> {
     fn invoke_subprotocol<S: Subprotocol>(&mut self) {
+        // Apply any messages already relayed to this subprotocol before it validates the
+        // current block's transactions. This lets messages emitted by earlier subprotocols
+        // in the process stage (for example admin operator-set updates to the bridge) take
+        // effect for activation-block transaction validation.
+        self.manager
+            .invoke_process_msgs::<S>(&self.header_vs.last_verified_block);
+
         let txs = self
             .tx_bufs
             .get(&S::ID)
