@@ -3,8 +3,9 @@
 use std::{any::Any, collections::BTreeMap, marker};
 
 use strata_asm_common::{
-    AsmError, AsmLogEntry, AuxRequestCollector, HeaderVerificationState, InterprotoMsg, MsgRelayer,
-    SectionState, SubprotoHandler, Subprotocol, SubprotocolId, TxInputRef, VerifiedAuxData,
+    AsmError, AsmLogEntry, AuxRequestCollector, HeaderVerificationState, InterprotoMsg,
+    MAX_LOGS_PER_MANIFEST, MsgRelayer, SectionState, SubprotoHandler, Subprotocol, SubprotocolId,
+    TxInputRef, VerifiedAuxData,
 };
 use strata_identifiers::L1BlockCommitment;
 
@@ -224,10 +225,35 @@ impl MsgRelayer for SubprotoManager {
     }
 
     fn emit_log(&mut self, log: AsmLogEntry) {
-        self.logs.push(log);
+        // Keep manifest construction infallible with respect to log-list capacity.
+        // L1 miners do not enforce ASM's SSZ manifest limit, so any logs beyond
+        // the deterministic per-manifest capacity are ignored instead of letting
+        // an otherwise valid canonical block fail at export time.
+        if self.logs.len() < MAX_LOGS_PER_MANIFEST {
+            self.logs.push(log);
+        }
     }
 
     fn as_mut_any(&mut self) -> &mut dyn Any {
         self
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use strata_asm_common::{AsmLogEntry, MAX_LOGS_PER_MANIFEST, MsgRelayer};
+
+    use super::SubprotoManager;
+
+    #[test]
+    fn emit_log_caps_logs_at_manifest_capacity() {
+        let mut manager = SubprotoManager::new();
+        let log = AsmLogEntry::from_raw(vec![1, 2, 3]).expect("test log within capacity");
+
+        for _ in 0..=MAX_LOGS_PER_MANIFEST {
+            manager.emit_log(log.clone());
+        }
+
+        assert_eq!(manager.logs.len(), MAX_LOGS_PER_MANIFEST);
     }
 }

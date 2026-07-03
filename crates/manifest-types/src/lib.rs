@@ -23,7 +23,9 @@ mod ssz_generated {
 pub use errors::*;
 pub use hashes::{AsmManifestHash, AsmManifestRangeHash};
 pub use log::*;
-pub use manifest::{compute_asm_manifests_hash, compute_asm_manifests_hash_from_leaves};
+pub use manifest::{
+    MAX_LOGS_PER_MANIFEST, compute_asm_manifests_hash, compute_asm_manifests_hash_from_leaves,
+};
 // Re-export generated SSZ types
 pub use ssz_generated::ssz::{
     self as ssz,

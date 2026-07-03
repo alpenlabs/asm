@@ -10,6 +10,9 @@ use crate::{
     ssz_generated::ssz::{log::AsmLogEntry, manifest::AsmManifest},
 };
 
+/// Maximum number of logs that can be included in a single ASM manifest.
+pub const MAX_LOGS_PER_MANIFEST: usize = 1 << 10;
+
 impl AsmManifest {
     /// Creates a new ASM manifest.
     ///
