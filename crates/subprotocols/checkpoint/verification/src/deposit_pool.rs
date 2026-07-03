@@ -101,7 +101,7 @@ impl DepositPool {
         }
 
         let denom = self.denomination.to_sat();
-        let mut required: u32 = 0;
+        let mut required: u64 = 0;
         for intent in intents {
             let amt = intent.amt().to_sat();
             if amt == 0 || !amt.is_multiple_of(denom) {
@@ -110,11 +110,10 @@ impl DepositPool {
                     actual: intent.amt(),
                 });
             }
-            // u32 is sufficient: pool count is u32, and we reject below if required exceeds it.
-            required = required.saturating_add((amt / denom) as u32);
+            required = required.saturating_add(amt / denom);
         }
 
-        if required > self.count {
+        if required > self.count as u64 {
             return Err(InvalidCheckpointPayload::InsufficientFunds {
                 available: self.total(),
                 required: BitcoinAmount::from_sat(intents.iter().map(|w| w.amt().to_sat()).sum()),
@@ -122,7 +121,7 @@ impl DepositPool {
         }
 
         Ok(VerifiedWithdrawals {
-            remaining_count: self.count - required,
+            remaining_count: self.count - required as u32,
         })
     }
 
@@ -313,6 +312,23 @@ mod tests {
             InvalidCheckpointPayload::InsufficientFunds { available, required }
             if available == BitcoinAmount::from_sat(200_000_000)
                 && required == BitcoinAmount::from_sat(300_000_000)
+        ));
+    }
+
+    #[test]
+    fn large_multi_denomination_intent_does_not_truncate_required_count() {
+        let mut pool = DepositPool::default();
+        let denom = BitcoinAmount::from_sat(1);
+        pool.record(denom);
+
+        let intents = vec![withdrawal(u32::MAX as u64 + 1)];
+        let err = pool.verify_withdrawals(&intents).unwrap_err();
+
+        assert!(matches!(
+            err,
+            InvalidCheckpointPayload::InsufficientFunds { available, required }
+            if available == BitcoinAmount::from_sat(1)
+                && required == BitcoinAmount::from_sat(u32::MAX as u64 + 1)
         ));
     }
 
