@@ -80,7 +80,12 @@ impl BtcMainnetSegment {
             (MAINNET_FIXTURE_END_HEIGHT - MAINNET_FIXTURE_START_HEIGHT) as usize + 1,
         );
 
-        for (idx, chunk) in raw_headers.chunks_exact(Header::SIZE).enumerate() {
+        for (idx, chunk) in raw_headers
+            .as_chunks::<{ Header::SIZE }>()
+            .0
+            .iter()
+            .enumerate()
+        {
             let height = MAINNET_FIXTURE_START_HEIGHT + idx as L1Height;
             let header =
                 deserialize(chunk).expect("valid serialized header in bundled fixture range");
