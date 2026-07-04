@@ -28,19 +28,17 @@ use crate::{
 
 /// Sled-backed state stores for the test worker context.
 ///
-/// Consolidating the stores — plus the sled database and temp dir that back
-/// them — into one struct lets the context hold a single `Arc<AsmWorkerState>`
-/// rather than one `Arc` per store, and ties the whole storage lifetime
-/// together: the temp dir (and its on-disk data) is deleted when the last clone
-/// of the context drops this.
+/// Consolidating the stores — plus the temp dir that backs them — into one
+/// struct lets the context hold a single `Arc<AsmWorkerState>` rather than one
+/// `Arc` per store, and ties the whole storage lifetime together: the temp dir
+/// (and its on-disk data) is deleted when the last clone of the context drops
+/// this.
 #[derive(Debug)]
 pub struct AsmWorkerState {
     state_db: SledAsmStateDb,
     aux_db: SledAsmAuxDataDb,
     manifest_db: SledAsmManifestDb,
     mmr_db: SledAsmManifestMmrDb,
-    /// Backing sled database. Held to keep the trees the stores wrap alive.
-    _db: sled::Db,
     /// Temp dir the sled database lives in; deleted when this is dropped.
     _tempdir: TempDir,
 }
@@ -86,7 +84,6 @@ impl TestAsmWorkerContext {
                 aux_db,
                 manifest_db,
                 mmr_db,
-                _db: db,
                 _tempdir: tempdir,
             }),
         }
