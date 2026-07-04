@@ -1,4 +1,5 @@
-//! Regtest-backed [`MohoWorkerContext`] for the integration harness.
+//! Regtest-backed [`MohoWorkerContext`](strata_asm_moho_worker::MohoWorkerContext)
+//! for the integration harness.
 //!
 //! The harness runs the Moho worker alongside the ASM worker so integration
 //! tests exercise the full ASM → Moho chain. [`TestMohoWorkerContext`] backs the
