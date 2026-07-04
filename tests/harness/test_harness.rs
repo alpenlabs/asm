@@ -51,6 +51,7 @@ use bitcoind_async_client::{
 use corepc_node::Node;
 use rand::RngCore;
 use strata_asm_common::{AnchorState, AsmLogEntry};
+use strata_asm_manifest_types::AsmLog;
 use strata_asm_params::{AdministrationInitConfig, AsmParams, SubprotocolInstance};
 use strata_asm_spec::StrataAsmSpec;
 use strata_asm_worker::{
@@ -278,6 +279,30 @@ impl AsmTestHarness {
     pub async fn commitment_of(&self, hash: BlockHash) -> anyhow::Result<L1BlockCommitment> {
         let height = self.client.get_block_height(&hash).await?;
         Ok(L1BlockCommitment::new(height as u32, hash.to_l1_block_id()))
+    }
+
+    /// Search the given mined blocks for the first log of type `T`, reading each
+    /// block's recorded manifest. Returns `None` when none of the blocks emitted
+    /// such a log.
+    ///
+    /// Callers pass the blocks they just mined (e.g. an activation batch) so the
+    /// search stays scoped to those blocks rather than scanning every stored
+    /// manifest.
+    pub async fn find_log_in_blocks<T: AsmLog>(
+        &self,
+        block_hashes: &[BlockHash],
+    ) -> anyhow::Result<Option<T>> {
+        for hash in block_hashes {
+            let block = self.commitment_of(*hash).await?;
+            if let Some(log) = self
+                .get_logs_at(&block)
+                .iter()
+                .find_map(|log| log.try_into_log::<T>().ok())
+            {
+                return Ok(Some(log));
+            }
+        }
+        Ok(None)
     }
 
     /// Fetch a block from Bitcoin by hash.

@@ -60,19 +60,11 @@ async fn test_ee_predicate_update_emits_log() {
 
     // The update log is emitted at whichever block activated it; search the
     // blocks we just mined rather than dumping every stored manifest.
-    let mut ee_update = None;
-    for hash in activation_blocks {
-        let block = harness.commitment_of(hash).await.unwrap();
-        ee_update = harness
-            .get_logs_at(&block)
-            .iter()
-            .find_map(|log| log.try_into_log::<EePredicateKeyUpdate>().ok());
-        if ee_update.is_some() {
-            break;
-        }
-    }
-    let ee_update =
-        ee_update.expect("expected an EePredicateKeyUpdate log in the activation blocks");
+    let ee_update = harness
+        .find_log_in_blocks::<EePredicateKeyUpdate>(&activation_blocks)
+        .await
+        .unwrap()
+        .expect("expected an EePredicateKeyUpdate log in the activation blocks");
 
     assert_eq!(
         ee_update.new_predicate(),

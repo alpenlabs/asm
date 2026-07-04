@@ -69,19 +69,11 @@ async fn test_asm_predicate_update_emits_log() {
 
     // The update log is emitted at whichever block activated it; search the
     // blocks we just mined rather than dumping every stored manifest.
-    let mut asm_stf_update = None;
-    for hash in activation_blocks {
-        let block = harness.commitment_of(hash).await.unwrap();
-        asm_stf_update = harness
-            .get_logs_at(&block)
-            .iter()
-            .find_map(|log| log.try_into_log::<AsmStfUpdate>().ok());
-        if asm_stf_update.is_some() {
-            break;
-        }
-    }
-    let asm_stf_update =
-        asm_stf_update.expect("expected an AsmStfUpdate log in the activation blocks");
+    let asm_stf_update = harness
+        .find_log_in_blocks::<AsmStfUpdate>(&activation_blocks)
+        .await
+        .unwrap()
+        .expect("expected an AsmStfUpdate log in the activation blocks");
 
     assert_eq!(
         asm_stf_update.new_predicate(),
