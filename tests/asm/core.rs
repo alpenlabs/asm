@@ -90,6 +90,19 @@ async fn test_genesis_manifest_not_stored() {
         "no manifest should be stored before any post-genesis block is processed"
     );
 
+    // The genesis anchor is the latest stored state before any block is mined;
+    // assert the manifest store itself holds nothing for it, not merely that its
+    // MMR slot is a sentinel.
+    let genesis_commitment = harness
+        .get_latest_asm_state()
+        .unwrap()
+        .expect("genesis anchor stored")
+        .0;
+    assert!(
+        harness.get_manifest(&genesis_commitment).is_none(),
+        "no manifest should be stored for the genesis block"
+    );
+
     // Mine one block on top of genesis and verify exactly one manifest is
     // stored, at height `genesis_height + 1`.
     let hash = harness
@@ -196,6 +209,15 @@ async fn test_proven_and_external_mmr_index_alignment() {
         "external MMR should be sentinel-prefilled to `genesis_height + 1` entries"
     );
 
+    // The genesis anchor is the latest stored state before any block is mined;
+    // hold onto its commitment to assert the manifest store never gains a
+    // genesis entry.
+    let genesis_commitment = harness
+        .get_latest_asm_state()
+        .unwrap()
+        .expect("genesis anchor stored")
+        .0;
+
     // Mine blocks in multiple rounds of increasing size to exercise the MMR
     // across different tree shapes (powers of two, odd counts, etc.).
     // The compact MMR's internal peak structure changes at each power-of-two
@@ -292,7 +314,11 @@ async fn test_proven_and_external_mmr_index_alignment() {
         );
     }
 
-    // The genesis slot (and every pre-genesis slot) holding the sentinel — asserted
-    // in the prefill loop above — is what proves the worker stores no manifest for
-    // genesis: a stored manifest would have overwritten that slot with its hash.
+    // The worker stores no manifest for the genesis block: assert its manifest
+    // store holds nothing at the genesis commitment. The sentinel prefill loop
+    // above independently confirms genesis's MMR slot was never overwritten.
+    assert!(
+        harness.get_manifest(&genesis_commitment).is_none(),
+        "no manifest should be stored for the genesis block"
+    );
 }
