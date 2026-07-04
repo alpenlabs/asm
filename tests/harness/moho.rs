@@ -8,23 +8,25 @@
 //!   ASM worker writes to (anchor states and their manifests) and the Bitcoin regtest node (parent
 //!   resolution). Sharing the ASM context — an `Arc`-backed handle — is what lets the Moho worker
 //!   fold the anchor states the ASM worker just committed.
-//! - [`MohoStateStore`] / [`ExportEntryStore`] persist into in-memory maps owned by this context,
-//!   mirroring the ASM worker's in-memory test stores.
+//! - [`MohoStateStore`] / [`ExportEntryStore`] persist through the same sled-backed
+//!   [`SledMohoStateDb`] / [`SledExportEntriesDb`] stores the runner uses in production, opened on
+//!   a throwaway [`TempDir`]. Backing the tests with the real persistence path (rather than bespoke
+//!   in-memory maps) exercises the storage the runner relies on and gives the test the store's real
+//!   query surface — e.g. [`find_export_entry`](TestMohoWorkerContext::find_export_entry) to assert
+//!   a specific export-entry leaf was mirrored from the fold.
 //!
 //! This is the regtest analogue of the `MockContext` the Moho worker's own unit
 //! tests use; it lives here (not in the crate's `test_utils`) because it is glued
 //! to the harness's [`TestAsmWorkerContext`], which the Moho crate's unit tests
 //! have no need for.
 
-use std::{
-    collections::HashMap,
-    sync::{Arc, Mutex},
-};
+use std::sync::Arc;
 
 use bitcoin::BlockHash;
 use bitcoind_async_client::traits::Reader;
 use moho_types::MohoState;
 use strata_asm_common::{AnchorState, AsmLogEntry};
+use strata_asm_moho_storage::{SledExportEntriesDb, SledMohoStateDb};
 use strata_asm_moho_worker::{
     AsmStateProvider, ExportEntryStore, L1ProviderContext, MohoStateStore, MohoWorkerError,
     MohoWorkerResult,
@@ -32,38 +34,68 @@ use strata_asm_moho_worker::{
 use strata_asm_worker::{test_utils::TestAsmWorkerContext, AnchorStateStore};
 use strata_btc_types::{BlockHashExt, L1BlockIdBitcoinExt};
 use strata_identifiers::L1BlockCommitment;
+use tempfile::TempDir;
 use tokio::{runtime::Handle, task::block_in_place};
 
-/// One appended export-entry leaf: `(container_id, height, leaf)`.
-type ExportEntry = (u8, u32, [u8; 32]);
-
-/// In-memory Moho stores plus a shared handle to the ASM worker's test context.
+/// Sled-backed Moho stores plus a shared handle to the ASM worker's test context.
 #[derive(Clone, Debug)]
 pub struct TestMohoWorkerContext {
     /// The same context the ASM worker writes to. Anchor states and manifests
     /// (the log source) are read from here.
     asm: TestAsmWorkerContext,
-    /// Derived per-block Moho states, plus the latest one, keyed by block.
-    moho: Arc<Mutex<MohoStores>>,
-    /// Per-container export-entry leaves in MMR-append order.
-    export_entries: Arc<Mutex<Vec<ExportEntry>>>,
+    /// Consolidated sled-backed Moho stores, shared across clones.
+    stores: Arc<MohoStores>,
 }
 
-#[derive(Debug, Default)]
+/// The sled-backed Moho-state and export-entry stores, plus the sled database
+/// and temp dir that back them.
+///
+/// Consolidated behind one `Arc` (mirroring the ASM worker's test context) so
+/// the whole storage lifetime is tied together: the temp dir — and its on-disk
+/// data — is deleted when the last clone of the context drops this.
+#[derive(Debug)]
 struct MohoStores {
-    states: HashMap<L1BlockCommitment, MohoState>,
-    latest: Option<(L1BlockCommitment, MohoState)>,
+    /// Derived per-block Moho states, keyed by L1 block commitment.
+    moho_state_db: SledMohoStateDb,
+    /// Per-container export-entry leaves mirroring each state's `ExportState` MMR.
+    export_entries_db: SledExportEntriesDb,
+    /// Backing sled database. Held to keep the trees the stores wrap alive.
+    _db: sled::Db,
+    /// Temp dir the sled database lives in; deleted when this is dropped.
+    _tempdir: TempDir,
 }
 
 impl TestMohoWorkerContext {
-    /// Wraps `asm` (shared with the running ASM worker) with fresh in-memory Moho
-    /// stores.
+    /// Wraps `asm` (shared with the running ASM worker) with fresh sled-backed
+    /// Moho stores, opened on a throwaway temp directory.
     pub fn new(asm: TestAsmWorkerContext) -> Self {
+        let tempdir = tempfile::tempdir().expect("create temp dir for moho sled db");
+        let db = sled::open(tempdir.path()).expect("open moho sled db");
+        let moho_state_db = SledMohoStateDb::open(&db).expect("open moho state db");
+        let export_entries_db = SledExportEntriesDb::open(&db).expect("open export entries db");
+
         Self {
             asm,
-            moho: Arc::new(Mutex::new(MohoStores::default())),
-            export_entries: Arc::new(Mutex::new(Vec::new())),
+            stores: Arc::new(MohoStores {
+                moho_state_db,
+                export_entries_db,
+                _db: db,
+                _tempdir: tempdir,
+            }),
         }
+    }
+
+    /// Resolves the MMR index of `hash` in `container_id`'s export-entry MMR, or
+    /// `None` if the leaf was never appended.
+    ///
+    /// Lets tests assert a specific export-entry leaf (e.g. an
+    /// `OperatorClaimUnlock` hash) was mirrored from the Moho fold into the same
+    /// store the runner rebuilds inclusion proofs from.
+    pub fn find_export_entry(&self, container_id: u8, hash: &[u8; 32]) -> Option<u64> {
+        self.stores
+            .export_entries_db
+            .find_index(container_id, hash)
+            .expect("query export-entry index")
     }
 }
 
@@ -119,16 +151,17 @@ impl L1ProviderContext for TestMohoWorkerContext {
 
 impl MohoStateStore for TestMohoWorkerContext {
     fn get_latest_moho_state(&self) -> MohoWorkerResult<Option<(L1BlockCommitment, MohoState)>> {
-        Ok(self.moho.lock().unwrap().latest.clone())
+        self.stores
+            .moho_state_db
+            .get_latest()
+            .map_err(|e| MohoWorkerError::Storage(e.into()))
     }
 
     fn get_moho_state(&self, blockid: &L1BlockCommitment) -> MohoWorkerResult<MohoState> {
-        self.moho
-            .lock()
-            .unwrap()
-            .states
-            .get(blockid)
-            .cloned()
+        self.stores
+            .moho_state_db
+            .get(*blockid)
+            .map_err(|e| MohoWorkerError::Storage(e.into()))?
             .ok_or(MohoWorkerError::MissingMohoState(*blockid))
     }
 
@@ -137,16 +170,10 @@ impl MohoStateStore for TestMohoWorkerContext {
         blockid: &L1BlockCommitment,
         state: &MohoState,
     ) -> MohoWorkerResult<()> {
-        let mut stores = self.moho.lock().unwrap();
-        stores.states.insert(*blockid, state.clone());
-        if stores
-            .latest
-            .as_ref()
-            .is_none_or(|(b, _)| blockid.height() >= b.height())
-        {
-            stores.latest = Some((*blockid, state.clone()));
-        }
-        Ok(())
+        self.stores
+            .moho_state_db
+            .store(*blockid, state.clone())
+            .map_err(|e| MohoWorkerError::Storage(e.into()))
     }
 }
 
@@ -157,18 +184,16 @@ impl ExportEntryStore for TestMohoWorkerContext {
         height: u32,
         entries: Vec<[u8; 32]>,
     ) -> MohoWorkerResult<()> {
-        let mut store = self.export_entries.lock().unwrap();
-        for entry in entries {
-            store.push((container_id, height, entry));
-        }
-        Ok(())
+        self.stores
+            .export_entries_db
+            .append(container_id, height, entries)
+            .map_err(|e| MohoWorkerError::Storage(e.into()))
     }
 
     fn prune_export_entries_from(&self, height: u32) -> MohoWorkerResult<()> {
-        self.export_entries
-            .lock()
-            .unwrap()
-            .retain(|(_, h, _)| *h < height);
-        Ok(())
+        self.stores
+            .export_entries_db
+            .prune_from(height)
+            .map_err(|e| MohoWorkerError::Storage(e.into()))
     }
 }
