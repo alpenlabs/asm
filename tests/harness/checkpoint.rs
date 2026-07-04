@@ -185,7 +185,7 @@ impl AsmTestHarness {
         // The MMR is height-indexed (sentinel prefill for `0..=genesis`), so the highest
         // processed real L1 height is `len - 1`. Clamp so we never regress below the
         // verified tip, which yields an empty L1 range (valid: zero L1 progress allowed).
-        let new_l1_height = (self.get_mmr_leaves().len() as u32)
+        let new_l1_height = (self.get_mmr_leaf_count() as u32)
             .saturating_sub(1)
             .max(verified_l1);
 
@@ -240,13 +240,13 @@ impl AsmTestHarness {
         if new_l1_height <= verified_l1 {
             return Vec::new();
         }
-        let mmr_leaves = self.get_mmr_leaves();
-        let start = (verified_l1 + 1) as usize;
-        let end = new_l1_height as usize;
-        mmr_leaves[start..=end]
-            .iter()
-            .copied()
-            .map(AsmManifestHash::from)
+        let start = verified_l1 as u64 + 1;
+        let end = new_l1_height as u64;
+        (start..=end)
+            .map(|index| {
+                self.get_manifest_hash(index)
+                    .expect("manifest hash for committed L1 height")
+            })
             .collect()
     }
 }

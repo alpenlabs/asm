@@ -301,7 +301,7 @@ mod tests {
     use std::thread;
 
     use bitcoind_async_client::traits::Reader;
-    use strata_asm_common::{AsmManifestHash, AuxRequestCollector};
+    use strata_asm_common::AuxRequestCollector;
     use strata_btc_types::L1BlockIdBitcoinExt;
     use strata_identifiers::{Buf32, L1BlockId};
     use strata_service::CommandCompletionSender;
@@ -546,22 +546,45 @@ mod tests {
         // Branch A: process 102, 103, 104.
         let branch_a = fixtures::mine(&fx.node, &fx.client, 3).await;
         sync_to_block(&mut fx.state, branch_a.last().unwrap().blkid()).expect("sync branch A");
-        let leaves_a = fx.state.context.mmr_leaves();
+        let leaf_a_102 = fx
+            .state
+            .context
+            .get_manifest_hash(102)
+            .expect("leaf 102 on A");
+        let leaf_a_103 = fx
+            .state
+            .context
+            .get_manifest_hash(103)
+            .expect("leaf 103 on A");
 
         // Reorg below 103 and process a longer branch B: 103b, 104b, 105b.
         let branch_b = fixtures::reorg(&fx.node, &fx.client, 103, 3).await;
         let new_tip = *branch_b.last().unwrap();
         sync_to_block(&mut fx.state, new_tip.blkid()).expect("sync branch B");
-        let leaves_b = fx.state.context.mmr_leaves();
 
         assert_eq!(fx.state.blkid, new_tip, "anchor on the new branch");
         // Heights 103, 104 overwritten in place; 105 appended — not 108 leaves.
-        assert_eq!(leaves_b.len(), 106, "overwrite, not append");
-        assert_ne!(
-            leaves_b[103], leaves_a[103],
-            "leaf 103 now reflects branch B"
+        assert_eq!(
+            fx.state.context.mmr_leaf_count(),
+            106,
+            "overwrite, not append"
         );
-        assert_eq!(leaves_b[102], leaves_a[102], "the fork point is untouched");
+        assert_ne!(
+            fx.state
+                .context
+                .get_manifest_hash(103)
+                .expect("leaf 103 on B"),
+            leaf_a_103,
+            "leaf 103 now reflects branch B",
+        );
+        assert_eq!(
+            fx.state
+                .context
+                .get_manifest_hash(102)
+                .expect("leaf 102 on B"),
+            leaf_a_102,
+            "the fork point is untouched",
+        );
     }
 
     /// End-to-end at the resolver boundary: drive the real STF over a chain,
@@ -603,8 +626,10 @@ mod tests {
             "one entry per height 6..=9"
         );
 
-        // Snapshot chain A's stored leaves to compare after the reorg.
-        let leaves_a = fx.state.context.mmr_leaves();
+        // Snapshot the specific chain-A leaves this test compares after the reorg.
+        let leaf_a_6 = fx.state.context.get_manifest_hash(6).expect("leaf 6 on A");
+        let leaf_a_8 = fx.state.context.get_manifest_hash(8).expect("leaf 8 on A");
+        let leaf_a_9 = fx.state.context.get_manifest_hash(9).expect("leaf 9 on A");
 
         // Reorg: invalidate 6 (drops 6..=9), mine a *shorter* branch B: 6', 7'.
         let branch_b = fixtures::reorg(&fx.node, &fx.client, 6, 2).await; // 6',7'
@@ -620,21 +645,23 @@ mod tests {
             10,
             "8,9 still occupy the MMR",
         );
-        for height in [8u64, 9] {
+        for (height, chain_a_hash) in [(8u64, leaf_a_8), (9u64, leaf_a_9)] {
             let hash = fx
                 .state
                 .context
                 .get_manifest_hash(height)
                 .expect("orphaned hash still fetchable");
             assert_eq!(
-                hash,
-                AsmManifestHash::from(leaves_a[height as usize]),
+                hash, chain_a_hash,
                 "leaf {height} still holds chain A's hash",
             );
         }
         // Heights 6,7 were overwritten in place by branch B.
-        let leaves_b = fx.state.context.mmr_leaves();
-        assert_ne!(leaves_b[6], leaves_a[6], "leaf 6 now reflects branch B");
+        assert_ne!(
+            fx.state.context.get_manifest_hash(6).expect("leaf 6 on B"),
+            leaf_a_6,
+            "leaf 6 now reflects branch B",
+        );
 
         // The post-reorg accumulator is shorter: sentinels 0..=5 plus 6',7'.
         let leaf_count_b = anchor_leaf_count(&fx.state);
@@ -706,7 +733,7 @@ mod tests {
         let block = fixtures::mine(&fx.node, &fx.client, 1).await[0]; // 102
 
         apply_block(&mut fx.state, &block).expect("first apply");
-        let first_leaf = fx.state.context.mmr_leaves()[102];
+        let first_leaf = fx.state.context.get_manifest_hash(102).expect("leaf 102");
         let first_state = fx.state.context.get_anchor_state(&block).unwrap();
         let first_count = fx.state.context.mmr_leaf_count();
 
@@ -716,7 +743,7 @@ mod tests {
         apply_block(&mut fx.state, &block).expect("re-apply");
 
         assert_eq!(
-            fx.state.context.mmr_leaves()[102],
+            fx.state.context.get_manifest_hash(102).expect("leaf 102"),
             first_leaf,
             "manifest reproduced",
         );

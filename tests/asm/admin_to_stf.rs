@@ -54,7 +54,7 @@ async fn test_asm_predicate_update_emits_log() {
     assert_eq!(state.queued().len(), 1, "Predicate update should be queued");
 
     // Mine blocks to trigger activation.
-    harness
+    let activation_blocks = harness
         .mine_blocks(DEFAULT_CONFIRMATION_DEPTH as usize)
         .await
         .unwrap();
@@ -67,13 +67,21 @@ async fn test_asm_predicate_update_emits_log() {
         "Queue should be empty after activation"
     );
 
-    // Find the AsmStfUpdate log in the stored manifests
-    let manifests = harness.get_stored_manifests();
-    let asm_stf_update = manifests
-        .iter()
-        .flat_map(|m| &m.logs)
-        .find_map(|log| log.try_into_log::<AsmStfUpdate>().ok())
-        .expect("expected an AsmStfUpdate log in manifests");
+    // The update log is emitted at whichever block activated it; search the
+    // blocks we just mined rather than dumping every stored manifest.
+    let mut asm_stf_update = None;
+    for hash in activation_blocks {
+        let block = harness.commitment_of(hash).await.unwrap();
+        asm_stf_update = harness
+            .get_logs_at(&block)
+            .iter()
+            .find_map(|log| log.try_into_log::<AsmStfUpdate>().ok());
+        if asm_stf_update.is_some() {
+            break;
+        }
+    }
+    let asm_stf_update =
+        asm_stf_update.expect("expected an AsmStfUpdate log in the activation blocks");
 
     assert_eq!(
         asm_stf_update.new_predicate(),

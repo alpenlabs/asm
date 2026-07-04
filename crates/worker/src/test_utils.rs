@@ -97,37 +97,14 @@ impl TestAsmWorkerContext {
         self.state.mmr_db.leaf_count().expect("read mmr leaf count")
     }
 
-    /// Snapshot of every manifest-MMR leaf in index order.
-    pub fn mmr_leaves(&self) -> Vec<[u8; 32]> {
-        let count = self.state.mmr_db.leaf_count().expect("read mmr leaf count");
-        (0..count)
-            .map(|i| {
-                let leaf = self
-                    .state
-                    .mmr_db
-                    .get_leaf(i)
-                    .expect("read mmr leaf")
-                    .expect("leaf below count is present");
-                *leaf.as_ref()
-            })
-            .collect()
-    }
-
-    /// Snapshot of every stored manifest, in ascending block-height order.
-    pub fn stored_manifests(&self) -> Vec<AsmManifest> {
-        self.state
-            .manifest_db
-            .list()
-            .expect("list manifest keys")
-            .into_iter()
-            .map(|commitment| {
-                self.state
-                    .manifest_db
-                    .get(&commitment)
-                    .expect("read manifest")
-                    .expect("listed manifest is present")
-            })
-            .collect()
+    /// The full [`AsmManifest`] recorded for `blockid`, if any.
+    ///
+    /// A targeted lookup: tests fetch the one manifest they care about by block
+    /// rather than snapshotting the whole store. Pair with
+    /// [`get_manifest_hash`](ManifestMmrStore::get_manifest_hash) (by MMR index)
+    /// for the leaf side.
+    pub fn get_manifest(&self, blockid: &L1BlockCommitment) -> Option<AsmManifest> {
+        self.state.manifest_db.get(blockid).expect("read manifest")
     }
 }
 

@@ -57,6 +57,7 @@ use strata_asm_worker::{
     test_utils::{get_l1_anchor, TestAsmWorkerContext},
     AnchorStateStore, AsmWorkerBuilder, AsmWorkerHandle, ManifestMmrStore,
 };
+use strata_btc_types::BlockHashExt;
 use strata_identifiers::L1BlockCommitment;
 use strata_l1_envelope_fmt::builder::{build_envelope_script, EnvelopeScriptBuilder};
 use strata_l1_txfmt::{ParseConfig, TagData};
@@ -266,12 +267,17 @@ impl AsmTestHarness {
     /// block (e.g. the genesis anchor, seeded without running the STF).
     pub fn get_logs_at(&self, blockid: &L1BlockCommitment) -> Vec<AsmLogEntry> {
         self.context
-            .stored_manifests()
-            .iter()
-            .rev()
-            .find(|m| m.blkid() == blockid.blkid())
+            .get_manifest(blockid)
             .map(|m| m.logs().to_vec())
             .unwrap_or_default()
+    }
+
+    /// Resolve a mined block hash to its height-tagged [`L1BlockCommitment`], so
+    /// callers can request that block's manifest or logs directly instead of
+    /// scanning every stored manifest.
+    pub async fn commitment_of(&self, hash: BlockHash) -> anyhow::Result<L1BlockCommitment> {
+        let height = self.client.get_block_height(&hash).await?;
+        Ok(L1BlockCommitment::new(height as u32, hash.to_l1_block_id()))
     }
 
     /// Fetch a block from Bitcoin by hash.
@@ -292,14 +298,12 @@ impl AsmTestHarness {
         Ok(self.context.get_manifest_hash(index)?)
     }
 
-    /// Get a snapshot of all stored manifests.
-    pub fn get_stored_manifests(&self) -> Vec<strata_asm_manifest_types::AsmManifest> {
-        self.context.stored_manifests()
-    }
-
-    /// Get all MMR leaf hashes in leaf-index order.
-    pub fn get_mmr_leaves(&self) -> Vec<[u8; 32]> {
-        self.context.mmr_leaves()
+    /// Get the full manifest recorded for a specific block, if any.
+    pub fn get_manifest(
+        &self,
+        blockid: &L1BlockCommitment,
+    ) -> Option<strata_asm_manifest_types::AsmManifest> {
+        self.context.get_manifest(blockid)
     }
 
     // Funding & Wallet
