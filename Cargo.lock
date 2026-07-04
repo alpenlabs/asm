@@ -3641,6 +3641,7 @@ dependencies = [
  "strata-asm-common",
  "strata-asm-logs",
  "strata-asm-manifest-types",
+ "strata-asm-moho-worker",
  "strata-asm-params",
  "strata-asm-proof-impl",
  "strata-asm-proto-admin",
