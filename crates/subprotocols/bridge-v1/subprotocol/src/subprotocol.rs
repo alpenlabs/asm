@@ -11,10 +11,13 @@ use strata_asm_common::{
 use strata_asm_logs::ExportExtraDataUpdate;
 use strata_asm_params::BridgeV1InitConfig;
 use strata_asm_proto_bridge_v1_msgs::BridgeIncomingMsg;
-use strata_asm_proto_bridge_v1_txs::{BRIDGE_V1_SUBPROTOCOL_ID, parser::parse_tx};
+use strata_asm_proto_bridge_v1_txs::{
+    BRIDGE_V1_SUBPROTOCOL_ID, errors::Mismatch, parser::parse_tx,
+};
 use strata_identifiers::L1BlockCommitment;
 
 use crate::{
+    errors::WithdrawalAssignmentError,
     handler::{handle_parsed_tx, preprocess_parsed_tx},
     state::BridgeV1State,
 };
@@ -166,7 +169,35 @@ impl Subprotocol for BridgeV1Subproto {
         for msg in msgs {
             match msg {
                 BridgeIncomingMsg::DispatchWithdrawal(payload) => {
-                    if let Err(e) = state.create_batch_withdrawal_assignments(payload, l1ref) {
+                    // Decompose the batch intent into per-denomination intents, then create, log,
+                    // and insert one assignment for each. A non-decomposable amount (not a whole
+                    // multiple of the denomination) surfaces here as an amount mismatch.
+                    let denomination = *state.denomination();
+                    let result = payload
+                        .decompose(denomination)
+                        .ok_or_else(|| {
+                            WithdrawalAssignmentError::DepositWithdrawalAmountMismatch(Mismatch {
+                                expected: denomination.to_sat(),
+                                got: payload.amt().to_sat(),
+                            })
+                        })
+                        .and_then(|intents| {
+                            for intent in intents {
+                                let assignment =
+                                    state.create_withdrawal_assignment(&intent, l1ref)?;
+                                info!(
+                                    deposit_idx = assignment.deposit_idx(),
+                                    assignee = assignment.current_assignee(),
+                                    amount_sat = assignment.withdrawal_output().amt().to_sat(),
+                                    fulfillment_deadline = assignment.fulfillment_deadline(),
+                                    selected_operator = %intent.selected_operator(),
+                                    "Created withdrawal assignment",
+                                );
+                                state.insert_withdrawal_assignment(assignment);
+                            }
+                            Ok(())
+                        });
+                    if let Err(e) = result {
                         // PANIC: Withdrawal assignment failure indicates catastrophic system
                         // compromise.
                         error!(
@@ -212,12 +243,13 @@ impl Subprotocol for BridgeV1Subproto {
 mod tests {
     use strata_asm_common::Subprotocol;
     use strata_asm_proto_bridge_v1_msgs::{BridgeIncomingMsg, DefconPayload};
-    use strata_asm_proto_bridge_v1_types::SafeHarbourAddress;
+    use strata_asm_proto_bridge_v1_types::{SafeHarbourAddress, WithdrawalIntent};
+    use strata_btc_types::BitcoinAmount;
     use strata_identifiers::L1BlockCommitment;
     use strata_test_utils_arb::ArbitraryGenerator;
 
     use super::BridgeV1Subproto;
-    use crate::test_utils::create_test_state;
+    use crate::test_utils::{add_deposits, create_test_state};
 
     /// The safe harbour must start deactivated so it has no effect until the
     /// admin subprotocol explicitly triggers a defcon signal.
@@ -242,6 +274,25 @@ mod tests {
         assert_eq!(state.safe_harbour().address(), &new_address);
         // Address updates alone must not activate the safe harbour.
         assert!(!state.safe_harbour().is_activated());
+    }
+
+    /// A `DispatchWithdrawal` for `N * denomination` must decompose into `N` assignments, each
+    /// consuming one deposit.
+    #[test]
+    fn process_msgs_dispatch_withdrawal_creates_assignments() {
+        let (mut state, _privkeys) = create_test_state();
+        let l1ref: L1BlockCommitment = ArbitraryGenerator::new().generate();
+
+        add_deposits(&mut state, 5);
+
+        let mut intent: WithdrawalIntent = ArbitraryGenerator::new().generate();
+        intent.amt = BitcoinAmount::from_sat(state.denomination().to_sat() * 3);
+
+        let msgs = vec![BridgeIncomingMsg::DispatchWithdrawal(intent)];
+        BridgeV1Subproto::process_msgs(&mut state, &msgs, &l1ref);
+
+        assert_eq!(state.assignments().len(), 3);
+        assert_eq!(state.deposits().len(), 2);
     }
 
     #[test]

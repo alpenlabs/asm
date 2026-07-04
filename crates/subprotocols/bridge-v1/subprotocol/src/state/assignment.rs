@@ -398,20 +398,22 @@ impl AssignmentTable {
         Ok(reassigned_withdrawals)
     }
 
-    /// Builds an assignment for the deposit (see [`AssignmentEntry::create`]) and inserts it,
-    /// deriving the fulfillment deadline from the current L1 height and the assignment duration.
-    pub fn add_new_assignment(
-        &mut self,
+    /// Builds an assignment entry for `deposit_entry` (see [`AssignmentEntry::create`]), deriving
+    /// the fulfillment deadline from this table's assignment duration and the current L1 height.
+    ///
+    /// The entry is returned, not inserted — call [`insert`](Self::insert) to add it.
+    pub fn build_assignment(
+        &self,
         deposit_entry: DepositEntry,
         withdrawal_intent: WithdrawalIntent,
         operator_fee: BitcoinAmount,
         notary_operators: &OperatorBitmap,
         current_active_operators: &OperatorBitmap,
         l1_block: &L1BlockCommitment,
-    ) -> Result<(), WithdrawalAssignmentError> {
+    ) -> Result<AssignmentEntry, WithdrawalAssignmentError> {
         let fulfillment_deadline = self.calculate_deadline(l1_block.height());
 
-        let entry = AssignmentEntry::create(
+        AssignmentEntry::create(
             deposit_entry,
             withdrawal_intent,
             operator_fee,
@@ -419,10 +421,7 @@ impl AssignmentTable {
             notary_operators,
             current_active_operators,
             *l1_block.blkid(),
-        )?;
-
-        self.assignments.insert(entry);
-        Ok(())
+        )
     }
 }
 

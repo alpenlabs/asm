@@ -1,5 +1,5 @@
 use ssz_derive::{Decode, Encode};
-use strata_asm_common::logging::{debug, info, warn};
+use strata_asm_common::logging::{info, warn};
 use strata_asm_params::BridgeV1InitConfig;
 use strata_asm_proto_bridge_v1_txs::{deposit::DepositInfo, errors::Mismatch};
 use strata_asm_proto_bridge_v1_types::{
@@ -153,12 +153,14 @@ impl BridgeV1State {
         Ok(())
     }
 
-    /// Adds a new withdrawal assignment to the assignments table.
+    /// Creates a withdrawal assignment for the oldest unassigned deposit.
     ///
-    /// This retrieves the oldest unassigned deposit UTXO, validates that its amount matches
-    /// the withdrawal amount, and records the configured operator fee on the assignment.
-    /// The assignment is then added to the table with operators randomly selected from the
-    /// currently active operators.
+    /// Removes the oldest deposit UTXO, validates that its amount matches the withdrawal amount,
+    /// and builds the assignment with an operator selected from the currently active set.
+    ///
+    /// The returned assignment is **not** inserted into the table. The caller is expected to log it
+    /// and insert it via [`insert_withdrawal_assignment`](Self::insert_withdrawal_assignment) —
+    /// this keeps the create/log/insert steps visible at the message-handling call site.
     ///
     /// # Parameters
     ///
@@ -167,14 +169,14 @@ impl BridgeV1State {
     ///
     /// # Returns
     ///
-    /// - `Ok(())` - If the withdrawal assignment was successfully added
-    /// - `Err(WithdrawalAssignmentError)` - If no unassigned deposits, amounts mismatch, or adding
-    ///   new assignment fails
+    /// - `Ok(AssignmentEntry)` - the built (but not yet inserted) assignment
+    /// - `Err(WithdrawalAssignmentError)` - If no unassigned deposits, amounts mismatch, or no
+    ///   operator is eligible
     pub fn create_withdrawal_assignment(
         &mut self,
         withdrawal_intent: &WithdrawalIntent,
         l1_block: &L1BlockCommitment,
-    ) -> Result<(), WithdrawalAssignmentError> {
+    ) -> Result<AssignmentEntry, WithdrawalAssignmentError> {
         // Get the oldest deposit
         let deposit = self
             .deposits
@@ -190,81 +192,26 @@ impl BridgeV1State {
             ));
         }
 
-        let selected_operator = withdrawal_intent.selected_operator();
-        let deposit_idx = deposit.idx();
-        let amount_sat = deposit.amt().to_sat();
         let notary_operators = self
             .operators
             .nn_script(deposit.notary_set())
             .expect("deposit references a known N/N configuration")
             .operators();
-        let result = self.assignments.add_new_assignment(
+
+        self.assignments.build_assignment(
             deposit,
             withdrawal_intent.clone(),
             self.operator_fee,
             notary_operators,
             self.operators.current_multisig(),
             l1_block,
-        );
-
-        if result.is_ok() {
-            let assignment = self
-                .assignments
-                .get_assignment(deposit_idx)
-                .expect("assignment must exist after successful insertion");
-            info!(
-                deposit_idx,
-                assignee = assignment.current_assignee(),
-                amount_sat,
-                fulfillment_deadline = assignment.fulfillment_deadline(),
-                selected_operator = %selected_operator,
-                "Created withdrawal assignment",
-            );
-        }
-
-        result
+        )
     }
 
-    /// Decomposes a batch withdrawal into N individual assignments.
-    ///
-    /// Splits `withdrawal_intent.amt()` into `N = amt / denomination` calls to
-    /// [`create_withdrawal_assignment`](Self::create_withdrawal_assignment), each with the
-    /// bridge denomination and the same destination and operator selection.
-    pub fn create_batch_withdrawal_assignments(
-        &mut self,
-        withdrawal_intent: &WithdrawalIntent,
-        l1_block: &L1BlockCommitment,
-    ) -> Result<(), WithdrawalAssignmentError> {
-        let amt = withdrawal_intent.amt().to_sat();
-        let denom = self.denomination.to_sat();
-
-        if !amt.is_multiple_of(denom) {
-            return Err(WithdrawalAssignmentError::DepositWithdrawalAmountMismatch(
-                Mismatch {
-                    expected: denom,
-                    got: amt,
-                },
-            ));
-        }
-
-        let n = amt / denom;
-        debug!(
-            total_amount_sat = amt,
-            denomination_sat = denom,
-            assignments = n,
-            "Decomposing batch withdrawal"
-        );
-        let single_intent = WithdrawalIntent::new(
-            withdrawal_intent.destination().clone(),
-            self.denomination,
-            withdrawal_intent.selected_operator(),
-        );
-
-        for _ in 0..n {
-            self.create_withdrawal_assignment(&single_intent, l1_block)?;
-        }
-
-        Ok(())
+    /// Inserts a previously [created](Self::create_withdrawal_assignment) assignment into the
+    /// table.
+    pub fn insert_withdrawal_assignment(&mut self, assignment: AssignmentEntry) {
+        self.assignments.insert(assignment);
     }
 
     /// Processes all expired assignments by reassigning them to new operators.
@@ -374,8 +321,10 @@ mod tests {
             let l1blk: L1BlockCommitment = arb.generate();
             let mut intent: WithdrawalIntent = arb.generate();
             intent.amt = state.denomination;
-            let res = state.create_withdrawal_assignment(&intent, &l1blk);
-            assert!(res.is_ok());
+            let assignment = state
+                .create_withdrawal_assignment(&intent, &l1blk)
+                .expect("creating an assignment for a matching deposit should succeed");
+            state.insert_withdrawal_assignment(assignment);
 
             let unassigned_deposit_count = state.deposits.len();
             let assigned_deposit_count = state.assignments.len();
@@ -414,52 +363,5 @@ mod tests {
             assert_eq!(mismatch.got, intent.amt.to_sat());
             assert_eq!(mismatch.expected, deposit.amt().to_sat());
         }
-    }
-
-    #[test]
-    fn test_create_batch_withdrawal_assignments_success() {
-        let (mut state, _privkeys) = create_test_state();
-        let mut arb = ArbitraryGenerator::new();
-
-        add_deposits(&mut state, 5);
-
-        let l1blk: L1BlockCommitment = arb.generate();
-        let mut intent: WithdrawalIntent = arb.generate();
-        intent.amt = BitcoinAmount::from_sat(state.denomination.to_sat() * 3);
-
-        state
-            .create_batch_withdrawal_assignments(&intent, &l1blk)
-            .unwrap();
-
-        assert_eq!(state.assignments.len(), 3);
-        assert_eq!(state.deposits.len(), 2);
-    }
-
-    #[test]
-    fn test_create_batch_withdrawal_assignments_non_multiple_fails() {
-        let (mut state, _privkeys) = create_test_state();
-        let mut arb = ArbitraryGenerator::new();
-
-        add_deposits(&mut state, 2);
-
-        let l1blk: L1BlockCommitment = arb.generate();
-        let mut intent: WithdrawalIntent = arb.generate();
-        intent.amt = BitcoinAmount::from_sat(state.denomination.to_sat() + 1);
-
-        let err = state
-            .create_batch_withdrawal_assignments(&intent, &l1blk)
-            .unwrap_err();
-
-        assert!(matches!(
-            err,
-            WithdrawalAssignmentError::DepositWithdrawalAmountMismatch(..)
-        ));
-        if let WithdrawalAssignmentError::DepositWithdrawalAmountMismatch(mismatch) = err {
-            assert_eq!(mismatch.expected, state.denomination.to_sat());
-            assert_eq!(mismatch.got, intent.amt.to_sat());
-        }
-
-        assert_eq!(state.assignments.len(), 0);
-        assert_eq!(state.deposits.len(), 2);
     }
 }
