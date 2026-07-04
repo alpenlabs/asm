@@ -69,6 +69,34 @@ impl WithdrawalIntent {
     pub fn to_output(&self) -> WithdrawalOutput {
         WithdrawalOutput::new(self.destination.clone(), self.amt)
     }
+
+    /// Decomposes this intent into `N = amt / denomination` single-denomination intents.
+    ///
+    /// Each yielded intent carries `denomination` as its amount and inherits this intent's
+    /// destination and operator selection. The intents are produced lazily as the iterator is
+    /// consumed.
+    ///
+    /// Returns `None` if the amount is not a whole multiple of the denomination; the caller decides
+    /// what such a mismatch means in its own error vocabulary.
+    pub fn decompose(
+        &self,
+        denomination: BitcoinAmount,
+    ) -> Option<impl Iterator<Item = WithdrawalIntent>> {
+        let amt = self.amt.to_sat();
+        let denom = denomination.to_sat();
+
+        if !amt.is_multiple_of(denom) {
+            return None;
+        }
+
+        let n = amt / denom;
+        let destination = self.destination.clone();
+        let selected_operator = self.selected_operator;
+
+        Some((0..n).map(move |_| {
+            WithdrawalIntent::new(destination.clone(), denomination, selected_operator)
+        }))
+    }
 }
 
 /// The Bitcoin output a fulfilled withdrawal must create: a destination and an amount.
@@ -98,5 +126,42 @@ impl WithdrawalOutput {
     /// Returns the withdrawal amount.
     pub fn amt(&self) -> BitcoinAmount {
         self.amt
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use strata_test_utils_arb::ArbitraryGenerator;
+
+    use super::*;
+
+    #[test]
+    fn decompose_splits_into_denomination_units() {
+        let mut arb = ArbitraryGenerator::new();
+        let denomination = BitcoinAmount::from_sat(10_000);
+
+        let mut intent: WithdrawalIntent = arb.generate();
+        intent.amt = BitcoinAmount::from_sat(denomination.to_sat() * 3);
+
+        let intents: Vec<WithdrawalIntent> = intent.decompose(denomination).unwrap().collect();
+
+        assert_eq!(intents.len(), 3);
+        // Each unit carries the denomination and inherits the batch's destination and selection.
+        for unit in &intents {
+            assert_eq!(unit.amt(), denomination);
+            assert_eq!(unit.destination(), intent.destination());
+            assert_eq!(unit.selected_operator(), intent.selected_operator());
+        }
+    }
+
+    #[test]
+    fn decompose_non_multiple_returns_none() {
+        let mut arb = ArbitraryGenerator::new();
+        let denomination = BitcoinAmount::from_sat(10_000);
+
+        let mut intent: WithdrawalIntent = arb.generate();
+        intent.amt = BitcoinAmount::from_sat(denomination.to_sat() + 1);
+
+        assert!(intent.decompose(denomination).is_none());
     }
 }
