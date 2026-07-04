@@ -9,10 +9,9 @@ use std::sync::Arc;
 use asm_storage::{SledAsmAuxDataDb, SledAsmManifestDb, SledAsmManifestMmrDb, SledAsmStateDb};
 use bitcoin::{Block, BlockHash, Network, block::Header};
 use bitcoind_async_client::{Client, error::ClientError, traits::Reader};
-use strata_asm_common::{AsmLogEntry, AsmManifest, AsmManifestHash, AuxData};
+use strata_asm_common::{AnchorState, AsmManifest, AsmManifestHash, AuxData};
 use strata_asm_worker::{
-    AnchorStateStore, AsmState, AuxDataStore, L1DataProvider, ManifestMmrStore, WorkerError,
-    WorkerResult,
+    AnchorStateStore, AuxDataStore, L1DataProvider, ManifestMmrStore, WorkerError, WorkerResult,
 };
 use strata_btc_types::{BitcoinTxid, L1BlockIdBitcoinExt, RawBitcoinTx};
 use strata_identifiers::{L1BlockCommitment, L1BlockId};
@@ -59,21 +58,6 @@ impl AsmWorkerContext {
             manifest_db,
             mmr_db,
         }
-    }
-
-    /// Loads the STF logs for `blockid` from the manifest store.
-    ///
-    /// The anchor state DB persists only the `AnchorState`, so the logs the STF
-    /// emitted are recovered from the block's manifest. Returns an empty vec
-    /// when no manifest is stored — e.g. the genesis anchor, seeded without
-    /// running the STF.
-    fn manifest_logs(&self, blockid: &L1BlockCommitment) -> WorkerResult<Vec<AsmLogEntry>> {
-        Ok(self
-            .manifest_db
-            .get(blockid)
-            .map_err(|_| WorkerError::DbError)?
-            .map(|manifest| manifest.logs().to_vec())
-            .unwrap_or_default())
     }
 }
 
@@ -180,15 +164,11 @@ impl L1DataProvider for AsmWorkerContext {
 }
 
 impl AnchorStateStore for AsmWorkerContext {
-    // The state store persists only the `AnchorState`; the worker's `AsmState`
-    // umbrella also carries the STF logs, which live in the manifest store.
-    // Reads rejoin the two so the reconstructed `AsmState` matches what the STF
-    // produced — anything that derives from the logs (the MohoState, the
-    // export-entry index) then stays correct even when it runs over a reloaded
-    // state rather than fresh STF output. Returning empty logs here once let a
-    // re-committed anchor silently drop a block's export entries and predicate
-    // update, desyncing its persisted MohoState from the proven one.
-    fn get_latest_asm_state(&self) -> WorkerResult<Option<(L1BlockCommitment, AsmState)>> {
+    // The state store persists the `AnchorState` on its own; the STF logs live
+    // in the manifest store and every consumer that needs them (the Moho
+    // worker's `get_anchor_logs`, the checkpoint/bridge test harness) reads them
+    // from there directly, keyed by block.
+    fn get_latest_asm_state(&self) -> WorkerResult<Option<(L1BlockCommitment, AnchorState)>> {
         let Some(anchor) = self
             .state_db
             .get_latest()
@@ -197,28 +177,22 @@ impl AnchorStateStore for AsmWorkerContext {
             return Ok(None);
         };
         let blockid = anchor.chain_view.pow_state.last_verified_block;
-        let logs = self.manifest_logs(&blockid)?;
-        Ok(Some((blockid, AsmState::new(anchor, logs))))
+        Ok(Some((blockid, anchor)))
     }
 
-    fn get_anchor_state(&self, blockid: &L1BlockCommitment) -> WorkerResult<AsmState> {
-        let anchor = self
-            .state_db
+    fn get_anchor_state(&self, blockid: &L1BlockCommitment) -> WorkerResult<AnchorState> {
+        self.state_db
             .get(blockid)
             .map_err(|_| WorkerError::DbError)?
-            .ok_or(WorkerError::MissingAsmState(*blockid.blkid()))?;
-        let logs = self.manifest_logs(blockid)?;
-        Ok(AsmState::new(anchor, logs))
+            .ok_or(WorkerError::MissingAsmState(*blockid.blkid()))
     }
 
     fn store_anchor_state(
         &self,
         _blockid: &L1BlockCommitment,
-        state: &AsmState,
+        state: &AnchorState,
     ) -> WorkerResult<()> {
-        self.state_db
-            .put(state.state())
-            .map_err(|_| WorkerError::DbError)?;
+        self.state_db.put(state).map_err(|_| WorkerError::DbError)?;
 
         Ok(())
     }

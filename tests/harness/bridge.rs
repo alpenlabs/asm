@@ -152,7 +152,7 @@ impl BridgeExt for AsmTestHarness {
         let (_, asm_state) = self
             .get_latest_asm_state()?
             .ok_or_else(|| anyhow::anyhow!("No ASM state available"))?;
-        extract_bridge_state(asm_state.state())
+        extract_bridge_state(&asm_state)
     }
 
     async fn submit_deposit(

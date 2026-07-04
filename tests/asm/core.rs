@@ -112,14 +112,10 @@ async fn test_genesis_manifest_not_stored() {
 async fn test_multiple_block_processing() {
     let Setup { harness, .. } = AsmTestHarnessBuilder::default().build().await;
     let (l1, state) = harness.get_latest_asm_state().unwrap().unwrap();
-    assert_eq!(l1, state.state().chain_view.pow_state.last_verified_block);
+    assert_eq!(l1, state.chain_view.pow_state.last_verified_block);
     assert_eq!(
         l1.height() as u64,
-        state
-            .state()
-            .chain_view
-            .history_accumulator
-            .last_inserted_height()
+        state.chain_view.history_accumulator.last_inserted_height()
     );
 
     let block_hashes = harness.mine_blocks(3).await.expect("Failed to mine blocks");
@@ -130,14 +126,10 @@ async fn test_multiple_block_processing() {
         .await
         .expect("Failed to get chain tip");
     assert_eq!(tip_height, harness.genesis_height + 3);
-    assert_eq!(l1, state.state().chain_view.pow_state.last_verified_block);
+    assert_eq!(l1, state.chain_view.pow_state.last_verified_block);
     assert_eq!(
         l1.height() as u64,
-        state
-            .state()
-            .chain_view
-            .history_accumulator
-            .last_inserted_height()
+        state.chain_view.history_accumulator.last_inserted_height()
     );
 }
 
@@ -219,7 +211,7 @@ async fn test_proven_and_external_mmr_index_alignment() {
             .unwrap_or_else(|e| panic!("round {round}: failed to get ASM state: {e}"))
             .unwrap_or_else(|| panic!("round {round}: ASM state should exist"));
 
-        let proven_accumulator = &latest_state.state().chain_view.history_accumulator;
+        let proven_accumulator = &latest_state.chain_view.history_accumulator;
         let proven_tip_height = proven_accumulator.last_inserted_height();
         let proven_entries = proven_accumulator.num_entries();
 

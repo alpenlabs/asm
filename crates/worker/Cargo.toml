@@ -22,7 +22,6 @@ strata-merkle-node-store = { workspace = true, optional = true }
 
 anyhow.workspace = true
 bitcoin.workspace = true
-borsh.workspace = true
 futures.workspace = true
 serde.workspace = true
 thiserror.workspace = true

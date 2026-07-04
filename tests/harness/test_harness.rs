@@ -50,11 +50,12 @@ use bitcoind_async_client::{
 };
 use corepc_node::Node;
 use rand::RngCore;
+use strata_asm_common::{AnchorState, AsmLogEntry};
 use strata_asm_params::{AdministrationInitConfig, AsmParams, SubprotocolInstance};
 use strata_asm_spec::StrataAsmSpec;
 use strata_asm_worker::{
     test_utils::{get_l1_anchor, TestAsmWorkerContext},
-    AnchorStateStore, AsmState, AsmWorkerBuilder, AsmWorkerHandle, ManifestMmrStore,
+    AnchorStateStore, AsmWorkerBuilder, AsmWorkerHandle, ManifestMmrStore,
 };
 use strata_identifiers::L1BlockCommitment;
 use strata_l1_envelope_fmt::builder::{build_envelope_script, EnvelopeScriptBuilder};
@@ -248,14 +249,30 @@ impl AsmTestHarness {
         Ok(())
     }
 
-    /// Get the latest ASM state from the worker context.
-    pub fn get_latest_asm_state(&self) -> anyhow::Result<Option<(L1BlockCommitment, AsmState)>> {
+    /// Get the latest ASM anchor state from the worker context.
+    pub fn get_latest_asm_state(&self) -> anyhow::Result<Option<(L1BlockCommitment, AnchorState)>> {
         Ok(self.context.get_latest_asm_state()?)
     }
 
-    /// Get ASM state at a specific block.
-    pub fn get_asm_state_at(&self, blockid: &L1BlockCommitment) -> anyhow::Result<AsmState> {
+    /// Get the ASM anchor state at a specific block.
+    pub fn get_asm_state_at(&self, blockid: &L1BlockCommitment) -> anyhow::Result<AnchorState> {
         Ok(self.context.get_anchor_state(blockid)?)
+    }
+
+    /// Get the STF logs a block emitted, read from its recorded manifest.
+    ///
+    /// The anchor state no longer carries logs; they live in the manifest store,
+    /// keyed by block. Returns an empty vec when no manifest was recorded for the
+    /// block (e.g. the genesis anchor, seeded without running the STF).
+    pub fn get_logs_at(&self, blockid: &L1BlockCommitment) -> Vec<AsmLogEntry> {
+        let inner = self.context.inner.lock().unwrap();
+        inner
+            .manifests
+            .iter()
+            .rev()
+            .find(|m| m.blkid() == blockid.blkid())
+            .map(|m| m.logs().to_vec())
+            .unwrap_or_default()
     }
 
     /// Fetch a block from Bitcoin by hash.

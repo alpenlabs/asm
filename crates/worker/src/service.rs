@@ -3,15 +3,15 @@
 use std::marker;
 
 use serde::{Deserialize, Serialize};
-use strata_asm_common::AsmSpec;
+use strata_asm_common::{AnchorState, AsmSpec};
 use strata_btc_types::BlockHashExt;
 use strata_identifiers::{L1BlockCommitment, L1BlockId};
 use strata_service::{Response, Service, SyncService};
 use tracing::*;
 
 use crate::{
-    AsmState, AsmWorkerServiceState, SyncError, SyncPlan, WorkerError, message::AsmWorkerMessage,
-    plan_sync, traits::WorkerContext,
+    AsmWorkerServiceState, SyncError, SyncPlan, WorkerError, message::AsmWorkerMessage, plan_sync,
+    traits::WorkerContext,
 };
 
 /// ASM service implementation using the service framework.
@@ -86,7 +86,7 @@ where
 /// lower height). Runs in two phases:
 ///
 /// 1. **Plan** (backward): from `target`, follow parent links via each block's `prev_blockhash`
-///    back to the base — the most recent ancestor with a stored `AsmState` — collecting the
+///    back to the base — the most recent ancestor with a stored `AnchorState` — collecting the
 ///    unprocessed blocks in between. This walks `target`'s own ancestry, so on an L1 reorg the base
 ///    is the fork point and the abandoned branch is never visited. Only block headers are read
 ///    here, so a deep reorg does not load every intervening block into memory at once. See
@@ -198,7 +198,7 @@ where
 }
 
 /// Walks back from `target` along parent links to build a
-/// [`SyncPlan<AsmState>`]: the base — the most recent ancestor with a stored
+/// [`SyncPlan<AnchorState>`]: the base — the most recent ancestor with a stored
 /// anchor state — and the unprocessed blocks between it and `target`.
 ///
 /// A thin adapter over [`plan_sync`]: the base is a stored anchor state, and
@@ -211,7 +211,7 @@ fn plan_block_processing<W: WorkerContext>(
     ctx: &W,
     target: &L1BlockCommitment,
     genesis_height: u64,
-) -> crate::WorkerResult<SyncPlan<AsmState>> {
+) -> crate::WorkerResult<SyncPlan<AnchorState>> {
     plan_sync(
         *target,
         genesis_height,
@@ -274,8 +274,9 @@ where
     state.context.store_aux_data(block_id, &aux_data)?;
 
     // Anchor state last: it is the block's commit point (see fn docs), so a
-    // crash before it leaves the block uncommitted to be safely re-run.
-    let new_state = AsmState::from_output(asm_stf_out);
+    // crash before it leaves the block uncommitted to be safely re-run. The
+    // STF's logs are already persisted in the manifest recorded above.
+    let new_state = asm_stf_out.state;
     state.context.store_anchor_state(block_id, &new_state)?;
     state.update_anchor_state(new_state, *block_id);
 
@@ -292,19 +293,7 @@ where
 pub struct AsmWorkerStatus {
     pub is_initialized: bool,
     pub cur_block: Option<L1BlockCommitment>,
-    pub cur_state: Option<AsmState>,
-}
-
-impl AsmWorkerStatus {
-    /// Get the logs from the current ASM state.
-    ///
-    /// Returns an empty slice if the state is not initialized.
-    pub fn logs(&self) -> &[strata_asm_common::AsmLogEntry] {
-        self.cur_state
-            .as_ref()
-            .map(|s| s.logs().as_slice())
-            .unwrap_or(&[])
-    }
+    pub cur_state: Option<AnchorState>,
 }
 
 #[cfg(test)]
@@ -331,19 +320,14 @@ mod tests {
     /// the snapshot size [`AsmWorkerServiceState::transition`] resolves aux data
     /// against.
     fn anchor_leaf_count(state: &AsmWorkerServiceState<TestAsmWorkerContext, TestAsmSpec>) -> u64 {
-        state
-            .anchor
-            .state()
-            .chain_view
-            .history_accumulator
-            .num_entries()
+        state.anchor.chain_view.history_accumulator.num_entries()
     }
 
     /// Pending block heights in the order they're processed (oldest first).
     ///
     /// `plan.pending` is stored newest-first; reversing here keeps the test
     /// expectations ascending, which is easier to read.
-    fn pending_heights(plan: &SyncPlan<AsmState>) -> Vec<u32> {
+    fn pending_heights(plan: &SyncPlan<AnchorState>) -> Vec<u32> {
         plan.pending.iter().rev().map(|b| b.height()).collect()
     }
 

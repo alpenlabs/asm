@@ -1,9 +1,8 @@
 //! Storage trait for ASM anchor states.
 //!
 //! Each entry records the [`AnchorState`] computed after processing the L1 block
-//! identified by the given [`L1BlockCommitment`]. The worker's `AsmState`
-//! umbrella (anchor state plus logs) is deliberately not stored here: only the
-//! anchor state is persistent state; the logs live in the manifest store.
+//! identified by the given [`L1BlockCommitment`]. Only the anchor state is
+//! persistent state; the STF logs live in the manifest store.
 
 use std::fmt::Debug;
 

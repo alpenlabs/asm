@@ -1,15 +1,16 @@
 //! Messages from the handle to the worker.
 
 use bitcoin::BlockHash;
+use strata_asm_common::AnchorState;
 use strata_identifiers::L1BlockCommitment;
 use strata_service::CommandCompletionSender;
 
-use crate::{AsmState, WorkerResult};
+use crate::WorkerResult;
 
 /// Messages from the ASM Handle to the subprotocol to give it work to do.
 #[derive(Debug)]
 pub enum SubprotocolMessage {
-    NewAsmState(AsmState, L1BlockCommitment),
+    NewAsmState(AnchorState, L1BlockCommitment),
 }
 
 /// Messages from the handle to the ASM worker, with a completion sender to

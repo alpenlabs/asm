@@ -19,7 +19,7 @@ use crate::{MohoWorkerContext, MohoWorkerResult, compute, constants};
 /// state in the store. It keeps no chain view of its own.
 ///
 /// Mirrors `strata-asm-worker`'s `AsmWorkerServiceState`, which likewise holds
-/// the current `AsmState` in memory and re-anchors on reorg. The fold
+/// the current `AnchorState` in memory and re-anchors on reorg. The fold
 /// orchestration lives in the service layer's `process_block`; this type just
 /// holds the data and the small `update_moho_state` mutation that advances it.
 #[derive(Debug)]

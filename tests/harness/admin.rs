@@ -492,7 +492,7 @@ impl AdminExt for AsmTestHarness {
         let (_, asm_state) = self
             .get_latest_asm_state()?
             .ok_or_else(|| anyhow::anyhow!("No ASM state available"))?;
-        extract_admin_state(asm_state.state())
+        extract_admin_state(&asm_state)
     }
 
     async fn submit_admin_action(
