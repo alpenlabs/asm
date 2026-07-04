@@ -360,17 +360,28 @@ impl AssignmentTable {
         }
     }
 
-    /// Reassigns every assignment whose deadline has passed, returning their deposit indices.
+    /// Reassigns every assignment whose deadline has passed as of `l1_block`, returning references
+    /// to the reassigned entries.
     ///
-    /// Keeps withdrawals from stalling on unresponsive operators. All-or-nothing: if any expired
-    /// assignment has no eligible operator, the whole call errors.
+    /// Keeps withdrawals from stalling on unresponsive operators.
+    ///
+    /// A `Vec` is returned rather than an iterator because reassignment is an eager, fallible,
+    /// in-place mutation: every expired entry has to be reassigned (or the call aborted) before
+    /// any result is meaningful, so there is nothing to lazily defer.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`WithdrawalAssignmentError`] on the first expired assignment with no eligible
+    /// operator to take it, and does not attempt the remaining ones. Since [`reassign`] mutates in
+    /// place, entries processed before the failure are already reassigned — this is not rolled
+    /// back.
     pub fn reassign_expired_assignments(
         &mut self,
         nn_history: &NnScriptHistory,
         current_active_operators: &OperatorBitmap,
         l1_block: &L1BlockCommitment,
-    ) -> Result<Vec<u32>, WithdrawalAssignmentError> {
-        let mut reassigned_withdrawals = Vec::new();
+    ) -> Result<Vec<&AssignmentEntry>, WithdrawalAssignmentError> {
+        let mut reassigned = Vec::new();
 
         let current_height = l1_block.height();
         let seed = *l1_block.blkid();
@@ -392,10 +403,10 @@ impl AssignmentTable {
                 notary_operators,
                 current_active_operators,
             )?;
-            reassigned_withdrawals.push(assignment.deposit_idx());
+            reassigned.push(&*assignment);
         }
 
-        Ok(reassigned_withdrawals)
+        Ok(reassigned)
     }
 
     /// Builds an assignment entry for `deposit_entry` (see [`AssignmentEntry::create`]), deriving

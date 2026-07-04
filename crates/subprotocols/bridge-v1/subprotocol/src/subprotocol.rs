@@ -106,15 +106,23 @@ impl Subprotocol for BridgeV1Subproto {
 
         // After processing all transactions, reassign expired assignments
         match state.reassign_expired_assignments(&header_vs.last_verified_block) {
-            Ok(reassigned_deposits) => {
-                // Per-deposit detail is logged inside `reassign_expired_assignments`; only emit a
-                // summary when something actually happened to avoid a `count = 0` line every block.
-                if !reassigned_deposits.is_empty() {
+            Ok(reassigned) => {
+                // Only log when something actually happened, to avoid a line every block.
+                if let Some(first) = reassigned.first() {
                     info!(
-                        count = reassigned_deposits.len(),
-                        deposits = ?reassigned_deposits,
-                        "Reassigned expired assignments"
+                        count = reassigned.len(),
+                        l1_height = header_vs.last_verified_block.height(),
+                        // Uniform across the batch: all entries get the same new deadline.
+                        fulfillment_deadline = first.fulfillment_deadline(),
+                        "Reassigned expired withdrawal assignments",
                     );
+                    for assignment in &reassigned {
+                        info!(
+                            deposit_idx = assignment.deposit_idx(),
+                            operator_idx = assignment.current_assignee(),
+                            "Reassigned withdrawal to new operator",
+                        );
+                    }
                 }
             }
             Err(e) => {

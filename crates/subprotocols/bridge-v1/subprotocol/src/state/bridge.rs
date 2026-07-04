@@ -1,5 +1,5 @@
 use ssz_derive::{Decode, Encode};
-use strata_asm_common::logging::{info, warn};
+use strata_asm_common::logging::warn;
 use strata_asm_params::BridgeV1InitConfig;
 use strata_asm_proto_bridge_v1_txs::{deposit::DepositInfo, errors::Mismatch};
 use strata_asm_proto_bridge_v1_types::{
@@ -214,49 +214,21 @@ impl BridgeV1State {
         self.assignments.insert(assignment);
     }
 
-    /// Processes all expired assignments by reassigning them to new operators.
+    /// Reassigns every assignment expired as of `current_block`, sourcing the N/N history and
+    /// currently-active operator set from this state's operator table.
     ///
-    /// This function iterates through all assignments, identifies those that have expired
-    /// based on the current Bitcoin block height, and attempts to reassign them to new
-    /// operators that haven't been previously assigned to the same withdrawal.
-    ///
-    /// # Parameters
-    ///
-    /// - `current_block` - The current L1 block commitment containing height and block hash
-    ///
-    /// # Returns
-    ///
-    /// - `Ok(Vec<u32>)` - Vector of deposit indices that were successfully reassigned
-    /// - `Err(WithdrawalAssignmentError)` - If any reassignment fails
-    ///
-    /// # Notes
-    ///
-    /// If a reassignment fails for any expired assignment (e.g., no eligible operators
-    /// remaining), the function returns an error and stops processing. Successfully
-    /// reassigned deposits before the error are returned in the error context if needed.
+    /// Returns references to the reassigned entries. See
+    /// `AssignmentTable::reassign_expired_assignments` for the reassignment semantics and the
+    /// all-or-nothing error behaviour.
     pub fn reassign_expired_assignments(
         &mut self,
         current_block: &L1BlockCommitment,
-    ) -> Result<Vec<u32>, WithdrawalAssignmentError> {
-        let reassigned_deposits = self.assignments.reassign_expired_assignments(
+    ) -> Result<Vec<&AssignmentEntry>, WithdrawalAssignmentError> {
+        self.assignments.reassign_expired_assignments(
             self.operators.nn_history(),
             self.operators.current_multisig(),
             current_block,
-        )?;
-
-        for deposit_idx in &reassigned_deposits {
-            if let Some(assignment) = self.assignments.get_assignment(*deposit_idx) {
-                info!(
-                    deposit_idx,
-                    assignee = assignment.current_assignee(),
-                    fulfillment_deadline = assignment.fulfillment_deadline(),
-                    l1_height = current_block.height(),
-                    "Reassigned expired withdrawal assignment",
-                );
-            }
-        }
-
-        Ok(reassigned_deposits)
+        )
     }
 
     /// Removes an assignment by its deposit index.
