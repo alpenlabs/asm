@@ -23,8 +23,6 @@
 
 use std::sync::Arc;
 
-use bitcoin::BlockHash;
-use bitcoind_async_client::traits::Reader;
 use moho_types::MohoState;
 use strata_asm_common::{AnchorState, AsmLogEntry};
 use strata_asm_moho_storage::{SledExportEntriesDb, SledMohoStateDb};
@@ -32,11 +30,10 @@ use strata_asm_moho_worker::{
     AsmStateProvider, ExportEntryStore, L1ProviderContext, MohoStateStore, MohoWorkerError,
     MohoWorkerResult,
 };
-use strata_asm_worker::{test_utils::TestAsmWorkerContext, AnchorStateStore};
-use strata_btc_types::{BlockHashExt, L1BlockIdBitcoinExt};
+use strata_asm_worker::{test_utils::TestAsmWorkerContext, AnchorStateStore, L1DataProvider};
+use strata_btc_types::BlockHashExt;
 use strata_identifiers::L1BlockCommitment;
-use tempfile::TempDir;
-use tokio::{runtime::Handle, task::block_in_place};
+use tempfile::{tempdir, TempDir};
 
 /// Sled-backed Moho stores plus a shared handle to the ASM worker's test context.
 #[derive(Clone, Debug)]
@@ -70,7 +67,7 @@ impl TestMohoWorkerContext {
     /// Wraps `asm` (shared with the running ASM worker) with fresh sled-backed
     /// Moho stores, opened on a throwaway temp directory.
     pub fn new(asm: TestAsmWorkerContext) -> Self {
-        let tempdir = tempfile::tempdir().expect("create temp dir for moho sled db");
+        let tempdir = tempdir().expect("create temp dir for moho sled db");
         let db = sled::open(tempdir.path()).expect("open moho sled db");
         let moho_state_db = SledMohoStateDb::open(&db).expect("open moho state db");
         let export_entries_db = SledExportEntriesDb::open(&db).expect("open export entries db");
@@ -131,25 +128,25 @@ impl AsmStateProvider for TestMohoWorkerContext {
 
 impl L1ProviderContext for TestMohoWorkerContext {
     fn get_parent_block(&self, block: &L1BlockCommitment) -> MohoWorkerResult<L1BlockCommitment> {
-        let block_hash: BlockHash = block.blkid().to_block_hash();
-        let client = self.asm.client.clone();
-        let fetch = || async move { client.get_block_header(&block_hash).await };
-
-        // Resolve the parent via the regtest node. Same two-context dance as
-        // `TestAsmWorkerContext`: `block_in_place` when a runtime is current
-        // (the test thread), the stored handle otherwise (the worker's task).
-        let header = if Handle::try_current().is_ok() {
-            block_in_place(|| self.asm.tokio_handle.block_on(fetch()))
-        } else {
-            self.asm.tokio_handle.block_on(fetch())
-        }
-        .map_err(|_| MohoWorkerError::MissingParentBlock(*block))?;
+        // Resolve the parent via the shared ASM context, which already bridges
+        // the synchronous trait to the async Bitcoin client (the
+        // `block_in_place`/stored-handle dance lives in its `L1DataProvider`).
+        let header = self
+            .asm
+            .get_l1_block_header(block.blkid())
+            .map_err(|_| MohoWorkerError::MissingParentBlock(*block))?;
 
         let parent_id = header.prev_blockhash.to_l1_block_id();
         Ok(L1BlockCommitment::new(block.height() - 1, parent_id))
     }
 }
 
+// These `MohoStateStore` + `ExportEntryStore` impls repeat the runner's
+// `MohoWorkerContextImpl` (bin/asm-runner) store delegation. Copied rather than
+// shared on purpose: a shared newtype over `(SledMohoStateDb,
+// SledExportEntriesDb)` would couple the moho worker and storage crates (neither
+// depends on the other), which we deliberately avoid for a few lines of trivial
+// delegation.
 impl MohoStateStore for TestMohoWorkerContext {
     fn get_latest_moho_state(&self) -> MohoWorkerResult<Option<(L1BlockCommitment, MohoState)>> {
         self.stores

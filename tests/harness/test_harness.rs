@@ -306,11 +306,6 @@ impl AsmTestHarness {
         Ok(self.moho_context.get_latest_moho_state()?)
     }
 
-    /// Get the Moho state the Moho worker derived for a specific block.
-    pub fn get_moho_state_at(&self, blockid: &L1BlockCommitment) -> anyhow::Result<MohoState> {
-        Ok(self.moho_context.get_moho_state(blockid)?)
-    }
-
     /// Get the STF logs a block emitted, read from its recorded manifest.
     ///
     /// The anchor state no longer carries logs; they live in the manifest store,
