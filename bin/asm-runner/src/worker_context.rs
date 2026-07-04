@@ -187,11 +187,7 @@ impl AnchorStateStore for AsmWorkerContext {
             .ok_or(WorkerError::MissingAsmState(*blockid.blkid()))
     }
 
-    fn store_anchor_state(
-        &self,
-        _blockid: &L1BlockCommitment,
-        state: &AnchorState,
-    ) -> WorkerResult<()> {
+    fn store_anchor_state(&self, state: &AnchorState) -> WorkerResult<()> {
         self.state_db.put(state).map_err(|_| WorkerError::DbError)?;
 
         Ok(())

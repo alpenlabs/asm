@@ -77,11 +77,12 @@ pub trait AnchorStateStore {
     fn get_latest_asm_state(&self) -> WorkerResult<Option<(L1BlockCommitment, AnchorState)>>;
 
     /// Puts the [`AnchorState`] into DB.
-    fn store_anchor_state(
-        &self,
-        blockid: &L1BlockCommitment,
-        state: &AnchorState,
-    ) -> WorkerResult<()>;
+    ///
+    /// Keyed by the state's own `chain_view.pow_state.last_verified_block`; the
+    /// key is derived here rather than passed in, mirroring
+    /// [`record_manifest`](ManifestMmrStore::record_manifest), which derives its
+    /// height and hash from the manifest.
+    fn store_anchor_state(&self, state: &AnchorState) -> WorkerResult<()>;
 }
 
 /// Persists L1 manifests and maintains the manifest-hash MMR.

@@ -242,11 +242,7 @@ impl AnchorStateStore for TestAsmWorkerContext {
         Ok(Some((blockid, anchor)))
     }
 
-    fn store_anchor_state(
-        &self,
-        _blockid: &L1BlockCommitment,
-        state: &AnchorState,
-    ) -> WorkerResult<()> {
+    fn store_anchor_state(&self, state: &AnchorState) -> WorkerResult<()> {
         self.inner
             .state_db
             .put(state)

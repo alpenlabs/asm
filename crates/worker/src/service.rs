@@ -277,7 +277,7 @@ where
     // crash before it leaves the block uncommitted to be safely re-run. The
     // STF's logs are already persisted in the manifest recorded above.
     let new_state = asm_stf_out.state;
-    state.context.store_anchor_state(block_id, &new_state)?;
+    state.context.store_anchor_state(&new_state)?;
     state.update_anchor_state(new_state, *block_id);
 
     // Notify subscribers only after the anchor is durably committed, so any
@@ -351,14 +351,12 @@ mod tests {
     /// left to process.
     #[tokio::test(flavor = "multi_thread")]
     async fn plan_target_already_processed() {
-        let fx = fixtures::setup_state(101).await;
+        let mut fx = fixtures::setup_state(101).await;
         let mined = fixtures::mine(&fx.node, &fx.client, 2).await; // 102, 103
         let target = mined[0]; // 102
 
-        fx.state
-            .context
-            .store_anchor_state(&target, &fx.state.anchor)
-            .unwrap();
+        // Process 102 for real so it has a stored anchor.
+        sync_to_block(&mut fx.state, target.blkid()).expect("process 102");
 
         let plan = plan_block_processing(&fx.state.context, &target, fx.state.genesis_height())
             .expect("plan should succeed");
@@ -372,17 +370,12 @@ mod tests {
     /// stored anchor — and the abandoned blocks are never visited.
     #[tokio::test(flavor = "multi_thread")]
     async fn plan_reorg_uses_fork_point() {
-        let fx = fixtures::setup_state(101).await;
+        let mut fx = fixtures::setup_state(101).await;
 
-        // Branch A, fully "processed": 102 (the eventual fork point) and 103a.
+        // Branch A, fully processed: 102 (the eventual fork point) and 103a.
         let fork_point = fixtures::mine(&fx.node, &fx.client, 1).await[0]; // 102
         let old_tip = fixtures::mine(&fx.node, &fx.client, 1).await[0]; // 103a
-        for blk in [fork_point, old_tip] {
-            fx.state
-                .context
-                .store_anchor_state(&blk, &fx.state.anchor)
-                .unwrap();
-        }
+        sync_to_block(&mut fx.state, old_tip.blkid()).expect("process branch A");
 
         // Reorg away 103a and mine a longer branch B: 103b, 104b.
         let branch_b = fixtures::reorg(&fx.node, &fx.client, old_tip.height() as u64, 2).await;
