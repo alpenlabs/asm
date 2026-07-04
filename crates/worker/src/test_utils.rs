@@ -60,7 +60,7 @@ pub struct TestAsmWorkerContext {
     /// from the worker's dedicated OS thread (which has no tokio context).
     pub tokio_handle: Handle,
     /// Consolidated sled-backed state stores.
-    inner: Arc<AsmWorkerState>,
+    state: Arc<AsmWorkerState>,
 }
 
 impl TestAsmWorkerContext {
@@ -81,7 +81,7 @@ impl TestAsmWorkerContext {
         Self {
             client: Arc::new(client),
             tokio_handle: Handle::current(),
-            inner: Arc::new(AsmWorkerState {
+            state: Arc::new(AsmWorkerState {
                 state_db,
                 aux_db,
                 manifest_db,
@@ -94,16 +94,16 @@ impl TestAsmWorkerContext {
 
     /// Number of leaves in the manifest MMR (sentinels + real manifest hashes).
     pub fn mmr_leaf_count(&self) -> u64 {
-        self.inner.mmr_db.leaf_count().expect("read mmr leaf count")
+        self.state.mmr_db.leaf_count().expect("read mmr leaf count")
     }
 
     /// Snapshot of every manifest-MMR leaf in index order.
     pub fn mmr_leaves(&self) -> Vec<[u8; 32]> {
-        let count = self.inner.mmr_db.leaf_count().expect("read mmr leaf count");
+        let count = self.state.mmr_db.leaf_count().expect("read mmr leaf count");
         (0..count)
             .map(|i| {
                 let leaf = self
-                    .inner
+                    .state
                     .mmr_db
                     .get_leaf(i)
                     .expect("read mmr leaf")
@@ -115,13 +115,13 @@ impl TestAsmWorkerContext {
 
     /// Snapshot of every stored manifest, in ascending block-height order.
     pub fn stored_manifests(&self) -> Vec<AsmManifest> {
-        self.inner
+        self.state
             .manifest_db
             .list()
             .expect("list manifest keys")
             .into_iter()
             .map(|commitment| {
-                self.inner
+                self.state
                     .manifest_db
                     .get(&commitment)
                     .expect("read manifest")
@@ -222,7 +222,7 @@ impl L1DataProvider for TestAsmWorkerContext {
 
 impl AnchorStateStore for TestAsmWorkerContext {
     fn get_anchor_state(&self, blockid: &L1BlockCommitment) -> WorkerResult<AnchorState> {
-        self.inner
+        self.state
             .state_db
             .get(blockid)
             .map_err(|_| WorkerError::DbError)?
@@ -231,7 +231,7 @@ impl AnchorStateStore for TestAsmWorkerContext {
 
     fn get_latest_asm_state(&self) -> WorkerResult<Option<(L1BlockCommitment, AnchorState)>> {
         let Some(anchor) = self
-            .inner
+            .state
             .state_db
             .get_latest()
             .map_err(|_| WorkerError::DbError)?
@@ -243,7 +243,7 @@ impl AnchorStateStore for TestAsmWorkerContext {
     }
 
     fn store_anchor_state(&self, state: &AnchorState) -> WorkerResult<()> {
-        self.inner
+        self.state
             .state_db
             .put(state)
             .map_err(|_| WorkerError::DbError)
@@ -252,21 +252,21 @@ impl AnchorStateStore for TestAsmWorkerContext {
 
 impl ManifestMmrStore for TestAsmWorkerContext {
     fn put_manifest(&self, manifest: AsmManifest) -> WorkerResult<()> {
-        self.inner
+        self.state
             .manifest_db
             .put(&manifest)
             .map_err(|_| WorkerError::DbError)
     }
 
     fn put_manifest_hash(&self, height: u64, hash: AsmManifestHash) -> WorkerResult<()> {
-        self.inner
+        self.state
             .mmr_db
             .put_leaf(height, hash)
             .map_err(|_| WorkerError::DbError)
     }
 
     fn manifest_mmr_leaf_count(&self) -> WorkerResult<u64> {
-        self.inner
+        self.state
             .mmr_db
             .leaf_count()
             .map_err(|_| WorkerError::DbError)
@@ -277,14 +277,14 @@ impl ManifestMmrStore for TestAsmWorkerContext {
         index: u64,
         at_leaf_count: u64,
     ) -> WorkerResult<MerkleProofB32> {
-        self.inner
+        self.state
             .mmr_db
             .generate_proof(index, at_leaf_count)
             .map_err(|_| WorkerError::MmrProofFailed { index })
     }
 
     fn get_manifest_hash(&self, index: u64) -> WorkerResult<AsmManifestHash> {
-        self.inner
+        self.state
             .mmr_db
             .get_leaf(index)
             .map_err(|_| WorkerError::DbError)?
@@ -298,7 +298,7 @@ impl AuxDataStore for TestAsmWorkerContext {
         blockid: &L1BlockCommitment,
         data: &strata_asm_common::AuxData,
     ) -> WorkerResult<()> {
-        self.inner
+        self.state
             .aux_db
             .put(blockid, data)
             .map_err(|_| WorkerError::DbError)
@@ -308,7 +308,7 @@ impl AuxDataStore for TestAsmWorkerContext {
         &self,
         blockid: &L1BlockCommitment,
     ) -> WorkerResult<strata_asm_common::AuxData> {
-        self.inner
+        self.state
             .aux_db
             .get(blockid)
             .map_err(|_| WorkerError::DbError)?
