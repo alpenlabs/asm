@@ -265,9 +265,8 @@ impl AsmTestHarness {
     /// keyed by block. Returns an empty vec when no manifest was recorded for the
     /// block (e.g. the genesis anchor, seeded without running the STF).
     pub fn get_logs_at(&self, blockid: &L1BlockCommitment) -> Vec<AsmLogEntry> {
-        let inner = self.context.inner.lock().unwrap();
-        inner
-            .manifests
+        self.context
+            .stored_manifests()
             .iter()
             .rev()
             .find(|m| m.blkid() == blockid.blkid())
@@ -295,7 +294,7 @@ impl AsmTestHarness {
 
     /// Get a snapshot of all stored manifests.
     pub fn get_stored_manifests(&self) -> Vec<strata_asm_manifest_types::AsmManifest> {
-        self.context.inner.lock().unwrap().manifests.clone()
+        self.context.stored_manifests()
     }
 
     /// Get all MMR leaf hashes in leaf-index order.
