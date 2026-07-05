@@ -82,8 +82,13 @@ pub fn check_block_integrity(
             return Err(L1BodyError::WitnessCommitmentMismatch);
         }
 
-        // Check the coinbase inclusion proof.
-        if !proof.verify(coinbase, header.merkle_root.to_byte_array().into()) {
+        // Check the coinbase inclusion proof. The transaction count comes from the block body,
+        // binding the proof to the block's actual Merkle tree.
+        if !proof.verify(
+            coinbase,
+            header.merkle_root.to_byte_array().into(),
+            txdata.len(),
+        ) {
             return Err(L1BodyError::InvalidInclusionProof);
         }
 

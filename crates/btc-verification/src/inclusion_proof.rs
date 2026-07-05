@@ -127,8 +127,37 @@ impl TxidInclusionProof {
     }
 
     /// Verifies the inclusion proof of the given `transaction` against the provided Merkle `root`.
-    pub fn verify(&self, transaction: &Transaction, root: Buf32) -> bool {
+    ///
+    /// `tx_count` is the number of transactions in the block the `root` commits to. It binds the
+    /// proof to the block's actual Merkle tree and must be sourced independently of the proof
+    /// (e.g. from the block body), never from the proof itself.
+    ///
+    /// The proof is rejected unless:
+    ///
+    /// - `tx_count` is non-zero;
+    /// - [`position`](Self::position) is a valid leaf index (`< tx_count`); and
+    /// - the number of siblings equals the tree depth `ceil(log2(tx_count))`.
+    ///
+    /// The depth check is Bitcoin Core's standard mitigation against the 64-byte node/transaction
+    /// ambiguity: an internal Merkle node presented as a leaf yields a proof shorter than the true
+    /// tree depth, so pinning the sibling count to the depth makes such forgeries unverifiable.
+    pub fn verify(&self, transaction: &Transaction, root: Buf32, tx_count: usize) -> bool {
+        if tx_count == 0 || self.position as usize >= tx_count {
+            return false;
+        }
+        if self.siblings.len() != merkle_tree_depth(tx_count) {
+            return false;
+        }
         self.compute_root(transaction) == root
+    }
+}
+
+/// Returns the depth of a Bitcoin Merkle tree with `tx_count` leaves, i.e. the number of sibling
+/// hashes on the path from any leaf to the root: `ceil(log2(tx_count))`, and `0` for a single leaf.
+fn merkle_tree_depth(tx_count: usize) -> usize {
+    match tx_count {
+        0 | 1 => 0,
+        n => (usize::BITS - (n - 1).leading_zeros()) as usize,
     }
 }
 
@@ -148,7 +177,57 @@ mod tests {
 
         for (idx, tx) in txs.iter().enumerate() {
             let proof = TxidInclusionProof::generate(txs, idx as u32);
-            assert!(proof.verify(tx, merkle_root));
+            assert!(proof.verify(tx, merkle_root, txs.len()));
         }
+    }
+
+    /// Guards against the inclusion-proof forgery: binding the proof to the block's tree depth and
+    /// leaf count makes wrong-length proofs and out-of-range positions unverifiable.
+    #[test]
+    fn test_forged_inclusion_proof_is_rejected() {
+        let block = BtcMainnetSegment::load_full_block();
+        let merkle_root: Buf32 = block.header.merkle_root.to_byte_array().into();
+        let txs = &block.txdata;
+        let tx_count = txs.len();
+        assert!(tx_count > 1, "need a multi-transaction block");
+
+        let coinbase = &txs[0];
+
+        // Forgery 1: a zero-length proof that claims the coinbase's own txid is the Merkle root.
+        // Rejected because the sibling count no longer matches the tree depth. This is the
+        // primitive behind the 64-byte node/tx second-preimage attack: an internal Merkle node
+        // presented as a leaf produces a proof shorter than the true tree depth.
+        let empty_proof = TxidInclusionProof::new(0, vec![]);
+        let coinbase_txid = compute_txid(coinbase).to_buf32();
+        assert!(!empty_proof.verify(coinbase, coinbase_txid, tx_count));
+
+        // Forgery 2: an out-of-range position that verifies against the real Merkle root because
+        // only the low `siblings.len()` bits feed left/right ordering. Rejected by the leaf-index
+        // bound.
+        let valid = TxidInclusionProof::generate(txs, 0);
+        let depth = valid.siblings().len();
+        let bogus_position = 1usize << depth;
+        assert!(
+            bogus_position >= tx_count,
+            "position should be out of range"
+        );
+        let forged_position =
+            TxidInclusionProof::new(bogus_position as u32, valid.siblings().to_vec());
+        assert!(!forged_position.verify(coinbase, merkle_root, tx_count));
+
+        // The genuine proof still verifies.
+        assert!(valid.verify(coinbase, merkle_root, tx_count));
+    }
+
+    #[test]
+    fn test_merkle_tree_depth() {
+        // ceil(log2(n)); 0 for a single leaf.
+        assert_eq!(merkle_tree_depth(1), 0);
+        assert_eq!(merkle_tree_depth(2), 1);
+        assert_eq!(merkle_tree_depth(3), 2);
+        assert_eq!(merkle_tree_depth(4), 2);
+        assert_eq!(merkle_tree_depth(5), 3);
+        assert_eq!(merkle_tree_depth(8), 3);
+        assert_eq!(merkle_tree_depth(9), 4);
     }
 }
