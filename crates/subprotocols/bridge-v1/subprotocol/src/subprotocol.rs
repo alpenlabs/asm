@@ -249,15 +249,18 @@ impl Subprotocol for BridgeV1Subproto {
 
 #[cfg(test)]
 mod tests {
-    use strata_asm_common::Subprotocol;
+    use strata_asm_common::{HeaderVerificationState, Subprotocol};
     use strata_asm_proto_bridge_v1_msgs::{BridgeIncomingMsg, DefconPayload};
     use strata_asm_proto_bridge_v1_types::{SafeHarbourAddress, WithdrawalIntent};
     use strata_btc_types::BitcoinAmount;
+    use strata_btc_verification::HeaderVerificationState as NativeHeaderVerificationState;
     use strata_identifiers::L1BlockCommitment;
     use strata_test_utils_arb::ArbitraryGenerator;
 
     use super::BridgeV1Subproto;
-    use crate::test_utils::{add_deposits, create_test_state};
+    use crate::test_utils::{
+        MockMsgRelayer, add_deposits, create_test_state, create_verified_aux_data,
+    };
 
     /// The safe harbour must start deactivated so it has no effect until the
     /// admin subprotocol explicitly triggers a defcon signal.
@@ -301,6 +304,60 @@ mod tests {
 
         assert_eq!(state.assignments().len(), 3);
         assert_eq!(state.deposits().len(), 2);
+    }
+
+    /// A `DispatchWithdrawal` whose amount is not a whole multiple of the denomination cannot be
+    /// decomposed. This surfaces as an amount mismatch and, per the peg-safety contract, panics.
+    #[test]
+    #[should_panic(expected = "Failed to create withdrawal assignment")]
+    fn process_msgs_dispatch_non_multiple_amount_panics() {
+        let (mut state, _privkeys) = create_test_state();
+        let l1ref: L1BlockCommitment = ArbitraryGenerator::new().generate();
+
+        let mut intent: WithdrawalIntent = ArbitraryGenerator::new().generate();
+        intent.amt = BitcoinAmount::from_sat(state.denomination().to_sat() + 1);
+
+        let msgs = vec![BridgeIncomingMsg::DispatchWithdrawal(intent)];
+        BridgeV1Subproto::process_msgs(&mut state, &msgs, &l1ref);
+    }
+
+    /// After processing transactions, `process_txs` reassigns every assignment whose deadline has
+    /// passed as of the last verified block, refreshing each to the new deadline.
+    #[test]
+    fn process_txs_reassigns_expired_assignments() {
+        let (mut state, _privkeys) = create_test_state();
+
+        // Anchor the assignments at height 0 so their deadline is the assignment duration (144).
+        let creation_block = L1BlockCommitment::new(0, ArbitraryGenerator::new().generate());
+        add_deposits(&mut state, 3);
+        for _ in 0..3 {
+            let mut intent: WithdrawalIntent = ArbitraryGenerator::new().generate();
+            intent.amt = *state.denomination();
+            let assignment = state
+                .create_withdrawal_assignment(&intent, &creation_block)
+                .expect("creating an assignment for a matching deposit should succeed");
+            state.insert_withdrawal_assignment(assignment);
+        }
+
+        // Advance well past the deadline so every assignment is expired. The ASM-local
+        // `HeaderVerificationState` isn't constructible here, so build a default native one and
+        // convert — only `last_verified_block` matters to `process_txs`.
+        let current_height: u32 = 500;
+        let mut native = NativeHeaderVerificationState::default();
+        native.last_verified_block =
+            L1BlockCommitment::new(current_height, ArbitraryGenerator::new().generate());
+        let header_vs = HeaderVerificationState::from_native(native);
+
+        let aux_data = create_verified_aux_data(vec![]);
+        let mut relayer = MockMsgRelayer;
+        BridgeV1Subproto::process_txs(&mut state, &[], &header_vs, &aux_data, &mut relayer);
+
+        // Reassignment refreshes each deadline to `current_height + assignment_duration`.
+        let expected_deadline = current_height + 144;
+        assert_eq!(state.assignments().len(), 3);
+        for assignment in state.assignments().assignments() {
+            assert_eq!(assignment.fulfillment_deadline(), expected_deadline);
+        }
     }
 
     #[test]
