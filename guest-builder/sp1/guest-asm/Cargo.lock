@@ -2027,14 +2027,12 @@ dependencies = [
  "strata-asm-proto-admin",
  "strata-asm-proto-bridge-v1",
  "strata-asm-proto-checkpoint",
- "strata-btc-verification",
 ]
 
 [[package]]
 name = "strata-asm-state"
 version = "0.1.0"
 dependencies = [
- "bitcoin",
  "borsh",
  "serde",
  "ssz",
@@ -2043,7 +2041,6 @@ dependencies = [
  "ssz_primitives",
  "ssz_types",
  "strata-asm-manifest-types",
- "strata-btc-types",
  "strata-btc-verification",
  "strata-identifiers",
  "strata-l1-txfmt",
@@ -2095,11 +2092,16 @@ dependencies = [
  "borsh",
  "serde",
  "ssz",
+ "ssz_codegen",
  "ssz_derive",
+ "ssz_primitives",
+ "ssz_types",
  "strata-btc-types",
  "strata-crypto",
  "strata-identifiers",
  "thiserror",
+ "tree_hash",
+ "tree_hash_derive",
 ]
 
 [[package]]

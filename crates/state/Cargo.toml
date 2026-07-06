@@ -8,13 +8,11 @@ workspace = true
 
 [dependencies]
 strata-asm-manifest-types.workspace = true
-strata-btc-types.workspace = true
-strata-btc-verification.workspace = true
+strata-btc-verification = { workspace = true, features = ["ssz"] }
 strata-identifiers.workspace = true
 strata-l1-txfmt.workspace = true
 strata-merkle = { workspace = true, features = ["ssz"] }
 
-bitcoin.workspace = true
 borsh.workspace = true
 serde.workspace = true
 ssz.workspace = true
@@ -26,3 +24,6 @@ tree_hash_derive.workspace = true
 
 [build-dependencies]
 ssz_codegen.workspace = true
+
+[dev-dependencies]
+bitcoin.workspace = true

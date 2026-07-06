@@ -12,4 +12,3 @@ strata-asm-params.workspace = true
 strata-asm-proto-admin.workspace = true
 strata-asm-proto-bridge-v1.workspace = true
 strata-asm-proto-checkpoint.workspace = true
-strata-btc-verification.workspace = true

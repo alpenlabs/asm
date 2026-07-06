@@ -1,17 +1,11 @@
-use bitcoin::{Network, block::Header, params::Params};
 use serde::{Deserialize, Deserializer, Serialize, Serializer, de::Error as SerdeDeError};
 use ssz::{Decode, Encode};
 use ssz_types::{FixedBytes, VariableList};
-use strata_btc_verification::{
-    HeaderVerificationState as NativeHeaderVerificationState, L1Anchor, L1VerificationError,
-};
+use strata_btc_verification::HeaderVerificationState;
 use strata_identifiers::L1BlockCommitment;
 use strata_l1_txfmt::{MagicBytes, SubprotocolId};
 
-use crate::{
-    AnchorState, AsmHistoryAccumulatorState, BtcParams, BtcWork, ChainViewState,
-    HeaderVerificationState, SectionState, TimestampStore,
-};
+use crate::{AnchorState, AsmHistoryAccumulatorState, ChainViewState, SectionState};
 
 impl AnchorState {
     /// Gets a section by protocol ID by doing a linear scan.
@@ -75,133 +69,52 @@ impl SectionState {
     }
 }
 
-impl BtcParams {
-    /// Creates ASM SSZ params from the native Bitcoin params wrapper.
-    pub fn from_native(params: strata_btc_types::BtcParams) -> Self {
-        let network = match params.inner().network {
-            Network::Bitcoin => 0,
-            Network::Testnet => 1,
-            Network::Signet => 2,
-            Network::Regtest => 3,
-            unsupported => panic!("asm: unsupported Bitcoin network {unsupported:?}"),
+#[cfg(test)]
+mod tests {
+    use bitcoin::Network;
+    use strata_btc_verification::L1Anchor;
+    use strata_identifiers::L1BlockCommitment;
+
+    use super::*;
+
+    /// Byte position of the pow state's network id within an encoded
+    /// [`AnchorState`]: magic (4) + two offsets (8) put `chain_view` at 12,
+    /// and the network id is the first byte of its fixed-size `pow_state`.
+    const NETWORK_ID_POS: usize = 12;
+
+    fn sample_anchor_state() -> AnchorState {
+        let anchor = L1Anchor {
+            block: L1BlockCommitment::default(),
+            next_target: 0x1d00ffff,
+            epoch_start_timestamp: 1_231_006_505,
+            network: Network::Signet,
         };
-
-        Self { network }
-    }
-
-    /// Converts ASM SSZ params back into the native Bitcoin params wrapper.
-    pub fn into_native(self) -> strata_btc_types::BtcParams {
-        let network = match self.network {
-            0 => Network::Bitcoin,
-            1 => Network::Testnet,
-            2 => Network::Signet,
-            3 => Network::Regtest,
-            unsupported => panic!("asm: unsupported Bitcoin network id {unsupported}"),
-        };
-        strata_btc_types::BtcParams::from(Params::from(network))
-    }
-}
-
-impl BtcWork {
-    /// Creates ASM SSZ work from the native work wrapper.
-    pub fn from_native(work: strata_btc_verification::BtcWork) -> Self {
-        Self {
-            bytes_le: FixedBytes::from(work.to_le_bytes()),
-        }
-    }
-
-    /// Converts ASM SSZ work back into the native work wrapper.
-    pub fn into_native(self) -> strata_btc_verification::BtcWork {
-        let bytes: [u8; 32] = self
-            .bytes_le
-            .as_ref()
-            .try_into()
-            .expect("asm: accumulated work must be 32 bytes");
-        strata_btc_verification::BtcWork::from_le_bytes(bytes)
-    }
-}
-
-impl TimestampStore {
-    /// Creates ASM SSZ timestamp state from the native timestamp store.
-    pub fn from_native(store: strata_btc_verification::TimestampStore) -> Self {
-        let (buffer, head): ([u32; strata_btc_types::TIMESTAMPS_FOR_MEDIAN], usize) =
-            store.into_parts();
-
-        Self {
-            buffer: buffer
-                .to_vec()
+        AnchorState {
+            magic: AnchorState::magic_ssz(MagicBytes::from(*b"alpn")),
+            chain_view: crate::ChainViewState {
+                pow_state: HeaderVerificationState::init(anchor),
+                history_accumulator: AsmHistoryAccumulatorState::new(0),
+            },
+            sections: vec![SectionState::new(1, vec![1, 2, 3]).expect("fits capacity")]
                 .try_into()
-                .expect("asm: timestamp store buffer fits into SSZ capacity"),
-            head: head
-                .try_into()
-                .expect("asm: timestamp store head always fits into u8"),
+                .expect("fits capacity"),
         }
     }
 
-    /// Converts ASM SSZ timestamp state back into the native timestamp store.
-    pub fn into_native(self) -> strata_btc_verification::TimestampStore {
-        let buffer: [u32; strata_btc_types::TIMESTAMPS_FOR_MEDIAN] = self
-            .buffer
-            .iter()
-            .copied()
-            .collect::<Vec<_>>()
-            .try_into()
-            .expect("asm: timestamp store buffer must contain the expected number of entries");
-        strata_btc_verification::TimestampStore::from_parts(buffer, usize::from(self.head))
-    }
-}
-
-impl HeaderVerificationState {
-    /// Creates ASM-local header verification state from the native Bitcoin verifier state.
-    pub fn from_native(state: NativeHeaderVerificationState) -> Self {
-        let (
-            params,
-            last_verified_block,
-            next_block_target,
-            epoch_start_timestamp,
-            block_timestamp_history,
-            total_accumulated_pow,
-        ): (
-            strata_btc_types::BtcParams,
-            strata_identifiers::L1BlockCommitment,
-            u32,
-            u32,
-            strata_btc_verification::TimestampStore,
-            strata_btc_verification::BtcWork,
-        ) = state.into_parts();
-
-        Self {
-            params: BtcParams::from_native(params),
-            last_verified_block,
-            next_block_target,
-            epoch_start_timestamp,
-            block_timestamp_history: TimestampStore::from_native(block_timestamp_history),
-            total_accumulated_pow: BtcWork::from_native(total_accumulated_pow),
-        }
+    #[test]
+    fn anchor_state_ssz_roundtrip() {
+        let state = sample_anchor_state();
+        let bytes = state.as_ssz_bytes();
+        let decoded = AnchorState::from_ssz_bytes(&bytes).expect("decode");
+        assert_eq!(state, decoded);
     }
 
-    /// Converts ASM-local header verification state back into the native verifier state.
-    pub fn into_native(self) -> NativeHeaderVerificationState {
-        NativeHeaderVerificationState::from_parts(
-            self.params.into_native(),
-            self.last_verified_block,
-            self.next_block_target,
-            self.epoch_start_timestamp,
-            self.block_timestamp_history.into_native(),
-            self.total_accumulated_pow.into_native(),
-        )
-    }
-
-    /// Creates a fresh state from an [`L1Anchor`].
-    pub fn init(anchor: L1Anchor) -> Self {
-        Self::from_native(NativeHeaderVerificationState::init(anchor))
-    }
-
-    /// Validates a header and updates the verifier state.
-    pub fn check_and_update(&mut self, header: &Header) -> Result<(), L1VerificationError> {
-        let mut native = self.clone().into_native();
-        native.check_and_update(header)?;
-        *self = Self::from_native(native);
-        Ok(())
+    #[test]
+    fn anchor_state_decode_rejects_unknown_network() {
+        let mut bytes = sample_anchor_state().as_ssz_bytes();
+        assert_eq!(bytes[NETWORK_ID_POS], 2, "expected Signet network id");
+        bytes[NETWORK_ID_POS] = 42;
+        // Must surface as a decode error, not a panic further down the line.
+        assert!(AnchorState::from_ssz_bytes(&bytes).is_err());
     }
 }

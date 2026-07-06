@@ -21,12 +21,11 @@ mod ssz_generated {
 pub use mmr::*;
 pub use ssz_generated::ssz::{
     self as ssz,
-    pow::{
-        BtcParams, BtcParamsRef, BtcWork, BtcWorkRef, HeaderVerificationState,
-        HeaderVerificationStateRef, TimestampStore, TimestampStoreRef,
-    },
     state::{
         AnchorState, AnchorStateRef, AsmHistoryAccumulatorState, AsmHistoryAccumulatorStateRef,
         ChainViewState, ChainViewStateRef, SectionState, SectionStateRef,
     },
 };
+// Re-exported so downstream crates keep a single import path for the anchor
+// state and its components; the pow state is the native verifier type now.
+pub use strata_btc_verification::{HeaderVerificationState, HeaderVerificationStateRef};

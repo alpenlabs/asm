@@ -141,11 +141,7 @@ impl Subprotocol for BridgeV1Subproto {
 
         // Publish the accumulated proof of work as the bridge container's export `extra_data`,
         // so downstream consumers can read the verified L1 work directly from the export state.
-        let accumulated_pow = header_vs
-            .total_accumulated_pow
-            .clone()
-            .into_native()
-            .to_le_bytes();
+        let accumulated_pow = header_vs.total_accumulated_pow().to_le_bytes();
         let extra_data_log = ExportExtraDataUpdate::new(BRIDGE_V1_SUBPROTOCOL_ID, accumulated_pow);
         relayer.emit_log(
             AsmLogEntry::from_log(&extra_data_log)
@@ -254,7 +250,6 @@ mod tests {
     use strata_asm_proto_bridge_v1_msgs::{BridgeIncomingMsg, DefconPayload};
     use strata_asm_proto_bridge_v1_types::{SafeHarbourAddress, WithdrawalIntent};
     use strata_btc_types::BitcoinAmount;
-    use strata_btc_verification::HeaderVerificationState as NativeHeaderVerificationState;
     use strata_identifiers::L1BlockCommitment;
     use strata_test_utils_arb::ArbitraryGenerator;
 
@@ -340,14 +335,12 @@ mod tests {
             state.insert_withdrawal_assignment(assignment);
         }
 
-        // Advance well past the deadline so every assignment is expired. The ASM-local
-        // `HeaderVerificationState` isn't constructible here, so build a default native one and
-        // convert — only `last_verified_block` matters to `process_txs`.
+        // Advance well past the deadline so every assignment is expired — only
+        // `last_verified_block` matters to `process_txs`.
         let current_height: u32 = 500;
-        let mut native = NativeHeaderVerificationState::default();
-        native.last_verified_block =
+        let mut header_vs = HeaderVerificationState::default();
+        header_vs.last_verified_block =
             L1BlockCommitment::new(current_height, ArbitraryGenerator::new().generate());
-        let header_vs = HeaderVerificationState::from_native(native);
 
         let aux_data = create_verified_aux_data(vec![]);
         let mut relayer = MockMsgRelayer;

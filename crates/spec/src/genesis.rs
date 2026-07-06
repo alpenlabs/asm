@@ -8,7 +8,6 @@ use strata_asm_params::AsmParams;
 use strata_asm_proto_admin::{AdministrationSubprotoState, AdministrationSubprotocol};
 use strata_asm_proto_bridge_v1::{BridgeV1State, BridgeV1Subproto};
 use strata_asm_proto_checkpoint::{CheckpointState, CheckpointSubprotocol};
-use strata_btc_verification::HeaderVerificationState as NativeHeaderVerificationState;
 
 /// Builds the genesis [`AnchorState`] from the given [`AsmParams`].
 ///
@@ -43,11 +42,10 @@ pub fn construct_genesis_state(params: &AsmParams) -> AnchorState {
         SectionState::from_state::<BridgeV1Subproto>(&genesis_bridge_subprotocol_state)
             .expect("asm: Bridge subprotocol genesis state fits section data capacity");
 
-    let native_header_vs = NativeHeaderVerificationState::init(params.anchor.clone());
     let history_accumulator = AsmHistoryAccumulatorState::new(params.anchor.block.height() as u64);
     let chain_view = ChainViewState {
         history_accumulator,
-        pow_state: HeaderVerificationState::from_native(native_header_vs),
+        pow_state: HeaderVerificationState::init(params.anchor.clone()),
     };
 
     AnchorState {

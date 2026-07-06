@@ -6,9 +6,13 @@ fn main() {
     let out_dir = var("OUT_DIR").expect("OUT_DIR not set by cargo");
     let output_path = Path::new(&out_dir).join("generated.rs");
 
-    let entry_points = ["pow.ssz", "state.ssz"];
+    let entry_points = ["state.ssz"];
     let base_dir = "ssz";
-    let crates = ["strata_merkle", "strata_identifiers"];
+    let crates = [
+        "strata_merkle",
+        "strata_identifiers",
+        "strata_btc_verification",
+    ];
 
     build_ssz_files(
         &entry_points,
@@ -19,6 +23,5 @@ fn main() {
     )
     .expect("Failed to generate SSZ types");
 
-    println!("cargo:rerun-if-changed=ssz/pow.ssz");
     println!("cargo:rerun-if-changed=ssz/state.ssz");
 }
