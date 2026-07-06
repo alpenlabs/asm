@@ -326,7 +326,8 @@ pub fn get_relative_difficulty_adjustment_height(
 mod tests {
 
     use bitcoin::{
-        BlockHash, CompactTarget, Network,
+        BlockHash, CompactTarget, Network, TxMerkleNode,
+        block::{Header, Version},
         hashes::Hash,
         params::{MAINNET, Params},
     };
@@ -691,6 +692,91 @@ mod tests {
             verification_state.get_epoch_start_timestamp(),
             adjustment_header.time,
             "Epoch start should update to adjustment block time"
+        );
+    }
+
+    /// Builds a minimal header carrying only the fields [`HeaderVerificationState::next_target`]
+    /// reads (`time` and `bits`); the rest are zeroed placeholders.
+    fn header_with_time_and_bits(time: u32, bits: CompactTarget) -> Header {
+        Header {
+            version: Version::ONE,
+            prev_blockhash: BlockHash::all_zeros(),
+            merkle_root: TxMerkleNode::all_zeros(),
+            time,
+            bits,
+            nonce: 0,
+        }
+    }
+
+    /// Builds a state positioned so the next block is a difficulty-adjustment block (height 2015,
+    /// so `next_height` = 2016 is a multiple of the mainnet interval), with the given epoch start.
+    fn state_at_retarget_boundary(epoch_start_timestamp: u32) -> HeaderVerificationState {
+        let anchor = L1Anchor {
+            block: L1BlockCommitment::new(2015, BlockHash::all_zeros().to_l1_block_id()),
+            next_target: CompactTarget::from_consensus(0x1d00ffff).to_consensus(),
+            epoch_start_timestamp,
+            network: Network::Bitcoin,
+        };
+        HeaderVerificationState::init(anchor)
+    }
+
+    /// A pre-retarget block whose timestamp is *below* the epoch start is consensus-valid (block
+    /// timestamps need only exceed the median-time-past, not be monotonic). The timespan must not
+    /// underflow: Bitcoin Core computes it with signed arithmetic and clamps the negative result to
+    /// the minimum, deriving the *harder* target. The verifier must produce the same value rather
+    /// than panicking (overflow checks) or wrapping to the *easier* maximum-clamped target.
+    #[test]
+    fn test_next_target_timespan_underflow_clamps_to_min() {
+        let params = Params::from(Network::Bitcoin);
+        let bits = CompactTarget::from_consensus(0x1d00ffff);
+
+        let epoch_start_timestamp = 2_000_000_000;
+        let mut state = state_at_retarget_boundary(epoch_start_timestamp);
+
+        // Final pre-retarget block is 1000s *before* the epoch start -> negative real timespan.
+        let header = header_with_time_and_bits(epoch_start_timestamp - 1000, bits);
+        let got = state.next_target(&header);
+
+        // Core clamps a non-positive timespan to `pow_target_timespan / 4`; feeding `0` to
+        // `from_next_work_required` reproduces that minimum clamp (the harder target).
+        let expected = CompactTarget::from_next_work_required(bits, 0, &params).to_consensus();
+        assert_eq!(
+            got, expected,
+            "underflowing timespan must clamp to the min (harder) target"
+        );
+
+        // The old `u32` subtraction wrapped to a huge timespan that clamps to the *maximum*
+        // (easier) target. Assert the correct answer genuinely differs, so this is a real
+        // regression guard and not a tautology.
+        let wrapped_timespan =
+            u64::from((epoch_start_timestamp - 1000).wrapping_sub(epoch_start_timestamp));
+        let easier =
+            CompactTarget::from_next_work_required(bits, wrapped_timespan, &params).to_consensus();
+        assert_ne!(
+            expected, easier,
+            "harder and easier targets must differ for the guard to be meaningful"
+        );
+    }
+
+    /// A normal epoch (final block one target-timespan after the epoch start) must be unaffected by
+    /// the underflow guard: `saturating_sub` on a positive difference equals the plain subtraction.
+    #[test]
+    fn test_next_target_normal_timespan_unchanged() {
+        let params = Params::from(Network::Bitcoin);
+        let bits = CompactTarget::from_consensus(0x1b0404cb);
+
+        let epoch_start_timestamp = 1_600_000_000;
+        let mut state = state_at_retarget_boundary(epoch_start_timestamp);
+
+        let timespan = params.pow_target_timespan;
+        let header = header_with_time_and_bits(epoch_start_timestamp + timespan as u32, bits);
+        let got = state.next_target(&header);
+
+        let expected =
+            CompactTarget::from_next_work_required(bits, timespan, &params).to_consensus();
+        assert_eq!(
+            got, expected,
+            "positive timespan must pass through unchanged"
         );
     }
 
