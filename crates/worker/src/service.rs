@@ -175,6 +175,13 @@ where
 
     state.update_anchor_state(base_state, base_block);
 
+    // Fork activations enacted above the base belong to the branch being
+    // rewritten (or to blocks about to be deterministically re-applied);
+    // drop them before re-processing so the effective schedule cannot leak
+    // a rolled-back activation into the first re-processed block. A linear
+    // extension has nothing above the base, making this a no-op.
+    state.rollback_fork_activations(base_block.height())?;
+
     // Phase 2: process the pending blocks oldest first. Collect them in applied
     // order so the caller can drive per-block follow-up work (e.g. proof
     // requests) over exactly the blocks the worker processed for this submit.
@@ -268,6 +275,11 @@ where
         .record_manifest(asm_stf_out.manifest.clone())?;
     // Store auxiliary data for prover consumption.
     state.context.store_aux_data(block_id, &aux_data)?;
+
+    // Fork discovery before the commit point: if this block enacted an ASM VK
+    // upgrade a trigger maps to, persist the activation now so a committed
+    // anchor can never lack the activation it enacted.
+    state.discover_fork_activations(block_id, asm_stf_out.manifest.logs())?;
 
     // Anchor state last: it is the block's commit point (see fn docs), so a
     // crash before it leaves the block uncommitted to be safely re-run. The

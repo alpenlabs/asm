@@ -1,7 +1,11 @@
 use std::marker::PhantomData;
 
 use bitcoin::{Block, CompactTarget, params::Params};
-use strata_asm_common::{AnchorState, AsmSpec, AuxData, HeaderVerificationState, StfParams};
+use strata_asm_common::{
+    AnchorState, AsmLogEntry, AsmSpec, AuxData, ForkActivation, ForkId, ForkSchedule,
+    HeaderVerificationState, StfParams,
+};
+use strata_asm_logs::AsmStfUpdate;
 use strata_asm_stf::AsmStfOutput;
 use strata_btc_types::BlockHashExt;
 use strata_btc_verification::{
@@ -42,8 +46,12 @@ pub struct AsmWorkerServiceState<W, S: AsmSpec> {
     /// [`crate::AsmWorkerHandle::subscribe_blocks`].
     pub(crate) subscribers: Subscribers<L1BlockCommitment>,
 
-    /// STF params every transition executes under.
-    pub(crate) stf_params: StfParams,
+    /// Base fork schedule, as configured (the spec's initial STF params).
+    pub(crate) base_forks: ForkSchedule,
+
+    /// Effective fork schedule: `base_forks` overlaid with every discovered
+    /// activation. This is what each transition executes under.
+    pub(crate) fork_schedule: ForkSchedule,
 
     /// ASM spec driving the subprotocol pipeline (type-level only).
     _spec: PhantomData<S>,
@@ -57,9 +65,9 @@ where
     /// Creates a new service state, loading the latest anchor or adopting the
     /// given genesis state.
     ///
-    /// `stf_params` are the params every transition executes under;
-    /// `genesis_state` is the genesis anchor the worker adopts when the store
-    /// holds no prior state.
+    /// `stf_params` are the configured base params (before any discovered fork
+    /// activations); `genesis_state` is the genesis anchor the worker adopts
+    /// when the store holds no prior state.
     ///
     /// Construction goes through [`crate::AsmWorkerBuilder`], which owns the
     /// shared [`Subscribers`] registry — hence `pub(crate)`.
@@ -74,6 +82,18 @@ where
             .pow_state
             .last_verified_block
             .height() as u64;
+
+        // The configured params are the base; activations discovered before a
+        // restart are overlaid to resume the effective schedule.
+        let base_forks = stf_params.forks;
+        let activations = context.list_fork_activations()?;
+        let fork_schedule = effective_schedule(&base_forks, &activations);
+        if !activations.is_empty() {
+            tracing::info!(
+                ?activations,
+                "resuming with persisted fork activations applied"
+            );
+        }
 
         // Align the manifest MMR with L1 heights before processing any block:
         // it is height-indexed, prefilled with sentinels for heights
@@ -110,7 +130,8 @@ where
             blkid,
             genesis_height,
             subscribers,
-            stf_params,
+            base_forks,
+            fork_schedule,
         })
     }
 
@@ -122,7 +143,13 @@ where
     /// Returns the actual ASM STF results and the auxiliary data used during the transition.
     ///
     /// A caller is responsible for ensuring the current anchor is a parent of a passed block.
-    pub fn transition(&self, block: &Block) -> WorkerResult<(AsmStfOutput, AuxData)> {
+    pub fn transition(&mut self, block: &Block) -> WorkerResult<(AsmStfOutput, AuxData)> {
+        // Execute under the effective fork schedule so activations discovered
+        // on earlier blocks take effect from their activation height on.
+        let stf_params = StfParams {
+            forks: self.fork_schedule.clone(),
+        };
+
         let cur_state = &self.anchor;
 
         // Pre process transition next block against current anchor state.
@@ -130,7 +157,7 @@ where
             let span = tracing::debug_span!("asm.stf.pre_process", protocol_txs = Empty);
             let _guard = span.enter();
 
-            let result = strata_asm_stf::pre_process_asm::<S>(&self.stf_params, cur_state, block)
+            let result = strata_asm_stf::pre_process_asm::<S>(&stf_params, cur_state, block)
                 .map_err(WorkerError::AsmError)?;
 
             span.record("protocol_txs", result.txs.len());
@@ -157,7 +184,7 @@ where
         let coinbase_inclusion_proof = TxidInclusionProof::generate(&block.txdata, 0);
 
         strata_asm_stf::compute_asm_transition::<S>(
-            &self.stf_params,
+            &stf_params,
             cur_state,
             block,
             &aux_data,
@@ -172,6 +199,92 @@ where
         self.anchor = anchor;
         self.blkid = blkid;
     }
+
+    /// Scans a processed block's logs for enacted ASM VK upgrades and activates
+    /// the fork each one names, from the next block on.
+    ///
+    /// MUST run before the enacting block's anchor state is committed: the
+    /// activation record is persisted here, and persisting it first guarantees
+    /// a committed anchor never lacks the activation it enacted (crash-replay
+    /// simply rewrites the same record).
+    pub(crate) fn discover_fork_activations(
+        &mut self,
+        block_id: &L1BlockCommitment,
+        logs: &[AsmLogEntry],
+    ) -> WorkerResult<()> {
+        for update in logs
+            .iter()
+            .filter_map(|l| l.try_into_log::<AsmStfUpdate>().ok())
+        {
+            let raw_id = update.fork_id();
+            let Ok(fork) = ForkId::try_from(raw_id) else {
+                // A fork id this binary has no variant for: it cannot apply
+                // the fork's rules, so it cannot meaningfully activate it
+                // either. Once the unknown fork activates, this worker can no
+                // longer follow the chain.
+                // TODO: consider halting the worker at the activation height
+                // instead of diverging silently.
+                tracing::error!(
+                    fork_id = raw_id,
+                    %block_id,
+                    "ASM VK upgrade names a fork id unknown to this binary"
+                );
+                continue;
+            };
+            let enacting_height = block_id.height();
+            if self.fork_schedule.is_active(fork, enacting_height as u64) {
+                // Enacted updates are expected to name the fork they newly
+                // activate; one naming an already-active fork is an
+                // operational flaw on the authoring side. Leave the schedule
+                // untouched so a flawed update cannot retro-raise an
+                // activation height.
+                tracing::warn!(
+                    ?fork,
+                    enacting_height,
+                    "ASM VK upgrade names an already-active fork; skipping"
+                );
+                continue;
+            }
+
+            let activation = ForkActivation {
+                enacting_height,
+                fork,
+                new_predicate: update.into_new_predicate(),
+            };
+            let activation_height = activation.activation_height();
+            self.context.record_fork_activation(activation)?;
+            self.fork_schedule.activate_at(fork, activation_height);
+            tracing::info!(
+                ?fork,
+                activation_height,
+                %block_id,
+                "fork activated by ASM VK upgrade"
+            );
+        }
+        Ok(())
+    }
+
+    /// Drops fork activations enacted strictly above `base_height` and
+    /// recomputes the effective schedule.
+    ///
+    /// Called when a sync rebases onto an ancestor (reorg): activations
+    /// enacted on the abandoned branch must not leak into re-processing;
+    /// any still on the new branch are re-discovered as its blocks re-apply.
+    pub(crate) fn rollback_fork_activations(&mut self, base_height: u32) -> WorkerResult<()> {
+        self.context.prune_fork_activations_after(base_height)?;
+        let activations = self.context.list_fork_activations()?;
+        self.fork_schedule = effective_schedule(&self.base_forks, &activations);
+        Ok(())
+    }
+}
+
+/// Overlays `activations` onto the `base` schedule.
+fn effective_schedule(base: &ForkSchedule, activations: &[ForkActivation]) -> ForkSchedule {
+    let mut schedule = base.clone();
+    for activation in activations {
+        schedule.activate_at(activation.fork, activation.activation_height());
+    }
+    schedule
 }
 
 impl<W, S> ServiceState for AsmWorkerServiceState<W, S>
@@ -286,7 +399,7 @@ mod tests {
     /// `transition` runs the STF for a child of the current anchor.
     #[tokio::test(flavor = "multi_thread")]
     async fn transition_processes_child_of_anchor() {
-        let fx = fixtures::setup_state(101).await;
+        let mut fx = fixtures::setup_state(101).await;
         // A child of the genesis anchor: height 102, parent 101.
         let hashes = mine_blocks(&fx.node, &fx.client, 1, None)
             .await

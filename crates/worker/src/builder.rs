@@ -45,7 +45,9 @@ impl<W, S: AsmSpec> AsmWorkerBuilder<W, S> {
     /// Set the ASM params. The spec derives everything else from these: the
     /// genesis anchor state, adopted (after validation against the L1 source)
     /// when the store holds no prior state, and the base STF params the
-    /// worker starts from.
+    /// worker starts from. Fork activations discovered from the ASM VK
+    /// upgrade log are overlaid on top of the base STF params to form the
+    /// effective params each transition executes under.
     pub fn with_params(mut self, params: S::Params) -> Self {
         self.params = Some(params);
         self

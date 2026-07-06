@@ -8164,6 +8164,7 @@ dependencies = [
  "futures",
  "serde",
  "strata-asm-common",
+ "strata-asm-logs",
  "strata-asm-stf",
  "strata-btc-types",
  "strata-btc-verification",
