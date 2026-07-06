@@ -50,8 +50,8 @@ use bitcoind_async_client::{
 };
 use corepc_node::Node;
 use rand::RngCore;
-use strata_asm_common::{AnchorState, AsmLogEntry};
-use strata_asm_params::{AdministrationInitConfig, AsmParams, SubprotocolInstance};
+use strata_asm_common::{AnchorState, AsmLogEntry, ForkSchedule};
+use strata_asm_params::{AdministrationInitConfig, AsmParams, StfConfig, SubprotocolInstance};
 use strata_asm_spec::StrataAsmSpec;
 use strata_asm_worker::{
     test_utils::{get_l1_anchor, TestAsmWorkerContext},
@@ -156,6 +156,23 @@ impl AsmTestHarness {
             hashes.push(hash);
         }
         Ok(hashes)
+    }
+
+    /// Forces a reorg: invalidates the block at `invalidate_height` (dropping
+    /// it and every block above it), then mines `new_len` replacement blocks —
+    /// each processed by the worker like any mined block.
+    ///
+    /// `invalidate_block` is forceful, so the new branch becomes active
+    /// regardless of length; `new_len` need only be `>= 1` so there is a new
+    /// tip to submit.
+    pub async fn reorg(
+        &self,
+        invalidate_height: u64,
+        new_len: usize,
+    ) -> anyhow::Result<Vec<BlockHash>> {
+        let bad = self.client.get_block_hash(invalidate_height).await?;
+        self.bitcoind.client.invalidate_block(bad)?;
+        self.mine_blocks(new_len).await
     }
 
     /// Mine a single block containing exactly `txs`, in the given order, then process it.
@@ -577,6 +594,7 @@ pub struct AsmTestHarnessBuilder {
     admin_customize: Option<AdminConfigCustomizer>,
     num_operators: usize,
     txindex: bool,
+    fork_schedule: ForkSchedule,
 }
 
 impl Default for AsmTestHarnessBuilder {
@@ -587,6 +605,9 @@ impl Default for AsmTestHarnessBuilder {
             admin_customize: None,
             num_operators: DEFAULT_NUM_OPERATORS,
             txindex: false,
+            // Matches the production guest: unstake active since genesis, so
+            // existing bridge tests exercise the full unstake path.
+            fork_schedule: ForkSchedule::all_enabled(),
         }
     }
 }
@@ -652,6 +673,13 @@ impl AsmTestHarnessBuilder {
         self
     }
 
+    /// Sets the base fork schedule the worker starts from (default: unstake
+    /// active since genesis, matching the production guest).
+    pub fn with_fork_schedule(mut self, schedule: ForkSchedule) -> Self {
+        self.fork_schedule = schedule;
+        self
+    }
+
     /// Builds the harness and returns it alongside the per-subprotocol contexts. Panics on
     /// failure (test setup); see [`Setup`].
     pub async fn build(self) -> Setup {
@@ -699,6 +727,9 @@ impl AsmTestHarnessBuilder {
                 SubprotocolInstance::Checkpoint(cfg) => *cfg = checkpoint_config.clone(),
             }
         }
+        asm_params.stf = StfConfig {
+            forks: self.fork_schedule,
+        };
         let asm_params = Arc::new(asm_params);
 
         // 5. Create worker context. The worker prefills the height-indexed MMR

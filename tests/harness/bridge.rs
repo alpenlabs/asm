@@ -51,7 +51,10 @@ use strata_crypto::{
 };
 use strata_l1_txfmt::ParseConfig;
 use strata_test_utils_arb::ArbitraryGenerator;
-use strata_test_utils_btcio::{address::derive_musig2_p2tr_address, signing::sign_musig2_keypath};
+use strata_test_utils_btcio::{
+    address::derive_musig2_p2tr_address,
+    signing::{sign_musig2_keypath, sign_musig2_scriptpath},
+};
 
 use super::test_harness::AsmTestHarness;
 
@@ -402,6 +405,114 @@ impl AsmTestHarness {
 /// Build a trivially-spendable tapscript (OP_TRUE).
 fn build_trivial_script() -> ScriptBuf {
     script::Builder::new().push_int(1).into_script()
+}
+
+// ============================================================================
+// Genuine unstake
+// ============================================================================
+
+/// Submits a *genuine* unstake: a taproot script-path spend of the canonical
+/// stake connector bound to the operator set's real N/N aggregated key, signed
+/// by the full operator set via MuSig2.
+///
+/// Every validation rule passes, so the tx's fate is decided purely by the
+/// unstake fork gate: pre-fork it is skipped (operator retained), post-fork it
+/// removes `operator_idx` from the active set.
+///
+/// Returns the block hash containing the unstake transaction.
+pub async fn submit_genuine_unstake_tx(
+    harness: &AsmTestHarness,
+    bridge: &BridgeContext,
+    operator_idx: OperatorIdx,
+) -> anyhow::Result<BlockHash> {
+    // 1. The live N/N aggregated key. Sanity-check it matches the aggregation of the context's
+    //    operator keys, which MuSig2 signing below relies on.
+    let bridge_state = harness.bridge_state()?;
+    let nn_pubkey = bridge_state.operators().agg_key().to_xonly_public_key();
+    let (_, derived_key) = derive_musig2_p2tr_address(bridge.operator_privkeys())?;
+    anyhow::ensure!(
+        nn_pubkey == derived_key,
+        "operator key aggregation mismatch between live state and context keys"
+    );
+
+    // 2. Canonical stake connector committing to (stake_hash, N/N key): P2TR(NUMS, single
+    //    stake-connector leaf).
+    let preimage = [0x5Au8; 32];
+    let stake_hash = sha256::Hash::hash(&preimage).to_byte_array();
+    let leaf_script = stake_connector_script(stake_hash, nn_pubkey);
+    let spend_info = TaprootBuilder::new()
+        .add_leaf(0, leaf_script.clone())?
+        .finalize(SECP256K1, *UNSPENDABLE_PUBLIC_KEY)
+        .map_err(|_| anyhow::anyhow!("failed to finalize stake-connector taproot"))?;
+    let stake_connector_address = Address::p2tr(
+        SECP256K1,
+        *UNSPENDABLE_PUBLIC_KEY,
+        spend_info.merkle_root(),
+        Network::Regtest,
+    );
+
+    // 3. Fund and confirm the stake connector so the unstake has a spendable prevout.
+    let funding_amount = Amount::from_sat(10_000);
+    let (funding_txid, funding_vout) = harness
+        .create_funding_utxo(&stake_connector_address, funding_amount)
+        .await?;
+    harness.mine_block(None).await?;
+
+    // 4. SPS-50 OP_RETURN naming the operator, plus a change output for the fee.
+    let aux = UnstakeTxHeaderAux::new(operator_idx);
+    let tag_data = aux.build_tag_data();
+    let op_return_script =
+        ParseConfig::new(harness.asm_params.genesis.magic).encode_script_buf(&tag_data.as_ref())?;
+    let fee = AsmTestHarness::DEFAULT_FEE;
+    let change_address = harness.client.get_new_address().await?;
+
+    let prevout = TxOut {
+        value: funding_amount,
+        script_pubkey: stake_connector_address.script_pubkey(),
+    };
+    let mut unstake_tx = Transaction {
+        version: Version::TWO,
+        lock_time: LockTime::ZERO,
+        input: vec![TxIn {
+            previous_output: OutPoint::new(funding_txid, funding_vout),
+            script_sig: ScriptBuf::new(),
+            sequence: Sequence::ENABLE_RBF_NO_LOCKTIME,
+            witness: Witness::new(),
+        }],
+        output: vec![
+            TxOut {
+                value: Amount::ZERO,
+                script_pubkey: op_return_script,
+            },
+            TxOut {
+                value: funding_amount - fee,
+                script_pubkey: change_address.script_pubkey(),
+            },
+        ],
+    };
+
+    // 5. MuSig2 script-path signature by the full operator set, then the witness in the [preimage,
+    //    sig, script, control_block] layout ASM parses.
+    let nn_sig = sign_musig2_scriptpath(
+        &unstake_tx,
+        bridge.operator_privkeys(),
+        slice::from_ref(&prevout),
+        0,
+        &leaf_script,
+        LeafVersion::TapScript,
+    )?;
+    let control_block = spend_info
+        .control_block(&(leaf_script.clone(), LeafVersion::TapScript))
+        .ok_or_else(|| anyhow::anyhow!("control block must exist for stake-connector leaf"))?;
+
+    let mut witness = Witness::new();
+    witness.push(preimage);
+    witness.push(nn_sig.serialize());
+    witness.push(leaf_script.as_bytes());
+    witness.push(control_block.serialize());
+    unstake_tx.input[0].witness = witness;
+
+    harness.submit_and_mine_tx(&unstake_tx).await
 }
 
 // ============================================================================

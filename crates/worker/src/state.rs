@@ -585,4 +585,136 @@ mod tests {
             "prefill is idempotent across restart",
         );
     }
+
+    mod fork_activation {
+        use strata_asm_common::{AsmLogEntry, ForkActivation, ForkId, ForkSchedule};
+        use strata_asm_logs::AsmStfUpdate;
+        use strata_identifiers::Buf32;
+        use strata_predicate::{PredicateKey, PredicateTypeId};
+
+        use super::*;
+        use crate::ForkActivationStore;
+
+        /// Stands in for the upgraded artifact's VK, persisted with the
+        /// activation discovery records.
+        fn upgrade_predicate() -> PredicateKey {
+            PredicateKey::new(PredicateTypeId::Bip340Schnorr, vec![0x33; 32])
+        }
+
+        fn upgrade_log(fork_id: u16) -> AsmLogEntry {
+            AsmLogEntry::from_log(&AsmStfUpdate::new(upgrade_predicate(), fork_id))
+                .expect("AsmStfUpdate encoding is infallible")
+        }
+
+        fn block_at(height: u32) -> L1BlockCommitment {
+            L1BlockCommitment::new(height, Buf32::new([0xEE; 32]).into())
+        }
+
+        /// An upgrade log activates the fork it names at H+1, in memory and
+        /// on disk.
+        #[tokio::test(flavor = "multi_thread")]
+        async fn discover_activates_named_fork() {
+            let mut fx = fixtures::setup_state(101).await;
+
+            fx.state
+                .discover_fork_activations(&block_at(150), &[upgrade_log(ForkId::Fork1.into())])
+                .unwrap();
+
+            assert_eq!(fx.state.fork_schedule.activation_height(ForkId::Fork1), 151);
+            let stored = fx.state.context.list_fork_activations().unwrap();
+            assert_eq!(
+                stored,
+                vec![ForkActivation {
+                    enacting_height: 150,
+                    fork: ForkId::Fork1,
+                    new_predicate: upgrade_predicate(),
+                }],
+            );
+        }
+
+        /// An upgrade naming a fork already active at the enacting height is
+        /// an authoring flaw: it must not retro-raise the activation.
+        #[tokio::test(flavor = "multi_thread")]
+        async fn discover_ignores_already_active_fork() {
+            let mut fx = fixtures::setup_state(101).await;
+            fx.state.fork_schedule.activate_at(ForkId::Fork1, 10);
+
+            fx.state
+                .discover_fork_activations(&block_at(150), &[upgrade_log(ForkId::Fork1.into())])
+                .unwrap();
+
+            assert_eq!(fx.state.fork_schedule.activation_height(ForkId::Fork1), 10);
+            assert!(fx.state.context.list_fork_activations().unwrap().is_empty());
+        }
+
+        /// An upgrade naming a fork id this binary has no variant for must
+        /// not activate anything.
+        #[tokio::test(flavor = "multi_thread")]
+        async fn discover_ignores_unknown_fork_id() {
+            let mut fx = fixtures::setup_state(101).await;
+
+            fx.state
+                .discover_fork_activations(&block_at(150), &[upgrade_log(0xBEEF)])
+                .unwrap();
+
+            assert_eq!(fx.state.fork_schedule, ForkSchedule::all_disabled());
+            assert!(fx.state.context.list_fork_activations().unwrap().is_empty());
+        }
+
+        /// A restart resumes the effective schedule from persisted activations.
+        #[tokio::test(flavor = "multi_thread")]
+        async fn new_resumes_persisted_activations() {
+            let fx = fixtures::setup_state(101).await;
+            let context = fx.state.context.clone(); // shares the in-memory store
+            context
+                .record_fork_activation(ForkActivation {
+                    enacting_height: 120,
+                    fork: ForkId::Fork1,
+                    new_predicate: upgrade_predicate(),
+                })
+                .unwrap();
+
+            let genesis = fixtures::genesis_state(&fx.client, 101).await;
+            let reloaded = AsmWorkerServiceState::<_, TestAsmSpec>::new(
+                context,
+                genesis,
+                StfParams::default(),
+                Subscribers::default(),
+            )
+            .unwrap();
+
+            assert_eq!(
+                reloaded.fork_schedule.activation_height(ForkId::Fork1),
+                121,
+                "restart must resume the discovered activation",
+            );
+        }
+
+        /// A reorg rollback prunes activations above the base and recomputes
+        /// the effective schedule from what survives.
+        #[tokio::test(flavor = "multi_thread")]
+        async fn rollback_prunes_and_recomputes() {
+            let mut fx = fixtures::setup_state(101).await;
+            fx.state
+                .discover_fork_activations(&block_at(150), &[upgrade_log(ForkId::Fork1.into())])
+                .unwrap();
+            assert!(fx.state.fork_schedule.is_active(ForkId::Fork1, 151));
+
+            // Reorg to a base below the enacting block: back to the base schedule.
+            fx.state.rollback_fork_activations(140).unwrap();
+            assert_eq!(
+                fx.state.fork_schedule,
+                ForkSchedule::all_disabled(),
+                "activation enacted above the base must be dropped",
+            );
+            assert!(fx.state.context.list_fork_activations().unwrap().is_empty());
+
+            // A rollback at or above the enacting height keeps the activation.
+            fx.state
+                .discover_fork_activations(&block_at(150), &[upgrade_log(ForkId::Fork1.into())])
+                .unwrap();
+            fx.state.rollback_fork_activations(150).unwrap();
+            assert!(fx.state.fork_schedule.is_active(ForkId::Fork1, 151));
+        }
+    }
 }

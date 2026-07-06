@@ -205,10 +205,13 @@ mod tests {
     use strata_test_utils_arb::ArbitraryGenerator;
 
     use super::handle_parsed_tx;
-    use crate::test_utils::{
-        MockMsgRelayer, add_deposits_and_assignments, create_test_state, create_verified_aux_data,
-        create_withdrawal_info_from_assignment, setup_deposit_test, setup_slash_test,
-        setup_unstake_test,
+    use crate::{
+        errors::BridgeSubprotocolError,
+        test_utils::{
+            MockMsgRelayer, add_deposits_and_assignments, create_test_state,
+            create_verified_aux_data, create_withdrawal_info_from_assignment, setup_deposit_test,
+            setup_slash_test, setup_unstake_test,
+        },
     };
 
     #[test]
@@ -364,6 +367,101 @@ mod tests {
         assert!(
             !state.operators().is_in_current_multisig(operator_idx),
             "Operator should be removed"
+        );
+    }
+
+    /// Before the unstake fork, a perfectly valid unstake tx is rejected and
+    /// the operator set is untouched.
+    #[test]
+    fn test_handle_unstake_tx_rejected_when_fork_inactive() {
+        let operator_idx = 0;
+        let (mut state, operators) = create_test_state();
+        let (info, aux) = setup_unstake_test(operator_idx, &operators);
+
+        let parsed_tx = ParsedTx::Unstake(info);
+        let mut relayer = MockMsgRelayer;
+        let result = handle_parsed_tx(
+            &mut state,
+            parsed_tx,
+            &aux,
+            &mut relayer,
+            &StfParams::default(),
+            0,
+        );
+
+        assert!(
+            matches!(
+                result,
+                Err(BridgeSubprotocolError::UnstakeForkInactive { .. })
+            ),
+            "expected UnstakeForkInactive, got {result:?}",
+        );
+        assert!(
+            state.operators().is_in_current_multisig(operator_idx),
+            "operator must be retained pre-fork"
+        );
+    }
+
+    /// The gate flips exactly at the activation height.
+    #[test]
+    fn test_handle_unstake_tx_fork_boundary() {
+        let params = StfParams {
+            forks: strata_asm_common::ForkSchedule { fork1: 100 },
+        };
+
+        for (height, expect_processed) in [(99, false), (100, true)] {
+            let operator_idx = 0;
+            let (mut state, operators) = create_test_state();
+            let (info, aux) = setup_unstake_test(operator_idx, &operators);
+
+            let mut relayer = MockMsgRelayer;
+            let result = handle_parsed_tx(
+                &mut state,
+                ParsedTx::Unstake(info),
+                &aux,
+                &mut relayer,
+                &params,
+                height,
+            );
+
+            assert_eq!(
+                result.is_ok(),
+                expect_processed,
+                "unexpected outcome at height {height}: {result:?}",
+            );
+            assert_eq!(
+                !state.operators().is_in_current_multisig(operator_idx),
+                expect_processed,
+                "operator removal must match gate outcome at height {height}",
+            );
+        }
+    }
+
+    /// Pre-fork the gate rejects *before* touching aux data, so an unstake tx
+    /// whose aux was (correctly) never requested does not panic.
+    #[test]
+    fn test_handle_unstake_tx_fork_inactive_skips_aux() {
+        let operator_idx = 0;
+        let (mut state, operators) = create_test_state();
+        let (info, _aux) = setup_unstake_test(operator_idx, &operators);
+
+        let empty_aux = create_verified_aux_data(vec![]);
+        let mut relayer = MockMsgRelayer;
+        let result = handle_parsed_tx(
+            &mut state,
+            ParsedTx::Unstake(info),
+            &empty_aux,
+            &mut relayer,
+            &StfParams::default(),
+            0,
+        );
+
+        assert!(
+            matches!(
+                result,
+                Err(BridgeSubprotocolError::UnstakeForkInactive { .. })
+            ),
+            "expected UnstakeForkInactive without an aux panic, got {result:?}",
         );
     }
 

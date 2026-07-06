@@ -8172,6 +8172,7 @@ dependencies = [
  "strata-l1-txfmt",
  "strata-merkle",
  "strata-merkle-node-store",
+ "strata-predicate",
  "strata-service",
  "strata-tasks",
  "strata-test-utils-btcio",
