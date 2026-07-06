@@ -238,7 +238,7 @@ fn validate_anchor_against_l1<W: L1DataProvider>(
     let expected_next_target = if (height as u64 + 1).is_multiple_of(interval) {
         CompactTarget::from_next_work_required(
             anchor_header.bits,
-            (anchor_header.time - epoch_start_header.time) as u64,
+            (anchor_header.time.saturating_sub(epoch_start_header.time)) as u64,
             &btc_params,
         )
         .to_consensus()
