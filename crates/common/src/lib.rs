@@ -4,6 +4,7 @@
 mod aux;
 mod constants;
 mod errors;
+mod fork;
 mod log;
 mod manifest;
 mod mmr;
@@ -28,6 +29,7 @@ mod ssz_generated {
 pub use aux::*;
 pub use constants::*;
 pub use errors::*;
+pub use fork::*;
 pub use log::*;
 pub use manifest::*;
 pub use mmr::*;

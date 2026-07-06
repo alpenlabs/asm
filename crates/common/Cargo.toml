@@ -32,5 +32,6 @@ zkaleido-logging.workspace = true
 ssz_codegen.workspace = true
 
 [dev-dependencies]
+serde_json.workspace = true
 strata-identifiers.workspace = true
 strata-test-utils-arb.workspace = true

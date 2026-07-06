@@ -7617,6 +7617,7 @@ dependencies = [
  "bitcoin",
  "borsh",
  "serde",
+ "serde_json",
  "ssz",
  "ssz_codegen",
  "ssz_derive",
