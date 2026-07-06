@@ -166,10 +166,17 @@ impl HeaderVerificationState {
             return self.next_block_target;
         }
 
-        let timespan = header.time - self.epoch_start_timestamp;
+        // Block timestamps only need to exceed the median-time-past, not be monotonic, so
+        // `header.time` can legitimately be below `epoch_start_timestamp`. A plain `u32`
+        // subtraction would underflow there (panic under overflow checks, or wrap to a huge
+        // timespan that clamps to the *maximum* — an easier target — in release). Both fields are
+        // `u32`, so `saturating_sub` floors the underflow at `0`, which `from_next_work_required`
+        // then clamps up to the minimum timespan. That matches Bitcoin Core, which computes the
+        // timespan with signed 64-bit arithmetic and clamps the negative result to the same minimum
+        // in `CalculateNextWorkRequired` (`pow.cpp`) — the harder target.
+        let timespan = u64::from(header.time.saturating_sub(self.epoch_start_timestamp));
 
-        CompactTarget::from_next_work_required(header.bits, timespan as u64, &self.params)
-            .to_consensus()
+        CompactTarget::from_next_work_required(header.bits, timespan, &self.params).to_consensus()
     }
 
     /// Updates the timestamp history and epoch start timestamp if necessary.
