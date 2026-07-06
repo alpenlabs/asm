@@ -1,4 +1,5 @@
 from pathlib import Path
+from typing import Any
 
 import flexitest
 
@@ -41,7 +42,7 @@ class BasicEnv(flexitest.EnvConfig):
         """Return orchestrator config. Override in subclasses to enable proving."""
         return None
 
-    def _asm_params_overrides(self) -> dict:
+    def _asm_params_overrides(self) -> dict[str, Any]:
         """Extra `build_asm_params` kwargs. Override in subclasses (e.g. to
         set fork schedules, triggers, or key material)."""
         return {}
@@ -68,7 +69,7 @@ class BasicEnv(flexitest.EnvConfig):
         epoch_start_hash = bitcoin_rpc.proxy.getblockhash(epoch_start_height(genesis_height))
         epoch_start_hdr = bitcoin_rpc.proxy.getblockheader(epoch_start_hash)
 
-        params_kwargs = {
+        params_kwargs: dict[str, Any] = {
             "musig2_keys": DEFAULT_MUSIG2_KEYS,
             "genesis_height": genesis_height,
             "block_hash": genesis_hash,
