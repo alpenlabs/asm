@@ -6,11 +6,11 @@ use strata_btc_verification::{
     HeaderVerificationState as NativeHeaderVerificationState, L1Anchor, L1VerificationError,
 };
 use strata_identifiers::L1BlockCommitment;
-use strata_l1_txfmt::MagicBytes;
+use strata_l1_txfmt::{MagicBytes, SubprotocolId};
 
 use crate::{
-    AnchorState, AsmError, AsmHistoryAccumulatorState, BtcParams, BtcWork, ChainViewState,
-    HeaderVerificationState, Mismatched, SectionState, Subprotocol, SubprotocolId, TimestampStore,
+    AnchorState, AsmHistoryAccumulatorState, BtcParams, BtcWork, ChainViewState,
+    HeaderVerificationState, SectionState, TimestampStore,
 };
 
 impl AnchorState {
@@ -67,31 +67,11 @@ impl ChainViewState {
 impl SectionState {
     /// Constructs a new instance.
     ///
-    /// Returns [`AsmError::SectionTooLarge`] if `data` exceeds the SSZ capacity
-    /// for the section data field.
-    pub fn new(id: SubprotocolId, data: Vec<u8>) -> Result<Self, AsmError> {
-        let data =
-            VariableList::new(data).map_err(|source| AsmError::SectionTooLarge { id, source })?;
+    /// Errors if `data` exceeds the SSZ capacity for the section data field
+    /// (`MAX_SECTION_STATE_BYTES`).
+    pub fn new(id: SubprotocolId, data: Vec<u8>) -> Result<Self, ssz_types::Error> {
+        let data = VariableList::new(data)?;
         Ok(Self { id, data })
-    }
-
-    /// Constructs an instance by serializing a subprotocol state.
-    pub fn from_state<S: Subprotocol>(state: &S::State) -> Result<Self, AsmError> {
-        Self::new(S::ID, state.as_ssz_bytes())
-    }
-
-    /// Tries to deserialize the section data as a particular subprotocol's state.
-    pub fn try_to_state<S: Subprotocol>(&self) -> Result<S::State, AsmError> {
-        if S::ID != self.id {
-            return Err(Mismatched {
-                expected: S::ID,
-                actual: self.id,
-            }
-            .into());
-        }
-
-        <S::State as Decode>::from_ssz_bytes(&self.data)
-            .map_err(|e| AsmError::Deserialization(self.id, e))
     }
 }
 

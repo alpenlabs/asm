@@ -2,6 +2,7 @@
 
 use strata_asm_common::{
     AnchorState, AsmHistoryAccumulatorState, ChainViewState, HeaderVerificationState, SectionState,
+    SectionStateExt,
 };
 use strata_asm_params::AsmParams;
 use strata_asm_proto_admin::{AdministrationSubprotoState, AdministrationSubprotocol};

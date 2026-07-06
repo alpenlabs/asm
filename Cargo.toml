@@ -13,6 +13,7 @@ members = [
   "crates/proof/statements",
   "crates/rpc",
   "crates/spec",
+  "crates/state",
   "crates/stf",
   "crates/subprotocols/admin/subprotocol",
   "crates/subprotocols/admin/txs",
@@ -85,6 +86,7 @@ strata-asm-prover-types = { path = "crates/extensions/prover/types" }
 strata-asm-prover-worker = { path = "crates/extensions/prover/worker" }
 strata-asm-rpc = { path = "crates/rpc" }
 strata-asm-spec = { path = "crates/spec" }
+strata-asm-state = { path = "crates/state" }
 strata-asm-stf = { path = "crates/stf" }
 strata-asm-worker = { path = "crates/worker" }
 strata-btc-verification = { path = "crates/btc-verification" }

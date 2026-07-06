@@ -19,7 +19,7 @@ use bitcoin::{
     BlockHash, Transaction,
 };
 use ssz::Encode;
-use strata_asm_common::{AnchorState, Subprotocol};
+use strata_asm_common::{AnchorState, SectionStateExt, Subprotocol};
 use strata_asm_params::{AdministrationInitConfig, ConfirmationDepths, Role};
 use strata_asm_proto_admin::{AdministrationSubprotoState, AdministrationSubprotocol};
 use strata_asm_proto_admin_txs::{
