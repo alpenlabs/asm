@@ -27,6 +27,13 @@ const ELFS_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/elfs");
 /// `(guest_crate_dir, elf_name, vk_json_name)` for every guest this builder produces.
 const GUESTS: &[(&str, &str, &str)] = &[
     ("guest-asm", "asm.elf", "asm-vk.json"),
+    // Test-only artifact simulating the pre-unstake-fork guest; upgrade tests
+    // start from its VK and upgrade to `asm.elf`'s.
+    (
+        "guest-asm-pre-unstake",
+        "asm-pre-unstake.elf",
+        "asm-pre-unstake-vk.json",
+    ),
     ("guest-moho", "moho.elf", "moho-vk.json"),
 ];
 
