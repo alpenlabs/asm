@@ -42,6 +42,7 @@ members = [
 
   # binaries listed separately
   "bin/asm-runner",
+  "bin/asm-txgen",
   "bin/dbtool",
   "bin/prover-perf",
   "guest-builder/sp1",
