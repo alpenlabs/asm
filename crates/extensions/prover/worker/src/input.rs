@@ -23,12 +23,13 @@ use crate::ProverContext;
 /// Builds [`RuntimeInput`] for proof generation, dispatching by proof type.
 ///
 /// Holds only the values that are fixed for the lifetime of the prover (the
-/// genesis commitment and the two predicate keys); all per-block data is read
-/// from the [`ProverContext`] passed to each method.
+/// genesis commitment and the Moho predicate key); all per-block data is read
+/// from the [`ProverContext`] passed to each method. The ASM step predicate is
+/// *not* fixed — it is whatever the parent `MohoState` advertises, which is
+/// how the prover follows ASM VK upgrades.
 #[derive(Debug)]
 pub struct InputBuilder {
     genesis: L1BlockCommitment,
-    asm_predicate: PredicateKey,
     moho_predicate: PredicateKey,
 }
 
@@ -42,14 +43,9 @@ pub struct MohoPrerequisite {
 
 impl InputBuilder {
     /// Creates a new input builder.
-    pub fn new(
-        genesis: L1BlockCommitment,
-        asm_predicate: PredicateKey,
-        moho_predicate: PredicateKey,
-    ) -> Self {
+    pub fn new(genesis: L1BlockCommitment, moho_predicate: PredicateKey) -> Self {
         Self {
             genesis,
-            asm_predicate,
             moho_predicate,
         }
     }
@@ -217,15 +213,14 @@ impl InputBuilder {
         })
     }
 
-    /// Builds the [`RuntimeInput`] for a single-block ASM proof.
-    ///
-    /// This fetches the Bitcoin block and auxiliary data, reconstructs the
-    /// pre-state, and assembles the input the ZkVM program expects.
+    /// Builds the [`RuntimeInput`] for a single-block ASM proof, returning it
+    /// with the [`PredicateKey`] the step proof must verify against — the
+    /// parent `MohoState`'s `next_predicate`, which selects the proving host.
     pub async fn build_asm_runtime_input<C: ProverContext>(
         &self,
         ctx: &C,
         range: &L1Range,
-    ) -> Result<RuntimeInput> {
+    ) -> Result<(RuntimeInput, PredicateKey)> {
         let commitment = range.start();
 
         // 1. Fetch the Bitcoin block.
@@ -256,6 +251,7 @@ impl InputBuilder {
 
         // 5. Compute the Moho pre-state from the anchor state.
         let moho_pre_state = self.get_moho_state(ctx, parent_commitment).await?;
+        let step_predicate = moho_pre_state.next_predicate.clone();
 
         // 6. Build RuntimeInput.
         let runtime_input = RuntimeInput::new(
@@ -264,7 +260,7 @@ impl InputBuilder {
             step_input.as_ssz_bytes(),
         );
 
-        Ok(runtime_input)
+        Ok((runtime_input, step_predicate))
     }
 
     /// Builds the [`MohoRecursiveInput`] for a Moho recursive proof at `l1_ref`.
@@ -281,12 +277,14 @@ impl InputBuilder {
             incremental_step_proof,
         } = prerequisite;
 
-        // The inner step proof is the ASM STF proof, so the step predicate is
-        // the ASM predicate.
-        let step_predicate = self.asm_predicate.clone();
-
         let parent = self.get_parent_commitment(ctx, l1_ref).await?;
         let parent_state = self.get_moho_state(ctx, parent).await?;
+
+        // The inner step proof is the ASM STF proof; it must verify against
+        // the predicate the parent state advertises. The recursion checks this
+        // choice with a Merkle proof against the parent commitment, so a fixed
+        // predicate would fail here after any ASM VK upgrade.
+        let step_predicate = parent_state.next_predicate.clone();
 
         let leaves = vec![
             <_ as TreeHash>::tree_hash_root::<TreeSha256Hasher>(&parent_state.inner_state)

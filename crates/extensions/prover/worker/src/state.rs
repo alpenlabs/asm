@@ -2,6 +2,7 @@
 
 use strata_asm_prover_types::{L1Range, ProofId};
 use strata_identifiers::L1BlockCommitment;
+use strata_predicate::PredicateKey;
 use strata_service::ServiceState;
 use tracing::debug;
 use zkaleido::ZkVmRemoteHost;
@@ -24,8 +25,11 @@ pub struct ProverServiceState<C, H> {
     /// Context the service reads storage and chain data through.
     pub(crate) ctx: C,
 
-    /// Remote host for ASM step proofs.
-    pub(crate) asm: H,
+    /// Remote hosts for ASM step proofs, each paired with the predicate its
+    /// proofs verify against. A block's proof is produced by the host matching
+    /// the parent `MohoState`'s `next_predicate`, so the set spans ASM VK
+    /// upgrades.
+    pub(crate) asm_hosts: Vec<(PredicateKey, H)>,
 
     /// Remote host for Moho recursive proofs.
     pub(crate) moho: H,
@@ -53,14 +57,14 @@ impl<C, H> ProverServiceState<C, H> {
     /// Creates a new service state with an empty pending queue.
     pub(crate) fn new(
         ctx: C,
-        asm: H,
+        asm_hosts: Vec<(PredicateKey, H)>,
         moho: H,
         config: OrchestratorConfig,
         input_builder: InputBuilder,
     ) -> Self {
         Self {
             ctx,
-            asm,
+            asm_hosts,
             moho,
             config,
             input_builder,

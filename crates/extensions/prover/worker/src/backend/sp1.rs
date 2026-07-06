@@ -1,6 +1,6 @@
 //! SP1 proof host construction and predicate resolution.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use anyhow::Result;
 use strata_predicate::PredicateKey;
@@ -19,13 +19,18 @@ use super::ProofHost;
 
 #[cfg(feature = "sp1")]
 pub(super) async fn build_sp1_hosts(
-    asm_elf_path: &Path,
+    asm_elf_paths: &[PathBuf],
     moho_elf_path: &Path,
-) -> Result<(ProofHost, ProofHost)> {
+) -> Result<(Vec<ProofHost>, ProofHost)> {
     use std::fs;
 
-    let asm_elf = fs::read(asm_elf_path)
-        .with_context(|| format!("failed to read ASM guest ELF at {}", asm_elf_path.display()))?;
+    let mut asm_hosts = Vec::with_capacity(asm_elf_paths.len());
+    for asm_elf_path in asm_elf_paths {
+        let asm_elf = fs::read(asm_elf_path).with_context(|| {
+            format!("failed to read ASM guest ELF at {}", asm_elf_path.display())
+        })?;
+        asm_hosts.push(SP1Host::init(&asm_elf).await);
+    }
     let moho_elf = fs::read(moho_elf_path).with_context(|| {
         format!(
             "failed to read Moho guest ELF at {}",
@@ -33,17 +38,14 @@ pub(super) async fn build_sp1_hosts(
         )
     })?;
 
-    Ok((
-        SP1Host::init(&asm_elf).await,
-        SP1Host::init(&moho_elf).await,
-    ))
+    Ok((asm_hosts, SP1Host::init(&moho_elf).await))
 }
 
 #[cfg(not(feature = "sp1"))]
 pub(super) async fn build_sp1_hosts(
-    _asm_elf_path: &Path,
+    _asm_elf_paths: &[PathBuf],
     _moho_elf_path: &Path,
-) -> Result<(ProofHost, ProofHost)> {
+) -> Result<(Vec<ProofHost>, ProofHost)> {
     anyhow::bail!("sp1 backend requested but binary was built without the `sp1` feature");
 }
 

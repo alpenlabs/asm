@@ -9,7 +9,7 @@
 mod native;
 mod sp1;
 
-use anyhow::{Result, bail};
+use anyhow::{Result, bail, ensure};
 use strata_predicate::PredicateKey;
 use zkaleido::{ZkVm, ZkVmHost};
 #[cfg(feature = "sp1")]
@@ -29,58 +29,66 @@ pub type ProofHost = zkaleido_native_adapter::NativeHost;
 
 /// ZK proof backend used by the runner.
 ///
-/// Bundles the `(asm, moho)` host pair together with the [`PredicateKey`] that
-/// each one's proofs verify against. Constructed once at startup via
-/// [`ProofBackend::new`] and consumed by the proof orchestrator (hosts) and
-/// the input builder (predicates).
+/// Bundles the ASM host set — one host per configured proving artifact, each
+/// paired with the [`PredicateKey`] its proofs verify against — with the
+/// single Moho host. Multiple ASM hosts let the prover span an ASM VK
+/// upgrade: each block's step proof is produced by the host matching the
+/// predicate the parent `MohoState` advertises. Constructed once at startup
+/// via [`ProofBackend::new`] and consumed by the proof orchestrator.
 #[derive(Debug)]
 pub struct ProofBackend {
-    pub asm_host: ProofHost,
+    /// ASM hosts in config order; index 0 is the genesis-time artifact.
+    pub asm_hosts: Vec<(PredicateKey, ProofHost)>,
     pub moho_host: ProofHost,
-    pub asm_predicate: PredicateKey,
     pub moho_predicate: PredicateKey,
 }
 
 impl ProofBackend {
     /// Builds the ZK proof backend.
     ///
-    /// Constructs both proof hosts and resolves the [`PredicateKey`] each
+    /// Constructs every proof host and resolves the [`PredicateKey`] each
     /// host's proofs verify against.
     ///
     /// # Errors
     ///
     /// - Returns an error if the requested [`BackendConfig`] variant does not match the binary's
     ///   build features (e.g. `Sp1` requested without the `sp1` feature).
-    /// - Returns an error if either host cannot be constructed (e.g. a guest ELF cannot be read in
-    ///   `sp1` builds) or if either host's verifying key cannot be turned into a [`PredicateKey`].
+    /// - Returns an error if no ASM proving artifact is configured.
+    /// - Returns an error if a host cannot be constructed (e.g. a guest ELF cannot be read in `sp1`
+    ///   builds) or if a host's verifying key cannot be turned into a [`PredicateKey`].
     pub async fn new(cfg: &BackendConfig) -> Result<Self> {
-        let (asm_host, moho_host) = build_proof_hosts(cfg).await?;
-        let asm_predicate = resolve_predicate(&asm_host)?;
+        let (asm_hosts, moho_host) = match cfg {
+            BackendConfig::Sp1 {
+                asm_elf_paths,
+                moho_elf_path,
+            } => sp1::build_sp1_hosts(asm_elf_paths, moho_elf_path).await?,
+            BackendConfig::Native {
+                asm_entries,
+                moho_schnorr_signing_key,
+            } => native::build_native_hosts(asm_entries, moho_schnorr_signing_key).await?,
+        };
+        ensure!(
+            !asm_hosts.is_empty(),
+            "at least one ASM proving artifact must be configured"
+        );
+
+        let asm_hosts = asm_hosts
+            .into_iter()
+            .map(|host| Ok((resolve_predicate(&host)?, host)))
+            .collect::<Result<Vec<_>>>()?;
         let moho_predicate = resolve_predicate(&moho_host)?;
+
         Ok(Self {
-            asm_host,
+            asm_hosts,
             moho_host,
-            asm_predicate,
             moho_predicate,
         })
     }
-}
 
-/// Builds the `(asm, moho)` host pair used by the proof orchestrator.
-///
-/// Dispatches on the [`BackendConfig`] variant. If the variant does not
-/// match the binary's build features, the corresponding builder surfaces a
-/// clear startup error rather than failing later in the proving path.
-async fn build_proof_hosts(cfg: &BackendConfig) -> Result<(ProofHost, ProofHost)> {
-    match cfg {
-        BackendConfig::Sp1 {
-            asm_elf_path,
-            moho_elf_path,
-        } => sp1::build_sp1_hosts(asm_elf_path, moho_elf_path).await,
-        BackendConfig::Native {
-            asm_schnorr_signing_key,
-            moho_schnorr_signing_key,
-        } => native::build_native_hosts(asm_schnorr_signing_key, moho_schnorr_signing_key).await,
+    /// Predicate of the genesis-time ASM artifact (config entry 0), which
+    /// seeds the genesis Moho state.
+    pub fn genesis_asm_predicate(&self) -> &PredicateKey {
+        &self.asm_hosts[0].0
     }
 }
 

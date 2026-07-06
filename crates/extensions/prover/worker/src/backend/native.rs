@@ -6,6 +6,7 @@ use strata_predicate::{PredicateKey, PredicateTypeId};
 use zkaleido::ZkVmHost;
 
 use super::ProofHost;
+use crate::config::NativeAsmEntry;
 
 /// Resolves the [`PredicateKey`] for a native host.
 ///
@@ -21,17 +22,17 @@ pub(super) fn resolve_native_predicate(host: &impl ZkVmHost) -> Result<Predicate
 
 #[cfg(feature = "sp1")]
 pub(super) async fn build_native_hosts(
-    _asm_signing_key: &SigningKey,
+    _asm_entries: &[NativeAsmEntry],
     _moho_signing_key: &SigningKey,
-) -> Result<(ProofHost, ProofHost)> {
+) -> Result<(Vec<ProofHost>, ProofHost)> {
     anyhow::bail!("native backend requested but binary was built with the `sp1` feature");
 }
 
 #[cfg(not(feature = "sp1"))]
 pub(super) async fn build_native_hosts(
-    asm_signing_key: &SigningKey,
+    asm_entries: &[NativeAsmEntry],
     moho_signing_key: &SigningKey,
-) -> Result<(ProofHost, ProofHost)> {
+) -> Result<(Vec<ProofHost>, ProofHost)> {
     // Bypass the `*::native_host()` convenience constructors: they call
     // `NativeHost::new_with_random_key`, which would make each host's
     // verifying key — and therefore its derived `PredicateKey` — different
@@ -39,16 +40,23 @@ pub(super) async fn build_native_hosts(
     // across runs, so we construct `NativeHost` directly with the keys
     // supplied by config.
     use moho_recursive_proof::process_recursive_moho_proof;
-    use strata_asm_common::StfParams;
     use strata_asm_proof_impl::statements::process_asm_stf;
     use zkaleido_native_adapter::NativeHost;
 
-    // Matches the schedule baked into the production ASM guest.
-    let stf_params = StfParams::all_forks_enabled();
+    // Each entry's STF params are baked into its execution closure, exactly
+    // as a guest ELF hardcodes its own params.
+    let asm_hosts = asm_entries
+        .iter()
+        .map(|entry| {
+            let stf_params = entry.stf_params.clone();
+            NativeHost::new(entry.schnorr_signing_key.clone(), move |env| {
+                process_asm_stf(env, stf_params.clone())
+            })
+        })
+        .collect();
+
     Ok((
-        NativeHost::new(asm_signing_key.clone(), move |env| {
-            process_asm_stf(env, stf_params.clone())
-        }),
+        asm_hosts,
         NativeHost::new(moho_signing_key.clone(), process_recursive_moho_proof),
     ))
 }

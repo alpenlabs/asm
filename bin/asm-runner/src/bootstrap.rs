@@ -94,11 +94,14 @@ pub(crate) async fn bootstrap(
         };
 
         let ProofBackend {
-            asm_host,
+            asm_hosts,
             moho_host,
-            asm_predicate,
             moho_predicate,
         } = backend;
+
+        // The genesis Moho state advertises the predicate of the artifact
+        // active at genesis — by convention the first configured ASM entry.
+        let genesis_asm_predicate = asm_hosts[0].0.clone();
 
         // Spin the Moho worker off onto its own service task, driven by the ASM
         // worker's per-block commit stream. It derives each block's MohoState
@@ -121,7 +124,7 @@ pub(crate) async fn bootstrap(
             .with_context(moho_context)
             .with_subscription(asm_worker.subscribe_blocks())
             .with_genesis_block(genesis_block)
-            .with_asm_predicate(asm_predicate.clone())
+            .with_asm_predicate(genesis_asm_predicate)
             .launch(&executor)
             .await?;
 
@@ -135,7 +138,7 @@ pub(crate) async fn bootstrap(
             aux_db.clone(),
             bitcoin_client.clone(),
         );
-        let input_builder = InputBuilder::new(genesis_block, asm_predicate, moho_predicate);
+        let input_builder = InputBuilder::new(genesis_block, moho_predicate);
 
         // Drive the prover from the *Moho* worker's commit stream, not the ASM
         // worker's: the Moho worker emits a block only after it has persisted
@@ -157,7 +160,7 @@ pub(crate) async fn bootstrap(
         // `LocalSet` needed.
         let _prover_handle = ProverWorkerBuilder::new()
             .with_context(prover_ctx)
-            .with_hosts(asm_host, moho_host)
+            .with_hosts(asm_hosts, moho_host)
             .with_config(orch_config)
             .with_input_builder(input_builder)
             .with_block_subscription(block_subscription)

@@ -2,6 +2,7 @@
 
 use strata_asm_worker::Subscription;
 use strata_identifiers::L1BlockCommitment;
+use strata_predicate::PredicateKey;
 use strata_service::{ServiceBuilder, StreamInput, TickingInput};
 use strata_tasks::TaskExecutor;
 use zkaleido::ZkVmRemoteHost;
@@ -34,7 +35,7 @@ use crate::{
 #[derive(Debug)]
 pub struct ProverWorkerBuilder<C, H> {
     ctx: Option<C>,
-    asm_host: Option<H>,
+    asm_hosts: Option<Vec<(PredicateKey, H)>>,
     moho_host: Option<H>,
     config: Option<OrchestratorConfig>,
     input_builder: Option<InputBuilder>,
@@ -46,7 +47,7 @@ impl<C, H> ProverWorkerBuilder<C, H> {
     pub fn new() -> Self {
         Self {
             ctx: None,
-            asm_host: None,
+            asm_hosts: None,
             moho_host: None,
             config: None,
             input_builder: None,
@@ -60,9 +61,10 @@ impl<C, H> ProverWorkerBuilder<C, H> {
         self
     }
 
-    /// Sets the `(asm, moho)` remote host pair.
-    pub fn with_hosts(mut self, asm_host: H, moho_host: H) -> Self {
-        self.asm_host = Some(asm_host);
+    /// Sets the remote hosts: the predicate-keyed ASM host set (entry 0 =
+    /// genesis-time artifact) and the Moho host.
+    pub fn with_hosts(mut self, asm_hosts: Vec<(PredicateKey, H)>, moho_host: H) -> Self {
+        self.asm_hosts = Some(asm_hosts);
         self.moho_host = Some(moho_host);
         self
     }
@@ -103,9 +105,9 @@ where
     /// returns a handle to it.
     pub async fn launch(self, executor: &TaskExecutor) -> ProverResult<ProverWorkerHandle> {
         let ctx = self.ctx.ok_or(ProverError::MissingDependency("context"))?;
-        let asm_host = self
-            .asm_host
-            .ok_or(ProverError::MissingDependency("asm_host"))?;
+        let asm_hosts = self
+            .asm_hosts
+            .ok_or(ProverError::MissingDependency("asm_hosts"))?;
         let moho_host = self
             .moho_host
             .ok_or(ProverError::MissingDependency("moho_host"))?;
@@ -122,7 +124,7 @@ where
         // Capture the tick interval before `config` is moved into the state.
         let tick_interval = config.tick_interval;
 
-        let state = ProverServiceState::new(ctx, asm_host, moho_host, config, input_builder);
+        let state = ProverServiceState::new(ctx, asm_hosts, moho_host, config, input_builder);
 
         // The Moho worker's commit subscription is a `Stream`; wrap it as a
         // service input and overlay the periodic wakeup tick.

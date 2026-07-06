@@ -19,6 +19,7 @@ use serde::{Deserialize, Serialize};
 use strata_asm_proof_impl::program::AsmStfProofProgram;
 use strata_asm_prover_types::{L1Range, ProofId, RemoteProofId};
 use strata_identifiers::L1BlockCommitment;
+use strata_predicate::PredicateKey;
 use strata_service::{AsyncService, Response, Service, TickMsg};
 use tracing::{debug, error, info, warn};
 use zkaleido::{RemoteProofStatus, ZkVmRemoteHost, ZkVmRemoteProgram};
@@ -185,11 +186,11 @@ where
 {
     let typed_id = to_typed_proof_id::<H>(remote_id)?;
 
-    // NOTE: We use `state.asm` here but this could be any host instance.
+    // NOTE: We use `state.moho` here but this could be any host instance.
     // `get_status` only requires a network client and proof ID — not the ELF or
-    // proving key. Both hosts share the same concrete type `H`, so either works.
+    // proving key. All hosts share the same concrete type `H`, so any works.
     let new_status = state
-        .asm
+        .moho
         .get_status(&typed_id)
         .await
         .map_err(|e| anyhow::anyhow!("failed to query remote proof status: {e}"))?;
@@ -234,9 +235,9 @@ where
     H: ZkVmRemoteHost + Send + Sync,
 {
     // NOTE: As above, `get_proof` only needs a network client and the proof ID,
-    // so `state.asm` works for proofs produced by either host.
+    // so `state.moho` works for proofs produced by any host.
     let receipt = state
-        .asm
+        .moho
         .get_proof(typed_id)
         .await
         .map_err(|e| anyhow::anyhow!("failed to retrieve completed proof: {e}"))?;
@@ -287,7 +288,7 @@ where
     // `schedule_with` mutates the queue.
     let mut submitter = StateSubmitter {
         ctx: &state.ctx,
-        asm: &state.asm,
+        asm_hosts: &state.asm_hosts,
         moho: &state.moho,
         input_builder: &state.input_builder,
     };
@@ -357,7 +358,7 @@ async fn schedule_with<S: ProofSubmitter>(
 /// scheduling cycle.
 struct StateSubmitter<'a, C, H> {
     ctx: &'a C,
-    asm: &'a H,
+    asm_hosts: &'a [(PredicateKey, H)],
     moho: &'a H,
     input_builder: &'a InputBuilder,
 }
@@ -392,11 +393,26 @@ where
         // directly on the multi-threaded async framework.
         let typed_id = match &proof_id {
             ProofId::Asm(range) => {
-                let runtime_input = self
+                let (runtime_input, step_predicate) = self
                     .input_builder
                     .build_asm_runtime_input(self.ctx, range)
                     .await?;
-                AsmStfProofProgram::start_proving(&runtime_input, self.asm)
+                // Select the host whose proofs verify against the predicate
+                // the parent Moho state demands. No match is a hard error —
+                // this prover cannot produce an acceptable proof for the
+                // block, and deferring would only stall the chain silently.
+                let host = self
+                    .asm_hosts
+                    .iter()
+                    .find(|(predicate, _)| *predicate == step_predicate)
+                    .map(|(_, host)| host)
+                    .ok_or_else(|| {
+                        anyhow::anyhow!(
+                            "no ASM proving artifact configured for step predicate \
+                             {step_predicate:?}; the chain's ASM VK is not one of ours"
+                        )
+                    })?;
+                AsmStfProofProgram::start_proving(&runtime_input, host)
                     .await
                     .map_err(|e| anyhow::anyhow!("failed to submit proof to remote prover: {e}"))?
             }
