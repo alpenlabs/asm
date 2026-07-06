@@ -1,7 +1,12 @@
 use arbitrary::Arbitrary;
 use borsh::{BorshDeserialize, BorshSerialize};
 use serde::{Deserialize, Serialize};
-use strata_btc_types::TIMESTAMPS_FOR_MEDIAN;
+
+/// Number of timestamps kept for computing the median block time.
+///
+/// The SSZ schema (`ssz/header_verification.ssz`) redeclares this value; a
+/// compile-time check under the `ssz` feature keeps the two in sync.
+pub const TIMESTAMPS_FOR_MEDIAN: usize = 11;
 
 /// The middle index for selecting the median timestamp.
 /// Since TIMESTAMPS_FOR_MEDIAN is odd, the median is the element at index 5 (the 6th element)

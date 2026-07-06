@@ -257,23 +257,28 @@ impl HeaderVerificationState {
         Ok(())
     }
 
-    /// Gets the next block target (for testing)
-    pub fn get_next_block_target(&self) -> u32 {
+    /// Bitcoin network whose consensus rules are used for verification.
+    pub fn network(&self) -> Network {
+        self.params.inner().network
+    }
+
+    /// Gets the next block target.
+    pub fn next_block_target(&self) -> u32 {
         self.next_block_target
     }
 
-    /// Gets the epoch start timestamp (for testing)
-    pub fn get_epoch_start_timestamp(&self) -> u32 {
+    /// Gets the epoch start timestamp.
+    pub fn epoch_start_timestamp(&self) -> u32 {
         self.epoch_start_timestamp
     }
 
-    /// Gets the block timestamp history (for testing)
-    pub fn get_block_timestamp_history(&self) -> &TimestampStore {
+    /// Gets the block timestamp history.
+    pub fn block_timestamp_history(&self) -> &TimestampStore {
         &self.block_timestamp_history
     }
 
-    /// Gets the total accumulated PoW (for testing)
-    pub fn get_total_accumulated_pow(&self) -> BtcWork {
+    /// Gets the total accumulated PoW.
+    pub fn total_accumulated_pow(&self) -> BtcWork {
         self.total_accumulated_pow.clone()
     }
 }
@@ -333,7 +338,7 @@ mod tests {
     };
     use borsh::{BorshDeserialize, BorshSerialize};
     use rand::{Rng, rngs::OsRng};
-    use strata_btc_types::{BlockHashExt, TIMESTAMPS_FOR_MEDIAN};
+    use strata_btc_types::BlockHashExt;
     use strata_identifiers::{L1BlockCommitment, L1Height};
     use strata_test_utils_btc::BtcMainnetSegment;
 
@@ -433,8 +438,8 @@ mod tests {
         let adjustment_height = 40_320;
         let mut verification_state = verification_state_at(&chain, adjustment_height - 1).unwrap();
 
-        let _target_before = verification_state.get_next_block_target();
-        let _epoch_start_before = verification_state.get_epoch_start_timestamp();
+        let _target_before = verification_state.next_block_target();
+        let _epoch_start_before = verification_state.epoch_start_timestamp();
 
         // Process the adjustment block (40,320)
         let adjustment_header = chain.get_block_header_at(adjustment_height).unwrap();
@@ -445,14 +450,14 @@ mod tests {
         // After processing block 40,320, the epoch_start_timestamp should be updated
         // to the timestamp of block 40,320
         assert_eq!(
-            verification_state.get_epoch_start_timestamp(),
+            verification_state.epoch_start_timestamp(),
             adjustment_header.time,
             "Epoch start timestamp should be updated at difficulty adjustment boundary"
         );
 
         // The target may have changed (depending on the timespan of the previous epoch)
         // We just verify that the next_block_target was recalculated
-        let _target_after = verification_state.get_next_block_target();
+        let _target_after = verification_state.next_block_target();
 
         // Verify the state is valid for continuing
         let next_header = chain.get_block_header_at(adjustment_height + 1).unwrap();
@@ -471,7 +476,7 @@ mod tests {
         let mut verification_state =
             verification_state_at(&chain, pre_adjustment_height - 1).unwrap();
 
-        let expected_target = verification_state.get_next_block_target();
+        let expected_target = verification_state.next_block_target();
 
         // Process block 40,319 (one before adjustment)
         let header = chain.get_block_header_at(pre_adjustment_height).unwrap();
@@ -492,7 +497,7 @@ mod tests {
         // So the target WILL change - this is expected behavior
         // Let's verify that the next block (40,320) validates with the new target
         let adjustment_header = chain.get_block_header_at(40_320).unwrap();
-        let new_target = verification_state.get_next_block_target();
+        let new_target = verification_state.next_block_target();
 
         assert_eq!(
             adjustment_header.bits.to_consensus(),
@@ -511,8 +516,8 @@ mod tests {
         let mid_epoch_height = 40_100;
         let mut verification_state = verification_state_at(&chain, mid_epoch_height - 1).unwrap();
 
-        let target_before = verification_state.get_next_block_target();
-        let epoch_start_before = verification_state.get_epoch_start_timestamp();
+        let target_before = verification_state.next_block_target();
+        let epoch_start_before = verification_state.epoch_start_timestamp();
 
         // Process the mid-epoch block
         let header = chain.get_block_header_at(mid_epoch_height).unwrap();
@@ -522,14 +527,14 @@ mod tests {
 
         // Target should remain unchanged
         assert_eq!(
-            verification_state.get_next_block_target(),
+            verification_state.next_block_target(),
             target_before,
             "Target should not change in middle of epoch"
         );
 
         // Epoch start timestamp should remain unchanged
         assert_eq!(
-            verification_state.get_epoch_start_timestamp(),
+            verification_state.epoch_start_timestamp(),
             epoch_start_before,
             "Epoch start should not change in middle of epoch"
         );
@@ -547,7 +552,7 @@ mod tests {
 
         let mut verification_state = verification_state_at(&chain, start_height).unwrap();
 
-        let _target_before_adjustment = verification_state.get_next_block_target();
+        let _target_before_adjustment = verification_state.next_block_target();
 
         // Process blocks leading up to and through the adjustment
         for height in (start_height + 1)..=end_height {
@@ -559,7 +564,7 @@ mod tests {
             if height == adjustment_height {
                 // At the adjustment block, epoch_start_timestamp should update
                 assert_eq!(
-                    verification_state.get_epoch_start_timestamp(),
+                    verification_state.epoch_start_timestamp(),
                     header.time,
                     "Epoch start should update at adjustment block"
                 );
@@ -587,7 +592,7 @@ mod tests {
             .check_and_update(&first_adj_header)
             .expect("First adjustment should validate");
 
-        let first_epoch_start = verification_state.get_epoch_start_timestamp();
+        let first_epoch_start = verification_state.epoch_start_timestamp();
         assert_eq!(
             first_epoch_start, first_adj_header.time,
             "First epoch start should match first adjustment block timestamp"
@@ -600,7 +605,7 @@ mod tests {
 
             // Epoch start should remain constant until next adjustment
             assert_eq!(
-                verification_state.get_epoch_start_timestamp(),
+                verification_state.epoch_start_timestamp(),
                 first_epoch_start,
                 "Epoch start should not change until next adjustment at height {}",
                 height
@@ -615,7 +620,7 @@ mod tests {
 
         // Epoch start should now update to second adjustment's timestamp
         assert_eq!(
-            verification_state.get_epoch_start_timestamp(),
+            verification_state.epoch_start_timestamp(),
             second_adj_header.time,
             "Second epoch start should match second adjustment block timestamp"
         );
@@ -660,7 +665,7 @@ mod tests {
         let epoch_end_height = epoch_start_height + 2016 - 1; // Last block before next adjustment
 
         let mut verification_state = verification_state_at(&chain, epoch_start_height).unwrap();
-        let epoch_start_time = verification_state.get_epoch_start_timestamp();
+        let epoch_start_time = verification_state.epoch_start_timestamp();
 
         // Advance to the last block of the epoch
         for height in (epoch_start_height + 1)..=epoch_end_height {
@@ -670,7 +675,7 @@ mod tests {
 
         // Epoch start should still be the same
         assert_eq!(
-            verification_state.get_epoch_start_timestamp(),
+            verification_state.epoch_start_timestamp(),
             epoch_start_time,
             "Epoch start should remain constant throughout epoch"
         );
@@ -689,7 +694,7 @@ mod tests {
 
         // After adjustment, epoch start should update to the new adjustment block's time
         assert_eq!(
-            verification_state.get_epoch_start_timestamp(),
+            verification_state.epoch_start_timestamp(),
             adjustment_header.time,
             "Epoch start should update to adjustment block time"
         );
@@ -849,7 +854,7 @@ mod tests {
         let mut verification_state = verification_state_at(&chain, height).unwrap();
 
         // A fresh state has no timestamp history, so the median defaults to 0.
-        let median = verification_state.get_block_timestamp_history().median();
+        let median = verification_state.block_timestamp_history().median();
         assert_eq!(median, 0);
 
         // Feed exactly TIMESTAMPS_FOR_MEDIAN blocks to fill the history window.
@@ -859,7 +864,7 @@ mod tests {
         }
 
         // The median should now be the timestamp of the middle block in the window.
-        let median = verification_state.get_block_timestamp_history().median();
+        let median = verification_state.block_timestamp_history().median();
         let expected_median = chain
             .get_block_header_at(height + (TIMESTAMPS_FOR_MEDIAN / 2) as u32 + 1)
             .unwrap()
@@ -874,7 +879,7 @@ mod tests {
         let height = 40_100;
         let mut verification_state = verification_state_at(&chain, height).unwrap();
 
-        let median = verification_state.get_block_timestamp_history().median();
+        let median = verification_state.block_timestamp_history().median();
 
         // Create a header with timestamp exactly at median
         let mut header = chain.get_block_header_at(height + 1).unwrap();
@@ -900,7 +905,7 @@ mod tests {
         let height = 40_100;
         let mut verification_state = verification_state_at(&chain, height).unwrap();
 
-        let median = verification_state.get_block_timestamp_history().median();
+        let median = verification_state.block_timestamp_history().median();
 
         // Create a header with timestamp = median + 1
         let mut header = chain.get_block_header_at(height + 1).unwrap();
@@ -930,7 +935,7 @@ mod tests {
             verification_state.check_and_update(&header).unwrap();
         }
 
-        let median = verification_state.get_block_timestamp_history().median();
+        let median = verification_state.block_timestamp_history().median();
 
         // Create header at the next height (after the 11 blocks we just processed)
         let next_height = height + TIMESTAMPS_FOR_MEDIAN as u32 + 1;
@@ -958,7 +963,7 @@ mod tests {
         let mut verification_state = verification_state_at(&chain, start_height).unwrap();
 
         // Process several blocks and verify median updates correctly
-        let initial_median = verification_state.get_block_timestamp_history().median();
+        let initial_median = verification_state.block_timestamp_history().median();
 
         for height in (start_height + 1)..=(start_height + 5) {
             let header = chain.get_block_header_at(height).unwrap();
@@ -966,7 +971,7 @@ mod tests {
                 .check_and_update(&header)
                 .expect("Valid block should process");
 
-            let new_median = verification_state.get_block_timestamp_history().median();
+            let new_median = verification_state.block_timestamp_history().median();
 
             // Median should be within reasonable bounds
             assert!(
@@ -992,7 +997,7 @@ mod tests {
             verification_state.check_and_update(&header).unwrap();
 
             // Buffer size is internal, but median should always work
-            let _median = verification_state.get_block_timestamp_history().median();
+            let _median = verification_state.block_timestamp_history().median();
         }
 
         // If we got here without panicking, ring buffer handled wraparound correctly
@@ -1056,13 +1061,13 @@ mod tests {
         let start_height = 40_100;
         let mut verification_state = verification_state_at(&chain, start_height).unwrap();
 
-        let initial_work = verification_state.get_total_accumulated_pow();
+        let initial_work = verification_state.total_accumulated_pow();
 
         // Process a block
         let header = chain.get_block_header_at(start_height + 1).unwrap();
         verification_state.check_and_update(&header).unwrap();
 
-        let new_work = verification_state.get_total_accumulated_pow();
+        let new_work = verification_state.total_accumulated_pow();
 
         assert!(
             new_work != initial_work,
