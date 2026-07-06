@@ -110,6 +110,25 @@ mod tests {
     }
 
     #[test]
+    fn anchor_state_serde_roundtrip() {
+        let state = sample_anchor_state();
+        let json = serde_json::to_string(&state).expect("serialize");
+        let decoded: AnchorState = serde_json::from_str(&json).expect("deserialize");
+        assert_eq!(state, decoded);
+    }
+
+    #[test]
+    fn anchor_state_accessors() {
+        let state = sample_anchor_state();
+        assert_eq!(state.magic(), MagicBytes::from(*b"alpn"));
+        assert!(state.find_section(1).is_some());
+        assert!(state.find_section(99).is_none());
+
+        let (pow_state, _history) = state.chain_view.clone().into_parts();
+        assert_eq!(pow_state, state.chain_view.pow_state);
+    }
+
+    #[test]
     fn anchor_state_decode_rejects_unknown_network() {
         let mut bytes = sample_anchor_state().as_ssz_bytes();
         assert_eq!(bytes[NETWORK_ID_POS], 2, "expected Signet network id");

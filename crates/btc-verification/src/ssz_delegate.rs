@@ -186,22 +186,55 @@ mod tests {
     use super::*;
     use crate::L1Anchor;
 
-    fn sample_state() -> HeaderVerificationState {
+    fn sample_state_on(network: Network) -> HeaderVerificationState {
         let anchor = L1Anchor {
             block: L1BlockCommitment::default(),
             next_target: 0x1d00ffff,
             epoch_start_timestamp: 1_231_006_505,
-            network: Network::Bitcoin,
+            network,
         };
         HeaderVerificationState::init(anchor)
     }
 
+    fn sample_state() -> HeaderVerificationState {
+        sample_state_on(Network::Bitcoin)
+    }
+
     #[test]
     fn ssz_roundtrip() {
-        let state = sample_state();
-        let bytes = state.as_ssz_bytes();
-        let decoded = HeaderVerificationState::from_ssz_bytes(&bytes).expect("decode");
-        assert_eq!(state, decoded);
+        for network in [
+            Network::Bitcoin,
+            Network::Testnet,
+            Network::Signet,
+            Network::Regtest,
+        ] {
+            let state = sample_state_on(network);
+            let bytes = state.as_ssz_bytes();
+            let decoded = HeaderVerificationState::from_ssz_bytes(&bytes).expect("decode");
+            assert_eq!(state, decoded);
+        }
+    }
+
+    #[test]
+    fn ssz_type_info_matches_delegate() {
+        let bytes = sample_state().as_ssz_bytes();
+        for (fixed, len) in [
+            (
+                <HeaderVerificationState as SszTypeInfo>::is_ssz_fixed_len(),
+                <HeaderVerificationState as SszTypeInfo>::ssz_fixed_len(),
+            ),
+            (
+                <HeaderVerificationStateRef<'_> as SszTypeInfo>::is_ssz_fixed_len(),
+                <HeaderVerificationStateRef<'_> as SszTypeInfo>::ssz_fixed_len(),
+            ),
+        ] {
+            assert!(fixed, "delegate encoding is fixed-size");
+            assert_eq!(len, bytes.len());
+        }
+        assert_eq!(
+            <HeaderVerificationStateRef<'_> as tree_hash::TreeHash>::tree_hash_type(),
+            <HeaderVerificationState as tree_hash::TreeHash>::tree_hash_type(),
+        );
     }
 
     #[test]
