@@ -4,7 +4,6 @@
 //! ([`AnchorState`] and its components) along with the helpers on them that
 //! do not depend on the subprotocol framework in `strata-asm-common`.
 
-mod constants;
 mod mmr;
 mod state;
 
@@ -19,7 +18,6 @@ mod ssz_generated {
     include!(concat!(env!("OUT_DIR"), "/generated.rs"));
 }
 
-pub use constants::*;
 pub use mmr::*;
 pub use ssz_generated::ssz::{
     self as ssz,
