@@ -6,6 +6,7 @@ import flexitest
 from factory.asm_rpc.config_cfg import (
     BackendConfig,
     Duration,
+    NativeAsmEntry,
     NativeBackend,
     OrchestratorConfig,
     Sp1Backend,
@@ -31,23 +32,36 @@ class ProverEnv(BasicEnv):
             tick_interval=Duration(secs=1, nanos=0),
             max_concurrent_proofs=4,
             proof_db_path=proof_db_path,
-            backend=_backend_config(),
+            backend=self._backend_config_override(),
         )
+
+    def _backend_config_override(self) -> BackendConfig:
+        """Backend selection hook; override to configure other artifacts."""
+        return _backend_config()
+
+
+def elfs_dir() -> Path:
+    repo_root = Path(__file__).resolve().parents[2]
+    return (repo_root / "guest-builder" / "sp1" / "elfs").resolve()
 
 
 def _backend_config() -> BackendConfig:
     """Pick the backend variant matching the binary built by run_test.sh."""
     backend = os.environ.get("ASM_PROVER_BACKEND", "native")
     if backend == "sp1":
-        repo_root = Path(__file__).resolve().parents[2]
-        elfs_dir = (repo_root / "guest-builder" / "sp1" / "elfs").resolve()
         return Sp1Backend(
-            asm_elf_path=str(elfs_dir / "asm.elf"),
-            moho_elf_path=str(elfs_dir / "moho.elf"),
+            asm_elf_paths=[str(elfs_dir() / "asm.elf")],
+            moho_elf_path=str(elfs_dir() / "moho.elf"),
         )
     if backend == "native":
         return NativeBackend(
-            asm_schnorr_signing_key=NATIVE_TEST_ASM_SIGNING_KEY,
+            asm_entries=[
+                NativeAsmEntry(
+                    schnorr_signing_key=NATIVE_TEST_ASM_SIGNING_KEY,
+                    # Matches the schedule baked into the production ASM guest.
+                    stf_params={"forks": {"fork1": 0}},
+                )
+            ],
             moho_schnorr_signing_key=NATIVE_TEST_MOHO_SIGNING_KEY,
         )
     raise ValueError(f"Unknown ASM_PROVER_BACKEND: {backend!r} (expected: native|sp1)")

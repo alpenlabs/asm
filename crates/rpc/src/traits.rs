@@ -40,6 +40,11 @@ pub trait AsmStateApi {
     #[method(name = "getSafeHarbour")]
     async fn get_safe_harbour(&self, block_hash: BlockHash) -> RpcResult<Option<SafeHarbour>>;
 
+    /// Return the indices of operators in the current bridge multisig for the
+    /// provided Bitcoin block hash.
+    #[method(name = "getOperators")]
+    async fn get_operators(&self, block_hash: BlockHash) -> RpcResult<Vec<u32>>;
+
     /// Return the verified checkpoint tip for the provided Bitcoin block hash.
     #[method(name = "getCheckpointTip")]
     async fn get_checkpoint_tip(&self, block_hash: BlockHash) -> RpcResult<Option<CheckpointTip>>;

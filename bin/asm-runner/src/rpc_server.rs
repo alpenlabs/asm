@@ -149,6 +149,17 @@ impl AsmStateApiServer for AsmRpcServer {
         }
     }
 
+    async fn get_operators(&self, block_hash: BlockHash) -> RpcResult<Vec<u32>> {
+        match self.get_bridge_state(block_hash).await? {
+            Some(bridge_state) => Ok(bridge_state
+                .operators()
+                .current_multisig()
+                .active_indices()
+                .collect()),
+            None => Ok(vec![]),
+        }
+    }
+
     async fn get_checkpoint_tip(&self, block_hash: BlockHash) -> RpcResult<Option<CheckpointTip>> {
         match self.get_checkpoint_state(block_hash).await? {
             Some(checkpoint_state) => Ok(Some(*checkpoint_state.verified_tip())),

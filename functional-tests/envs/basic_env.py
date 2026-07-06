@@ -41,6 +41,11 @@ class BasicEnv(flexitest.EnvConfig):
         """Return orchestrator config. Override in subclasses to enable proving."""
         return None
 
+    def _asm_params_overrides(self) -> dict:
+        """Extra `build_asm_params` kwargs. Override in subclasses (e.g. to
+        set fork schedules, triggers, or key material)."""
+        return {}
+
     def _setup_bitcoind_and_params(
         self, ectx: flexitest.EnvContext
     ) -> tuple[flexitest.Service, str]:
@@ -63,14 +68,16 @@ class BasicEnv(flexitest.EnvConfig):
         epoch_start_hash = bitcoin_rpc.proxy.getblockhash(epoch_start_height(genesis_height))
         epoch_start_hdr = bitcoin_rpc.proxy.getblockheader(epoch_start_hash)
 
-        asm_params = build_asm_params(
-            musig2_keys=DEFAULT_MUSIG2_KEYS,
-            genesis_height=genesis_height,
-            block_hash=genesis_hash,
-            header=genesis_header,
-            epoch_start_header=epoch_start_hdr,
-            magic=ASM_MAGIC_BYTES,
-        )
+        params_kwargs = {
+            "musig2_keys": DEFAULT_MUSIG2_KEYS,
+            "genesis_height": genesis_height,
+            "block_hash": genesis_hash,
+            "header": genesis_header,
+            "epoch_start_header": epoch_start_hdr,
+            "magic": ASM_MAGIC_BYTES,
+        }
+        params_kwargs.update(self._asm_params_overrides())
+        asm_params = build_asm_params(**params_kwargs)
 
         params_path = Path(ectx.envdd_path) / "generated" / "asm-params.json"
         params_file_path = write_asm_params_json(params_path, asm_params)

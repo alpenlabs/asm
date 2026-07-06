@@ -90,6 +90,15 @@ enum Command {
         schnorr_key: String,
     },
 
+    /// Print the compressed secp256k1 public key of a secret key. Used to
+    /// build params files whose multisig/operator configs must match keys the
+    /// tests sign with.
+    DerivePubkey {
+        /// 32-byte secret key, hex.
+        #[arg(long)]
+        secret_key: String,
+    },
+
     /// Build, sign and submit an ASM STF VK update admin action
     /// (commit + reveal, left in the mempool).
     SubmitVkUpdate {
@@ -138,6 +147,12 @@ async fn main() -> Result<()> {
                 .ok_or_else(|| anyhow!("predicate did not serialize to a string"))?
                 .to_owned();
             println!("{rendered}");
+            Ok(())
+        }
+        Command::DerivePubkey { secret_key } => {
+            let bytes = hex::decode(&secret_key).context("secret key must be hex")?;
+            let sk = SecretKey::from_slice(&bytes).context("invalid secp256k1 secret key")?;
+            println!("{}", hex::encode(sk.public_key(SECP256K1).serialize()));
             Ok(())
         }
         Command::SubmitVkUpdate {

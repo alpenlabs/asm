@@ -42,6 +42,9 @@ pub(crate) enum Domain {
 }
 
 /// Resources within the `asm` domain.
+// TODO(fork-activations): expose the `asm_fork_activations` tree (see
+// `SledForkActivationDb`) so discovered fork activations can be inspected and
+// rolled back manually like the other stores.
 #[derive(Subcommand, Debug)]
 pub(crate) enum AsmResource {
     /// Anchor states, keyed by L1 block commitment.

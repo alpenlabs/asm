@@ -42,25 +42,41 @@ class BitcoinConfig:
 class Sp1Backend:
     """SP1 proof backend configuration.
 
-    Mirrors `BackendConfig::Sp1` in bin/asm-runner/src/prover/config.rs.
+    Mirrors `BackendConfig::Sp1` in the prover worker's config. `asm_elf_paths`
+    lists one guest ELF per ASM proving artifact — several entries let the
+    prover span an ASM VK upgrade. Entry 0 is the genesis-time artifact.
     """
 
-    asm_elf_path: str
+    asm_elf_paths: list[str]
     moho_elf_path: str
     kind: str = "sp1"
+
+
+@dataclass
+class NativeAsmEntry:
+    """One ASM proving artifact of the native backend.
+
+    The signing key fixes the artifact's predicate identity; `stf_params`
+    (e.g. `{"forks": {"fork1": 0}}`) is the schedule baked into its
+    execution, mirroring how a guest ELF hardcodes its own params.
+    """
+
+    schnorr_signing_key: str
+    stf_params: dict
 
 
 @dataclass
 class NativeBackend:
     """Native (in-process) proof backend configuration.
 
-    Mirrors `BackendConfig::Native` in bin/asm-runner/src/prover/config.rs.
-    Each signing key is a 32-byte value rendered as a lowercase hex
-    string with no `0x` prefix; the Rust side validates that the bytes
-    form a valid BIP-340 Schnorr signing key (rejects the zero scalar).
+    Mirrors `BackendConfig::Native` in the prover worker's config. Each
+    signing key is a 32-byte value rendered as a lowercase hex string with no
+    `0x` prefix; the Rust side validates that the bytes form a valid BIP-340
+    Schnorr signing key (rejects the zero scalar). Entry 0 of `asm_entries` is
+    the genesis-time artifact.
     """
 
-    asm_schnorr_signing_key: str
+    asm_entries: list[NativeAsmEntry]
     moho_schnorr_signing_key: str
     kind: str = "native"
 
