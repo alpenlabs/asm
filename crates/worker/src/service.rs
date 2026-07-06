@@ -504,9 +504,9 @@ mod tests {
         assert_eq!(
             fx.state
                 .context
-                .get_latest_asm_state()
+                .get_latest_anchor_state()
                 .unwrap()
-                .map(|(b, _)| b),
+                .map(|s| s.last_processed_block()),
             Some(tip),
             "latest tracks the tip after the initial sync",
         );
@@ -517,9 +517,9 @@ mod tests {
         assert_eq!(
             fx.state
                 .context
-                .get_latest_asm_state()
+                .get_latest_anchor_state()
                 .unwrap()
-                .map(|(b, _)| b),
+                .map(|s| s.last_processed_block()),
             Some(tip),
             "latest stays at the real tip",
         );

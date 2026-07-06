@@ -26,7 +26,7 @@ async fn test_worker_context_initialization() {
     let context = TestAsmWorkerContext::new(client);
 
     assert_eq!(context.get_network().unwrap(), Network::Regtest);
-    assert!(context.get_latest_asm_state().unwrap().is_none());
+    assert!(context.get_latest_anchor_state().unwrap().is_none());
 }
 
 /// Verifies blocks are fetched from regtest by hash.

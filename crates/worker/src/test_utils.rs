@@ -203,17 +203,11 @@ impl AnchorStateStore for TestAsmWorkerContext {
             .ok_or(WorkerError::MissingAsmState(*blockid.blkid()))
     }
 
-    fn get_latest_asm_state(&self) -> WorkerResult<Option<(L1BlockCommitment, AnchorState)>> {
-        let Some(anchor) = self
-            .state
+    fn get_latest_anchor_state(&self) -> WorkerResult<Option<AnchorState>> {
+        self.state
             .state_db
             .get_latest()
-            .map_err(|_| WorkerError::DbError)?
-        else {
-            return Ok(None);
-        };
-        let blockid = anchor.chain_view.pow_state.last_verified_block;
-        Ok(Some((blockid, anchor)))
+            .map_err(|_| WorkerError::DbError)
     }
 
     fn store_anchor_state(&self, state: &AnchorState) -> WorkerResult<()> {

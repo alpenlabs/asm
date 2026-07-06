@@ -74,7 +74,7 @@ pub trait AnchorStateStore {
     /// the base by walking the L1 target's ancestry (see `plan_block_processing`)
     /// and resets the anchor before applying any block, so a stale hint here is
     /// overwritten on the first sync and never drives a transition.
-    fn get_latest_asm_state(&self) -> WorkerResult<Option<(L1BlockCommitment, AnchorState)>>;
+    fn get_latest_anchor_state(&self) -> WorkerResult<Option<AnchorState>>;
 
     /// Puts the [`AnchorState`] into DB.
     ///

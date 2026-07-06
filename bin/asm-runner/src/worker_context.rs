@@ -168,16 +168,8 @@ impl AnchorStateStore for AsmWorkerContext {
     // in the manifest store and every consumer that needs them (the Moho
     // worker's `get_anchor_logs`, the checkpoint/bridge test harness) reads them
     // from there directly, keyed by block.
-    fn get_latest_asm_state(&self) -> WorkerResult<Option<(L1BlockCommitment, AnchorState)>> {
-        let Some(anchor) = self
-            .state_db
-            .get_latest()
-            .map_err(|_| WorkerError::DbError)?
-        else {
-            return Ok(None);
-        };
-        let blockid = anchor.chain_view.pow_state.last_verified_block;
-        Ok(Some((blockid, anchor)))
+    fn get_latest_anchor_state(&self) -> WorkerResult<Option<AnchorState>> {
+        self.state_db.get_latest().map_err(|_| WorkerError::DbError)
     }
 
     fn get_anchor_state(&self, blockid: &L1BlockCommitment) -> WorkerResult<AnchorState> {

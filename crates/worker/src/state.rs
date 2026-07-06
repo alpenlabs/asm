@@ -77,19 +77,19 @@ where
         let genesis_state = spec.construct_genesis_state(&params);
         validate_anchor_against_l1(&context, &genesis_state.chain_view.pow_state)?;
 
-        let (anchor, blkid) = match context.get_latest_asm_state()? {
-            Some((blkid, state)) => {
-                tracing::info!(%blkid, "ASM worker resuming from stored anchor state");
-                (state, blkid)
+        let anchor = match context.get_latest_anchor_state()? {
+            Some(state) => {
+                tracing::info!(blkid = %state.last_processed_block(), "ASM worker resuming from stored anchor state");
+                state
             }
             None => {
-                let genesis_blk = genesis_state.chain_view.pow_state.last_verified_block;
-                tracing::info!(%genesis_blk, "no stored ASM state; initializing genesis anchor");
+                tracing::info!(genesis_blk = %genesis_state.last_processed_block(), "no stored ASM state; initializing genesis anchor");
 
                 context.store_anchor_state(&genesis_state)?;
-                (genesis_state, genesis_blk)
+                genesis_state
             }
         };
+        let blkid = anchor.last_processed_block();
 
         Ok(Self {
             context,
@@ -300,8 +300,11 @@ mod tests {
             fx.state.context.get_anchor_state(&fx.state.blkid).is_ok(),
             "genesis anchor persisted",
         );
-        let latest = fx.state.context.get_latest_asm_state().unwrap();
-        assert_eq!(latest.map(|(blk, _)| blk), Some(fx.state.blkid));
+        let latest = fx.state.context.get_latest_anchor_state().unwrap();
+        assert_eq!(
+            latest.map(|s| s.last_processed_block()),
+            Some(fx.state.blkid)
+        );
     }
 
     /// When the store already holds a latest anchor, `new` adopts it — a worker

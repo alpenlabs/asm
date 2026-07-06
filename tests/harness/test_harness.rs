@@ -253,7 +253,10 @@ impl AsmTestHarness {
 
     /// Get the latest ASM anchor state from the worker context.
     pub fn get_latest_asm_state(&self) -> anyhow::Result<Option<(L1BlockCommitment, AnchorState)>> {
-        Ok(self.context.get_latest_asm_state()?)
+        Ok(self
+            .context
+            .get_latest_anchor_state()?
+            .map(|state| (state.last_processed_block(), state)))
     }
 
     /// Get the ASM anchor state at a specific block.
