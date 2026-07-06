@@ -34,7 +34,8 @@ pub(crate) struct Cli {
 /// Top-level conceptual domains.
 #[derive(Subcommand, Debug)]
 pub(crate) enum Domain {
-    /// ASM anchor state, aux data, manifests, and the manifest-hash MMR.
+    /// ASM anchor state, aux data, manifests, the manifest-hash MMR, and
+    /// discovered fork activations.
     Asm {
         #[command(subcommand)]
         resource: AsmResource,
@@ -42,9 +43,6 @@ pub(crate) enum Domain {
 }
 
 /// Resources within the `asm` domain.
-// TODO(fork-activations): expose the `asm_fork_activations` tree (see
-// `SledForkActivationDb`) so discovered fork activations can be inspected and
-// rolled back manually like the other stores.
 #[derive(Subcommand, Debug)]
 pub(crate) enum AsmResource {
     /// Anchor states, keyed by L1 block commitment.
@@ -67,6 +65,12 @@ pub(crate) enum AsmResource {
     ManifestMmr {
         #[command(subcommand)]
         verb: MmrVerb,
+    },
+    /// Discovered fork activations, keyed by enacting height and fork.
+    #[command(name = "fork-activation")]
+    ForkActivation {
+        #[command(subcommand)]
+        verb: ForkActivationVerb,
     },
 }
 
@@ -158,4 +162,30 @@ pub(crate) enum MmrVerb {
     },
     /// Write a manifest hash as the leaf at `height` (append or overwrite).
     PutLeaf { height: u64, hash: String },
+}
+
+/// Verbs for `asm fork-activation`.
+///
+/// An activation records that the block at `enacting_height` enacted an ASM VK
+/// upgrade whose fork applies from the next block onward. The worker derives
+/// `activation_height` as `enacting_height + 1`, so `put` derives it the same
+/// way rather than accepting a value the runner could never have written.
+#[derive(Subcommand, Debug)]
+pub(crate) enum ForkActivationVerb {
+    /// List every recorded activation, in enacting-height order.
+    List,
+    /// Record that `fork` (snake_case name, e.g. `fork1`) was enacted at
+    /// `enacting_height`, switching the ASM STF to `predicate`
+    /// (`<TypeName>:<hex>`, the form `list` prints).
+    Put {
+        enacting_height: u32,
+        fork: String,
+        predicate: String,
+    },
+    /// Bulk-remove activations with enacting height strictly above this (the
+    /// height itself is kept), for rollback alongside the other stores.
+    Prune {
+        #[arg(long)]
+        after: u32,
+    },
 }

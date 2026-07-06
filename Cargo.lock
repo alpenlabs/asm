@@ -784,6 +784,7 @@ dependencies = [
  "ssz",
  "strata-asm-common",
  "strata-identifiers",
+ "strata-predicate",
 ]
 
 [[package]]

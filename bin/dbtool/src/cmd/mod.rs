@@ -2,6 +2,7 @@
 //! `main` emits.
 
 pub(crate) mod aux;
+pub(crate) mod fork_activation;
 pub(crate) mod manifest;
 pub(crate) mod manifest_mmr;
 pub(crate) mod state;
@@ -18,5 +19,6 @@ pub(crate) fn run_asm(db: &sled::Db, resource: AsmResource, write: bool) -> Resu
         AsmResource::Aux { verb } => aux::run(db, verb, write),
         AsmResource::Manifest { verb } => manifest::run(db, verb, write),
         AsmResource::ManifestMmr { verb } => manifest_mmr::run(db, verb, write),
+        AsmResource::ForkActivation { verb } => fork_activation::run(db, verb, write),
     }
 }

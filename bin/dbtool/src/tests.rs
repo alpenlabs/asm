@@ -6,6 +6,8 @@
 //! actually wrote. Only the pure parsing helpers, which need no DB, are unit
 //! tested here.
 
+use strata_asm_common::ForkId;
+
 use crate::utils;
 
 #[test]
@@ -22,6 +24,20 @@ fn parse_commitment_rejects_malformed_input() {
     assert!(utils::parse_commitment("notanumber:00").is_err()); // non-decimal height
     assert!(utils::parse_commitment(&format!("100:{}", "zz".repeat(32))).is_err()); // bad hex
     assert!(utils::parse_commitment("100:00").is_err()); // blkid not 32 bytes
+}
+
+#[test]
+fn parse_fork_id_accepts_snake_case_names() {
+    assert_eq!(utils::parse_fork_id("fork1").unwrap(), ForkId::Fork1);
+    assert!(utils::parse_fork_id("Fork1").is_err()); // serde names are snake_case
+    assert!(utils::parse_fork_id("bogus").is_err());
+}
+
+#[test]
+fn parse_predicate_accepts_serde_string_form() {
+    assert!(utils::parse_predicate("AlwaysAccept").is_ok());
+    assert!(utils::parse_predicate(&format!("Bip340Schnorr:{}", "07".repeat(32))).is_ok());
+    assert!(utils::parse_predicate("Bogus:00").is_err());
 }
 
 #[test]

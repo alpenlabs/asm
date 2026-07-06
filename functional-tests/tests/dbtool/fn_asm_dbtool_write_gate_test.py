@@ -35,6 +35,8 @@ class AsmDbtoolWriteGateTest(flexitest.Test):
             ("manifest", "prune", "--after", str(block["height"])),
             ("state", "delete", commitment),
             ("manifest-mmr", "put-leaf", "0", "11" * 32),
+            ("fork-activation", "put", "42", "fork1", "AlwaysAccept"),
+            ("fork-activation", "prune", "--after", "0"),
         ]
         for args in refused:
             code, _out, err = run_dbtool(db, "asm", *args)

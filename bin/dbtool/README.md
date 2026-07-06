@@ -10,9 +10,9 @@ The binary is `dbtool` (crate `asm-dbtool`).
 
 The runner persists into two independent sled databases:
 
-- **Storage DB** — anchor state, aux data, full manifests, and the
-  manifest-hash MMR. Backed by the `asm-storage` crate. Targeted by `asm`
-  commands.
+- **Storage DB** — anchor state, aux data, full manifests, the manifest-hash
+  MMR, and discovered fork activations. Backed by the `asm-storage` crate.
+  Targeted by `asm` commands.
 - **Proof DB** — ASM/Moho proofs, Moho state, and the remote-prover bookkeeping.
   Backed by `strata-asm-proof-db`. Targeted by the planned `moho`/`proof`
   commands.
@@ -61,6 +61,7 @@ dbtool --db ./data/asm asm manifest-mmr proof 1234 --at 2000
 
 # Roll storage back to a known-good height (mutating → needs --write)
 dbtool --db ./data/asm --write asm state prune --after 1234
+dbtool --db ./data/asm --write asm fork-activation prune --after 1234
 
 # Round-trip a record: get → hex-decode its ssz_hex to raw bytes → put it back
 dbtool --db ./data/asm asm manifest get 1234:6f1a...ee \
@@ -78,11 +79,19 @@ dbtool --db ./data/asm --write asm manifest put --file manifest.ssz
 | `asm aux` | `get <commitment>` · `list` · `put <commitment> --file F` (w) · `delete <commitment>` (w) · `prune (--before\|--after) <h>` (w) |
 | `asm manifest` | `get <commitment>` · `list` · `put --file F` (w) · `delete <commitment>` (w) · `prune (--before\|--after) <h>` (w) |
 | `asm manifest-mmr` | `count` · `leaf <index>` · `proof <index> [--at <leaf_count>]` · `put-leaf <height> <hash_hex>` (w) |
+| `asm fork-activation` | `list` · `put <enacting_height> <fork> <predicate>` (w) · `prune --after <h>` (w) |
 
 `(w)` = mutation, gated behind `--write`. The manifest-hash MMR is
 height-indexed, so the `<index>` read by `leaf`/`proof` and the `<height>`
 written by `put-leaf` are the same value — the leaf for the block at height `h`
 is leaf index `h`.
+
+A fork activation always applies from the block after the one that enacted it,
+so `fork-activation put` takes the enacting height, the fork's snake_case name
+(e.g. `fork1`) and the enacted predicate (`<TypeName>:<hex>`, as `list`
+prints), deriving the activation height itself.
+Its `prune` only supports `--after`: activations are removed when rolling back
+past their enacting height, never from the front.
 
 ### Planned (proof DB) — not yet implemented
 

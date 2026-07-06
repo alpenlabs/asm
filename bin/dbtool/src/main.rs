@@ -5,7 +5,8 @@
 //! grammar STR-3564 recommends rather than a flat verb-prefixed surface.
 //!
 //! This first increment covers the `asm` domain backed by the **storage DB**
-//! (anchor state, aux data, manifests, and the manifest-hash MMR). The
+//! (anchor state, aux data, manifests, the manifest-hash MMR, and discovered
+//! fork activations). The
 //! proof-DB-backed resources (`asm proof`, `moho …`, `proof …`) land in a
 //! follow-up; see `README.md`.
 //!
