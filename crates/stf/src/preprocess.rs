@@ -3,7 +3,7 @@
 //! view into a single deterministic state transition.
 
 use bitcoin::block::Block;
-use strata_asm_common::{AnchorState, AsmError, AsmResult, AsmSpec};
+use strata_asm_common::{AnchorState, AsmError, AsmResult, AsmSpec, PreProcessTxsCtx, StfParams};
 
 use crate::{
     manager::SubprotoManager,
@@ -27,6 +27,9 @@ use crate::{
 ///
 /// # Arguments
 ///
+/// * `stf_params` - The STF params the transition executes under; MUST be the same params the
+///   subsequent [`compute_asm_transition`](crate::compute_asm_transition) call runs with, so
+///   fork-gated aux requests stay in lockstep with fork-gated processing
 /// * `pre_state` - The previous anchor state to transition from
 /// * `block` - The new L1 Bitcoin block to process
 ///
@@ -47,6 +50,7 @@ use crate::{
 /// * `S` - The ASM specification type declaring the subprotocol pipeline
 /// * `'b` - Lifetime parameter tied to the input block reference
 pub fn pre_process_asm<'b, S: AsmSpec>(
+    stf_params: &StfParams,
     pre_state: &AnchorState,
     block: &'b Block,
 ) -> AsmResult<AsmPreProcessOutput<'b>> {
@@ -69,8 +73,16 @@ pub fn pre_process_asm<'b, S: AsmSpec>(
 
     // 4. PROCESS: Feed each subprotocol its filtered transactions for pre-processing.
     // This stage extracts auxiliary requests that will be needed for the main STF execution.
+    // `pow_state` was advanced above, so its last verified block IS the block being
+    // pre-processed — the same height `process_txs` later sees, keeping fork gates in
+    // both phases in lockstep.
+    let target_height = pow_state.last_verified_block.height() as u64;
+    let ctx = PreProcessTxsCtx {
+        target_height,
+        stf_params,
+    };
     let mut pre_process_stage =
-        PreProcessStage::new(&mut manager, pre_state, &grouped_relevant_txs);
+        PreProcessStage::new(&mut manager, pre_state, &grouped_relevant_txs, ctx);
     S::call_subprotocols(&mut pre_process_stage);
 
     // 5. Export auxiliary requests collected during pre-processing.

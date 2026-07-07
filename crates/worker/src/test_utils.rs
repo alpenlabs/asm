@@ -384,8 +384,13 @@ pub(crate) mod fixtures {
 
         let genesis = genesis_state(&client, genesis_height).await;
         let context = TestAsmWorkerContext::new((*client).clone());
-        let state = AsmWorkerServiceState::new(context, genesis, Subscribers::default())
-            .expect("create service state");
+        let state = AsmWorkerServiceState::new(
+            context,
+            genesis,
+            StfParams::default(),
+            Subscribers::default(),
+        )
+        .expect("create service state");
 
         StateFixture {
             node,

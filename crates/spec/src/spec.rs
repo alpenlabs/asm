@@ -12,9 +12,28 @@ use crate::genesis;
 ///
 /// Declares which subprotocols participate in the ASM and the order in which
 /// they are invoked. The same ordering is used for every execution stage
-/// (load, preprocess, process, finish).
-#[derive(Debug)]
-pub struct StrataAsmSpec;
+/// (load, preprocess, process, finish) and for genesis construction.
+///
+/// The pipeline itself is type-level (see [`AsmSpec`]); the struct exists to
+/// carry the [`StfParams`] through interfaces that thread a single spec value
+/// (the Moho runtime). Guest programs construct it with their hardcoded
+/// params — the verifying key thereby commits to them.
+#[derive(Debug, Clone)]
+pub struct StrataAsmSpec {
+    stf_params: StfParams,
+}
+
+impl StrataAsmSpec {
+    /// Creates a spec executing under the given STF params.
+    pub fn new(stf_params: StfParams) -> Self {
+        Self { stf_params }
+    }
+
+    /// Returns the STF params this executor runs under.
+    pub fn stf_params(&self) -> &StfParams {
+        &self.stf_params
+    }
+}
 
 impl AsmSpec for StrataAsmSpec {
     type Subprotocols = (

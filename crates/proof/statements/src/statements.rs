@@ -2,6 +2,7 @@
 
 use moho_runtime_impl::{compute_moho_attestation, RuntimeInput};
 use ssz::{Decode, Encode};
+use strata_asm_common::StfParams;
 use strata_asm_spec::StrataAsmSpec;
 use zkaleido::ZkVmEnv;
 
@@ -15,14 +16,16 @@ use crate::moho_program::program::AsmStfProgram;
 ///
 /// # Note
 ///
-/// The `spec` must be hardcoded by the outer guest program rather than read from the ZKVM input,
-/// as it defines the trusted chain parameters that the proof is verified against.
-pub fn process_asm_stf(zkvm: &impl ZkVmEnv) {
+/// `stf_params` must be hardcoded by the outer guest program rather than read from the
+/// ZKVM input: together with the spec it defines the trusted chain parameters that the
+/// proof is verified against, so the verifying key must commit to it.
+pub fn process_asm_stf(zkvm: &impl ZkVmEnv, stf_params: StfParams) {
     let runtime_input_bytes = zkvm.read_buf();
     let runtime_input = RuntimeInput::from_ssz_bytes(&runtime_input_bytes)
         .expect("failed to deserialize runtime input for SSZ bytes");
 
-    let attestation = compute_moho_attestation::<AsmStfProgram>(runtime_input, &StrataAsmSpec);
+    let spec = StrataAsmSpec::new(stf_params);
+    let attestation = compute_moho_attestation::<AsmStfProgram>(runtime_input, &spec);
 
     let attestation_bytes = attestation.as_ssz_bytes();
     zkvm.commit_buf(&attestation_bytes);

@@ -16,7 +16,7 @@ use integration_tests::harness;
 use moho_runtime_impl::RuntimeInput;
 use moho_types::ExportState;
 use ssz::Encode;
-use strata_asm_common::AuxData;
+use strata_asm_common::{AuxData, StfParams};
 use strata_asm_logs::AsmStfUpdate;
 use strata_asm_proof_impl::{
     moho_program::{input::AsmStepInput, program::advance_export_state_with_logs},
@@ -157,11 +157,12 @@ async fn test_proof_program_reflects_predicate_update() {
         pre_anchor_state.as_ssz_bytes(),
         step_input.as_ssz_bytes(),
     );
-    let attestation =
-        AsmStfProofProgram::execute(&runtime_input).expect("AsmStfProofProgram::execute failed");
+    let attestation = AsmStfProofProgram::execute(&runtime_input, StfParams::default())
+        .expect("AsmStfProofProgram::execute failed");
 
     // Independently compute the expected post-state.
     let stf_output = compute_asm_transition::<StrataAsmSpec>(
+        &StfParams::default(),
         &pre_anchor_state,
         &activation_block,
         step_input.aux_data(),

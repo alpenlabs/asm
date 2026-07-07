@@ -3,8 +3,9 @@
 use std::{any::Any, collections::BTreeMap, marker};
 
 use strata_asm_common::{
-    AsmError, AsmLogEntry, AuxRequestCollector, InterprotoMsg, MsgRelayer, ProcessMsgsCtx,
-    ProcessTxsCtx, SectionState, SubprotoHandler, Subprotocol, SubprotocolId, TxInputRef,
+    AsmError, AsmLogEntry, AuxRequestCollector, InterprotoMsg, MsgRelayer, PreProcessTxsCtx,
+    ProcessMsgsCtx, ProcessTxsCtx, SectionState, SubprotoHandler, Subprotocol, SubprotocolId,
+    TxInputRef,
 };
 
 /// Wrapper around the common subprotocol interface that handles the common
@@ -40,8 +41,13 @@ impl<S: Subprotocol, R: MsgRelayer> SubprotoHandler for HandlerImpl<S, R> {
     }
 
     // TODO(STR-3065): make this just return the aux request
-    fn pre_process_txs(&mut self, txs: &[TxInputRef<'_>], collector: &mut AuxRequestCollector) {
-        S::pre_process_txs(&self.state, txs, collector);
+    fn pre_process_txs(
+        &mut self,
+        txs: &[TxInputRef<'_>],
+        collector: &mut AuxRequestCollector,
+        ctx: &PreProcessTxsCtx<'_>,
+    ) {
+        S::pre_process_txs(&self.state, txs, collector, ctx);
     }
 
     fn process_txs(
@@ -95,6 +101,7 @@ impl SubprotoManager {
         &mut self,
         aux_collector: &mut AuxRequestCollector,
         txs: &[TxInputRef<'_>],
+        ctx: &PreProcessTxsCtx<'_>,
     ) {
         // We temporarily take the handler out of the map so we can call
         // `process_txs` with `self` as the relayer without violating the
@@ -104,7 +111,7 @@ impl SubprotoManager {
             .expect("asm: unloaded subprotocol");
 
         // Invoke the preprocess function.
-        h.pre_process_txs(txs, aux_collector);
+        h.pre_process_txs(txs, aux_collector, ctx);
         self.insert_handler(h);
     }
 

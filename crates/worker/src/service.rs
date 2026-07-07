@@ -297,7 +297,7 @@ mod tests {
     use std::thread;
 
     use bitcoind_async_client::traits::Reader;
-    use strata_asm_common::{AsmManifestHash, AuxRequestCollector};
+    use strata_asm_common::{AsmManifestHash, AuxRequestCollector, StfParams};
     use strata_btc_types::L1BlockIdBitcoinExt;
     use strata_identifiers::{Buf32, L1BlockId};
     use strata_service::CommandCompletionSender;
@@ -530,9 +530,13 @@ mod tests {
         // ...so a restart over the same store resumes at the tip.
         let context = fx.state.context.clone();
         let genesis = fixtures::genesis_state(&fx.client, 101).await;
-        let reloaded =
-            AsmWorkerServiceState::<_, TestAsmSpec>::new(context, genesis, Subscribers::default())
-                .unwrap();
+        let reloaded = AsmWorkerServiceState::<_, TestAsmSpec>::new(
+            context,
+            genesis,
+            StfParams::default(),
+            Subscribers::default(),
+        )
+        .unwrap();
         assert_eq!(
             reloaded.blkid, tip,
             "restart resumes from the tip, not the stale notification",

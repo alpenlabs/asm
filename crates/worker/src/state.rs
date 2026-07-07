@@ -1,7 +1,7 @@
 use std::marker::PhantomData;
 
 use bitcoin::{Block, CompactTarget, params::Params};
-use strata_asm_common::{AnchorState, AsmSpec, AuxData, HeaderVerificationState};
+use strata_asm_common::{AnchorState, AsmSpec, AuxData, HeaderVerificationState, StfParams};
 use strata_asm_stf::AsmStfOutput;
 use strata_btc_types::BlockHashExt;
 use strata_btc_verification::{
@@ -26,9 +26,6 @@ pub struct AsmWorkerServiceState<W, S: AsmSpec> {
     /// Context for the state to interact with outer world.
     pub(crate) context: W,
 
-    /// ASM spec driving the subprotocol pipeline (type-level only).
-    _spec: PhantomData<S>,
-
     /// Current ASM anchor state.
     pub anchor: AnchorState,
 
@@ -44,6 +41,12 @@ pub struct AsmWorkerServiceState<W, S: AsmSpec> {
     /// the service fans the new commitment out to these; see
     /// [`crate::AsmWorkerHandle::subscribe_blocks`].
     pub(crate) subscribers: Subscribers<L1BlockCommitment>,
+
+    /// STF params every transition executes under.
+    pub(crate) stf_params: StfParams,
+
+    /// ASM spec driving the subprotocol pipeline (type-level only).
+    _spec: PhantomData<S>,
 }
 
 impl<W, S> AsmWorkerServiceState<W, S>
@@ -52,13 +55,18 @@ where
     S: AsmSpec + Send + Sync + 'static,
 {
     /// Creates a new service state, loading the latest anchor or adopting the
-    /// given genesis state (when the store holds no prior state).
+    /// given genesis state.
+    ///
+    /// `stf_params` are the params every transition executes under;
+    /// `genesis_state` is the genesis anchor the worker adopts when the store
+    /// holds no prior state.
     ///
     /// Construction goes through [`crate::AsmWorkerBuilder`], which owns the
     /// shared [`Subscribers`] registry — hence `pub(crate)`.
     pub(crate) fn new(
         context: W,
         genesis_state: AnchorState,
+        stf_params: StfParams,
         subscribers: Subscribers<L1BlockCommitment>,
     ) -> WorkerResult<Self> {
         let genesis_height = genesis_state
@@ -102,6 +110,7 @@ where
             blkid,
             genesis_height,
             subscribers,
+            stf_params,
         })
     }
 
@@ -121,7 +130,7 @@ where
             let span = tracing::debug_span!("asm.stf.pre_process", protocol_txs = Empty);
             let _guard = span.enter();
 
-            let result = strata_asm_stf::pre_process_asm::<S>(cur_state, block)
+            let result = strata_asm_stf::pre_process_asm::<S>(&self.stf_params, cur_state, block)
                 .map_err(WorkerError::AsmError)?;
 
             span.record("protocol_txs", result.txs.len());
@@ -148,6 +157,7 @@ where
         let coinbase_inclusion_proof = TxidInclusionProof::generate(&block.txdata, 0);
 
         strata_asm_stf::compute_asm_transition::<S>(
+            &self.stf_params,
             cur_state,
             block,
             &aux_data,
@@ -323,9 +333,13 @@ mod tests {
             .unwrap();
 
         let genesis = fixtures::genesis_state(&seed.client, 101).await;
-        let reloaded =
-            AsmWorkerServiceState::<_, TestAsmSpec>::new(context, genesis, Subscribers::default())
-                .unwrap();
+        let reloaded = AsmWorkerServiceState::<_, TestAsmSpec>::new(
+            context,
+            genesis,
+            StfParams::default(),
+            Subscribers::default(),
+        )
+        .unwrap();
 
         assert_eq!(
             reloaded.blkid, advanced,
@@ -444,8 +458,13 @@ mod tests {
 
         let context = fx.state.context.clone();
         let genesis = fixtures::genesis_state(&fx.client, 101).await;
-        AsmWorkerServiceState::<_, TestAsmSpec>::new(context, genesis, Subscribers::default())
-            .unwrap();
+        AsmWorkerServiceState::<_, TestAsmSpec>::new(
+            context,
+            genesis,
+            StfParams::default(),
+            Subscribers::default(),
+        )
+        .unwrap();
 
         assert_eq!(
             fx.state.context.mmr_leaf_count(),

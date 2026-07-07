@@ -1,8 +1,8 @@
 //! Checkpoint Subprotocol Implementation
 
 use strata_asm_common::{
-    AuxRequestCollector, MsgRelayer, ProcessMsgsCtx, ProcessTxsCtx, Subprotocol, SubprotocolId,
-    TxInputRef, logging,
+    AuxRequestCollector, MsgRelayer, PreProcessTxsCtx, ProcessMsgsCtx, ProcessTxsCtx, Subprotocol,
+    SubprotocolId, TxInputRef, logging,
 };
 use strata_asm_params::CheckpointInitConfig;
 use strata_asm_proto_checkpoint_msgs::CheckpointIncomingMsg;
@@ -40,6 +40,7 @@ impl Subprotocol for CheckpointSubprotocol {
         state: &Self::State,
         txs: &[TxInputRef<'_>],
         collector: &mut AuxRequestCollector,
+        _ctx: &PreProcessTxsCtx<'_>,
     ) {
         for tx in txs {
             if tx.tag().tx_type() == OL_STF_CHECKPOINT_TX_TYPE {

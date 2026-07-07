@@ -9,3 +9,7 @@ pub mod program;
 pub mod statements;
 #[cfg(any(test, feature = "test-utils"))]
 pub mod test_utils;
+
+// Re-exported so guest programs can construct their hardcoded params without
+// depending on strata-asm-common directly.
+pub use strata_asm_common::{ForkId, ForkSchedule, StfParams};

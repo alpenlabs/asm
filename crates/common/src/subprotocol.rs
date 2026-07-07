@@ -11,9 +11,32 @@ use strata_identifiers::L1BlockCommitment;
 pub use strata_l1_txfmt::SubprotocolId;
 
 use crate::{
-    AsmError, AsmLogEntry, AuxRequestCollector, HeaderVerificationState, SectionState, TxInputRef,
-    VerifiedAuxData, msg::InterprotoMsg,
+    AsmError, AsmLogEntry, AuxRequestCollector, HeaderVerificationState, SectionState, StfParams,
+    TxInputRef, VerifiedAuxData, msg::InterprotoMsg,
 };
+
+/// Context for [`Subprotocol::pre_process_txs`].
+///
+/// Aux-data requests declared here MUST be gated on exactly the same fork
+/// conditions as the [`Subprotocol::process_txs`] phase that later consumes
+/// them, otherwise aux data is requested but never consumed — or consumed but
+/// never requested, failing at runtime.
+#[derive(Debug)]
+pub struct PreProcessTxsCtx<'a> {
+    /// Height of the L1 block whose transactions are being pre-processed.
+    ///
+    /// Needed to evaluate fork gates: pre-processing runs against the
+    /// *previous* block's state and, unlike `process_txs`, receives no
+    /// [`HeaderVerificationState`] to read the height from, so it is not
+    /// otherwise derivable in this phase.
+    pub target_height: u64,
+
+    /// STF params the transition executes under.
+    ///
+    /// Needed for the fork schedule that gates aux requests, evaluated
+    /// against [`Self::target_height`].
+    pub stf_params: &'a StfParams,
+}
 
 /// Context for [`Subprotocol::process_txs`].
 #[derive(Debug)]
@@ -31,6 +54,12 @@ pub struct ProcessTxsCtx<'a> {
     /// Needed so processing can consume the external data (manifest hashes,
     /// proofs, ...) it declared a dependency on during pre-processing.
     pub verified_aux_data: &'a VerifiedAuxData,
+
+    /// STF params the transition executes under.
+    ///
+    /// Needed for the fork schedule that gates processing logic, evaluated
+    /// against the height of `header_vs.last_verified_block`.
+    pub stf_params: &'a StfParams,
 }
 
 /// Context for [`Subprotocol::process_msgs`].
@@ -41,6 +70,12 @@ pub struct ProcessMsgsCtx<'a> {
     /// Needed to anchor message effects to the block (e.g. withdrawal
     /// assignments record the L1 block they were created at).
     pub l1ref: &'a L1BlockCommitment,
+
+    /// STF params the transition executes under.
+    ///
+    /// Needed so message handling can be fork-gated on the same conditions as
+    /// the tx-processing phase that produced the messages.
+    pub stf_params: &'a StfParams,
 }
 
 /// Trait for defining subprotocol behavior within the ASM framework.
@@ -80,6 +115,7 @@ pub struct ProcessMsgsCtx<'a> {
 ///         state: &Self::State,
 ///         txs: &[TxInputRef],
 ///         collector: &mut AuxRequestCollector,
+///         ctx: &PreProcessTxsCtx<'_>,
 ///     ) {
 ///         // Pre-process transactions and request auxiliary data
 ///     }
@@ -140,10 +176,12 @@ pub trait Subprotocol: 'static {
     /// * `state` - Current state of the subprotocol
     /// * `txs` - Slice of L1 transactions relevant to this subprotocol
     /// * `collector` - Interface for registering auxiliary input requirements
+    /// * `ctx` - Ambient context; see [`PreProcessTxsCtx`] for the fork-gating invariant
     fn pre_process_txs(
         _state: &Self::State,
         _txs: &[TxInputRef<'_>],
         _collector: &mut AuxRequestCollector,
+        _ctx: &PreProcessTxsCtx<'_>,
     ) {
         // default nothing
     }
@@ -206,7 +244,12 @@ pub trait SubprotoHandler {
     ///
     /// Any required auxiliary data should be registered via the provided `AuxRequestCollector` for
     /// the subsequent processing phase.
-    fn pre_process_txs(&mut self, txs: &[TxInputRef<'_>], collector: &mut AuxRequestCollector);
+    fn pre_process_txs(
+        &mut self,
+        txs: &[TxInputRef<'_>],
+        collector: &mut AuxRequestCollector,
+        ctx: &PreProcessTxsCtx<'_>,
+    );
 
     /// Processes a batch of L1 transactions by delegating to the underlying subprotocol's
     /// `process_txs` implementation.

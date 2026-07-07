@@ -4,8 +4,8 @@
 //! with the Strata Anchor State Machine (ASM).
 
 use strata_asm_common::{
-    AsmLogEntry, AuxRequestCollector, MsgRelayer, ProcessMsgsCtx, ProcessTxsCtx, Subprotocol,
-    SubprotocolId, TxInputRef,
+    AsmLogEntry, AuxRequestCollector, MsgRelayer, PreProcessTxsCtx, ProcessMsgsCtx, ProcessTxsCtx,
+    Subprotocol, SubprotocolId, TxInputRef,
     logging::{debug, error, info},
 };
 use strata_asm_logs::ExportExtraDataUpdate;
@@ -47,6 +47,7 @@ impl Subprotocol for BridgeV1Subproto {
         state: &Self::State,
         txs: &[TxInputRef<'_>],
         collector: &mut AuxRequestCollector,
+        _ctx: &PreProcessTxsCtx<'_>,
     ) {
         // Pre-Process each transaction
         for tx in txs {
@@ -211,7 +212,7 @@ impl Subprotocol for BridgeV1Subproto {
 
 #[cfg(test)]
 mod tests {
-    use strata_asm_common::{ProcessMsgsCtx, Subprotocol};
+    use strata_asm_common::{ProcessMsgsCtx, StfParams, Subprotocol};
     use strata_asm_proto_bridge_v1_msgs::{BridgeIncomingMsg, DefconPayload};
     use strata_asm_proto_bridge_v1_types::SafeHarbourAddress;
     use strata_identifiers::L1BlockCommitment;
@@ -238,7 +239,11 @@ mod tests {
         let msgs = vec![BridgeIncomingMsg::UpdateSafeHarbourAddress(
             new_address.clone(),
         )];
-        let ctx = ProcessMsgsCtx { l1ref: &l1ref };
+        let stf_params = StfParams::default();
+        let ctx = ProcessMsgsCtx {
+            l1ref: &l1ref,
+            stf_params: &stf_params,
+        };
         BridgeV1Subproto::process_msgs(&mut state, &msgs, &ctx);
 
         assert_eq!(state.safe_harbour().address(), &new_address);
@@ -252,7 +257,11 @@ mod tests {
         let l1ref: L1BlockCommitment = ArbitraryGenerator::new().generate();
 
         let msgs = vec![BridgeIncomingMsg::Defcon(DefconPayload::default())];
-        let ctx = ProcessMsgsCtx { l1ref: &l1ref };
+        let stf_params = StfParams::default();
+        let ctx = ProcessMsgsCtx {
+            l1ref: &l1ref,
+            stf_params: &stf_params,
+        };
         BridgeV1Subproto::process_msgs(&mut state, &msgs, &ctx);
 
         assert!(state.safe_harbour().is_activated());
@@ -278,7 +287,11 @@ mod tests {
             BridgeIncomingMsg::Defcon(DefconPayload::default()),
             BridgeIncomingMsg::UpdateSafeHarbourAddress(rejected_address),
         ];
-        let ctx = ProcessMsgsCtx { l1ref: &l1ref };
+        let stf_params = StfParams::default();
+        let ctx = ProcessMsgsCtx {
+            l1ref: &l1ref,
+            stf_params: &stf_params,
+        };
         BridgeV1Subproto::process_msgs(&mut state, &msgs, &ctx);
 
         assert!(state.safe_harbour().is_activated());

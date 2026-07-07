@@ -6,7 +6,7 @@ use bitcoin::Block;
 use ssz_types::VariableList;
 use strata_asm_common::{
     AnchorState, AsmError, AsmManifest, AsmResult, AsmSpec, AuxData, ChainViewState,
-    ProcessMsgsCtx, ProcessTxsCtx, VerifiedAuxData,
+    ProcessMsgsCtx, ProcessTxsCtx, StfParams, VerifiedAuxData,
 };
 use strata_btc_verification::{TxidInclusionProof, check_block_integrity};
 
@@ -24,7 +24,14 @@ use crate::{
 /// witness commitment) and header continuity, loading subprotocols with auxiliary input data,
 /// processing protocol-specific transactions, handling inter-protocol communication, and
 /// constructing the final state with logs.
+///
+/// `S` declares the subprotocol pipeline; `stf_params` are the protocol-rule
+/// parameters the transition executes under (e.g. the fork schedule). Every
+/// executor passes its own: guest programs hardcode them (so the verifying key
+/// commits to them), while the worker passes its effective params with
+/// discovered fork activations applied.
 pub fn compute_asm_transition<S: AsmSpec>(
+    stf_params: &StfParams,
     pre_state: &AnchorState,
     block: &Block,
     aux_data: &AuxData,
@@ -63,6 +70,7 @@ pub fn compute_asm_transition<S: AsmSpec>(
     let process_ctx = ProcessTxsCtx {
         header_vs: &pow_state,
         verified_aux_data: &verified_aux_data,
+        stf_params,
     };
     let mut process_stage = ProcessStage::new(&mut manager, protocol_txs, process_ctx);
     S::call_subprotocols(&mut process_stage);
@@ -74,6 +82,7 @@ pub fn compute_asm_transition<S: AsmSpec>(
     // bounded number of times
     let finish_ctx = ProcessMsgsCtx {
         l1ref: &pow_state.last_verified_block,
+        stf_params,
     };
     let mut finish_stage = FinishStage::new(&mut manager, finish_ctx);
     S::call_subprotocols(&mut finish_stage);

@@ -44,7 +44,8 @@ impl<W, S: AsmSpec> AsmWorkerBuilder<W, S> {
 
     /// Set the ASM params. The spec derives everything else from these: the
     /// genesis anchor state, adopted (after validation against the L1 source)
-    /// when the store holds no prior state.
+    /// when the store holds no prior state, and the base STF params the
+    /// worker starts from.
     pub fn with_params(mut self, params: S::Params) -> Self {
         self.params = Some(params);
         self
@@ -68,6 +69,7 @@ impl<W, S: AsmSpec> AsmWorkerBuilder<W, S> {
             .ok_or(WorkerError::MissingDependency("params"))?;
 
         let genesis_state = S::construct_genesis_state(&params);
+        let stf_params = S::stf_params(&params);
         // Exposed on the handle so downstream services (Moho worker, prover
         // input builder) read the chain's genesis point from the worker
         // rather than re-deriving it from params.
@@ -79,8 +81,12 @@ impl<W, S: AsmSpec> AsmWorkerBuilder<W, S> {
         let subscribers = Subscribers::default();
 
         // Create the service state.
-        let service_state =
-            AsmWorkerServiceState::<W, S>::new(context, genesis_state, subscribers.clone())?;
+        let service_state = AsmWorkerServiceState::<W, S>::new(
+            context,
+            genesis_state,
+            stf_params,
+            subscribers.clone(),
+        )?;
 
         // Create the service builder and get command handle.
         let mut service_builder =

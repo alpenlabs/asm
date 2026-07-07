@@ -3,8 +3,8 @@
 use std::collections::BTreeMap;
 
 use strata_asm_common::{
-    AnchorState, AuxRequestCollector, AuxRequests, ProcessMsgsCtx, ProcessTxsCtx, Stage,
-    Subprotocol, SubprotocolId, TxInputRef,
+    AnchorState, AuxRequestCollector, AuxRequests, PreProcessTxsCtx, ProcessMsgsCtx, ProcessTxsCtx,
+    Stage, Subprotocol, SubprotocolId, TxInputRef,
 };
 
 use crate::manager::SubprotoManager;
@@ -41,6 +41,7 @@ pub(crate) struct PreProcessStage<'c> {
     manager: &'c mut SubprotoManager,
     tx_bufs: &'c BTreeMap<SubprotocolId, Vec<TxInputRef<'c>>>,
     aux_collector: AuxRequestCollector,
+    ctx: PreProcessTxsCtx<'c>,
 }
 
 impl<'c> PreProcessStage<'c> {
@@ -48,6 +49,7 @@ impl<'c> PreProcessStage<'c> {
         manager: &'c mut SubprotoManager,
         anchor_state: &'c AnchorState,
         tx_bufs: &'c BTreeMap<SubprotocolId, Vec<TxInputRef<'c>>>,
+        ctx: PreProcessTxsCtx<'c>,
     ) -> Self {
         let accumulator = &anchor_state.chain_view.history_accumulator;
         // The MMR is height-indexed (sentinel-prefilled at and before genesis),
@@ -62,6 +64,7 @@ impl<'c> PreProcessStage<'c> {
             manager,
             tx_bufs,
             aux_collector,
+            ctx,
         }
     }
 
@@ -79,7 +82,7 @@ impl Stage for PreProcessStage<'_> {
             .unwrap_or(&[]);
 
         self.manager
-            .invoke_pre_process_txs::<S>(&mut self.aux_collector, txs);
+            .invoke_pre_process_txs::<S>(&mut self.aux_collector, txs, &self.ctx);
     }
 }
 
