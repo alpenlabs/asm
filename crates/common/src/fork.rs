@@ -79,6 +79,11 @@ impl ForkSchedule {
         Self { fork1: u64::MAX }
     }
 
+    /// Schedule with every fork active since genesis (activation at `0`).
+    pub const fn all_enabled() -> Self {
+        Self { fork1: 0 }
+    }
+
     /// Returns the activation height of `fork`.
     pub fn activation_height(&self, fork: ForkId) -> u64 {
         match fork {
@@ -118,6 +123,16 @@ impl Default for ForkSchedule {
 pub struct StfParams {
     /// Fork activation schedule.
     pub forks: ForkSchedule,
+}
+
+impl StfParams {
+    /// Params with every fork active since genesis, matching current mainline
+    /// behavior.
+    pub const fn all_forks_enabled() -> Self {
+        Self {
+            forks: ForkSchedule::all_enabled(),
+        }
+    }
 }
 
 #[cfg(test)]

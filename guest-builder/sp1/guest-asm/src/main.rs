@@ -6,5 +6,6 @@ use zkaleido_sp1_guest_env::Sp1ZkVmEnv;
 
 fn main() {
     // Hardcoded on purpose: the verifying key must commit to the STF params.
-    process_asm_stf(&Sp1ZkVmEnv, StfParams::default())
+    // Unstake has been supported since genesis, so its fork is active at 0.
+    process_asm_stf(&Sp1ZkVmEnv, StfParams::all_forks_enabled())
 }

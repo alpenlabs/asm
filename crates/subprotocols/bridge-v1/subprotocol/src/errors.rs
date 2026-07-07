@@ -19,6 +19,11 @@ pub enum BridgeSubprotocolError {
 
     #[error("failed to validate unstake tx: {0}")]
     UnstakeTxValidation(#[from] UnstakeValidationError),
+
+    /// The unstake fork has not activated yet, so unstake transactions are not
+    /// a recognized transaction type and are skipped.
+    #[error("unstake txs are not supported before the unstake fork (height {height})")]
+    UnstakeForkInactive { height: u64 },
 }
 
 /// Errors that can occur when validating deposit transactions at the subprotocol level.

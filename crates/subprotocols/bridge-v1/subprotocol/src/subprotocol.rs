@@ -47,7 +47,7 @@ impl Subprotocol for BridgeV1Subproto {
         state: &Self::State,
         txs: &[TxInputRef<'_>],
         collector: &mut AuxRequestCollector,
-        _ctx: &PreProcessTxsCtx<'_>,
+        ctx: &PreProcessTxsCtx<'_>,
     ) {
         // Pre-Process each transaction
         for tx in txs {
@@ -56,7 +56,13 @@ impl Subprotocol for BridgeV1Subproto {
             // bridge subprotocol (e.g. `DepositRequest`, `Commit`) or are otherwise unparseable
             // are silently skipped.
             if let Some(parsed_tx) = parse_tx(tx) {
-                preprocess_parsed_tx(parsed_tx, state, collector);
+                preprocess_parsed_tx(
+                    parsed_tx,
+                    state,
+                    collector,
+                    ctx.stf_params,
+                    ctx.target_height,
+                );
             }
         }
     }
@@ -91,7 +97,15 @@ impl Subprotocol for BridgeV1Subproto {
             let Some(parsed_tx) = parse_tx(tx) else {
                 continue;
             };
-            match handle_parsed_tx(state, parsed_tx, ctx.verified_aux_data, relayer) {
+            let height = header_vs.last_verified_block.height() as u64;
+            match handle_parsed_tx(
+                state,
+                parsed_tx,
+                ctx.verified_aux_data,
+                relayer,
+                ctx.stf_params,
+                height,
+            ) {
                 // `handle_parsed_tx` already emits a type-specific info log on success, so this
                 // is only a coarse trace marker. `txid` is computed inside the macro, because
                 // logging is compiled to noop in ZkVM.

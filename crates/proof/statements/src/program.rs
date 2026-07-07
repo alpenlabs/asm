@@ -100,7 +100,8 @@ mod tests {
     fn test_stf() {
         let runtime_input = create_runtime_input();
 
-        let output = AsmStfProofProgram::execute(&runtime_input, StfParams::default()).unwrap();
+        let output =
+            AsmStfProofProgram::execute(&runtime_input, StfParams::all_forks_enabled()).unwrap();
         dbg!(output);
     }
 }

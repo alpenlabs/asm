@@ -1,6 +1,6 @@
 use strata_asm_common::{
-    AsmLogEntry, AuxRequestCollector, MsgRelayer, VerifiedAuxData,
-    logging::{error, info},
+    AsmLogEntry, AuxRequestCollector, ForkId, MsgRelayer, StfParams, VerifiedAuxData,
+    logging::{error, info, warn},
 };
 use strata_asm_logs::{DepositLog, NewExportEntry};
 use strata_asm_proto_bridge_v1_txs::{
@@ -41,6 +41,8 @@ pub(crate) fn handle_parsed_tx(
     parsed_tx: ParsedTx,
     verified_aux_data: &VerifiedAuxData,
     relayer: &mut impl MsgRelayer,
+    stf_params: &StfParams,
+    height: u64,
 ) -> Result<(), BridgeSubprotocolError> {
     match parsed_tx {
         ParsedTx::Deposit(info) => {
@@ -123,6 +125,13 @@ pub(crate) fn handle_parsed_tx(
             Ok(())
         }
         ParsedTx::Unstake(info) => {
+            // Gate BEFORE touching aux data: pre-processing skips the aux
+            // request under the same condition, so reaching for it here would
+            // panic on the (deliberately) missing entry.
+            if !stf_params.forks.is_active(ForkId::Fork1, height) {
+                return Err(BridgeSubprotocolError::UnstakeForkInactive { height });
+            }
+
             let outpoint = info.stake_inpoint().outpoint();
             let stake_connector_txout = verified_aux_data
                 .get_bitcoin_txout(outpoint)
@@ -148,6 +157,8 @@ pub(crate) fn preprocess_parsed_tx(
     parsed_tx: ParsedTx,
     _state: &BridgeV1State,
     collector: &mut AuxRequestCollector,
+    stf_params: &StfParams,
+    target_height: u64,
 ) {
     match parsed_tx {
         ParsedTx::Deposit(info) => {
@@ -163,6 +174,17 @@ pub(crate) fn preprocess_parsed_tx(
             collector.request_bitcoin_tx(info.stake_inpoint().0.txid);
         }
         ParsedTx::Unstake(info) => {
+            // Gate on the same fork condition as `handle_parsed_tx`: pre-fork,
+            // unstake txs are skipped there without touching aux data, so
+            // requesting it here would fetch data nothing consumes.
+            if !stf_params.forks.is_active(ForkId::Fork1, target_height) {
+                warn!(
+                    target_height,
+                    "Skipping unstake tx aux request; unstake fork not active"
+                );
+                return;
+            }
+
             // Request the Bitcoin transaction spent by the stake connector input. The handler
             // compares its `scriptPubKey` against the canonical stake-connector commitment
             // reconstructed from the witness
@@ -173,6 +195,7 @@ pub(crate) fn preprocess_parsed_tx(
 
 #[cfg(test)]
 mod tests {
+    use strata_asm_common::StfParams;
     use strata_asm_proto_bridge_v1_txs::{
         deposit_request::DrtHeaderAux,
         parser::ParsedTx,
@@ -212,8 +235,15 @@ mod tests {
 
         // 4. Handle the transaction
         let mut relayer = MockMsgRelayer;
-        handle_parsed_tx(&mut state, parsed_tx, &verified_aux_data, &mut relayer)
-            .expect("handling valid deposit tx should succeed");
+        handle_parsed_tx(
+            &mut state,
+            parsed_tx,
+            &verified_aux_data,
+            &mut relayer,
+            &StfParams::all_forks_enabled(),
+            0,
+        )
+        .expect("handling valid deposit tx should succeed");
 
         // 5. Should add a new entry in the deposits table
         assert!(
@@ -253,8 +283,15 @@ mod tests {
 
             // 3. Handle the transaction
             let mut relayer = MockMsgRelayer;
-            handle_parsed_tx(&mut state, parsed_tx, &aux, &mut relayer)
-                .expect("handling deposit tx should success");
+            handle_parsed_tx(
+                &mut state,
+                parsed_tx,
+                &aux,
+                &mut relayer,
+                &StfParams::all_forks_enabled(),
+                0,
+            )
+            .expect("handling deposit tx should success");
 
             assert!(
                 state
@@ -280,7 +317,14 @@ mod tests {
         // 5. Handle the transaction
         let parsed_tx = ParsedTx::Slash(info);
         let mut relayer = MockMsgRelayer;
-        let result = handle_parsed_tx(&mut state, parsed_tx, &aux, &mut relayer);
+        let result = handle_parsed_tx(
+            &mut state,
+            parsed_tx,
+            &aux,
+            &mut relayer,
+            &StfParams::all_forks_enabled(),
+            0,
+        );
 
         assert!(result.is_ok(), "Handle parsed tx should succeed");
 
@@ -305,7 +349,14 @@ mod tests {
         // Handle the transaction
         let parsed_tx = ParsedTx::Unstake(info);
         let mut relayer = MockMsgRelayer;
-        let result = handle_parsed_tx(&mut state, parsed_tx, &aux, &mut relayer);
+        let result = handle_parsed_tx(
+            &mut state,
+            parsed_tx,
+            &aux,
+            &mut relayer,
+            &StfParams::all_forks_enabled(),
+            0,
+        );
 
         assert!(result.is_ok(), "Handle parsed tx should succeed");
 
@@ -332,7 +383,14 @@ mod tests {
         let empty_aux = create_verified_aux_data(vec![]);
         let parsed_tx = ParsedTx::Deposit(info);
         let mut relayer = MockMsgRelayer;
-        let _ = handle_parsed_tx(&mut state, parsed_tx, &empty_aux, &mut relayer);
+        let _ = handle_parsed_tx(
+            &mut state,
+            parsed_tx,
+            &empty_aux,
+            &mut relayer,
+            &StfParams::all_forks_enabled(),
+            0,
+        );
     }
 
     #[test]
@@ -346,6 +404,13 @@ mod tests {
         let empty_aux = create_verified_aux_data(vec![]);
         let parsed_tx = ParsedTx::Slash(info);
         let mut relayer = MockMsgRelayer;
-        let _ = handle_parsed_tx(&mut state, parsed_tx, &empty_aux, &mut relayer);
+        let _ = handle_parsed_tx(
+            &mut state,
+            parsed_tx,
+            &empty_aux,
+            &mut relayer,
+            &StfParams::all_forks_enabled(),
+            0,
+        );
     }
 }

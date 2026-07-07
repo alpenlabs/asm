@@ -44,7 +44,7 @@ pub(super) async fn build_native_hosts(
     use zkaleido_native_adapter::NativeHost;
 
     // Matches the schedule baked into the production ASM guest.
-    let stf_params = StfParams::default();
+    let stf_params = StfParams::all_forks_enabled();
     Ok((
         NativeHost::new(asm_signing_key.clone(), move |env| {
             process_asm_stf(env, stf_params.clone())
