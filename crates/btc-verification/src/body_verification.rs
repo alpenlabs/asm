@@ -94,10 +94,24 @@ pub fn check_block_integrity(
 
         Ok(Buf32::from(witness_root.to_byte_array()))
     } else {
-        // If there’s no witness commitment at all, fall back to a merkle root check.
+        // The merkle root commits only to txids, which exclude witness data, so it cannot detect
+        // witness attached to a commitment-free block. Enforce the BIP141 rule explicitly: reject
+        // any block that omits the commitment yet carries witness data. Without this, a tampered
+        // witness-free block could smuggle arbitrary uncommitted witness past body verification.
+        let has_witness = txdata
+            .iter()
+            .any(|tx| tx.input.iter().any(|input| !input.witness.is_empty()));
+        if has_witness {
+            return Err(L1BodyError::UncommittedWitnessData);
+        }
+
+        // No witness commitment in the coinbase. Per BIP141 the commitment may be omitted only
+        // when *no* transaction carries witness data, so validate the header's merkle root against
+        // the txids.
         if !check_merkle_root(block) {
             return Err(L1BodyError::MerkleRootMismatch);
         }
+
         Ok(Buf32::from(header.merkle_root.to_byte_array()))
     }
 }
@@ -240,5 +254,35 @@ mod tests {
         // Verify with a valid inclusion proof.
         let valid_inclusion_proof = TxidInclusionProof::generate(&block.txdata, 0);
         check_block_integrity(&block, Some(&valid_inclusion_proof)).unwrap();
+    }
+
+    /// A block whose coinbase omits the witness commitment but that still carries witness data must
+    /// be rejected. This is the combination BIP141 forbids: the commitment may be omitted only for
+    /// fully witness-free blocks. Because txids exclude witness data, attaching witness to a legacy
+    /// block leaves the header's merkle root valid, so the merkle check alone cannot catch it — the
+    /// explicit `UncommittedWitnessData` guard must.
+    #[test]
+    fn test_uncommitted_witness_data_rejected() {
+        let btc_chain = BtcMainnetSegment::load();
+        let mut block = btc_chain.get_block_at(40321).unwrap();
+
+        // This legacy block has no witness commitment and verifies as-is.
+        assert!(witness_commitment_from_coinbase(&block.txdata[0]).is_none());
+        check_block_integrity(&block, None).unwrap();
+
+        // Attach uncommitted witness data to a transaction input.
+        let mut witness = Witness::new();
+        witness.push([0x42u8; 32]);
+        block.txdata[0].input[0].witness = witness;
+
+        // The merkle root still matches (txids are unchanged by witness edits)...
+        assert!(
+            check_merkle_root(&block),
+            "witness edits must not change the txid merkle root"
+        );
+
+        // ...yet the block must be rejected because the witness is uncommitted.
+        let err = check_block_integrity(&block, None).unwrap_err();
+        assert!(matches!(err, L1BodyError::UncommittedWitnessData));
     }
 }

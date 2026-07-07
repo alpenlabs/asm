@@ -55,4 +55,10 @@ pub enum L1BodyError {
     /// The merkle root in the header does not match the computed merkle root.
     #[error("merkle root mismatch")]
     MerkleRootMismatch,
+
+    /// The coinbase omits a witness commitment, yet the block carries witness data. Bitcoin
+    /// consensus (BIP141) only permits omitting the commitment when no transaction has witness
+    /// data.
+    #[error("block carries witness data but the coinbase has no witness commitment")]
+    UncommittedWitnessData,
 }
