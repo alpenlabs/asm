@@ -630,7 +630,7 @@ async fn test_multiple_zero_depth_updates_same_block() {
 
     // Verify all 3 transactions were included in the block
     let block = harness.client.get_block(&block_hash).await.unwrap();
-    let parser = ParseConfig::new(harness.asm_params.magic);
+    let parser = ParseConfig::new(harness.asm_params.genesis.magic);
     let admin_tx_count = block
         .txdata
         .iter()

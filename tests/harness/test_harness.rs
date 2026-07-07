@@ -431,8 +431,8 @@ impl AsmTestHarness {
         let commit_outpoint = OutPoint::new(commit_txid, commit_vout);
 
         // Build SPS-50 compliant OP_RETURN tag
-        let op_return_script =
-            ParseConfig::new(self.asm_params.magic).encode_script_buf(&sps50_tag.as_ref())?;
+        let op_return_script = ParseConfig::new(self.asm_params.genesis.magic)
+            .encode_script_buf(&sps50_tag.as_ref())?;
 
         let op_return_output = TxOut {
             value: Amount::ZERO,
@@ -691,8 +691,8 @@ impl AsmTestHarnessBuilder {
 
         // 4. Build AsmParams (arbitrary for non-subprotocol fields) and install our configs.
         let mut asm_params: AsmParams = ArbitraryGenerator::new().generate();
-        asm_params.anchor = genesis_view;
-        for instance in &mut asm_params.subprotocols {
+        asm_params.genesis.anchor = genesis_view;
+        for instance in &mut asm_params.genesis.subprotocols {
             match instance {
                 SubprotocolInstance::Admin(cfg) => *cfg = admin_config.clone(),
                 SubprotocolInstance::Bridge(cfg) => *cfg = bridge_config.clone(),
@@ -716,7 +716,7 @@ impl AsmTestHarnessBuilder {
         let asm_handle = AsmWorkerBuilder::new()
             .with_context(context.clone())
             .with_asm_spec(StrataAsmSpec)
-            .with_params((*asm_params).clone())
+            .with_params(asm_params.genesis.clone())
             .launch(&executor)?;
 
         let harness = AsmTestHarness {

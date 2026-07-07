@@ -11,6 +11,11 @@ from constants import ASM_MAGIC_BYTES
 # tests. Address `bc1ppuxgmd6n4j73wdp688p08a8rte97dkn5n70r2ym6kgsw0v3c5ensrytduf`.
 DEFAULT_SAFE_HARBOUR_ADDRESS = "040f0c8db753acbd17343a39c2f3f4e35e4be6da749f9e35137ab220e7b238a667"
 
+# Fork activation height meaning "never". Capped at i64::MAX rather than
+# u64::MAX because the value also rides through the prover's TOML config,
+# and TOML integers are signed 64-bit. Equally unreachable in practice.
+FORK_NEVER = 2**63 - 1
+
 
 @dataclass
 class Block:
@@ -80,12 +85,16 @@ class AsmParams:
     magic: str
     anchor: L1Anchor
     subprotocols: list[dict[str, Any]]
+    # STF config: base fork schedule. Dynamic activations come from enacted
+    # ASM VK upgrades, which name the fork they activate.
+    fork1_height: int = 0
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "magic": self.magic,
             "anchor": asdict(self.anchor),
             "subprotocols": self.subprotocols,
+            "forks": {"fork1": self.fork1_height},
         }
 
 
@@ -139,9 +148,11 @@ def build_subprotocols(
     operator_fee: int = 100_000_000,
     recovery_delay: int = 1_008,
     safe_harbour_address: str = DEFAULT_SAFE_HARBOUR_ADDRESS,
+    confirmation_depth: int = 144,
 ) -> list[dict[str, Any]]:
-    compressed_keys = [f"02{key}" for key in musig2_keys]
-    confirmation_depth = 144
+    # Accept either x-only keys (64 hex chars, assumed even-Y and prefixed
+    # with 02) or full compressed keys (66 hex chars, used as-is).
+    compressed_keys = [key if len(key) == 66 else f"02{key}" for key in musig2_keys]
 
     admin = {
         "Admin": asdict(
@@ -207,6 +218,8 @@ def build_asm_params(
     operator_fee: int = 100_000_000,
     recovery_delay: int = 1_008,
     safe_harbour_address: str = DEFAULT_SAFE_HARBOUR_ADDRESS,
+    confirmation_depth: int = 144,
+    fork1_height: int = 0,
 ) -> AsmParams:
     anchor = build_l1_anchor(genesis_height, block_hash, header, epoch_start_header)
     subprotocols = build_subprotocols(
@@ -217,11 +230,13 @@ def build_asm_params(
         operator_fee=operator_fee,
         recovery_delay=recovery_delay,
         safe_harbour_address=safe_harbour_address,
+        confirmation_depth=confirmation_depth,
     )
     return AsmParams(
         magic=magic,
         anchor=anchor,
         subprotocols=subprotocols,
+        fork1_height=fork1_height,
     )
 
 

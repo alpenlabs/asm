@@ -1,19 +1,19 @@
-//! Genesis anchor state construction from [`AsmParams`].
+//! Genesis anchor state construction from [`GenesisParams`].
 
 use strata_asm_common::{
     AnchorState, AsmHistoryAccumulatorState, ChainViewState, HeaderVerificationState, SectionState,
 };
-use strata_asm_params::AsmParams;
+use strata_asm_params::GenesisParams;
 use strata_asm_proto_admin::{AdministrationSubprotoState, AdministrationSubprotocol};
 use strata_asm_proto_bridge_v1::{BridgeV1State, BridgeV1Subproto};
 use strata_asm_proto_checkpoint::{CheckpointState, CheckpointSubprotocol};
 use strata_btc_verification::HeaderVerificationState as NativeHeaderVerificationState;
 
-/// Builds the genesis [`AnchorState`] from the given [`AsmParams`].
+/// Builds the genesis [`AnchorState`] from the given [`GenesisParams`].
 ///
 /// Initialises every subprotocol's state from its config in `params` and
 /// assembles the chain view (PoW header verification + history accumulator).
-pub fn construct_genesis_state(params: &AsmParams) -> AnchorState {
+pub fn construct_genesis_state(params: &GenesisParams) -> AnchorState {
     let genesis_admin_subprotocol_state = AdministrationSubprotoState::new(
         params
             .admin_config()
