@@ -797,6 +797,7 @@ dependencies = [
  "strata-identifiers",
  "strata-merkle",
  "strata-merkle-node-store",
+ "strata-predicate",
  "tempfile",
 ]
 
@@ -7630,6 +7631,7 @@ dependencies = [
  "strata-l1-txfmt",
  "strata-merkle",
  "strata-msg-fmt",
+ "strata-predicate",
  "strata-test-utils-arb",
  "thiserror 2.0.18",
  "tracing",
@@ -8416,6 +8418,7 @@ version = "0.1.0"
 source = "git+https://github.com/alpenlabs/strata-common?tag=v0.3.0-rc.1#861ef15a7a2e0335ca84d21d35c2326c85638904"
 dependencies = [
  "arbitrary",
+ "borsh",
  "hex",
  "k256",
  "serde",

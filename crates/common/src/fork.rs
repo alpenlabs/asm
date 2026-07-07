@@ -8,6 +8,7 @@
 //! outcome at every height it executes (see `StfParams`).
 
 use serde::{Deserialize, Serialize};
+use strata_predicate::PredicateKey;
 
 /// Identifies a named fork.
 ///
@@ -57,6 +58,35 @@ impl TryFrom<u16> for ForkId {
             .ok()
             .and_then(|v| ForkId::try_from(v).ok())
             .ok_or(value)
+    }
+}
+
+/// A discovered fork activation.
+///
+/// Records that the block at `enacting_height` enacted an ASM VK upgrade
+/// which activates `fork` from the next block onward, switching the ASM STF
+/// predicate to `new_predicate`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ForkActivation {
+    /// Height of the L1 block whose ASM VK upgrade enactment triggered the
+    /// activation.
+    pub enacting_height: u32,
+
+    /// The activated fork.
+    pub fork: ForkId,
+
+    /// The ASM STF predicate the upgrade enacted. Enactment removes the
+    /// update from the admin queue and only surfaces it in the emitted log,
+    /// so this record is the worker's durable copy of the VK the boundary
+    /// switched to.
+    pub new_predicate: PredicateKey,
+}
+
+impl ForkActivation {
+    /// Height from which the fork's rules apply: the block after the
+    /// enacting one.
+    pub fn activation_height(&self) -> u64 {
+        self.enacting_height as u64 + 1
     }
 }
 
@@ -195,5 +225,15 @@ mod tests {
         assert_eq!(u16::from(ForkId::Fork1), 0);
         assert_eq!(ForkId::try_from(0u16).unwrap(), ForkId::Fork1);
         assert_eq!(ForkId::try_from(0xFFFFu16), Err(0xFFFF));
+    }
+
+    #[test]
+    fn activation_is_block_after_enactment() {
+        let activation = ForkActivation {
+            enacting_height: 41,
+            fork: ForkId::Fork1,
+            new_predicate: PredicateKey::always_accept(),
+        };
+        assert_eq!(activation.activation_height(), 42);
     }
 }
