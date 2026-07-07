@@ -161,8 +161,7 @@ async fn test_proof_program_reflects_predicate_update() {
         AsmStfProofProgram::execute(&runtime_input).expect("AsmStfProofProgram::execute failed");
 
     // Independently compute the expected post-state.
-    let stf_output = compute_asm_transition(
-        &StrataAsmSpec,
+    let stf_output = compute_asm_transition::<StrataAsmSpec>(
         &pre_anchor_state,
         &activation_block,
         step_input.aux_data(),

@@ -1,3 +1,5 @@
+use std::marker::PhantomData;
+
 use strata_asm_common::AsmSpec;
 use strata_service::ServiceBuilder;
 use strata_tasks::TaskExecutor;
@@ -14,14 +16,14 @@ use crate::{
 /// from leaking into the caller. The builder launches the service and returns
 /// a handle to it.
 ///
-/// Generic over the worker context `W` and the ASM spec `S`, so callers can
-/// inject alternative specs (e.g. a debug-wrapped spec for testing) without
-/// forking the worker.
+/// Generic over the worker context `W` and the ASM spec `S`. The spec is a
+/// pure type-level declaration of the pipeline and its params type, so
+/// callers name it explicitly, e.g. `AsmWorkerBuilder::<_, StrataAsmSpec>::new()`.
 #[derive(Debug)]
 pub struct AsmWorkerBuilder<W, S: AsmSpec> {
     context: Option<W>,
     params: Option<S::Params>,
-    spec: Option<S>,
+    _spec: PhantomData<S>,
 }
 
 impl<W, S: AsmSpec> AsmWorkerBuilder<W, S> {
@@ -30,7 +32,7 @@ impl<W, S: AsmSpec> AsmWorkerBuilder<W, S> {
         Self {
             context: None,
             params: None,
-            spec: None,
+            _spec: PhantomData,
         }
     }
 
@@ -40,18 +42,11 @@ impl<W, S: AsmSpec> AsmWorkerBuilder<W, S> {
         self
     }
 
-    /// Set the ASM parameters used to construct the genesis state.
+    /// Set the ASM params. The spec derives everything else from these: the
+    /// genesis anchor state, adopted (after validation against the L1 source)
+    /// when the store holds no prior state.
     pub fn with_params(mut self, params: S::Params) -> Self {
         self.params = Some(params);
-        self
-    }
-
-    /// Set the ASM spec driving the subprotocol pipeline.
-    ///
-    /// Production deployments pass `StrataAsmSpec`; tests can pass a wrapped
-    /// debug spec to inject extra subprotocols.
-    pub fn with_asm_spec(mut self, spec: S) -> Self {
-        self.spec = Some(spec);
         self
     }
 
@@ -64,7 +59,6 @@ impl<W, S: AsmSpec> AsmWorkerBuilder<W, S> {
     where
         W: WorkerContext + Send + Sync + 'static,
         S: AsmSpec + Send + Sync + 'static,
-        S::Params: Send + Sync + 'static,
     {
         let context = self
             .context
@@ -72,7 +66,12 @@ impl<W, S: AsmSpec> AsmWorkerBuilder<W, S> {
         let params = self
             .params
             .ok_or(WorkerError::MissingDependency("params"))?;
-        let spec = self.spec.ok_or(WorkerError::MissingDependency("spec"))?;
+
+        let genesis_state = S::construct_genesis_state(&params);
+        // Exposed on the handle so downstream services (Moho worker, prover
+        // input builder) read the chain's genesis point from the worker
+        // rather than re-deriving it from params.
+        let genesis_block = genesis_state.chain_view.pow_state.last_verified_block;
 
         // Shared between the service state (which emits) and the handle (which
         // hands out subscriptions), so a `subscribe_blocks()` on the handle
@@ -80,7 +79,8 @@ impl<W, S: AsmSpec> AsmWorkerBuilder<W, S> {
         let subscribers = Subscribers::default();
 
         // Create the service state.
-        let service_state = AsmWorkerServiceState::new(context, spec, params, subscribers.clone())?;
+        let service_state =
+            AsmWorkerServiceState::<W, S>::new(context, genesis_state, subscribers.clone())?;
 
         // Create the service builder and get command handle.
         let mut service_builder =
@@ -93,7 +93,8 @@ impl<W, S: AsmSpec> AsmWorkerBuilder<W, S> {
         let service_monitor = service_builder.launch_sync(constants::SERVICE_NAME, executor)?;
 
         // Create and return the handle.
-        let handle = AsmWorkerHandle::new(command_handle, service_monitor, subscribers);
+        let handle =
+            AsmWorkerHandle::new(command_handle, service_monitor, subscribers, genesis_block);
 
         Ok(handle)
     }

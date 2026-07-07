@@ -1,3 +1,5 @@
+use std::marker::PhantomData;
+
 use bitcoin::{Block, CompactTarget, params::Params};
 use strata_asm_common::{AnchorState, AsmSpec, AuxData, HeaderVerificationState};
 use strata_asm_stf::AsmStfOutput;
@@ -17,15 +19,15 @@ use crate::{
 /// Service state for the ASM worker.
 ///
 /// Generic over the worker context `W` and the ASM spec `S`, so callers can
-/// inject alternative specs wrapping `StrataAsmSpec` (e.g. for testing) without
-/// forking the worker.
+/// inject alternative specs (e.g. for testing) without forking the worker.
+/// The spec is purely a type-level pipeline declaration, so no value is held.
 #[derive(Debug)]
 pub struct AsmWorkerServiceState<W, S: AsmSpec> {
     /// Context for the state to interact with outer world.
     pub(crate) context: W,
 
-    /// ASM spec driving the subprotocol pipeline.
-    pub(crate) spec: S,
+    /// ASM spec driving the subprotocol pipeline (type-level only).
+    _spec: PhantomData<S>,
 
     /// Current ASM anchor state.
     pub anchor: AnchorState,
@@ -48,19 +50,22 @@ impl<W, S> AsmWorkerServiceState<W, S>
 where
     W: WorkerContext + Send + Sync + 'static,
     S: AsmSpec + Send + Sync + 'static,
-    S::Params: Send + Sync + 'static,
 {
-    /// Creates a new service state, loading the latest anchor or creating genesis.
+    /// Creates a new service state, loading the latest anchor or adopting the
+    /// given genesis state (when the store holds no prior state).
     ///
     /// Construction goes through [`crate::AsmWorkerBuilder`], which owns the
     /// shared [`Subscribers`] registry — hence `pub(crate)`.
     pub(crate) fn new(
         context: W,
-        spec: S,
-        params: S::Params,
+        genesis_state: AnchorState,
         subscribers: Subscribers<L1BlockCommitment>,
     ) -> WorkerResult<Self> {
-        let genesis_height = spec.genesis_l1_height(&params);
+        let genesis_height = genesis_state
+            .chain_view
+            .pow_state
+            .last_verified_block
+            .height() as u64;
 
         // Align the manifest MMR with L1 heights before processing any block:
         // it is height-indexed, prefilled with sentinels for heights
@@ -70,11 +75,10 @@ where
 
         // The configured anchor is otherwise trusted blindly: a wrong block,
         // target, epoch timestamp, or network would only surface one L1 block
-        // later when header verification rejects the anchor's successor. Build
-        // the genesis state once (it carries the anchor-derived header
-        // verification fields) and validate it against the L1 source on every
-        // startup, before adopting either stored or genesis state.
-        let genesis_state = spec.construct_genesis_state(&params);
+        // later when header verification rejects the anchor's successor. The
+        // genesis state carries the anchor-derived header verification fields;
+        // validate them against the L1 source on every startup, before
+        // adopting either stored or genesis state.
         validate_anchor_against_l1(&context, &genesis_state.chain_view.pow_state)?;
 
         let (anchor, blkid) = match context.get_latest_asm_state()? {
@@ -93,7 +97,7 @@ where
 
         Ok(Self {
             context,
-            spec,
+            _spec: PhantomData,
             anchor,
             blkid,
             genesis_height,
@@ -117,7 +121,7 @@ where
             let span = tracing::debug_span!("asm.stf.pre_process", protocol_txs = Empty);
             let _guard = span.enter();
 
-            let result = strata_asm_stf::pre_process_asm(&self.spec, cur_state, block)
+            let result = strata_asm_stf::pre_process_asm::<S>(cur_state, block)
                 .map_err(WorkerError::AsmError)?;
 
             span.record("protocol_txs", result.txs.len());
@@ -143,8 +147,7 @@ where
 
         let coinbase_inclusion_proof = TxidInclusionProof::generate(&block.txdata, 0);
 
-        strata_asm_stf::compute_asm_transition(
-            &self.spec,
+        strata_asm_stf::compute_asm_transition::<S>(
             cur_state,
             block,
             &aux_data,
@@ -165,7 +168,6 @@ impl<W, S> ServiceState for AsmWorkerServiceState<W, S>
 where
     W: WorkerContext + Send + Sync + 'static,
     S: AsmSpec + Send + Sync + 'static,
-    S::Params: Send + Sync + 'static,
 {
     fn name(&self) -> &str {
         constants::SERVICE_NAME
@@ -320,9 +322,9 @@ mod tests {
             .store_anchor_state(&advanced, &seed.state.anchor)
             .unwrap();
 
-        let params = fixtures::genesis_params(&seed.client, 101).await;
+        let genesis = fixtures::genesis_state(&seed.client, 101).await;
         let reloaded =
-            AsmWorkerServiceState::new(context, TestAsmSpec, params, Subscribers::default())
+            AsmWorkerServiceState::<_, TestAsmSpec>::new(context, genesis, Subscribers::default())
                 .unwrap();
 
         assert_eq!(
@@ -341,12 +343,7 @@ mod tests {
         let hash = client.get_block_hash(height).await.unwrap();
         let mut anchor = get_l1_anchor(client, &hash).await.unwrap();
         tamper(&mut anchor);
-        let params = fixtures::TestAsmParams {
-            anchor,
-            magic: strata_l1_txfmt::MagicBytes::new(*b"ALPN"),
-        };
-        TestAsmSpec
-            .construct_genesis_state(&params)
+        fixtures::genesis_state_from_anchor(anchor)
             .chain_view
             .pow_state
     }
@@ -446,8 +443,9 @@ mod tests {
         assert_eq!(fx.state.context.mmr_leaf_count(), 102);
 
         let context = fx.state.context.clone();
-        let params = fixtures::genesis_params(&fx.client, 101).await;
-        AsmWorkerServiceState::new(context, TestAsmSpec, params, Subscribers::default()).unwrap();
+        let genesis = fixtures::genesis_state(&fx.client, 101).await;
+        AsmWorkerServiceState::<_, TestAsmSpec>::new(context, genesis, Subscribers::default())
+            .unwrap();
 
         assert_eq!(
             fx.state.context.mmr_leaf_count(),

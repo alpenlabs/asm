@@ -44,11 +44,9 @@ use crate::{
 ///
 /// # Type Parameters
 ///
-/// * `S` - The ASM specification type that defines magic bytes, subprotocol behavior, and genesis
-///   configs
+/// * `S` - The ASM specification type declaring the subprotocol pipeline
 /// * `'b` - Lifetime parameter tied to the input block reference
 pub fn pre_process_asm<'b, S: AsmSpec>(
-    spec: &S,
     pre_state: &AnchorState,
     block: &'b Block,
 ) -> AsmResult<AsmPreProcessOutput<'b>> {
@@ -67,13 +65,13 @@ pub fn pre_process_asm<'b, S: AsmSpec>(
 
     // 3. LOAD: Initialize each subprotocol in the subproto manager.
     let mut loader_stage = LoaderStage::new(&mut manager, pre_state);
-    spec.call_subprotocols(&mut loader_stage);
+    S::call_subprotocols(&mut loader_stage);
 
     // 4. PROCESS: Feed each subprotocol its filtered transactions for pre-processing.
     // This stage extracts auxiliary requests that will be needed for the main STF execution.
     let mut pre_process_stage =
         PreProcessStage::new(&mut manager, pre_state, &grouped_relevant_txs);
-    spec.call_subprotocols(&mut pre_process_stage);
+    S::call_subprotocols(&mut pre_process_stage);
 
     // 5. Export auxiliary requests collected during pre-processing.
     // These requests will be fulfilled before running the main ASM state transition.

@@ -713,10 +713,9 @@ impl AsmTestHarnessBuilder {
         let executor = task_manager.create_executor();
 
         // 7. Launch ASM worker service
-        let asm_handle = AsmWorkerBuilder::new()
+        let asm_handle = AsmWorkerBuilder::<_, StrataAsmSpec>::new()
             .with_context(context.clone())
-            .with_asm_spec(StrataAsmSpec)
-            .with_params(asm_params.genesis.clone())
+            .with_params(asm_params.as_ref().clone())
             .launch(&executor)?;
 
         let harness = AsmTestHarness {

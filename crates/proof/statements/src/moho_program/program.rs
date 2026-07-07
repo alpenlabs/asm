@@ -96,11 +96,10 @@ impl MohoProgram for AsmStfProgram {
 
     fn process_transition(
         pre_state: &AnchorState,
-        spec: &StrataAsmSpec,
+        _spec: &StrataAsmSpec,
         input: &AsmStepInput,
     ) -> AsmStfOutput {
-        compute_asm_transition(
-            spec,
+        compute_asm_transition::<StrataAsmSpec>(
             pre_state,
             input.block(),
             input.aux_data(),

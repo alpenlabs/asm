@@ -25,7 +25,6 @@ use crate::{
 /// processing protocol-specific transactions, handling inter-protocol communication, and
 /// constructing the final state with logs.
 pub fn compute_asm_transition<S: AsmSpec>(
-    spec: &S,
     pre_state: &AnchorState,
     block: &Block,
     aux_data: &AuxData,
@@ -57,13 +56,13 @@ pub fn compute_asm_transition<S: AsmSpec>(
 
     // 4. LOAD: Initialize each subprotocol in the subproto manager.
     let mut loader = LoaderStage::new(&mut manager, pre_state);
-    spec.call_subprotocols(&mut loader);
+    S::call_subprotocols(&mut loader);
 
     // 5. PROCESS: Feed each subprotocol its filtered transactions for execution.
     // This stage performs the actual state transitions for each subprotocol.
     let mut process_stage =
         ProcessStage::new(&mut manager, &pow_state, protocol_txs, verified_aux_data);
-    spec.call_subprotocols(&mut process_stage);
+    S::call_subprotocols(&mut process_stage);
 
     // 6. FINISH: Allow each subprotocol to process buffered inter-protocol messages.
     // This stage handles cross-protocol communication and finalizes state changes.
@@ -71,7 +70,7 @@ pub fn compute_asm_transition<S: AsmSpec>(
     // processing phase until we have no more messages to deliver, or some
     // bounded number of times
     let mut finish_stage = FinishStage::new(&mut manager, &pow_state.last_verified_block);
-    spec.call_subprotocols(&mut finish_stage);
+    S::call_subprotocols(&mut finish_stage);
 
     // 7. Construct the manifest with the logs.
     let (sections, logs) = manager.export_sections_and_logs()?;

@@ -314,7 +314,7 @@ pub(crate) mod fixtures {
     use corepc_node::Node;
     use strata_asm_common::{
         AnchorState, AsmHistoryAccumulatorState, AsmSpec, ChainViewState, HeaderVerificationState,
-        Stage,
+        StfParams,
     };
     use strata_btc_types::BlockHashExt;
     use strata_btc_verification::L1Anchor;
@@ -327,41 +327,38 @@ pub(crate) mod fixtures {
     use super::{TestAsmWorkerContext, get_l1_anchor};
     use crate::{AsmWorkerServiceState, Subscribers};
 
-    /// Minimal [`AsmSpec::Params`] for the worker's own tests: just the L1 anchor
-    /// the genesis state pins to, plus a magic. The production `AsmParams` also
-    /// carries per-subprotocol configs, which [`TestAsmSpec`] has no use for.
-    #[derive(Debug)]
-    pub(crate) struct TestAsmParams {
-        pub anchor: L1Anchor,
-        pub magic: MagicBytes,
-    }
-
     /// A no-subprotocol [`AsmSpec`] for exercising the worker in isolation.
     #[derive(Debug)]
     pub(crate) struct TestAsmSpec;
 
     impl AsmSpec for TestAsmSpec {
-        type Params = TestAsmParams;
+        type Subprotocols = ();
 
-        fn call_subprotocols(&self, _stage: &mut impl Stage) {}
+        type Params = L1Anchor;
 
-        fn construct_genesis_state(&self, params: &Self::Params) -> AnchorState {
-            let genesis_height = params.anchor.block.height() as u64;
-            let chain_view = ChainViewState {
-                history_accumulator: AsmHistoryAccumulatorState::new(genesis_height),
-                pow_state: HeaderVerificationState::init(params.anchor.clone()),
-            };
-            AnchorState {
-                magic: AnchorState::magic_ssz(params.magic),
-                chain_view,
-                sections: Vec::new()
-                    .try_into()
-                    .expect("empty dummy sections fit within capacity"),
-            }
+        fn construct_genesis_state(anchor: &L1Anchor) -> AnchorState {
+            genesis_state_from_anchor(anchor.clone())
         }
 
-        fn genesis_l1_height(&self, params: &Self::Params) -> u64 {
-            params.anchor.block.height() as u64
+        fn stf_params(_anchor: &L1Anchor) -> StfParams {
+            StfParams::default()
+        }
+    }
+
+    /// A no-sections genesis [`AnchorState`] pinned to `anchor` — the
+    /// [`TestAsmSpec`] counterpart of the production genesis construction.
+    pub(crate) fn genesis_state_from_anchor(anchor: L1Anchor) -> AnchorState {
+        let genesis_height = anchor.block.height() as u64;
+        let chain_view = ChainViewState {
+            history_accumulator: AsmHistoryAccumulatorState::new(genesis_height),
+            pow_state: HeaderVerificationState::init(anchor),
+        };
+        AnchorState {
+            magic: AnchorState::magic_ssz(MagicBytes::new(*b"ALPN")),
+            chain_view,
+            sections: Vec::new()
+                .try_into()
+                .expect("empty dummy sections fit within capacity"),
         }
     }
 
@@ -375,7 +372,7 @@ pub(crate) mod fixtures {
     }
 
     /// Builds a worker state with genesis at `genesis_height`: mine that many
-    /// blocks, point the ASM params' anchor at the tip, and run
+    /// blocks, pin the genesis anchor at the tip, and run
     /// [`AsmWorkerServiceState::new`] (which stores the genesis anchor and
     /// prefills the manifest MMR).
     pub(crate) async fn setup_state(genesis_height: u64) -> StateFixture {
@@ -385,11 +382,10 @@ pub(crate) mod fixtures {
             .await
             .expect("mine genesis blocks");
 
-        let params = genesis_params(&client, genesis_height).await;
+        let genesis = genesis_state(&client, genesis_height).await;
         let context = TestAsmWorkerContext::new((*client).clone());
-        let state =
-            AsmWorkerServiceState::new(context, TestAsmSpec, params, Subscribers::default())
-                .expect("create service state");
+        let state = AsmWorkerServiceState::new(context, genesis, Subscribers::default())
+            .expect("create service state");
 
         StateFixture {
             node,
@@ -398,18 +394,15 @@ pub(crate) mod fixtures {
         }
     }
 
-    /// [`TestAsmParams`] with the anchor pinned to the block at `genesis_height`,
-    /// so [`AsmWorkerServiceState::new`] genesis lands there.
-    pub(crate) async fn genesis_params(client: &Client, genesis_height: u64) -> TestAsmParams {
+    /// Genesis [`AnchorState`] with the anchor pinned to the block at
+    /// `genesis_height`, so [`AsmWorkerServiceState::new`] genesis lands there.
+    pub(crate) async fn genesis_state(client: &Client, genesis_height: u64) -> AnchorState {
         let tip = client
             .get_block_hash(genesis_height)
             .await
             .expect("genesis tip hash");
         let anchor = get_l1_anchor(client, &tip).await.expect("genesis anchor");
-        TestAsmParams {
-            anchor,
-            magic: MagicBytes::new(*b"ALPN"),
-        }
+        genesis_state_from_anchor(anchor)
     }
 
     /// A running regtest node with a bare worker context (no anchors stored, no

@@ -74,16 +74,16 @@ pub(crate) async fn bootstrap(
     // on a runtime worker thread here, so wrap the build in `block_in_place` to allow blocking;
     // the worker's own loop runs on a dedicated sync thread where blocking is already fine.
     let asm_worker = task::block_in_place(|| {
-        AsmWorkerBuilder::new()
+        AsmWorkerBuilder::<_, StrataAsmSpec>::new()
             .with_context(worker_context)
-            .with_asm_spec(StrataAsmSpec)
-            .with_params(params.genesis.clone())
+            .with_params(params)
             .launch(&executor)
     })?;
 
     let asm_worker = Arc::new(asm_worker);
 
     // 6. Finish orchestrator wiring if it was configured.
+    let genesis_block = asm_worker.genesis_block();
     let proof_rpc_deps = if let Some((orch_config, proof_db, moho_state_db, backend)) = orch_prep {
         let rpc_deps = AsmProofRpcDeps {
             proof_db: proof_db.clone(),
@@ -118,7 +118,7 @@ pub(crate) async fn bootstrap(
         let moho_worker = MohoWorkerBuilder::new()
             .with_context(moho_context)
             .with_subscription(asm_worker.subscribe_blocks())
-            .with_genesis_block(params.genesis.anchor.block)
+            .with_genesis_block(genesis_block)
             .with_asm_predicate(asm_predicate.clone())
             .launch(&executor)
             .await?;
@@ -133,8 +133,7 @@ pub(crate) async fn bootstrap(
             aux_db.clone(),
             bitcoin_client.clone(),
         );
-        let input_builder =
-            InputBuilder::new(params.genesis.anchor.block, asm_predicate, moho_predicate);
+        let input_builder = InputBuilder::new(genesis_block, asm_predicate, moho_predicate);
 
         // Drive the prover from the *Moho* worker's commit stream, not the ASM
         // worker's: the Moho worker emits a block only after it has persisted

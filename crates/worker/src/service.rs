@@ -24,7 +24,6 @@ impl<W, S> Service for AsmWorkerService<W, S>
 where
     W: WorkerContext + Send + Sync + 'static,
     S: AsmSpec + Send + Sync + 'static,
-    S::Params: Send + Sync + 'static,
 {
     type State = AsmWorkerServiceState<W, S>;
     type Msg = AsmWorkerMessage;
@@ -43,7 +42,6 @@ impl<W, S> SyncService for AsmWorkerService<W, S>
 where
     W: WorkerContext + Send + Sync + 'static,
     S: AsmSpec + Send + Sync + 'static,
-    S::Params: Send + Sync + 'static,
 {
     fn process_input(
         state: &mut AsmWorkerServiceState<W, S>,
@@ -117,7 +115,6 @@ fn sync_to_block<W, S>(
 where
     W: WorkerContext + Send + Sync + 'static,
     S: AsmSpec + Send + Sync + 'static,
-    S::Params: Send + Sync + 'static,
 {
     // Resolve the submitted id to a height-tagged commitment. This is the only
     // height the worker takes from outside; every later height is derived from
@@ -259,7 +256,6 @@ fn apply_block<W, S>(
 where
     W: WorkerContext + Send + Sync + 'static,
     S: AsmSpec + Send + Sync + 'static,
-    S::Params: Send + Sync + 'static,
 {
     // Fetch the full block now, one height at a time, so only a single block is
     // resident at any point during the forward pass.
@@ -533,9 +529,9 @@ mod tests {
 
         // ...so a restart over the same store resumes at the tip.
         let context = fx.state.context.clone();
-        let params = fixtures::genesis_params(&fx.client, 101).await;
+        let genesis = fixtures::genesis_state(&fx.client, 101).await;
         let reloaded =
-            AsmWorkerServiceState::new(context, TestAsmSpec, params, Subscribers::default())
+            AsmWorkerServiceState::<_, TestAsmSpec>::new(context, genesis, Subscribers::default())
                 .unwrap();
         assert_eq!(
             reloaded.blkid, tip,

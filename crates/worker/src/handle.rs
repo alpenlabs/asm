@@ -12,6 +12,7 @@ pub struct AsmWorkerHandle {
     command_handle: CommandHandle<AsmWorkerMessage>,
     monitor: ServiceMonitor<AsmWorkerStatus>,
     subscribers: Subscribers<L1BlockCommitment>,
+    genesis_block: L1BlockCommitment,
 }
 
 impl AsmWorkerHandle {
@@ -19,16 +20,28 @@ impl AsmWorkerHandle {
     ///
     /// `subscribers` is the same registry the service state emits into, so
     /// handles created here can hand out [`Subscription`]s wired to the worker.
+    /// `genesis_block` is the L1 block the genesis anchor is pinned to.
     pub(crate) fn new(
         command_handle: CommandHandle<AsmWorkerMessage>,
         monitor: ServiceMonitor<AsmWorkerStatus>,
         subscribers: Subscribers<L1BlockCommitment>,
+        genesis_block: L1BlockCommitment,
     ) -> Self {
         Self {
             command_handle,
             monitor,
             subscribers,
+            genesis_block,
         }
+    }
+
+    /// The L1 block the genesis anchor is pinned to.
+    ///
+    /// The worker is the component that owns the params, so downstream
+    /// services needing the chain's genesis point (the Moho worker, the
+    /// prover input builder) read it from here.
+    pub fn genesis_block(&self) -> L1BlockCommitment {
+        self.genesis_block
     }
 
     /// Subscribes to per-block notifications.
