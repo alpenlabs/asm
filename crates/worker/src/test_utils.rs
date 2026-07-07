@@ -13,7 +13,7 @@ use std::{
 
 use bitcoin::{Block, BlockHash, Network, Txid, block::Header, params::Params};
 use bitcoind_async_client::{Client, traits::Reader};
-use strata_asm_common::{AnchorState, AsmManifest, AsmManifestHash};
+use strata_asm_common::{AnchorState, AsmManifest, AsmManifestHash, ForkActivation};
 use strata_btc_types::{BitcoinTxid, BlockHashExt, L1BlockIdBitcoinExt, RawBitcoinTx};
 use strata_btc_verification::{L1Anchor, get_relative_difficulty_adjustment_height};
 use strata_identifiers::{L1BlockCommitment, L1BlockId};
@@ -22,7 +22,8 @@ use strata_merkle_node_store::{MemMmr, StoredMmr};
 use tokio::{runtime::Handle, task::block_in_place};
 
 use crate::{
-    AnchorStateStore, AuxDataStore, L1DataProvider, ManifestMmrStore, WorkerError, WorkerResult,
+    AnchorStateStore, AuxDataStore, ForkActivationStore, L1DataProvider, ManifestMmrStore,
+    WorkerError, WorkerResult,
 };
 
 /// Shared mutable state for the test worker context.
@@ -43,6 +44,8 @@ pub struct TestWorkerStateInner {
     pub manifest_mmr: MemMmr<[u8; 32]>,
     /// Stored manifests in insertion order
     pub manifests: Vec<AsmManifest>,
+    /// Discovered fork activations, kept sorted by enacting height.
+    pub fork_activations: Vec<ForkActivation>,
 }
 
 /// Test implementation of WorkerContext for integration tests
@@ -248,6 +251,37 @@ impl ManifestMmrStore for TestAsmWorkerContext {
             .map_err(|_| WorkerError::DbError)?
             .map(AsmManifestHash::from)
             .ok_or(WorkerError::ManifestHashNotFound { index })
+    }
+}
+
+impl ForkActivationStore for TestAsmWorkerContext {
+    fn record_fork_activation(&self, activation: ForkActivation) -> WorkerResult<()> {
+        let mut inner = self.inner.lock().unwrap();
+        let acts = &mut inner.fork_activations;
+        // Keyed by (enacting_height, fork): replace on replay, insert sorted otherwise.
+        match acts.iter().position(|a| {
+            (a.enacting_height, a.fork) == (activation.enacting_height, activation.fork)
+        }) {
+            Some(pos) => acts[pos] = activation,
+            None => {
+                let pos = acts.partition_point(|a| a.enacting_height <= activation.enacting_height);
+                acts.insert(pos, activation);
+            }
+        }
+        Ok(())
+    }
+
+    fn list_fork_activations(&self) -> WorkerResult<Vec<ForkActivation>> {
+        Ok(self.inner.lock().unwrap().fork_activations.clone())
+    }
+
+    fn prune_fork_activations_after(&self, after_height: u32) -> WorkerResult<()> {
+        self.inner
+            .lock()
+            .unwrap()
+            .fork_activations
+            .retain(|a| a.enacting_height <= after_height);
+        Ok(())
     }
 }
 

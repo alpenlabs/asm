@@ -6,12 +6,15 @@
 
 use std::sync::Arc;
 
-use asm_storage::{SledAsmAuxDataDb, SledAsmManifestDb, SledAsmManifestMmrDb, SledAsmStateDb};
+use asm_storage::{
+    SledAsmAuxDataDb, SledAsmManifestDb, SledAsmManifestMmrDb, SledAsmStateDb, SledForkActivationDb,
+};
 use bitcoin::{Block, BlockHash, Network, block::Header};
 use bitcoind_async_client::{Client, error::ClientError, traits::Reader};
-use strata_asm_common::{AnchorState, AsmManifest, AsmManifestHash, AuxData};
+use strata_asm_common::{AnchorState, AsmManifest, AsmManifestHash, AuxData, ForkActivation};
 use strata_asm_worker::{
-    AnchorStateStore, AuxDataStore, L1DataProvider, ManifestMmrStore, WorkerError, WorkerResult,
+    AnchorStateStore, AuxDataStore, ForkActivationStore, L1DataProvider, ManifestMmrStore,
+    WorkerError, WorkerResult,
 };
 use strata_btc_types::{BitcoinTxid, L1BlockIdBitcoinExt, RawBitcoinTx};
 use strata_identifiers::{L1BlockCommitment, L1BlockId};
@@ -36,9 +39,14 @@ pub(crate) struct AsmWorkerContext {
     aux_db: Arc<SledAsmAuxDataDb>,
     manifest_db: Arc<SledAsmManifestDb>,
     mmr_db: Arc<SledAsmManifestMmrDb>,
+    fork_activation_db: Arc<SledForkActivationDb>,
 }
 
 impl AsmWorkerContext {
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "one argument per storage concern"
+    )]
     pub(crate) fn new(
         runtime_handle: Handle,
         bitcoin_client: Arc<Client>,
@@ -47,6 +55,7 @@ impl AsmWorkerContext {
         aux_db: Arc<SledAsmAuxDataDb>,
         manifest_db: Arc<SledAsmManifestDb>,
         mmr_db: Arc<SledAsmManifestMmrDb>,
+        fork_activation_db: Arc<SledForkActivationDb>,
     ) -> Self {
         Self {
             runtime_handle,
@@ -57,6 +66,7 @@ impl AsmWorkerContext {
             aux_db,
             manifest_db,
             mmr_db,
+            fork_activation_db,
         }
     }
 }
@@ -230,6 +240,26 @@ impl ManifestMmrStore for AsmWorkerContext {
             .get_leaf(index)
             .map_err(|_| WorkerError::DbError)?
             .ok_or(WorkerError::ManifestHashNotFound { index })
+    }
+}
+
+impl ForkActivationStore for AsmWorkerContext {
+    fn record_fork_activation(&self, activation: ForkActivation) -> WorkerResult<()> {
+        self.fork_activation_db
+            .put(activation)
+            .map_err(|_| WorkerError::DbError)
+    }
+
+    fn list_fork_activations(&self) -> WorkerResult<Vec<ForkActivation>> {
+        self.fork_activation_db
+            .list()
+            .map_err(|_| WorkerError::DbError)
+    }
+
+    fn prune_fork_activations_after(&self, after_height: u32) -> WorkerResult<()> {
+        self.fork_activation_db
+            .prune_after(after_height)
+            .map_err(|_| WorkerError::DbError)
     }
 }
 

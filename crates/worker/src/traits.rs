@@ -1,21 +1,22 @@
 //! Traits for the chain worker to interface with the underlying system.
 //!
-//! The worker's dependencies split into four concerns, each backed by a
+//! The worker's dependencies split into five concerns, each backed by a
 //! distinct subsystem in production:
 //!
 //! - [`L1DataProvider`] — reads L1 data from the Bitcoin node (blocks, txs, network).
 //! - [`AnchorStateStore`] — persists and loads the [`AnchorState`].
 //! - [`ManifestMmrStore`] — manifest persistence and the manifest-hash MMR.
 //! - [`AuxDataStore`] — per-block [`AuxData`] for prover consumption.
+//! - [`ForkActivationStore`] — fork activations discovered from ASM VK upgrade logs.
 //!
-//! [`WorkerContext`] is the umbrella that combines all four. It has a blanket
-//! impl, so an implementor just implements the four concern traits and gets
+//! [`WorkerContext`] is the umbrella that combines all five. It has a blanket
+//! impl, so an implementor just implements the five concern traits and gets
 //! `WorkerContext` for free; consumers that only need one concern can depend on
 //! the narrower trait instead of the whole context.
 
 use bitcoin::{Block, Network, block::Header};
 use strata_asm_common::{
-    AnchorState, AsmManifest, AsmManifestHash, AuxData, MMR_SENTINEL_DUMMY_LEAF,
+    AnchorState, AsmManifest, AsmManifestHash, AuxData, ForkActivation, MMR_SENTINEL_DUMMY_LEAF,
 };
 use strata_btc_types::{BitcoinTxid, RawBitcoinTx};
 use strata_identifiers::{L1BlockCommitment, L1BlockId};
@@ -186,18 +187,38 @@ pub trait AuxDataStore {
     fn get_aux_data(&self, blockid: &L1BlockCommitment) -> WorkerResult<AuxData>;
 }
 
+/// Persists fork activations discovered from ASM VK upgrade logs.
+pub trait ForkActivationStore {
+    /// Records a discovered fork activation.
+    ///
+    /// Called *before* the enacting block's anchor state is committed, so an
+    /// activation can never lag a committed anchor. Idempotent: crash-replay
+    /// of the enacting block rewrites the same record.
+    fn record_fork_activation(&self, activation: ForkActivation) -> WorkerResult<()>;
+
+    /// Returns every recorded activation, ascending by enacting height.
+    fn list_fork_activations(&self) -> WorkerResult<Vec<ForkActivation>>;
+
+    /// Removes activations whose enacting height is strictly above
+    /// `after_height` (which is kept). Called on reorgs so activations enacted
+    /// on the abandoned branch are dropped; re-processing the new branch
+    /// re-discovers any that survive.
+    fn prune_fork_activations_after(&self, after_height: u32) -> WorkerResult<()>;
+}
+
 /// Context trait for a worker to interact with the database and Bitcoin Client.
 ///
-/// Umbrella over the four concern traits ([`L1DataProvider`],
-/// [`AnchorStateStore`], [`ManifestMmrStore`], [`AuxDataStore`]). The blanket
-/// impl means any type that implements all four automatically implements
-/// `WorkerContext`, so implementors never name it directly.
+/// Umbrella over the five concern traits ([`L1DataProvider`],
+/// [`AnchorStateStore`], [`ManifestMmrStore`], [`AuxDataStore`],
+/// [`ForkActivationStore`]). The blanket impl means any type that implements
+/// all five automatically implements `WorkerContext`, so implementors never
+/// name it directly.
 pub trait WorkerContext:
-    L1DataProvider + AnchorStateStore + ManifestMmrStore + AuxDataStore
+    L1DataProvider + AnchorStateStore + ManifestMmrStore + AuxDataStore + ForkActivationStore
 {
 }
 
 impl<T> WorkerContext for T where
-    T: L1DataProvider + AnchorStateStore + ManifestMmrStore + AuxDataStore
+    T: L1DataProvider + AnchorStateStore + ManifestMmrStore + AuxDataStore + ForkActivationStore
 {
 }

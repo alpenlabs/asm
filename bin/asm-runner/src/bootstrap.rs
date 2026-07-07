@@ -32,6 +32,7 @@ pub(crate) async fn bootstrap(
         aux_db,
         manifest_db,
         mmr_db,
+        fork_activation_db,
         export_entries_db,
     } = create_storage(&config.database)?;
 
@@ -65,6 +66,7 @@ pub(crate) async fn bootstrap(
         aux_db.clone(),
         manifest_db.clone(),
         mmr_db.clone(),
+        fork_activation_db,
     );
 
     // 5. Launch ASM worker.
