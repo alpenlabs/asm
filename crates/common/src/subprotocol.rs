@@ -76,7 +76,10 @@ pub trait Subprotocol: 'static {
     const ID: SubprotocolId;
 
     /// Configuration used to initialize the subprotocol's state.
-    type InitConfig;
+    ///
+    /// `Any` so genesis construction can locate a subprotocol's config in a
+    /// heterogeneous params list by its type.
+    type InitConfig: Any;
 
     /// State type serialized into the ASM state structure.
     type State: Any + Decode + Encode;

@@ -1,46 +1,36 @@
 //! Genesis anchor state construction from [`GenesisParams`].
 
+use std::any::Any;
+
 use strata_asm_common::{
-    AnchorState, AsmHistoryAccumulatorState, ChainViewState, HeaderVerificationState, SectionState,
+    AnchorState, AsmHistoryAccumulatorState, AsmSpec, ChainViewState, HeaderVerificationState,
+    SectionState, Stage, Subprotocol,
 };
-use strata_asm_params::GenesisParams;
-use strata_asm_proto_admin::{AdministrationSubprotoState, AdministrationSubprotocol};
-use strata_asm_proto_bridge_v1::{BridgeV1State, BridgeV1Subproto};
-use strata_asm_proto_checkpoint::{CheckpointState, CheckpointSubprotocol};
+use strata_asm_params::{GenesisParams, SubprotocolInstance};
 use strata_btc_verification::HeaderVerificationState as NativeHeaderVerificationState;
+
+use crate::StrataAsmSpec;
 
 /// Builds the genesis [`AnchorState`] from the given [`GenesisParams`].
 ///
-/// Initialises every subprotocol's state from its config in `params` and
-/// assembles the chain view (PoW header verification + history accumulator).
+/// Initialises every subprotocol's state from its config in `params` — driven
+/// by the same [`AsmSpec`] subprotocol list every execution stage traverses,
+/// so the pipeline and the genesis layout cannot drift apart — and assembles
+/// the chain view (PoW header verification + history accumulator).
 pub fn construct_genesis_state(params: &GenesisParams) -> AnchorState {
-    let genesis_admin_subprotocol_state = AdministrationSubprotoState::new(
-        params
-            .admin_config()
-            .expect("asm: missing Admin subprotocol config in params"),
-    );
-    let admin_subprotocol_section =
-        SectionState::from_state::<AdministrationSubprotocol>(&genesis_admin_subprotocol_state)
-            .expect("asm: Admin subprotocol genesis state fits section data capacity");
+    let mut stage = GenesisSectionStage {
+        params,
+        sections: Vec::new(),
+    };
+    StrataAsmSpec::call_subprotocols(&mut stage);
 
-    let genesis_checkpoint_subprotocol_state = CheckpointState::init(
-        params
-            .checkpoint_config()
-            .expect("asm: missing Checkpoint subprotocol config in params")
-            .clone(),
+    // Post-transition exports emit sections in ascending subprotocol-ID order
+    // (see the STF's section export); genesis must produce the same layout or
+    // the first transition would silently reorder the state.
+    assert!(
+        stage.sections.is_sorted_by_key(|s| s.id),
+        "asm: genesis sections not sorted by subprotocol id"
     );
-    let checkpoint_subprotocol_section =
-        SectionState::from_state::<CheckpointSubprotocol>(&genesis_checkpoint_subprotocol_state)
-            .expect("asm: Checkpoint subprotocol genesis state fits section data capacity");
-
-    let genesis_bridge_subprotocol_state = BridgeV1State::new(
-        params
-            .bridge_config()
-            .expect("asm: missing Bridge subprotocol config in params"),
-    );
-    let bridge_subprotocol_section =
-        SectionState::from_state::<BridgeV1Subproto>(&genesis_bridge_subprotocol_state)
-            .expect("asm: Bridge subprotocol genesis state fits section data capacity");
 
     let native_header_vs = NativeHeaderVerificationState::init(params.anchor.clone());
     let history_accumulator = AsmHistoryAccumulatorState::new(params.anchor.block.height() as u64);
@@ -52,12 +42,46 @@ pub fn construct_genesis_state(params: &GenesisParams) -> AnchorState {
     AnchorState {
         magic: AnchorState::magic_ssz(params.magic),
         chain_view,
-        sections: vec![
-            admin_subprotocol_section,
-            checkpoint_subprotocol_section,
-            bridge_subprotocol_section,
-        ]
-        .try_into()
-        .expect("asm: genesis sections fit within capacity"),
+        sections: stage
+            .sections
+            .try_into()
+            .expect("asm: genesis sections fit within capacity"),
+    }
+}
+
+/// [`Stage`] that builds each subprotocol's genesis section from its config.
+///
+/// Configs are located in the params' heterogeneous list by their type: each
+/// subprotocol's `InitConfig` type appears in exactly one
+/// [`SubprotocolInstance`] variant.
+struct GenesisSectionStage<'p> {
+    params: &'p GenesisParams,
+    sections: Vec<SectionState>,
+}
+
+impl Stage for GenesisSectionStage<'_> {
+    fn invoke_subprotocol<S: Subprotocol>(&mut self) {
+        let config = self
+            .params
+            .subprotocols
+            .iter()
+            .find_map(|instance| {
+                let config: &dyn Any = match instance {
+                    SubprotocolInstance::Admin(config) => config,
+                    SubprotocolInstance::Bridge(config) => config,
+                    SubprotocolInstance::Checkpoint(config) => config,
+                };
+                config.downcast_ref::<S::InitConfig>()
+            })
+            .unwrap_or_else(|| panic!("asm: missing config for subprotocol {} in params", S::ID));
+
+        let state = S::init(config);
+        let section = SectionState::from_state::<S>(&state).unwrap_or_else(|e| {
+            panic!(
+                "asm: genesis state for subprotocol {} exceeds section data capacity: {e}",
+                S::ID
+            )
+        });
+        self.sections.push(section);
     }
 }
