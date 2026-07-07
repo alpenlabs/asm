@@ -6,7 +6,7 @@ use bitcoin::Block;
 use ssz_types::VariableList;
 use strata_asm_common::{
     AnchorState, AsmError, AsmManifest, AsmResult, AsmSpec, AuxData, ChainViewState,
-    VerifiedAuxData,
+    ProcessMsgsCtx, ProcessTxsCtx, VerifiedAuxData,
 };
 use strata_btc_verification::{TxidInclusionProof, check_block_integrity};
 
@@ -60,8 +60,11 @@ pub fn compute_asm_transition<S: AsmSpec>(
 
     // 5. PROCESS: Feed each subprotocol its filtered transactions for execution.
     // This stage performs the actual state transitions for each subprotocol.
-    let mut process_stage =
-        ProcessStage::new(&mut manager, &pow_state, protocol_txs, verified_aux_data);
+    let process_ctx = ProcessTxsCtx {
+        header_vs: &pow_state,
+        verified_aux_data: &verified_aux_data,
+    };
+    let mut process_stage = ProcessStage::new(&mut manager, protocol_txs, process_ctx);
     S::call_subprotocols(&mut process_stage);
 
     // 6. FINISH: Allow each subprotocol to process buffered inter-protocol messages.
@@ -69,7 +72,10 @@ pub fn compute_asm_transition<S: AsmSpec>(
     // TODO(STR-2416): probably will have change this to repeat the interproto message
     // processing phase until we have no more messages to deliver, or some
     // bounded number of times
-    let mut finish_stage = FinishStage::new(&mut manager, &pow_state.last_verified_block);
+    let finish_ctx = ProcessMsgsCtx {
+        l1ref: &pow_state.last_verified_block,
+    };
+    let mut finish_stage = FinishStage::new(&mut manager, finish_ctx);
     S::call_subprotocols(&mut finish_stage);
 
     // 7. Construct the manifest with the logs.

@@ -3,10 +3,9 @@
 use std::collections::BTreeMap;
 
 use strata_asm_common::{
-    AnchorState, AuxRequestCollector, AuxRequests, HeaderVerificationState, Stage, Subprotocol,
-    SubprotocolId, TxInputRef, VerifiedAuxData,
+    AnchorState, AuxRequestCollector, AuxRequests, ProcessMsgsCtx, ProcessTxsCtx, Stage,
+    Subprotocol, SubprotocolId, TxInputRef,
 };
-use strata_identifiers::L1BlockCommitment;
 
 use crate::manager::SubprotoManager;
 
@@ -87,23 +86,20 @@ impl Stage for PreProcessStage<'_> {
 /// Stage to process txs pre-extracted from the block for each subprotocol.
 pub(crate) struct ProcessStage<'c> {
     manager: &'c mut SubprotoManager,
-    header_vs: &'c HeaderVerificationState,
     tx_bufs: BTreeMap<SubprotocolId, Vec<TxInputRef<'c>>>,
-    verified_aux_data: VerifiedAuxData,
+    ctx: ProcessTxsCtx<'c>,
 }
 
 impl<'c> ProcessStage<'c> {
     pub(crate) fn new(
         manager: &'c mut SubprotoManager,
-        header_vs: &'c HeaderVerificationState,
         tx_bufs: BTreeMap<SubprotocolId, Vec<TxInputRef<'c>>>,
-        verified_aux_data: VerifiedAuxData,
+        ctx: ProcessTxsCtx<'c>,
     ) -> Self {
         Self {
             manager,
-            header_vs,
             tx_bufs,
-            verified_aux_data,
+            ctx,
         }
     }
 }
@@ -116,25 +112,24 @@ impl Stage for ProcessStage<'_> {
             .map(|v| v.as_slice())
             .unwrap_or(&[]);
 
-        self.manager
-            .invoke_process_txs::<S>(txs, self.header_vs, &self.verified_aux_data);
+        self.manager.invoke_process_txs::<S>(txs, &self.ctx);
     }
 }
 
 /// Stage to handle messages exchanged between subprotocols in execution.
 pub(crate) struct FinishStage<'m> {
     manager: &'m mut SubprotoManager,
-    l1ref: &'m L1BlockCommitment,
+    ctx: ProcessMsgsCtx<'m>,
 }
 
 impl<'m> FinishStage<'m> {
-    pub(crate) fn new(manager: &'m mut SubprotoManager, l1ref: &'m L1BlockCommitment) -> Self {
-        Self { manager, l1ref }
+    pub(crate) fn new(manager: &'m mut SubprotoManager, ctx: ProcessMsgsCtx<'m>) -> Self {
+        Self { manager, ctx }
     }
 }
 
 impl Stage for FinishStage<'_> {
     fn invoke_subprotocol<S: Subprotocol>(&mut self) {
-        self.manager.invoke_process_msgs::<S>(self.l1ref);
+        self.manager.invoke_process_msgs::<S>(&self.ctx);
     }
 }

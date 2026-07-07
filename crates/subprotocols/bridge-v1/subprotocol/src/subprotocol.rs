@@ -4,15 +4,14 @@
 //! with the Strata Anchor State Machine (ASM).
 
 use strata_asm_common::{
-    AsmLogEntry, AuxRequestCollector, HeaderVerificationState, MsgRelayer, Subprotocol,
-    SubprotocolId, TxInputRef, VerifiedAuxData,
+    AsmLogEntry, AuxRequestCollector, MsgRelayer, ProcessMsgsCtx, ProcessTxsCtx, Subprotocol,
+    SubprotocolId, TxInputRef,
     logging::{debug, error, info},
 };
 use strata_asm_logs::ExportExtraDataUpdate;
 use strata_asm_params::BridgeV1InitConfig;
 use strata_asm_proto_bridge_v1_msgs::BridgeIncomingMsg;
 use strata_asm_proto_bridge_v1_txs::{BRIDGE_V1_SUBPROTOCOL_ID, parser::parse_tx};
-use strata_identifiers::L1BlockCommitment;
 
 use crate::{
     handler::{handle_parsed_tx, preprocess_parsed_tx},
@@ -77,10 +76,11 @@ impl Subprotocol for BridgeV1Subproto {
     fn process_txs(
         state: &mut Self::State,
         txs: &[TxInputRef<'_>],
-        header_vs: &HeaderVerificationState,
-        verified_aux_data: &VerifiedAuxData,
         relayer: &mut impl MsgRelayer,
+        ctx: &ProcessTxsCtx<'_>,
     ) {
+        let header_vs = ctx.header_vs;
+
         // Process each transaction
         for tx in txs {
             // Parse transaction to extract structured data (deposit/withdrawal info)
@@ -90,7 +90,7 @@ impl Subprotocol for BridgeV1Subproto {
             let Some(parsed_tx) = parse_tx(tx) else {
                 continue;
             };
-            match handle_parsed_tx(state, parsed_tx, verified_aux_data, relayer) {
+            match handle_parsed_tx(state, parsed_tx, ctx.verified_aux_data, relayer) {
                 // `handle_parsed_tx` already emits a type-specific info log on success, so this
                 // is only a coarse trace marker. `txid` is computed inside the macro, because
                 // logging is compiled to noop in ZkVM.
@@ -162,7 +162,8 @@ impl Subprotocol for BridgeV1Subproto {
     ///
     /// Both conditions represent unrecoverable protocol violations where continued operation
     /// poses significant risk of fund loss.
-    fn process_msgs(state: &mut Self::State, msgs: &[Self::Msg], l1ref: &L1BlockCommitment) {
+    fn process_msgs(state: &mut Self::State, msgs: &[Self::Msg], ctx: &ProcessMsgsCtx<'_>) {
+        let l1ref = ctx.l1ref;
         for msg in msgs {
             match msg {
                 BridgeIncomingMsg::DispatchWithdrawal(payload) => {
@@ -210,7 +211,7 @@ impl Subprotocol for BridgeV1Subproto {
 
 #[cfg(test)]
 mod tests {
-    use strata_asm_common::Subprotocol;
+    use strata_asm_common::{ProcessMsgsCtx, Subprotocol};
     use strata_asm_proto_bridge_v1_msgs::{BridgeIncomingMsg, DefconPayload};
     use strata_asm_proto_bridge_v1_types::SafeHarbourAddress;
     use strata_identifiers::L1BlockCommitment;
@@ -237,7 +238,8 @@ mod tests {
         let msgs = vec![BridgeIncomingMsg::UpdateSafeHarbourAddress(
             new_address.clone(),
         )];
-        BridgeV1Subproto::process_msgs(&mut state, &msgs, &l1ref);
+        let ctx = ProcessMsgsCtx { l1ref: &l1ref };
+        BridgeV1Subproto::process_msgs(&mut state, &msgs, &ctx);
 
         assert_eq!(state.safe_harbour().address(), &new_address);
         // Address updates alone must not activate the safe harbour.
@@ -250,7 +252,8 @@ mod tests {
         let l1ref: L1BlockCommitment = ArbitraryGenerator::new().generate();
 
         let msgs = vec![BridgeIncomingMsg::Defcon(DefconPayload::default())];
-        BridgeV1Subproto::process_msgs(&mut state, &msgs, &l1ref);
+        let ctx = ProcessMsgsCtx { l1ref: &l1ref };
+        BridgeV1Subproto::process_msgs(&mut state, &msgs, &ctx);
 
         assert!(state.safe_harbour().is_activated());
         assert_eq!(
@@ -275,7 +278,8 @@ mod tests {
             BridgeIncomingMsg::Defcon(DefconPayload::default()),
             BridgeIncomingMsg::UpdateSafeHarbourAddress(rejected_address),
         ];
-        BridgeV1Subproto::process_msgs(&mut state, &msgs, &l1ref);
+        let ctx = ProcessMsgsCtx { l1ref: &l1ref };
+        BridgeV1Subproto::process_msgs(&mut state, &msgs, &ctx);
 
         assert!(state.safe_harbour().is_activated());
         // Address must be unchanged from before the rejected update.

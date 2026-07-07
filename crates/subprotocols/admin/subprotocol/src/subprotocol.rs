@@ -4,12 +4,11 @@
 //! with the Strata Anchor State Machine (ASM) for managing protocol governance and updates.
 
 use strata_asm_common::{
-    HeaderVerificationState, MsgRelayer, NullMsg, Subprotocol, SubprotocolId, TxInputRef,
-    VerifiedAuxData, logging::warn,
+    MsgRelayer, NullMsg, ProcessMsgsCtx, ProcessTxsCtx, Subprotocol, SubprotocolId, TxInputRef,
+    logging::warn,
 };
 use strata_asm_params::AdministrationInitConfig;
 use strata_asm_proto_admin_txs::{constants::ADMINISTRATION_SUBPROTOCOL_ID, parser::parse_tx};
-use strata_identifiers::L1BlockCommitment;
 
 use crate::{
     handler::{handle_action, handle_pending_updates},
@@ -45,11 +44,10 @@ impl Subprotocol for AdministrationSubprotocol {
     fn process_txs(
         state: &mut AdministrationSubprotoState,
         txs: &[TxInputRef<'_>],
-        header_vs: &HeaderVerificationState,
-        _verified_aux_data: &VerifiedAuxData,
         relayer: &mut impl MsgRelayer,
+        ctx: &ProcessTxsCtx<'_>,
     ) {
-        let current_height = header_vs.last_verified_block.height();
+        let current_height = ctx.header_vs.last_verified_block.height();
 
         // Phase 1: Execute any pending updates that have reached their activation height
         handle_pending_updates(state, relayer, current_height);
@@ -80,7 +78,7 @@ impl Subprotocol for AdministrationSubprotocol {
     fn process_msgs(
         _state: &mut AdministrationSubprotoState,
         _msgs: &[Self::Msg],
-        _l1ref: &L1BlockCommitment,
+        _ctx: &ProcessMsgsCtx<'_>,
     ) {
     }
 }

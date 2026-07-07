@@ -1,8 +1,8 @@
 //! Checkpoint Subprotocol Implementation
 
 use strata_asm_common::{
-    AuxRequestCollector, HeaderVerificationState, MsgRelayer, Subprotocol, SubprotocolId,
-    TxInputRef, VerifiedAuxData, logging,
+    AuxRequestCollector, MsgRelayer, ProcessMsgsCtx, ProcessTxsCtx, Subprotocol, SubprotocolId,
+    TxInputRef, logging,
 };
 use strata_asm_params::CheckpointInitConfig;
 use strata_asm_proto_checkpoint_msgs::CheckpointIncomingMsg;
@@ -10,7 +10,6 @@ use strata_asm_proto_checkpoint_txs::{
     CHECKPOINT_SUBPROTOCOL_ID, OL_STF_CHECKPOINT_TX_TYPE, extract_checkpoint_from_envelope,
 };
 use strata_checkpoint_verification::CheckpointState;
-use strata_identifiers::L1BlockCommitment;
 
 use crate::handler::handle_checkpoint_tx;
 
@@ -81,20 +80,19 @@ impl Subprotocol for CheckpointSubprotocol {
     fn process_txs(
         state: &mut Self::State,
         txs: &[TxInputRef<'_>],
-        header_vs: &HeaderVerificationState,
-        verified_aux_data: &VerifiedAuxData,
         relayer: &mut impl MsgRelayer,
+        ctx: &ProcessTxsCtx<'_>,
     ) {
-        let current_l1_height = header_vs.last_verified_block.height();
+        let current_l1_height = ctx.header_vs.last_verified_block.height();
 
         for tx in txs {
             if tx.tag().tx_type() == OL_STF_CHECKPOINT_TX_TYPE {
-                handle_checkpoint_tx(state, tx, current_l1_height, verified_aux_data, relayer)
+                handle_checkpoint_tx(state, tx, current_l1_height, ctx.verified_aux_data, relayer)
             }
         }
     }
 
-    fn process_msgs(state: &mut Self::State, msgs: &[Self::Msg], _l1ref: &L1BlockCommitment) {
+    fn process_msgs(state: &mut Self::State, msgs: &[Self::Msg], _ctx: &ProcessMsgsCtx<'_>) {
         // ASM design assumes subprotocols are not adversarial against each other,
         // so no additional validation is performed on incoming messages.
         for msg in msgs {

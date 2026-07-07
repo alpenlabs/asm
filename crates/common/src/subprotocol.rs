@@ -15,6 +15,34 @@ use crate::{
     VerifiedAuxData, msg::InterprotoMsg,
 };
 
+/// Context for [`Subprotocol::process_txs`].
+#[derive(Debug)]
+pub struct ProcessTxsCtx<'a> {
+    /// Verification state of the L1 block being processed.
+    ///
+    /// Needed as the source of the block commitment — its height drives fork
+    /// gates and height-based logic (e.g. assignment expiry), and it carries
+    /// PoW data such as the accumulated work.
+    pub header_vs: &'a HeaderVerificationState,
+
+    /// Aux data requested during [`Subprotocol::pre_process_txs`], verified
+    /// against the anchor state.
+    ///
+    /// Needed so processing can consume the external data (manifest hashes,
+    /// proofs, ...) it declared a dependency on during pre-processing.
+    pub verified_aux_data: &'a VerifiedAuxData,
+}
+
+/// Context for [`Subprotocol::process_msgs`].
+#[derive(Debug)]
+pub struct ProcessMsgsCtx<'a> {
+    /// Commitment of the L1 block being processed.
+    ///
+    /// Needed to anchor message effects to the block (e.g. withdrawal
+    /// assignments record the L1 block they were created at).
+    pub l1ref: &'a L1BlockCommitment,
+}
+
 /// Trait for defining subprotocol behavior within the ASM framework.
 ///
 /// Subprotocols are modular components that can be plugged into the ASM to handle
@@ -59,14 +87,13 @@ use crate::{
 ///     fn process_txs(
 ///         state: &mut Self::State,
 ///         txs: &[TxInputRef],
-///         header_vs: &HeaderVerificationState,
-///         verified_aux_data: &VerifiedAuxData,
 ///         relayer: &mut impl MsgRelayer,
+///         ctx: &ProcessTxsCtx<'_>,
 ///     ) {
 ///         // Process transactions
 ///     }
 ///
-///     fn process_msgs(state: &mut Self::State, msgs: &[Self::Msg], l1ref: &L1BlockCommitment) {
+///     fn process_msgs(state: &mut Self::State, msgs: &[Self::Msg], ctx: &ProcessMsgsCtx<'_>) {
 ///         // Process messages
 ///     }
 /// }
@@ -131,16 +158,13 @@ pub trait Subprotocol: 'static {
     /// # Arguments
     /// * `state` - Mutable reference to the subprotocol's state
     /// * `txs` - Slice of L1 transactions relevant to this subprotocol
-    /// * `header_vs` - Verification state of the L1 block being processed; subprotocols can read
-    ///   `header_vs.last_verified_block` for the block commitment, or any other field they need
-    /// * `verified_aux_data` - Verified auxiliary data previously requested and validated
     /// * `relayer` - Interface for sending messages to other subprotocols and emitting logs
+    /// * `ctx` - Ambient context; see [`ProcessTxsCtx`] for what each field provides
     fn process_txs(
         state: &mut Self::State,
         txs: &[TxInputRef<'_>],
-        header_vs: &HeaderVerificationState,
-        verified_aux_data: &VerifiedAuxData,
         relayer: &mut impl MsgRelayer,
+        ctx: &ProcessTxsCtx<'_>,
     );
 
     /// Processes messages received from other subprotocols.
@@ -151,11 +175,11 @@ pub trait Subprotocol: 'static {
     /// # Arguments
     /// * `state` - Mutable reference to the subprotocol's state
     /// * `msgs` - Slice of messages received from other subprotocols
-    /// * `l1ref` - L1 block being processed
+    /// * `ctx` - Ambient context; see [`ProcessMsgsCtx`] for what each field provides
     ///
     /// TODO(STR-3028): Enable log emission from process_msgs to support multi-round
     /// inter-subprotocol messaging
-    fn process_msgs(state: &mut Self::State, msgs: &[Self::Msg], l1ref: &L1BlockCommitment);
+    fn process_msgs(state: &mut Self::State, msgs: &[Self::Msg], ctx: &ProcessMsgsCtx<'_>);
 }
 
 /// Generic message relayer interface which subprotocols can use to interact
@@ -192,8 +216,7 @@ pub trait SubprotoHandler {
         &mut self,
         txs: &[TxInputRef<'_>],
         relayer: &mut dyn MsgRelayer,
-        header_vs: &HeaderVerificationState,
-        verified_aux_data: &VerifiedAuxData,
+        ctx: &ProcessTxsCtx<'_>,
     );
 
     /// Accepts a message.  This is called while processing other subprotocols.
@@ -208,7 +231,7 @@ pub trait SubprotoHandler {
     fn accept_msg(&mut self, msg: &dyn InterprotoMsg);
 
     /// Processes the buffered messages stored in the handler.
-    fn process_buffered_msgs(&mut self, l1ref: &L1BlockCommitment);
+    fn process_buffered_msgs(&mut self, ctx: &ProcessMsgsCtx<'_>);
 
     /// Repacks the state into a [`SectionState`] instance.
     ///

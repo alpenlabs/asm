@@ -3,10 +3,9 @@
 use std::{any::Any, collections::BTreeMap, marker};
 
 use strata_asm_common::{
-    AsmError, AsmLogEntry, AuxRequestCollector, HeaderVerificationState, InterprotoMsg, MsgRelayer,
-    SectionState, SubprotoHandler, Subprotocol, SubprotocolId, TxInputRef, VerifiedAuxData,
+    AsmError, AsmLogEntry, AuxRequestCollector, InterprotoMsg, MsgRelayer, ProcessMsgsCtx,
+    ProcessTxsCtx, SectionState, SubprotoHandler, Subprotocol, SubprotocolId, TxInputRef,
 };
-use strata_identifiers::L1BlockCommitment;
 
 /// Wrapper around the common subprotocol interface that handles the common
 /// buffering logic for interproto messages.
@@ -49,20 +48,19 @@ impl<S: Subprotocol, R: MsgRelayer> SubprotoHandler for HandlerImpl<S, R> {
         &mut self,
         txs: &[TxInputRef<'_>],
         relayer: &mut dyn MsgRelayer,
-        header_vs: &HeaderVerificationState,
-        verified_aux_data: &VerifiedAuxData,
+        ctx: &ProcessTxsCtx<'_>,
     ) {
         let relayer = relayer
             .as_mut_any()
             .downcast_mut::<R>()
             .expect("asm: handler");
 
-        S::process_txs(&mut self.state, txs, header_vs, verified_aux_data, relayer);
+        S::process_txs(&mut self.state, txs, relayer, ctx);
     }
 
-    fn process_buffered_msgs(&mut self, l1ref: &L1BlockCommitment) {
+    fn process_buffered_msgs(&mut self, ctx: &ProcessMsgsCtx<'_>) {
         // TODO(STR-2416): allow multi rounds of interproto msg passing
-        S::process_msgs(&mut self.state, &self.interproto_msg_buf, l1ref)
+        S::process_msgs(&mut self.state, &self.interproto_msg_buf, ctx)
     }
 
     fn to_section(&self) -> Result<SectionState, AsmError> {
@@ -118,8 +116,7 @@ impl SubprotoManager {
     pub(crate) fn invoke_process_txs<S: Subprotocol>(
         &mut self,
         txs: &[TxInputRef<'_>],
-        header_vs: &HeaderVerificationState,
-        verified_aux_data: &VerifiedAuxData,
+        ctx: &ProcessTxsCtx<'_>,
     ) {
         // We temporarily take the handler out of the map so we can call
         // `process_txs` with `self` as the relayer without violating the
@@ -127,16 +124,16 @@ impl SubprotoManager {
         let mut h = self
             .remove_handler(S::ID)
             .expect("asm: unloaded subprotocol");
-        h.process_txs(txs, self, header_vs, verified_aux_data);
+        h.process_txs(txs, self, ctx);
         self.insert_handler(h);
     }
 
     /// Dispatches buffered inter-protocol message processing to the handler.
-    pub(crate) fn invoke_process_msgs<S: Subprotocol>(&mut self, l1ref: &L1BlockCommitment) {
+    pub(crate) fn invoke_process_msgs<S: Subprotocol>(&mut self, ctx: &ProcessMsgsCtx<'_>) {
         let h = self
             .get_handler_mut(S::ID)
             .expect("asm: unloaded subprotocol");
-        h.process_buffered_msgs(l1ref)
+        h.process_buffered_msgs(ctx)
     }
 
     fn insert_handler(&mut self, handler: Box<dyn SubprotoHandler>) {
