@@ -187,9 +187,15 @@ fn handle_update(
             relay_checkpoint_predicate(relayer, update.into_key());
         }
         UpdateAction::AsmStfVk(update) => {
-            let key = update.into_key();
-            debug!(?key, "new ASM STF verifying key");
-            let log_entry = AsmLogEntry::from_log(&AsmStfUpdate::new(key))
+            // The fork id is deliberately not validated here: the multisig is
+            // expected to name the newly activating fork when authoring the
+            // action, and the id's representation may still change.
+            // TODO: once the fork id representation settles, consider tracking
+            // enacted updates in state so the activating fork can be validated
+            // (or auto-derived) at enactment instead of trusted operationally.
+            let (key, fork_id) = update.into_parts();
+            debug!(?key, fork_id, "new ASM STF verifying key");
+            let log_entry = AsmLogEntry::from_log(&AsmStfUpdate::new(key, fork_id))
                 .expect("AsmStfUpdate encoding is infallible");
             relayer.emit_log(log_entry);
             info!("emitted ASM STF verifying key update log");
@@ -719,7 +725,7 @@ mod tests {
 
         let predicate = PredicateKey::always_accept();
 
-        let update = UpdateAction::AsmStfVk(AsmStfVkUpdate::new(predicate.clone()));
+        let update = UpdateAction::AsmStfVk(AsmStfVkUpdate::new(predicate.clone(), 1));
         let update_id = state.next_update_id();
         let activation_height = 42;
         state.enqueue(QueuedUpdate::new(update_id, update, activation_height));
@@ -737,6 +743,7 @@ mod tests {
             .try_into_log::<AsmStfUpdate>()
             .expect("log should deserialize as AsmStfUpdate");
         assert_eq!(asm_update.new_predicate(), &predicate);
+        assert_eq!(asm_update.fork_id(), 1);
     }
 
     /// Test that cancel actions properly remove queued updates:

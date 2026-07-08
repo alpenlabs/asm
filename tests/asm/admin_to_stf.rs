@@ -16,7 +16,7 @@ use integration_tests::harness;
 use moho_runtime_impl::RuntimeInput;
 use moho_types::ExportState;
 use ssz::Encode;
-use strata_asm_common::{AuxData, StfParams};
+use strata_asm_common::{AuxData, ForkId, StfParams};
 use strata_asm_logs::AsmStfUpdate;
 use strata_asm_proof_impl::{
     moho_program::{input::AsmStepInput, program::advance_export_state_with_logs},
@@ -45,7 +45,10 @@ async fn test_asm_predicate_update_emits_log() {
     // Submit an ASM predicate update (gets queued for StrataAdministrator role)
     let new_predicate = PredicateKey::always_accept();
     harness
-        .submit_admin_action(&mut ctx, asm_stf_vk_update(new_predicate.clone()))
+        .submit_admin_action(
+            &mut ctx,
+            asm_stf_vk_update(new_predicate.clone(), ForkId::Fork1.into()),
+        )
         .await
         .unwrap();
 
@@ -106,7 +109,10 @@ async fn test_proof_program_reflects_predicate_update() {
     // Submit an ASM predicate update (gets queued for StrataAdministrator role).
     let new_predicate = PredicateKey::never_accept();
     harness
-        .submit_admin_action(&mut ctx, asm_stf_vk_update(new_predicate.clone()))
+        .submit_admin_action(
+            &mut ctx,
+            asm_stf_vk_update(new_predicate.clone(), ForkId::Fork1.into()),
+        )
         .await
         .unwrap();
 

@@ -277,9 +277,10 @@ pub fn multisig_config_update(
     MultisigAction::Update(update)
 }
 
-/// Create an ASM STF verifying key update action.
-pub fn asm_stf_vk_update(key: PredicateKey) -> MultisigAction {
-    MultisigAction::Update(UpdateAction::AsmStfVk(AsmStfVkUpdate::new(key)))
+/// Create an ASM STF verifying key update action carrying the raw id of the
+/// fork the new artifact implements.
+pub fn asm_stf_vk_update(key: PredicateKey, fork_id: u16) -> MultisigAction {
+    MultisigAction::Update(UpdateAction::AsmStfVk(AsmStfVkUpdate::new(key, fork_id)))
 }
 
 /// Create an OL STF (rollup) verifying key update action.
