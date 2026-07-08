@@ -161,10 +161,10 @@ impl BridgeV1State {
     /// active set and a fulfillment deadline derived from `l1_block`.
     ///
     /// This method does not mutate state: the deposit stays in the table and the returned
-    /// assignment is **not** inserted. The caller is expected to log the assignment, remove the
-    /// consumed deposit via [`remove_deposit`](Self::remove_deposit), and insert the assignment
-    /// via [`insert_withdrawal_assignment`](Self::insert_withdrawal_assignment) — this keeps the
-    /// create/log/remove/insert steps visible at the message-handling call site.
+    /// assignment is **not** inserted. The caller is expected to log the assignment and insert it
+    /// via [`insert_withdrawal_assignment`](Self::insert_withdrawal_assignment), which also
+    /// removes the deposit backing it — this keeps the create/log/insert steps visible at the
+    /// message-handling call site.
     ///
     /// # Errors
     ///
@@ -206,15 +206,16 @@ impl BridgeV1State {
         )
     }
 
-    /// Removes and returns the deposit with the given index, typically the one consumed by a
-    /// previously [created](Self::create_withdrawal_assignment) assignment.
-    pub fn remove_deposit(&mut self, deposit_idx: u32) -> Option<DepositEntry> {
-        self.deposits.remove_deposit(deposit_idx)
-    }
-
     /// Inserts a previously [created](Self::create_withdrawal_assignment) assignment into the
-    /// table.
+    /// table, removing the deposit that backs it.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the deposit referenced by the assignment is not in the deposits table.
     pub fn insert_withdrawal_assignment(&mut self, assignment: AssignmentEntry) {
+        self.deposits
+            .remove_deposit(assignment.deposit_idx())
+            .expect("assignment consumes a deposit present in the table");
         self.assignments.insert(assignment);
     }
 
@@ -300,9 +301,6 @@ mod tests {
             let assignment = state
                 .create_withdrawal_assignment(&intent, &l1blk)
                 .expect("creating an assignment for a matching deposit should succeed");
-            state
-                .remove_deposit(assignment.deposit_idx())
-                .expect("assignment consumes a deposit present in the table");
             state.insert_withdrawal_assignment(assignment);
 
             let unassigned_deposit_count = state.deposits.len();
