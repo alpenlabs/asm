@@ -1,4 +1,5 @@
 use bitcoin::Network;
+use strata_asm_common::ForkId;
 use strata_btc_types::BitcoinTxid;
 use strata_identifiers::{L1BlockCommitment, L1BlockId};
 use thiserror::Error;
@@ -71,6 +72,25 @@ pub enum WorkerError {
     )]
     UnsupportedForkActivation {
         fork_id: u16,
+        block_height: u32,
+        stuck_height: u32,
+    },
+
+    /// An enacted ASM VK upgrade named a fork that is already active.
+    ///
+    /// Enacted updates are expected to name the fork they newly activate, so
+    /// this is a flawed upgrade on the authoring side, and there is no safe
+    /// reading of it: applying it would retro-raise the fork's activation
+    /// height (reinterpreting blocks processed under the old boundary), while
+    /// ignoring it would let the worker's schedule silently diverge from the
+    /// predicate the chain just enacted. The worker refuses to commit the
+    /// enacting block instead of guessing.
+    #[error(
+        "cannot process L1 block at height {block_height}: ASM VK upgrade names fork {fork:?} already active since height {active_since}; worker remains stuck at height {stuck_height}; the enacted upgrade is flawed and needs operator intervention"
+    )]
+    RedundantForkActivation {
+        fork: ForkId,
+        active_since: u64,
         block_height: u32,
         stuck_height: u32,
     },

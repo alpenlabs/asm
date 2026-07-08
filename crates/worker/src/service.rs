@@ -249,10 +249,12 @@ fn plan_block_processing<W: WorkerContext>(
 /// before advancing the in-memory anchor.
 ///
 /// Fork activation discovery happens before any per-block persistence. If a
-/// block enacts a fork this worker does not support, the worker returns a
-/// specific error and leaves the block entirely uncommitted: no manifest leaf,
-/// aux data, or anchor state is written. Otherwise, the anchor state remains
-/// the block's commit point: [`plan_block_processing`] treats a block as
+/// block's ASM VK upgrade does not map to a valid new activation — it names a
+/// fork id unknown to this binary, or a fork that is already active — the
+/// worker returns a specific error and leaves the block entirely uncommitted:
+/// no manifest leaf, aux data, or anchor state is written. Otherwise, the
+/// anchor state remains the block's commit point: [`plan_block_processing`]
+/// treats a block as
 /// processed only once its anchor state is stored, so it is written after
 /// everything derived from the block. If an error aborts after the manifest or
 /// aux data write but before the anchor state, the block stays uncommitted and
@@ -274,9 +276,10 @@ where
     let (asm_stf_out, aux_data) = state.transition(&block)?;
 
     // Fork discovery before any per-block persistence: if this block enacted
-    // an ASM VK upgrade this binary cannot map to a known fork, the block is
-    // not committed at all. For supported upgrades, persist the activation now
-    // so a committed anchor can never lack the activation it enacted.
+    // an ASM VK upgrade the worker cannot accept (an unknown fork id, or a
+    // fork that is already active), the block is not committed at all. For
+    // valid upgrades, persist the activation now so a committed anchor can
+    // never lack the activation it enacted.
     let activations = state.discover_fork_activations(block_id, asm_stf_out.manifest.logs())?;
     state.apply_fork_activations(activations)?;
 

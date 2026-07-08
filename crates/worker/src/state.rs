@@ -201,58 +201,67 @@ where
     }
 
     /// Scans a processed block's logs for enacted ASM VK upgrades and returns
-    /// the fork activation each known update names, without touching any
-    /// state; [`Self::apply_fork_activations`] enacts them.
+    /// the fork activation each update names, without touching any state;
+    /// [`Self::apply_fork_activations`] enacts them.
     ///
-    /// If an update names a fork id this binary does not know, the block must
-    /// not be committed: the worker cannot safely follow the chain until it is
-    /// restarted with an image that supports that fork.
+    /// An error means the block must not be committed:
+    ///
+    /// - An update names a fork id this binary does not know
+    ///   ([`WorkerError::UnsupportedForkActivation`]): the worker cannot safely follow the chain
+    ///   until it is restarted with an image that supports that fork.
+    /// - An update names a fork that is already active, including one activated by an earlier
+    ///   update in the same block ([`WorkerError::RedundantForkActivation`]): such an update has no
+    ///   safe reading (see the variant docs), so the worker halts instead of guessing.
+    ///
+    /// Collects into a `Vec` deliberately: every update must validate before
+    /// [`Self::apply_fork_activations`] persists anything, so a flawed update
+    /// cannot leave a prefix of the block's activations on disk.
     pub(crate) fn discover_fork_activations(
         &self,
         block_id: &L1BlockCommitment,
         logs: &[AsmLogEntry],
     ) -> WorkerResult<Vec<ForkActivation>> {
-        let mut activations = Vec::new();
-        for update in logs
-            .iter()
+        let enacting_height = block_id.height();
+        let stuck_height = enacting_height.saturating_sub(1);
+        // In-block duplicates need their own tracker: an activation from
+        // earlier in this block takes effect at H+1, which the schedule check
+        // at H cannot see — and checking at H+1 instead would false-fire on a
+        // crash-replay, where the resumed schedule legitimately holds H+1 for
+        // this very block.
+        let mut seen: Vec<ForkId> = Vec::new();
+        logs.iter()
             .filter_map(|l| l.try_into_log::<AsmStfUpdate>().ok())
-        {
-            let raw_id = update.fork_id();
-            let Ok(fork) = ForkId::try_from(raw_id) else {
-                let stuck_height = block_id.height().saturating_sub(1);
-                tracing::error!(
-                    fork_id = raw_id,
-                    %block_id,
-                    stuck_height,
-                    "ASM VK upgrade activates a fork id unknown to this binary; refusing to commit block"
-                );
-                return Err(WorkerError::UnsupportedForkActivation {
-                    fork_id: raw_id,
-                    block_height: block_id.height(),
-                    stuck_height,
-                });
-            };
-            let enacting_height = block_id.height();
-            if self.fork_schedule.is_active(fork, enacting_height as u64) {
-                // Enacted updates are expected to name the fork they newly
-                // activate; one naming an already-active fork is an
-                // operational flaw on the authoring side. Drop it so a flawed
-                // update cannot retro-raise an activation height.
-                tracing::warn!(
-                    ?fork,
+            .map(|update| {
+                let fork = ForkId::try_from(update.fork_id()).map_err(|fork_id| {
+                    WorkerError::UnsupportedForkActivation {
+                        fork_id,
+                        block_height: enacting_height,
+                        stuck_height,
+                    }
+                })?;
+                let named_earlier = seen.contains(&fork);
+                if named_earlier || self.fork_schedule.is_active(fork, enacting_height as u64) {
+                    let active_since = if named_earlier {
+                        // What the earlier update in this block activates.
+                        enacting_height as u64 + 1
+                    } else {
+                        self.fork_schedule.activation_height(fork)
+                    };
+                    return Err(WorkerError::RedundantForkActivation {
+                        fork,
+                        active_since,
+                        block_height: enacting_height,
+                        stuck_height,
+                    });
+                }
+                seen.push(fork);
+                Ok(ForkActivation {
                     enacting_height,
-                    "ASM VK upgrade names an already-active fork; skipping"
-                );
-                continue;
-            }
-
-            activations.push(ForkActivation {
-                enacting_height,
-                fork,
-                new_predicate: update.into_new_predicate(),
-            });
-        }
-        Ok(activations)
+                    fork,
+                    new_predicate: update.into_new_predicate(),
+                })
+            })
+            .collect()
     }
 
     /// Persists each discovered activation and applies it to the in-memory
@@ -656,20 +665,61 @@ mod tests {
         }
 
         /// An upgrade naming a fork already active at the enacting height is
-        /// an authoring flaw: it must not retro-raise the activation.
+        /// a flawed upgrade with no safe reading: the block must not be
+        /// committed, and the activation must not be retro-raised.
         #[tokio::test(flavor = "multi_thread")]
-        async fn discover_ignores_already_active_fork() {
+        async fn discover_rejects_already_active_fork() {
             let mut fx = fixtures::setup_state(101).await;
             fx.state.fork_schedule.activate_at(ForkId::Fork1, 10);
 
-            let activations = fx
+            let err = fx
                 .state
                 .discover_fork_activations(&block_at(150), &[upgrade_log(ForkId::Fork1.into())])
-                .unwrap();
+                .unwrap_err();
 
-            assert!(activations.is_empty());
+            assert!(
+                matches!(
+                    err,
+                    WorkerError::RedundantForkActivation {
+                        fork: ForkId::Fork1,
+                        active_since: 10,
+                        block_height: 150,
+                        stuck_height: 149,
+                    }
+                ),
+                "expected redundant fork activation error, got {err:?}",
+            );
             assert_eq!(fx.state.fork_schedule.activation_height(ForkId::Fork1), 10);
             assert!(fx.state.context.list_fork_activations().unwrap().is_empty());
+        }
+
+        /// Two updates in one block naming the same fork are the same flaw:
+        /// the second names a fork the first already activates.
+        #[tokio::test(flavor = "multi_thread")]
+        async fn discover_rejects_duplicate_fork_in_one_block() {
+            let fx = fixtures::setup_state(101).await;
+
+            let logs = [
+                upgrade_log(ForkId::Fork1.into()),
+                upgrade_log(ForkId::Fork1.into()),
+            ];
+            let err = fx
+                .state
+                .discover_fork_activations(&block_at(150), &logs)
+                .unwrap_err();
+
+            assert!(
+                matches!(
+                    err,
+                    WorkerError::RedundantForkActivation {
+                        fork: ForkId::Fork1,
+                        active_since: 151,
+                        block_height: 150,
+                        stuck_height: 149,
+                    }
+                ),
+                "expected redundant fork activation error, got {err:?}",
+            );
         }
 
         /// An upgrade naming a fork id this binary has no variant for prevents
@@ -690,6 +740,33 @@ mod tests {
                         fork_id: 0xBEEF,
                         block_height: 150,
                         stuck_height: 149,
+                    }
+                ),
+                "expected unsupported fork activation error, got {err:?}",
+            );
+            assert_eq!(fx.state.fork_schedule, ForkSchedule::all_disabled());
+            assert!(fx.state.context.list_fork_activations().unwrap().is_empty());
+        }
+
+        /// A flawed update anywhere in the block's logs fails discovery as a
+        /// whole: the valid earlier update must not slip through, so nothing
+        /// is ever persisted for a block the worker refuses to commit.
+        #[tokio::test(flavor = "multi_thread")]
+        async fn discover_rejects_block_with_valid_and_flawed_updates() {
+            let fx = fixtures::setup_state(101).await;
+            let logs = [upgrade_log(ForkId::Fork1.into()), upgrade_log(0xBEEF)];
+
+            let err = fx
+                .state
+                .discover_fork_activations(&block_at(150), &logs)
+                .unwrap_err();
+
+            assert!(
+                matches!(
+                    err,
+                    WorkerError::UnsupportedForkActivation {
+                        fork_id: 0xBEEF,
+                        ..
                     }
                 ),
                 "expected unsupported fork activation error, got {err:?}",
