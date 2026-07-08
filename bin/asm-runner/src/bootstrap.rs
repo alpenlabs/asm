@@ -189,6 +189,7 @@ pub(crate) async fn bootstrap(
             manifest_db,
             asm_worker,
             bitcoin_client,
+            params,
             proof_rpc_deps,
             rpc_host,
             rpc_port,

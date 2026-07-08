@@ -8056,6 +8056,7 @@ dependencies = [
  "bitcoin",
  "jsonrpsee",
  "strata-asm-common",
+ "strata-asm-params",
  "strata-asm-proto-bridge-v1",
  "strata-asm-proto-bridge-v1-types",
  "strata-asm-proto-checkpoint-types",

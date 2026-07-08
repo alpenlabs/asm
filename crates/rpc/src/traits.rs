@@ -3,6 +3,7 @@
 use bitcoin::BlockHash;
 use jsonrpsee::{core::RpcResult, proc_macros::rpc};
 use strata_asm_common::{AnchorState, AsmManifest};
+use strata_asm_params::AsmParams;
 use strata_asm_proto_bridge_v1::{AssignmentEntry, DepositEntry};
 use strata_asm_proto_bridge_v1_types::SafeHarbour;
 use strata_asm_proto_checkpoint_types::CheckpointTip;
@@ -22,6 +23,10 @@ pub trait AsmControlApi {
     /// Return the current ASM worker status.
     #[method(name = "getStatus")]
     async fn get_status(&self) -> RpcResult<AsmWorkerStatus>;
+
+    /// Return the static ASM parameters this instance was launched with.
+    #[method(name = "getParams")]
+    async fn get_params(&self) -> RpcResult<AsmParams>;
 }
 
 /// State-query ASM RPCs: derived purely from the ASM state DB and keyed by L1 block hash.

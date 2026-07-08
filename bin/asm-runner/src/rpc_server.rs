@@ -15,6 +15,7 @@ use jsonrpsee::{
 use ssz::{Decode, Encode};
 use strata_asm_common::{AnchorState, AsmManifest};
 use strata_asm_moho_storage::{SledExportEntriesDb, SledMohoStateDb};
+use strata_asm_params::AsmParams;
 use strata_asm_proto_bridge_v1::{AssignmentEntry, BridgeV1State, DepositEntry};
 use strata_asm_proto_bridge_v1_txs::BRIDGE_V1_SUBPROTOCOL_ID;
 use strata_asm_proto_bridge_v1_types::SafeHarbour;
@@ -51,6 +52,7 @@ pub(crate) struct AsmRpcServer {
     manifest_db: Arc<SledAsmManifestDb>,
     asm_worker: Arc<AsmWorkerHandle>,
     bitcoin_client: Arc<Client>,
+    params: Arc<AsmParams>,
     /// Monotonic start instant, used to compute uptime for the control API.
     start_time: Instant,
 }
@@ -61,12 +63,14 @@ impl AsmRpcServer {
         manifest_db: Arc<SledAsmManifestDb>,
         asm_worker: Arc<AsmWorkerHandle>,
         bitcoin_client: Arc<Client>,
+        params: AsmParams,
     ) -> Self {
         Self {
             state_db,
             manifest_db,
             asm_worker,
             bitcoin_client,
+            params: Arc::new(params),
             start_time: Instant::now(),
         }
     }
@@ -123,6 +127,10 @@ impl AsmControlApiServer for AsmRpcServer {
 
     async fn get_status(&self) -> RpcResult<AsmWorkerStatus> {
         Ok(self.asm_worker.monitor().get_current())
+    }
+
+    async fn get_params(&self) -> RpcResult<AsmParams> {
+        Ok((*self.params).clone())
     }
 }
 
@@ -323,12 +331,19 @@ pub(crate) async fn run_rpc_server(
     manifest_db: Arc<SledAsmManifestDb>,
     asm_worker: Arc<AsmWorkerHandle>,
     bitcoin_client: Arc<Client>,
+    params: AsmParams,
     proof_deps: Option<AsmProofRpcDeps>,
     rpc_host: String,
     rpc_port: u16,
     shutdown: ShutdownGuard,
 ) -> Result<()> {
-    let asm_rpc = AsmRpcServer::new(state_db, manifest_db, asm_worker, bitcoin_client.clone());
+    let asm_rpc = AsmRpcServer::new(
+        state_db,
+        manifest_db,
+        asm_worker,
+        bitcoin_client.clone(),
+        params,
+    );
     let mut module = AsmControlApiServer::into_rpc(asm_rpc.clone());
     module.merge(AsmStateApiServer::into_rpc(asm_rpc))?;
 
