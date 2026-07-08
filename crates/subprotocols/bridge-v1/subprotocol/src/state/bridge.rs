@@ -155,12 +155,13 @@ impl BridgeV1State {
 
     /// Creates a withdrawal assignment for the oldest unassigned deposit.
     ///
-    /// Removes the oldest deposit UTXO, validates that its amount matches the withdrawal amount,
-    /// and builds the assignment with an operator selected from the currently active set.
-    ///
-    /// The returned assignment is **not** inserted into the table. The caller is expected to log it
-    /// and insert it via [`insert_withdrawal_assignment`](Self::insert_withdrawal_assignment) —
-    /// this keeps the create/log/insert steps visible at the message-handling call site.
+    /// Validates that the oldest deposit's amount matches the withdrawal amount and builds the
+    /// assignment from a clone of that deposit, with an operator selected from the currently
+    /// active set. State is not mutated: the deposit stays in the table and the returned
+    /// assignment is **not** inserted. The caller is expected to log the assignment, remove the
+    /// consumed deposit via [`remove_deposit`](Self::remove_deposit), and insert the assignment
+    /// via [`insert_withdrawal_assignment`](Self::insert_withdrawal_assignment) — this keeps the
+    /// create/log/remove/insert steps visible at the message-handling call site.
     ///
     /// # Parameters
     ///
@@ -173,14 +174,14 @@ impl BridgeV1State {
     /// - `Err(WithdrawalAssignmentError)` - If no unassigned deposits, amounts mismatch, or no
     ///   operator is eligible
     pub fn create_withdrawal_assignment(
-        &mut self,
+        &self,
         withdrawal_intent: &WithdrawalIntent,
         l1_block: &L1BlockCommitment,
     ) -> Result<AssignmentEntry, WithdrawalAssignmentError> {
         // Get the oldest deposit
         let deposit = self
             .deposits
-            .remove_oldest_deposit()
+            .oldest_deposit()
             .ok_or(WithdrawalAssignmentError::NoUnassignedDeposits)?;
 
         if deposit.amt() != withdrawal_intent.amt() {
@@ -199,13 +200,19 @@ impl BridgeV1State {
             .operators();
 
         self.assignments.build_assignment(
-            deposit,
+            deposit.clone(),
             withdrawal_intent.clone(),
             self.operator_fee,
             notary_operators,
             self.operators.current_multisig(),
             l1_block,
         )
+    }
+
+    /// Removes and returns the deposit with the given index, typically the one consumed by a
+    /// previously [created](Self::create_withdrawal_assignment) assignment.
+    pub fn remove_deposit(&mut self, deposit_idx: u32) -> Option<DepositEntry> {
+        self.deposits.remove_deposit(deposit_idx)
     }
 
     /// Inserts a previously [created](Self::create_withdrawal_assignment) assignment into the
@@ -296,6 +303,9 @@ mod tests {
             let assignment = state
                 .create_withdrawal_assignment(&intent, &l1blk)
                 .expect("creating an assignment for a matching deposit should succeed");
+            state
+                .remove_deposit(assignment.deposit_idx())
+                .expect("assignment consumes a deposit present in the table");
             state.insert_withdrawal_assignment(assignment);
 
             let unassigned_deposit_count = state.deposits.len();
@@ -335,5 +345,8 @@ mod tests {
             assert_eq!(mismatch.got, intent.amt.to_sat());
             assert_eq!(mismatch.expected, deposit.amt().to_sat());
         }
+
+        // A failed creation must not mutate state: the deposit stays in the table.
+        assert_eq!(state.deposits.len(), 1);
     }
 }

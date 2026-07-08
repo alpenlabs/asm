@@ -269,25 +269,29 @@ impl DepositsTable {
         }
     }
 
-    /// Removes and returns the oldest deposit from the table.
+    /// Returns the oldest deposit in the table.
     ///
     /// Since the table is sorted by deposit index, the oldest deposit (with the
-    /// smallest deposit_idx) is always at position 0. This method removes and
-    /// returns that deposit.
+    /// smallest deposit_idx) is always at position 0.
     ///
     /// # Returns
     ///
-    /// - `Some(DepositEntry)` if there are deposits in the table
+    /// - `Some(&DepositEntry)` if there are deposits in the table
     /// - `None` if the table is empty
-    pub fn remove_oldest_deposit(&mut self) -> Option<DepositEntry> {
-        if self.deposits.is_empty() {
-            None
-        } else {
-            // Get the first (oldest) deposit and remove it
-            let oldest = self.deposits.as_slice()[0].clone();
-            self.deposits.remove(&oldest);
-            Some(oldest)
-        }
+    pub fn oldest_deposit(&self) -> Option<&DepositEntry> {
+        self.deposits.as_slice().first()
+    }
+
+    /// Removes and returns the deposit with the given index.
+    ///
+    /// # Returns
+    ///
+    /// - `Some(DepositEntry)` if a deposit with the given index existed
+    /// - `None` if no deposit with the given index is found
+    pub fn remove_deposit(&mut self, deposit_idx: u32) -> Option<DepositEntry> {
+        let entry = self.get_deposit(deposit_idx)?.clone();
+        self.deposits.remove(&entry);
+        Some(entry)
     }
 }
 
@@ -371,13 +375,15 @@ mod tests {
 
             let mut removed_indices = Vec::new();
             for i in 0..len {
-                let removed = table.remove_oldest_deposit();
-                prop_assert!(removed.is_some());
-                let idx = removed.unwrap().idx();
+                let oldest_idx = table.oldest_deposit().map(|e| e.idx());
+                prop_assert!(oldest_idx.is_some());
+                let idx = oldest_idx.unwrap();
+                let removed = table.remove_deposit(idx);
+                prop_assert_eq!(removed.map(|e| e.idx()), Some(idx));
                 removed_indices.push(idx);
                 prop_assert!(table.len() == (len - i - 1));
             }
-            prop_assert!(table.remove_oldest_deposit().is_none());
+            prop_assert!(table.oldest_deposit().is_none());
 
             prop_assert!(removed_indices.is_sorted());
         }

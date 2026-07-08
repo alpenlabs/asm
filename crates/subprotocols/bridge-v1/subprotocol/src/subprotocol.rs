@@ -177,9 +177,10 @@ impl Subprotocol for BridgeV1Subproto {
         for msg in msgs {
             match msg {
                 BridgeIncomingMsg::DispatchWithdrawal(payload) => {
-                    // Decompose the batch intent into per-denomination intents, then create, log,
-                    // and insert one assignment for each. A non-decomposable amount (not a whole
-                    // multiple of the denomination) surfaces here as an amount mismatch.
+                    // Decompose the batch intent into per-denomination intents, then for each one
+                    // create an assignment, log it, remove the deposit it consumes, and insert it.
+                    // A non-decomposable amount (not a whole multiple of the denomination)
+                    // surfaces here as an amount mismatch.
                     let denomination = *state.denomination();
                     let result = payload
                         .decompose(denomination)
@@ -201,6 +202,9 @@ impl Subprotocol for BridgeV1Subproto {
                                     selected_operator = %intent.selected_operator(),
                                     "Created withdrawal assignment",
                                 );
+                                state
+                                    .remove_deposit(assignment.deposit_idx())
+                                    .expect("assignment consumes a deposit present in the table");
                                 state.insert_withdrawal_assignment(assignment);
                             }
                             Ok(())
@@ -336,6 +340,7 @@ mod tests {
             let assignment = state
                 .create_withdrawal_assignment(&intent, &creation_block)
                 .expect("creating an assignment for a matching deposit should succeed");
+            state.remove_deposit(assignment.deposit_idx());
             state.insert_withdrawal_assignment(assignment);
         }
 
