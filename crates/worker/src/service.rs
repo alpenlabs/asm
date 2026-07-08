@@ -277,7 +277,8 @@ where
     // an ASM VK upgrade this binary cannot map to a known fork, the block is
     // not committed at all. For supported upgrades, persist the activation now
     // so a committed anchor can never lack the activation it enacted.
-    state.discover_fork_activations(block_id, asm_stf_out.manifest.logs())?;
+    let activations = state.discover_fork_activations(block_id, asm_stf_out.manifest.logs())?;
+    state.apply_fork_activations(activations)?;
 
     // Persist the manifest and record its hash in the height-indexed MMR.
     state

@@ -200,22 +200,19 @@ where
         self.blkid = blkid;
     }
 
-    /// Scans a processed block's logs for enacted ASM VK upgrades and
-    /// activates the fork each known update names, from the next block on.
+    /// Scans a processed block's logs for enacted ASM VK upgrades and returns
+    /// the fork activation each known update names, without touching any
+    /// state; [`Self::apply_fork_activations`] enacts them.
     ///
     /// If an update names a fork id this binary does not know, the block must
     /// not be committed: the worker cannot safely follow the chain until it is
     /// restarted with an image that supports that fork.
-    ///
-    /// MUST run before the enacting block's anchor state is committed: the
-    /// activation record is persisted here, and persisting it first guarantees
-    /// a committed anchor never lacks the activation it enacted (crash-replay
-    /// simply rewrites the same record).
     pub(crate) fn discover_fork_activations(
-        &mut self,
+        &self,
         block_id: &L1BlockCommitment,
         logs: &[AsmLogEntry],
-    ) -> WorkerResult<()> {
+    ) -> WorkerResult<Vec<ForkActivation>> {
+        let mut activations = Vec::new();
         for update in logs
             .iter()
             .filter_map(|l| l.try_into_log::<AsmStfUpdate>().ok())
@@ -239,9 +236,8 @@ where
             if self.fork_schedule.is_active(fork, enacting_height as u64) {
                 // Enacted updates are expected to name the fork they newly
                 // activate; one naming an already-active fork is an
-                // operational flaw on the authoring side. Leave the schedule
-                // untouched so a flawed update cannot retro-raise an
-                // activation height.
+                // operational flaw on the authoring side. Drop it so a flawed
+                // update cannot retro-raise an activation height.
                 tracing::warn!(
                     ?fork,
                     enacting_height,
@@ -250,18 +246,36 @@ where
                 continue;
             }
 
-            let activation = ForkActivation {
+            activations.push(ForkActivation {
                 enacting_height,
                 fork,
                 new_predicate: update.into_new_predicate(),
-            };
+            });
+        }
+        Ok(activations)
+    }
+
+    /// Persists each discovered activation and applies it to the in-memory
+    /// effective schedule.
+    ///
+    /// MUST run before the enacting block's anchor state is committed:
+    /// persisting the activation first guarantees a committed anchor never
+    /// lacks the activation it enacted (crash-replay simply rewrites the same
+    /// record).
+    pub(crate) fn apply_fork_activations(
+        &mut self,
+        activations: Vec<ForkActivation>,
+    ) -> WorkerResult<()> {
+        for activation in activations {
+            let fork = activation.fork;
+            let enacting_height = activation.enacting_height;
             let activation_height = activation.activation_height();
             self.context.record_fork_activation(activation)?;
             self.fork_schedule.activate_at(fork, activation_height);
             tracing::info!(
                 ?fork,
                 activation_height,
-                %block_id,
+                enacting_height,
                 "fork activated by ASM VK upgrade"
             );
         }
@@ -614,26 +628,31 @@ mod tests {
             L1BlockCommitment::new(height, Buf32::new([0xEE; 32]).into())
         }
 
-        /// An upgrade log activates the fork it names at H+1, in memory and
-        /// on disk.
+        /// An upgrade log yields the activation of the fork it names; applying
+        /// it activates the fork at H+1, in memory and on disk. Discovery
+        /// alone touches nothing.
         #[tokio::test(flavor = "multi_thread")]
-        async fn discover_activates_named_fork() {
+        async fn discover_then_apply_activates_named_fork() {
             let mut fx = fixtures::setup_state(101).await;
 
-            fx.state
+            let discovered = fx
+                .state
                 .discover_fork_activations(&block_at(150), &[upgrade_log(ForkId::Fork1.into())])
                 .unwrap();
 
+            let expected = vec![ForkActivation {
+                enacting_height: 150,
+                fork: ForkId::Fork1,
+                new_predicate: upgrade_predicate(),
+            }];
+            assert_eq!(discovered, expected);
+            assert_eq!(fx.state.fork_schedule, ForkSchedule::all_disabled());
+            assert!(fx.state.context.list_fork_activations().unwrap().is_empty());
+
+            fx.state.apply_fork_activations(discovered).unwrap();
+
             assert_eq!(fx.state.fork_schedule.activation_height(ForkId::Fork1), 151);
-            let stored = fx.state.context.list_fork_activations().unwrap();
-            assert_eq!(
-                stored,
-                vec![ForkActivation {
-                    enacting_height: 150,
-                    fork: ForkId::Fork1,
-                    new_predicate: upgrade_predicate(),
-                }],
-            );
+            assert_eq!(fx.state.context.list_fork_activations().unwrap(), expected);
         }
 
         /// An upgrade naming a fork already active at the enacting height is
@@ -643,10 +662,12 @@ mod tests {
             let mut fx = fixtures::setup_state(101).await;
             fx.state.fork_schedule.activate_at(ForkId::Fork1, 10);
 
-            fx.state
+            let activations = fx
+                .state
                 .discover_fork_activations(&block_at(150), &[upgrade_log(ForkId::Fork1.into())])
                 .unwrap();
 
+            assert!(activations.is_empty());
             assert_eq!(fx.state.fork_schedule.activation_height(ForkId::Fork1), 10);
             assert!(fx.state.context.list_fork_activations().unwrap().is_empty());
         }
@@ -655,7 +676,7 @@ mod tests {
         /// the enacting block from being committed at all.
         #[tokio::test(flavor = "multi_thread")]
         async fn discover_rejects_unknown_fork_id() {
-            let mut fx = fixtures::setup_state(101).await;
+            let fx = fixtures::setup_state(101).await;
 
             let err = fx
                 .state
@@ -711,9 +732,13 @@ mod tests {
         #[tokio::test(flavor = "multi_thread")]
         async fn rollback_prunes_and_recomputes() {
             let mut fx = fixtures::setup_state(101).await;
-            fx.state
-                .discover_fork_activations(&block_at(150), &[upgrade_log(ForkId::Fork1.into())])
+            let logs = [upgrade_log(ForkId::Fork1.into())];
+
+            let activations = fx
+                .state
+                .discover_fork_activations(&block_at(150), &logs)
                 .unwrap();
+            fx.state.apply_fork_activations(activations).unwrap();
             assert!(fx.state.fork_schedule.is_active(ForkId::Fork1, 151));
 
             // Reorg to a base below the enacting block: back to the base schedule.
@@ -726,9 +751,11 @@ mod tests {
             assert!(fx.state.context.list_fork_activations().unwrap().is_empty());
 
             // A rollback at or above the enacting height keeps the activation.
-            fx.state
-                .discover_fork_activations(&block_at(150), &[upgrade_log(ForkId::Fork1.into())])
+            let activations = fx
+                .state
+                .discover_fork_activations(&block_at(150), &logs)
                 .unwrap();
+            fx.state.apply_fork_activations(activations).unwrap();
             fx.state.rollback_fork_activations(150).unwrap();
             assert!(fx.state.fork_schedule.is_active(ForkId::Fork1, 151));
         }
