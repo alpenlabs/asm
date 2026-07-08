@@ -66,6 +66,15 @@ pub enum WorkerError {
     #[error("missing aux data for the block {0:?}")]
     MissingAuxData(L1BlockCommitment),
 
+    #[error(
+        "cannot process L1 block at height {block_height}: ASM VK upgrade activates unsupported fork id {fork_id}; worker remains stuck at height {stuck_height}; load an image that supports the fork"
+    )]
+    UnsupportedForkActivation {
+        fork_id: u16,
+        block_height: u32,
+        stuck_height: u32,
+    },
+
     /// A Bitcoin RPC call failed after exhausting its retry budget. The
     /// payload carries the underlying error's display so the operator sees
     /// the actual cause (block not found, timeout, connection refused, auth,

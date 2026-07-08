@@ -243,19 +243,23 @@ fn plan_block_processing<W: WorkerContext>(
     })
 }
 
-/// Runs the STF for `block_id`, then persists the results in a deliberate
-/// order — the manifest (into the height-indexed MMR) and the prover aux data
-/// first, the anchor state last — before advancing the in-memory anchor.
+/// Runs the STF for `block_id`, discovers any fork activations from its logs,
+/// then persists the results in a deliberate order — the manifest (into the
+/// height-indexed MMR) and the prover aux data first, the anchor state last —
+/// before advancing the in-memory anchor.
 ///
-/// The order is the crash-safety contract. The anchor state is this block's
-/// commit point: [`plan_block_processing`] treats a block as processed only
-/// once its anchor state is stored, so it is written after everything derived
-/// from the block. If an error aborts after the manifest or aux data write but
-/// before the anchor state, the block stays uncommitted and the next sync
-/// re-runs its STF. That re-run is safe: every write on this path is an
-/// idempotent, block-keyed overwrite (the MMR leaf is replaced by height, aux
-/// data and anchor state are keyed by block id, and the STF is deterministic,
-/// so it reproduces identical values.
+/// Fork activation discovery happens before any per-block persistence. If a
+/// block enacts a fork this worker does not support, the worker returns a
+/// specific error and leaves the block entirely uncommitted: no manifest leaf,
+/// aux data, or anchor state is written. Otherwise, the anchor state remains
+/// the block's commit point: [`plan_block_processing`] treats a block as
+/// processed only once its anchor state is stored, so it is written after
+/// everything derived from the block. If an error aborts after the manifest or
+/// aux data write but before the anchor state, the block stays uncommitted and
+/// the next sync re-runs its STF. That re-run is safe: every write on this path
+/// is an idempotent, block-keyed overwrite (the MMR leaf is replaced by height,
+/// aux data and anchor state are keyed by block id, and the STF is
+/// deterministic, so it reproduces identical values).
 fn apply_block<W, S>(
     state: &mut AsmWorkerServiceState<W, S>,
     block_id: &L1BlockCommitment,
@@ -269,17 +273,18 @@ where
     let block = state.context.get_l1_block(block_id.blkid())?;
     let (asm_stf_out, aux_data) = state.transition(&block)?;
 
+    // Fork discovery before any per-block persistence: if this block enacted
+    // an ASM VK upgrade this binary cannot map to a known fork, the block is
+    // not committed at all. For supported upgrades, persist the activation now
+    // so a committed anchor can never lack the activation it enacted.
+    state.discover_fork_activations(block_id, asm_stf_out.manifest.logs())?;
+
     // Persist the manifest and record its hash in the height-indexed MMR.
     state
         .context
         .record_manifest(asm_stf_out.manifest.clone())?;
     // Store auxiliary data for prover consumption.
     state.context.store_aux_data(block_id, &aux_data)?;
-
-    // Fork discovery before the commit point: if this block enacted an ASM VK
-    // upgrade a trigger maps to, persist the activation now so a committed
-    // anchor can never lack the activation it enacted.
-    state.discover_fork_activations(block_id, asm_stf_out.manifest.logs())?;
 
     // Anchor state last: it is the block's commit point (see fn docs), so a
     // crash before it leaves the block uncommitted to be safely re-run. The
@@ -309,9 +314,15 @@ mod tests {
     use std::thread;
 
     use bitcoind_async_client::traits::Reader;
-    use strata_asm_common::{AsmManifestHash, AuxRequestCollector, StfParams};
+    use strata_asm_common::{
+        AsmLogEntry, AsmManifestHash, AuxRequestCollector, MsgRelayer, NullMsg, ProcessMsgsCtx,
+        ProcessTxsCtx, SectionState, StfParams, Subprotocol, SubprotocolId, TxInputRef,
+    };
+    use strata_asm_logs::AsmStfUpdate;
     use strata_btc_types::L1BlockIdBitcoinExt;
+    use strata_btc_verification::L1Anchor;
     use strata_identifiers::{Buf32, L1BlockId};
+    use strata_predicate::PredicateKey;
     use strata_service::CommandCompletionSender;
     use tokio::{sync::oneshot, task::block_in_place};
 
@@ -321,8 +332,66 @@ mod tests {
         test_utils::{
             TestAsmWorkerContext,
             fixtures::{self, TestAsmSpec},
+            get_l1_anchor,
         },
     };
+
+    const UNSUPPORTED_FORK_ID: u16 = 0xBEEF;
+    const EMIT_UPDATE_SUBPROTO_ID: SubprotocolId = 253;
+
+    #[derive(Debug)]
+    struct UnsupportedForkLogSubproto;
+
+    impl Subprotocol for UnsupportedForkLogSubproto {
+        const ID: SubprotocolId = EMIT_UPDATE_SUBPROTO_ID;
+
+        type InitConfig = ();
+        type State = u8;
+        type Msg = NullMsg<EMIT_UPDATE_SUBPROTO_ID>;
+
+        fn init(_config: &Self::InitConfig) -> Self::State {
+            0
+        }
+
+        fn process_txs(
+            _state: &mut Self::State,
+            _txs: &[TxInputRef<'_>],
+            relayer: &mut impl MsgRelayer,
+            _ctx: &ProcessTxsCtx<'_>,
+        ) {
+            let log = AsmLogEntry::from_log(&AsmStfUpdate::new(
+                PredicateKey::always_accept(),
+                UNSUPPORTED_FORK_ID,
+            ))
+            .expect("AsmStfUpdate encoding is infallible");
+            relayer.emit_log(log);
+        }
+
+        fn process_msgs(_state: &mut Self::State, _msgs: &[Self::Msg], _ctx: &ProcessMsgsCtx<'_>) {}
+    }
+
+    #[derive(Debug)]
+    struct UnsupportedForkLogSpec;
+
+    impl AsmSpec for UnsupportedForkLogSpec {
+        type Subprotocols = (UnsupportedForkLogSubproto,);
+        type Params = L1Anchor;
+
+        fn construct_genesis_state(anchor: &L1Anchor) -> AnchorState {
+            let mut state = fixtures::genesis_state_from_anchor(anchor.clone());
+            state.sections = vec![
+                SectionState::from_state::<UnsupportedForkLogSubproto>(&0)
+                    .expect("test section fits"),
+            ]
+            .try_into()
+            .expect("single test section fits");
+            state
+        }
+
+        fn stf_params(_params: &L1Anchor) -> StfParams {
+            StfParams::default()
+        }
+    }
 
     /// Leaf count of the accumulator carried by the current in-memory anchor —
     /// the snapshot size [`AsmWorkerServiceState::transition`] resolves aux data
@@ -470,6 +539,66 @@ mod tests {
         }
         // Sentinels 0..=101 (102 leaves) plus one manifest per processed height.
         assert_eq!(fx.state.context.mmr_leaf_count(), 105);
+    }
+
+    /// A block that enacts an ASM VK update for a fork unknown to this binary
+    /// is not committed. Retrying after a restart will target the same block
+    /// again, so no unsupported marker has to be persisted.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn sync_rejects_block_with_unsupported_fork_update() {
+        let fx = fixtures::setup_context(101).await;
+        let tip = fx.client.get_block_hash(101).await.unwrap();
+        let anchor = get_l1_anchor(&fx.client, &tip)
+            .await
+            .expect("genesis anchor");
+        let genesis = UnsupportedForkLogSpec::construct_genesis_state(&anchor);
+        let mut state = AsmWorkerServiceState::<_, UnsupportedForkLogSpec>::new(
+            fx.context.clone(),
+            genesis,
+            StfParams::default(),
+            Subscribers::default(),
+        )
+        .expect("create service state");
+        let stuck = state.blkid;
+        let target = fixtures::mine(&fx._node, &fx.client, 1).await[0]; // 102
+
+        let err = sync_to_block(&mut state, target.blkid())
+            .expect_err("sync should reject the unsupported fork update block");
+
+        assert!(
+            matches!(
+                &err,
+                WorkerError::UnsupportedForkActivation {
+                    fork_id: UNSUPPORTED_FORK_ID,
+                    block_height: 102,
+                    stuck_height: 101,
+                }
+            ),
+            "expected unsupported fork activation error, got {err:?}",
+        );
+        assert!(
+            err.to_string()
+                .contains("worker remains stuck at height 101"),
+            "error should name the stuck height: {err}",
+        );
+        assert!(
+            err.to_string()
+                .contains("load an image that supports the fork"),
+            "error should tell operators how to proceed: {err}",
+        );
+        assert_eq!(state.blkid, stuck, "in-memory anchor stays stuck");
+        assert!(
+            matches!(
+                state.context.get_anchor_state(&target),
+                Err(WorkerError::MissingAsmState(_))
+            ),
+            "rejected block must not get an anchor state",
+        );
+        assert_eq!(
+            state.context.mmr_leaf_count(),
+            102,
+            "no manifest leaf is written for the rejected block",
+        );
     }
 
     /// Re-submitting an already-processed block — a duplicate or lagging ZMQ

@@ -200,8 +200,12 @@ where
         self.blkid = blkid;
     }
 
-    /// Scans a processed block's logs for enacted ASM VK upgrades and activates
-    /// the fork each one names, from the next block on.
+    /// Scans a processed block's logs for enacted ASM VK upgrades and
+    /// activates the fork each known update names, from the next block on.
+    ///
+    /// If an update names a fork id this binary does not know, the block must
+    /// not be committed: the worker cannot safely follow the chain until it is
+    /// restarted with an image that supports that fork.
     ///
     /// MUST run before the enacting block's anchor state is committed: the
     /// activation record is persisted here, and persisting it first guarantees
@@ -218,18 +222,18 @@ where
         {
             let raw_id = update.fork_id();
             let Ok(fork) = ForkId::try_from(raw_id) else {
-                // A fork id this binary has no variant for: it cannot apply
-                // the fork's rules, so it cannot meaningfully activate it
-                // either. Once the unknown fork activates, this worker can no
-                // longer follow the chain.
-                // TODO: consider halting the worker at the activation height
-                // instead of diverging silently.
+                let stuck_height = block_id.height().saturating_sub(1);
                 tracing::error!(
                     fork_id = raw_id,
                     %block_id,
-                    "ASM VK upgrade names a fork id unknown to this binary"
+                    stuck_height,
+                    "ASM VK upgrade activates a fork id unknown to this binary; refusing to commit block"
                 );
-                continue;
+                return Err(WorkerError::UnsupportedForkActivation {
+                    fork_id: raw_id,
+                    block_height: block_id.height(),
+                    stuck_height,
+                });
             };
             let enacting_height = block_id.height();
             if self.fork_schedule.is_active(fork, enacting_height as u64) {
@@ -647,16 +651,28 @@ mod tests {
             assert!(fx.state.context.list_fork_activations().unwrap().is_empty());
         }
 
-        /// An upgrade naming a fork id this binary has no variant for must
-        /// not activate anything.
+        /// An upgrade naming a fork id this binary has no variant for prevents
+        /// the enacting block from being committed at all.
         #[tokio::test(flavor = "multi_thread")]
-        async fn discover_ignores_unknown_fork_id() {
+        async fn discover_rejects_unknown_fork_id() {
             let mut fx = fixtures::setup_state(101).await;
 
-            fx.state
+            let err = fx
+                .state
                 .discover_fork_activations(&block_at(150), &[upgrade_log(0xBEEF)])
-                .unwrap();
+                .unwrap_err();
 
+            assert!(
+                matches!(
+                    err,
+                    WorkerError::UnsupportedForkActivation {
+                        fork_id: 0xBEEF,
+                        block_height: 150,
+                        stuck_height: 149,
+                    }
+                ),
+                "expected unsupported fork activation error, got {err:?}",
+            );
             assert_eq!(fx.state.fork_schedule, ForkSchedule::all_disabled());
             assert!(fx.state.context.list_fork_activations().unwrap().is_empty());
         }
