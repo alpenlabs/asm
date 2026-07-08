@@ -153,26 +153,23 @@ impl BridgeV1State {
         Ok(())
     }
 
-    /// Creates a withdrawal assignment for the oldest unassigned deposit.
+    /// Creates an [`AssignmentEntry`] assigning an operator to fulfill a withdrawal intent.
     ///
-    /// Validates that the oldest deposit's amount matches the withdrawal amount and builds the
-    /// assignment from a clone of that deposit, with an operator selected from the currently
-    /// active set. State is not mutated: the deposit stays in the table and the returned
+    /// The assignment logic is currently first-in-first-out: the withdrawal is backed by the
+    /// oldest unassigned deposit, whose amount must match the withdrawal amount exactly. The
+    /// entry is built from a clone of that deposit, with an operator selected from the currently
+    /// active set and a fulfillment deadline derived from `l1_block`.
+    ///
+    /// This method does not mutate state: the deposit stays in the table and the returned
     /// assignment is **not** inserted. The caller is expected to log the assignment, remove the
     /// consumed deposit via [`remove_deposit`](Self::remove_deposit), and insert the assignment
     /// via [`insert_withdrawal_assignment`](Self::insert_withdrawal_assignment) — this keeps the
     /// create/log/remove/insert steps visible at the message-handling call site.
     ///
-    /// # Parameters
+    /// # Errors
     ///
-    /// - `withdrawal_intent` - destination, amount, and the user's preferred operator
-    /// - `l1_block` - The L1 block commitment used for operator selection and deadline calculation
-    ///
-    /// # Returns
-    ///
-    /// - `Ok(AssignmentEntry)` - the built (but not yet inserted) assignment
-    /// - `Err(WithdrawalAssignmentError)` - If no unassigned deposits, amounts mismatch, or no
-    ///   operator is eligible
+    /// Returns [`WithdrawalAssignmentError`] if there are no unassigned deposits, the deposit
+    /// and withdrawal amounts mismatch, or no operator is eligible.
     pub fn create_withdrawal_assignment(
         &self,
         withdrawal_intent: &WithdrawalIntent,
