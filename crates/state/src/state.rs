@@ -29,9 +29,6 @@ impl AnchorState {
     }
 }
 
-// Keep Borsh only as a thin compatibility shim; SSZ remains the canonical state encoding.
-strata_identifiers::impl_borsh_via_ssz!(AnchorState);
-
 impl Serialize for AnchorState {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where

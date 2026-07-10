@@ -1,6 +1,7 @@
 //! [`AsmStateDb`] implementation backed by sled.
 
-use anyhow::{Context, Result};
+use anyhow::{Result, anyhow};
+use ssz::{Decode, Encode};
 use strata_asm_common::AnchorState;
 use strata_identifiers::L1BlockCommitment;
 
@@ -9,8 +10,9 @@ use crate::AsmStateDb;
 
 /// Sled-backed [`AsmStateDb`] keyed by [`L1BlockCommitment`].
 ///
-/// Values are borsh-encoded; keys use the parent module's big-endian height
-/// encoding so lexicographic ordering matches block-height ordering.
+/// Values are SSZ-encoded (the canonical state encoding); keys use the parent
+/// module's big-endian height encoding so lexicographic ordering matches
+/// block-height ordering.
 #[derive(Debug, Clone)]
 pub struct SledAsmStateDb {
     states: sled::Tree,
@@ -29,7 +31,7 @@ impl SledAsmStateDb {
     /// possible; calling this directly avoids that.
     pub fn put(&self, state: &AnchorState) -> Result<()> {
         let key = encode_block_commitment(&state.chain_view.pow_state.last_verified_block);
-        let value = borsh::to_vec(state)?;
+        let value = state.as_ssz_bytes();
         self.states.insert(key, value)?;
         Ok(())
     }
@@ -38,8 +40,8 @@ impl SledAsmStateDb {
     pub fn get(&self, block: &L1BlockCommitment) -> Result<Option<AnchorState>> {
         match self.states.get(encode_block_commitment(block))? {
             Some(bytes) => {
-                let state = borsh::from_slice::<AnchorState>(&bytes)
-                    .context("failed to deserialize AnchorState")?;
+                let state = AnchorState::from_ssz_bytes(&bytes)
+                    .map_err(|e| anyhow!("failed to deserialize AnchorState: {e:?}"))?;
                 Ok(Some(state))
             }
             None => Ok(None),
@@ -51,8 +53,8 @@ impl SledAsmStateDb {
         let Some((_, bytes)) = self.states.last()? else {
             return Ok(None);
         };
-        let state = borsh::from_slice::<AnchorState>(&bytes)
-            .context("failed to deserialize AnchorState")?;
+        let state = AnchorState::from_ssz_bytes(&bytes)
+            .map_err(|e| anyhow!("failed to deserialize AnchorState: {e:?}"))?;
         Ok(Some(state))
     }
 

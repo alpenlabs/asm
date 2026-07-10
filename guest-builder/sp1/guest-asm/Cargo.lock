@@ -2033,7 +2033,6 @@ dependencies = [
 name = "strata-asm-state"
 version = "0.1.0"
 dependencies = [
- "borsh",
  "serde",
  "ssz",
  "ssz_codegen",

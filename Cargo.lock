@@ -793,6 +793,7 @@ dependencies = [
  "anyhow",
  "borsh",
  "sled",
+ "ssz",
  "strata-asm-common",
  "strata-identifiers",
  "strata-merkle",
@@ -8138,7 +8139,6 @@ name = "strata-asm-state"
 version = "0.1.0"
 dependencies = [
  "bitcoin",
- "borsh",
  "serde",
  "serde_json",
  "ssz",

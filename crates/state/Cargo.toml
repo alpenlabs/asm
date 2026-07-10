@@ -13,7 +13,6 @@ strata-identifiers.workspace = true
 strata-l1-txfmt.workspace = true
 strata-merkle = { workspace = true, features = ["ssz"] }
 
-borsh.workspace = true
 serde.workspace = true
 ssz.workspace = true
 ssz_derive.workspace = true

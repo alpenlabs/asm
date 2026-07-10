@@ -4,6 +4,10 @@
 //! ([`AnchorState`] and its components) along with the helpers on them that
 //! do not depend on the subprotocol framework in `strata-asm-common`.
 
+// Not referenced from code, but the SSZ build script resolves the
+// `strata_identifiers` schema imports through this dependency.
+use strata_identifiers as _;
+
 mod mmr;
 mod state;
 
