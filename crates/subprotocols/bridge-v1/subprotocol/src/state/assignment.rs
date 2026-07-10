@@ -360,17 +360,28 @@ impl AssignmentTable {
         }
     }
 
-    /// Reassigns every assignment whose deadline has passed, returning their deposit indices.
+    /// Reassigns every assignment whose deadline has passed as of `l1_block`, returning references
+    /// to the reassigned entries.
     ///
-    /// Keeps withdrawals from stalling on unresponsive operators. All-or-nothing: if any expired
-    /// assignment has no eligible operator, the whole call errors.
+    /// Keeps withdrawals from stalling on unresponsive operators.
+    ///
+    /// A `Vec` is returned rather than an iterator because reassignment is an eager, fallible,
+    /// in-place mutation: every expired entry has to be reassigned (or the call aborted) before
+    /// any result is meaningful, so there is nothing to lazily defer.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`WithdrawalAssignmentError`] on the first expired assignment with no eligible
+    /// operator to take it, and does not attempt the remaining ones. Since [`reassign`] mutates in
+    /// place, entries processed before the failure are already reassigned — this is not rolled
+    /// back.
     pub fn reassign_expired_assignments(
         &mut self,
         nn_history: &NnScriptHistory,
         current_active_operators: &OperatorBitmap,
         l1_block: &L1BlockCommitment,
-    ) -> Result<Vec<u32>, WithdrawalAssignmentError> {
-        let mut reassigned_withdrawals = Vec::new();
+    ) -> Result<Vec<&AssignmentEntry>, WithdrawalAssignmentError> {
+        let mut reassigned = Vec::new();
 
         let current_height = l1_block.height();
         let seed = *l1_block.blkid();
@@ -392,26 +403,28 @@ impl AssignmentTable {
                 notary_operators,
                 current_active_operators,
             )?;
-            reassigned_withdrawals.push(assignment.deposit_idx());
+            reassigned.push(&*assignment);
         }
 
-        Ok(reassigned_withdrawals)
+        Ok(reassigned)
     }
 
-    /// Builds an assignment for the deposit (see [`AssignmentEntry::create`]) and inserts it,
-    /// deriving the fulfillment deadline from the current L1 height and the assignment duration.
-    pub fn add_new_assignment(
-        &mut self,
+    /// Builds an assignment entry for `deposit_entry` (see [`AssignmentEntry::create`]), deriving
+    /// the fulfillment deadline from this table's assignment duration and the current L1 height.
+    ///
+    /// The entry is returned, not inserted — call [`insert`](Self::insert) to add it.
+    pub fn build_assignment(
+        &self,
         deposit_entry: DepositEntry,
         withdrawal_intent: WithdrawalIntent,
         operator_fee: BitcoinAmount,
         notary_operators: &OperatorBitmap,
         current_active_operators: &OperatorBitmap,
         l1_block: &L1BlockCommitment,
-    ) -> Result<(), WithdrawalAssignmentError> {
+    ) -> Result<AssignmentEntry, WithdrawalAssignmentError> {
         let fulfillment_deadline = self.calculate_deadline(l1_block.height());
 
-        let entry = AssignmentEntry::create(
+        AssignmentEntry::create(
             deposit_entry,
             withdrawal_intent,
             operator_fee,
@@ -419,10 +432,7 @@ impl AssignmentTable {
             notary_operators,
             current_active_operators,
             *l1_block.blkid(),
-        )?;
-
-        self.assignments.insert(entry);
-        Ok(())
+        )
     }
 }
 

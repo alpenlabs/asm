@@ -105,7 +105,8 @@ pub(crate) fn add_deposits_and_assignments(state: &mut BridgeV1State, count: usi
         let l1blk: L1BlockCommitment = arb.generate();
         let mut intent: WithdrawalIntent = arb.generate();
         intent.amt = *state.denomination();
-        state.create_withdrawal_assignment(&intent, &l1blk).unwrap();
+        let assignment = state.create_withdrawal_assignment(&intent, &l1blk).unwrap();
+        state.insert_withdrawal_assignment(assignment);
     }
 }
 
