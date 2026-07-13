@@ -3,7 +3,9 @@
 //! view into a single deterministic state transition.
 
 use bitcoin::block::Block;
-use strata_asm_common::{AnchorState, AsmError, AsmResult, AsmSpec, PreProcessTxsCtx, StfParams};
+use strata_asm_common::{
+    AnchorState, AsmError, AsmResult, AsmSpec, AsmStfParams, PreProcessTxsCtx,
+};
 
 use crate::{
     manager::SubprotoManager,
@@ -50,7 +52,7 @@ use crate::{
 /// * `S` - The ASM specification type declaring the subprotocol pipeline
 /// * `'b` - Lifetime parameter tied to the input block reference
 pub fn pre_process_asm<'b, S: AsmSpec>(
-    stf_params: &StfParams,
+    stf_params: &AsmStfParams,
     pre_state: &AnchorState,
     block: &'b Block,
 ) -> AsmResult<AsmPreProcessOutput<'b>> {

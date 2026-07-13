@@ -1,7 +1,7 @@
 use std::marker::PhantomData;
 
 use bitcoin::{Block, CompactTarget, params::Params};
-use strata_asm_common::{AnchorState, AsmSpec, AuxData, HeaderVerificationState, StfParams};
+use strata_asm_common::{AnchorState, AsmSpec, AsmStfParams, AuxData, HeaderVerificationState};
 use strata_asm_stf::AsmStfOutput;
 use strata_btc_types::BlockHashExt;
 use strata_btc_verification::{
@@ -43,7 +43,7 @@ pub struct AsmWorkerServiceState<W, S: AsmSpec> {
     pub(crate) subscribers: Subscribers<L1BlockCommitment>,
 
     /// STF params every transition executes under.
-    pub(crate) stf_params: StfParams,
+    pub(crate) stf_params: AsmStfParams,
 
     /// ASM spec driving the subprotocol pipeline (type-level only).
     _spec: PhantomData<S>,
@@ -66,7 +66,7 @@ where
     pub(crate) fn new(
         context: W,
         genesis_state: AnchorState,
-        stf_params: StfParams,
+        stf_params: AsmStfParams,
         subscribers: Subscribers<L1BlockCommitment>,
     ) -> WorkerResult<Self> {
         let genesis_height = genesis_state
@@ -336,7 +336,7 @@ mod tests {
         let reloaded = AsmWorkerServiceState::<_, TestAsmSpec>::new(
             context,
             genesis,
-            StfParams::default(),
+            AsmStfParams::default(),
             Subscribers::default(),
         )
         .unwrap();
@@ -461,7 +461,7 @@ mod tests {
         AsmWorkerServiceState::<_, TestAsmSpec>::new(
             context,
             genesis,
-            StfParams::default(),
+            AsmStfParams::default(),
             Subscribers::default(),
         )
         .unwrap();

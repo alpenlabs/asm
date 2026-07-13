@@ -39,12 +39,12 @@ pub(super) async fn build_native_hosts(
     // across runs, so we construct `NativeHost` directly with the keys
     // supplied by config.
     use moho_recursive_proof::process_recursive_moho_proof;
-    use strata_asm_common::StfParams;
+    use strata_asm_common::AsmStfParams;
     use strata_asm_proof_impl::statements::process_asm_stf;
     use zkaleido_native_adapter::NativeHost;
 
     // Matches the schedule baked into the production ASM guest.
-    let stf_params = StfParams::default();
+    let stf_params = AsmStfParams::default();
     Ok((
         NativeHost::new(asm_signing_key.clone(), move |env| {
             process_asm_stf(env, stf_params.clone())

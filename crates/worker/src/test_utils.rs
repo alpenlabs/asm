@@ -313,8 +313,8 @@ pub(crate) mod fixtures {
     use bitcoind_async_client::{Client, traits::Reader};
     use corepc_node::Node;
     use strata_asm_common::{
-        AnchorState, AsmHistoryAccumulatorState, AsmSpec, ChainViewState, HeaderVerificationState,
-        StfParams,
+        AnchorState, AsmHistoryAccumulatorState, AsmSpec, AsmStfParams, ChainViewState,
+        HeaderVerificationState,
     };
     use strata_btc_types::BlockHashExt;
     use strata_btc_verification::L1Anchor;
@@ -340,8 +340,8 @@ pub(crate) mod fixtures {
             genesis_state_from_anchor(anchor.clone())
         }
 
-        fn stf_params(_anchor: &L1Anchor) -> StfParams {
-            StfParams::default()
+        fn stf_params(_anchor: &L1Anchor) -> AsmStfParams {
+            AsmStfParams::default()
         }
     }
 
@@ -387,7 +387,7 @@ pub(crate) mod fixtures {
         let state = AsmWorkerServiceState::new(
             context,
             genesis,
-            StfParams::default(),
+            AsmStfParams::default(),
             Subscribers::default(),
         )
         .expect("create service state");

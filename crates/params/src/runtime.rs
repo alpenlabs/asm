@@ -1,12 +1,12 @@
 //! Parameters of the per-block state transition function.
 
 use serde::{Deserialize, Serialize};
-use strata_asm_common::{ForkSchedule, StfParams};
+use strata_asm_common::{AsmStfParams, ForkSchedule};
 
 /// Runtime parameters of the state transition function.
 ///
 /// `forks` is the base fork schedule the worker starts from — the part that,
-/// on the proving side, is baked into guest programs as [`StfParams`]. The
+/// on the proving side, is baked into guest programs as [`AsmStfParams`]. The
 /// worker overlays it with activations discovered from enacted ASM VK
 /// upgrades, each of which names the fork it activates.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -17,8 +17,8 @@ pub struct AsmRuntimeParams {
 
 impl AsmRuntimeParams {
     /// The STF-facing view of these params, before any dynamic activations.
-    pub fn stf_params(&self) -> StfParams {
-        StfParams {
+    pub fn stf_params(&self) -> AsmStfParams {
+        AsmStfParams {
             forks: self.forks.clone(),
         }
     }

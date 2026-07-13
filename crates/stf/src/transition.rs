@@ -5,8 +5,8 @@
 use bitcoin::Block;
 use ssz_types::VariableList;
 use strata_asm_common::{
-    AnchorState, AsmError, AsmManifest, AsmResult, AsmSpec, AuxData, ChainViewState,
-    ProcessMsgsCtx, ProcessTxsCtx, StfParams, VerifiedAuxData,
+    AnchorState, AsmError, AsmManifest, AsmResult, AsmSpec, AsmStfParams, AuxData, ChainViewState,
+    ProcessMsgsCtx, ProcessTxsCtx, VerifiedAuxData,
 };
 use strata_btc_verification::{TxidInclusionProof, check_block_integrity};
 
@@ -31,7 +31,7 @@ use crate::{
 /// commits to them), while the worker passes its effective params with
 /// discovered fork activations applied.
 pub fn compute_asm_transition<S: AsmSpec>(
-    stf_params: &StfParams,
+    stf_params: &AsmStfParams,
     pre_state: &AnchorState,
     block: &Block,
     aux_data: &AuxData,

@@ -5,7 +5,7 @@
 //! boundary. The schedule is *not* part of committed state — it is baked into
 //! each proving artifact (guest ELF / native host) and supplied to the worker
 //! via params, with the invariant that every artifact agrees on the gate's
-//! outcome at every height it executes (see `StfParams`).
+//! outcome at every height it executes (see `AsmStfParams`).
 
 use serde::{Deserialize, Serialize};
 use strata_identifiers::L1Height;
@@ -118,7 +118,7 @@ impl Default for ForkSchedule {
 ///
 /// `Default` inherits [`ForkSchedule`]'s default: everything disabled.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct StfParams {
+pub struct AsmStfParams {
     /// Fork activation schedule.
     pub forks: ForkSchedule,
 }
@@ -162,12 +162,12 @@ mod tests {
 
     #[test]
     fn serde_roundtrip() {
-        let params = StfParams {
+        let params = AsmStfParams {
             forks: ForkSchedule { fork1: 7 },
         };
         let json = serde_json::to_string(&params).unwrap();
         assert_eq!(json, r#"{"forks":{"fork1":7}}"#);
-        let back: StfParams = serde_json::from_str(&json).unwrap();
+        let back: AsmStfParams = serde_json::from_str(&json).unwrap();
         assert_eq!(back, params);
     }
 

@@ -11,8 +11,8 @@ use strata_identifiers::{L1BlockCommitment, L1Height};
 pub use strata_l1_txfmt::SubprotocolId;
 
 use crate::{
-    AsmError, AsmLogEntry, AuxRequestCollector, HeaderVerificationState, SectionState, StfParams,
-    TxInputRef, VerifiedAuxData, msg::InterprotoMsg,
+    AsmError, AsmLogEntry, AsmStfParams, AuxRequestCollector, HeaderVerificationState,
+    SectionState, TxInputRef, VerifiedAuxData, msg::InterprotoMsg,
 };
 
 /// Context for [`Subprotocol::pre_process_txs`].
@@ -35,7 +35,7 @@ pub struct PreProcessTxsCtx<'a> {
     ///
     /// Needed for the fork schedule that gates aux requests, evaluated
     /// against [`Self::block_height`].
-    pub stf_params: &'a StfParams,
+    pub stf_params: &'a AsmStfParams,
 }
 
 /// Context for [`Subprotocol::process_txs`].
@@ -59,7 +59,7 @@ pub struct ProcessTxsCtx<'a> {
     ///
     /// Needed for the fork schedule that gates processing logic, evaluated
     /// against the height of `header_vs.last_verified_block`.
-    pub stf_params: &'a StfParams,
+    pub stf_params: &'a AsmStfParams,
 }
 
 /// Context for [`Subprotocol::process_msgs`].
@@ -75,7 +75,7 @@ pub struct ProcessMsgsCtx<'a> {
     ///
     /// Needed so message handling can be fork-gated on the same conditions as
     /// the tx-processing phase that produced the messages.
-    pub stf_params: &'a StfParams,
+    pub stf_params: &'a AsmStfParams,
 }
 
 /// Trait for defining subprotocol behavior within the ASM framework.

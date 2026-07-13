@@ -297,7 +297,7 @@ mod tests {
     use std::thread;
 
     use bitcoind_async_client::traits::Reader;
-    use strata_asm_common::{AsmManifestHash, AuxRequestCollector, StfParams};
+    use strata_asm_common::{AsmManifestHash, AsmStfParams, AuxRequestCollector};
     use strata_btc_types::L1BlockIdBitcoinExt;
     use strata_identifiers::{Buf32, L1BlockId};
     use strata_service::CommandCompletionSender;
@@ -533,7 +533,7 @@ mod tests {
         let reloaded = AsmWorkerServiceState::<_, TestAsmSpec>::new(
             context,
             genesis,
-            StfParams::default(),
+            AsmStfParams::default(),
             Subscribers::default(),
         )
         .unwrap();

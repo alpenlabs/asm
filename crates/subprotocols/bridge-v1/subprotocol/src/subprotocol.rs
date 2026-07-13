@@ -212,7 +212,7 @@ impl Subprotocol for BridgeV1Subproto {
 
 #[cfg(test)]
 mod tests {
-    use strata_asm_common::{ProcessMsgsCtx, StfParams, Subprotocol};
+    use strata_asm_common::{AsmStfParams, ProcessMsgsCtx, Subprotocol};
     use strata_asm_proto_bridge_v1_msgs::{BridgeIncomingMsg, DefconPayload};
     use strata_asm_proto_bridge_v1_types::SafeHarbourAddress;
     use strata_identifiers::L1BlockCommitment;
@@ -239,7 +239,7 @@ mod tests {
         let msgs = vec![BridgeIncomingMsg::UpdateSafeHarbourAddress(
             new_address.clone(),
         )];
-        let stf_params = StfParams::default();
+        let stf_params = AsmStfParams::default();
         let ctx = ProcessMsgsCtx {
             l1ref: &l1ref,
             stf_params: &stf_params,
@@ -257,7 +257,7 @@ mod tests {
         let l1ref: L1BlockCommitment = ArbitraryGenerator::new().generate();
 
         let msgs = vec![BridgeIncomingMsg::Defcon(DefconPayload::default())];
-        let stf_params = StfParams::default();
+        let stf_params = AsmStfParams::default();
         let ctx = ProcessMsgsCtx {
             l1ref: &l1ref,
             stf_params: &stf_params,
@@ -287,7 +287,7 @@ mod tests {
             BridgeIncomingMsg::Defcon(DefconPayload::default()),
             BridgeIncomingMsg::UpdateSafeHarbourAddress(rejected_address),
         ];
-        let stf_params = StfParams::default();
+        let stf_params = AsmStfParams::default();
         let ctx = ProcessMsgsCtx {
             l1ref: &l1ref,
             stf_params: &stf_params,

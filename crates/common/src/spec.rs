@@ -1,6 +1,6 @@
 use std::fmt::Debug;
 
-use crate::{AnchorState, StfParams, Subprotocol};
+use crate::{AnchorState, AsmStfParams, Subprotocol};
 
 /// Specification for a concrete ASM instantiation: the subprotocols we intend
 /// to invoke and the order to invoke them in, plus the parameter set an
@@ -28,7 +28,7 @@ pub trait AsmSpec {
     fn construct_genesis_state(params: &Self::Params) -> AnchorState;
 
     /// Extracts the base STF params every transition executes under.
-    fn stf_params(params: &Self::Params) -> StfParams;
+    fn stf_params(params: &Self::Params) -> AsmStfParams;
 
     /// Invokes the stage with each subprotocol, in the declared order.
     fn call_subprotocols(stage: &mut impl Stage) {
