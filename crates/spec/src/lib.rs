@@ -5,7 +5,7 @@
 //! - [`StrataAsmSpec`] — declares which subprotocols are active and their invocation order.
 //! - [`construct_genesis_state`] — builds the genesis
 //!   [`AnchorState`](strata_asm_common::AnchorState) from
-//!   [`GenesisParams`](strata_asm_params::GenesisParams).
+//!   [`AsmGenesisParams`](strata_asm_params::AsmGenesisParams).
 
 mod genesis;
 mod spec;

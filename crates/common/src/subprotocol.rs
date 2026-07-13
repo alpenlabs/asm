@@ -7,7 +7,7 @@
 use std::any::Any;
 
 use ssz::{Decode, Encode};
-use strata_identifiers::L1BlockCommitment;
+use strata_identifiers::{L1BlockCommitment, L1Height};
 pub use strata_l1_txfmt::SubprotocolId;
 
 use crate::{
@@ -29,12 +29,12 @@ pub struct PreProcessTxsCtx<'a> {
     /// *previous* block's state and, unlike `process_txs`, receives no
     /// [`HeaderVerificationState`] to read the height from, so it is not
     /// otherwise derivable in this phase.
-    pub target_height: u64,
+    pub block_height: L1Height,
 
     /// STF params the transition executes under.
     ///
     /// Needed for the fork schedule that gates aux requests, evaluated
-    /// against [`Self::target_height`].
+    /// against [`Self::block_height`].
     pub stf_params: &'a StfParams,
 }
 

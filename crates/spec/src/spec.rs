@@ -49,6 +49,6 @@ impl AsmSpec for StrataAsmSpec {
     }
 
     fn stf_params(params: &AsmParams) -> StfParams {
-        params.stf.stf_params()
+        params.runtime.stf_params()
     }
 }

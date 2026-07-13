@@ -1,19 +1,19 @@
 //! Configuration parameters for the Anchor State Machine (ASM).
 //!
-//! Provides [`AsmParams`], split into [`GenesisParams`] (L1 magic bytes,
+//! Provides [`AsmParams`], split into [`AsmGenesisParams`] (L1 magic bytes,
 //! genesis L1 view and per-subprotocol configuration, consumed once to build
-//! the genesis state) and [`StfConfig`] (fork schedule driving the per-block
-//! state transition function).
+//! the genesis state) and [`AsmRuntimeParams`] (fork schedule driving the
+//! per-block state transition function).
 
 mod genesis;
-mod stf;
+mod runtime;
 mod subprotocols;
 
 #[cfg(feature = "arbitrary")]
 use arbitrary::{Arbitrary, Unstructured};
-pub use genesis::GenesisParams;
+pub use genesis::AsmGenesisParams;
+pub use runtime::AsmRuntimeParams;
 use serde::{Deserialize, Serialize};
-pub use stf::StfConfig;
 #[cfg(feature = "arbitrary")]
 use strata_asm_common::ForkSchedule;
 pub use subprotocols::{
@@ -23,27 +23,27 @@ pub use subprotocols::{
 
 /// Top-level parameters for an ASM instance.
 ///
-/// Split by consumer: [`GenesisParams`] is only used to construct the genesis
-/// anchor state, while [`StfConfig`] configures the state transition function
-/// for every block. Both are flattened in the serialized form, so the params
-/// file is a single flat object.
+/// Split by consumer: [`AsmGenesisParams`] is only used to construct the
+/// genesis anchor state, while [`AsmRuntimeParams`] configures the state
+/// transition function for every block. Both are flattened in the serialized
+/// form, so the params file is a single flat object.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AsmParams {
     /// Parameters consumed once, at genesis state construction.
     #[serde(flatten)]
-    pub genesis: GenesisParams,
+    pub genesis: AsmGenesisParams,
 
     /// Parameters of the per-block state transition function.
     #[serde(flatten)]
-    pub stf: StfConfig,
+    pub runtime: AsmRuntimeParams,
 }
 
 #[cfg(feature = "arbitrary")]
 impl<'a> Arbitrary<'a> for AsmParams {
     fn arbitrary(u: &mut Unstructured<'a>) -> arbitrary::Result<Self> {
         Ok(Self {
-            genesis: GenesisParams::arbitrary(u)?,
-            stf: StfConfig {
+            genesis: AsmGenesisParams::arbitrary(u)?,
+            runtime: AsmRuntimeParams {
                 forks: ForkSchedule::all_disabled(),
             },
         })
@@ -142,7 +142,7 @@ mod tests {
 
         let params: AsmParams =
             serde_json::from_str(raw_json).expect("deserialization from raw JSON should succeed");
-        assert_eq!(params.stf.forks.fork1, 0);
+        assert_eq!(params.runtime.forks.fork1, 0);
     }
 
     #[cfg(feature = "arbitrary")]

@@ -1,4 +1,4 @@
-//! Genesis anchor state construction from [`GenesisParams`].
+//! Genesis anchor state construction from [`AsmGenesisParams`].
 
 use std::any::Any;
 
@@ -6,18 +6,18 @@ use strata_asm_common::{
     AnchorState, AsmHistoryAccumulatorState, AsmSpec, ChainViewState, HeaderVerificationState,
     SectionState, Stage, Subprotocol,
 };
-use strata_asm_params::{GenesisParams, SubprotocolInstance};
+use strata_asm_params::{AsmGenesisParams, SubprotocolInstance};
 use strata_btc_verification::HeaderVerificationState as NativeHeaderVerificationState;
 
 use crate::StrataAsmSpec;
 
-/// Builds the genesis [`AnchorState`] from the given [`GenesisParams`].
+/// Builds the genesis [`AnchorState`] from the given [`AsmGenesisParams`].
 ///
 /// Initialises every subprotocol's state from its config in `params` — driven
 /// by the same [`AsmSpec`] subprotocol list every execution stage traverses,
 /// so the pipeline and the genesis layout cannot drift apart — and assembles
 /// the chain view (PoW header verification + history accumulator).
-pub fn construct_genesis_state(params: &GenesisParams) -> AnchorState {
+pub fn construct_genesis_state(params: &AsmGenesisParams) -> AnchorState {
     let mut stage = GenesisSectionStage {
         params,
         sections: Vec::new(),
@@ -55,7 +55,7 @@ pub fn construct_genesis_state(params: &GenesisParams) -> AnchorState {
 /// subprotocol's `InitConfig` type appears in exactly one
 /// [`SubprotocolInstance`] variant.
 struct GenesisSectionStage<'p> {
-    params: &'p GenesisParams,
+    params: &'p AsmGenesisParams,
     sections: Vec<SectionState>,
 }
 

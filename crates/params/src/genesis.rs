@@ -19,7 +19,7 @@ use crate::subprotocols::{
 /// subprotocol configurations. After genesis everything here lives on in the
 /// anchor state itself; the STF never reads these again.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct GenesisParams {
+pub struct AsmGenesisParams {
     /// SPS-50 magic bytes that identify protocol transactions on L1.
     pub magic: MagicBytes,
 
@@ -34,7 +34,7 @@ pub struct GenesisParams {
     pub subprotocols: Vec<SubprotocolInstance>,
 }
 
-impl GenesisParams {
+impl AsmGenesisParams {
     pub fn admin_config(&self) -> Option<&AdministrationInitConfig> {
         self.subprotocols.iter().find_map(|s| match s {
             SubprotocolInstance::Admin(cfg) => Some(cfg),
@@ -58,7 +58,7 @@ impl GenesisParams {
 }
 
 #[cfg(feature = "arbitrary")]
-impl<'a> Arbitrary<'a> for GenesisParams {
+impl<'a> Arbitrary<'a> for AsmGenesisParams {
     fn arbitrary(u: &mut Unstructured<'a>) -> arbitrary::Result<Self> {
         let networks = [
             bitcoin::Network::Bitcoin,

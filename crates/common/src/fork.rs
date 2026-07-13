@@ -8,6 +8,7 @@
 //! outcome at every height it executes (see `StfParams`).
 
 use serde::{Deserialize, Serialize};
+use strata_identifiers::L1Height;
 
 /// Identifies a named fork.
 ///
@@ -62,37 +63,39 @@ impl TryFrom<u16> for ForkId {
 
 /// Activation heights for every named fork.
 ///
-/// A fork is active at L1 height `h` iff `h >= activation_height`. `0` means
-/// active since genesis; [`u64::MAX`] means never active. Proving artifacts
-/// bake one of those two extremes (an artifact only ever executes one side of
-/// an upgrade boundary), while the worker tracks the real activation height
-/// discovered from the ASM VK upgrade log.
+/// A fork is active at L1 height `h` iff `h >= activation_height_of`. `0`
+/// means active since genesis; [`L1Height::MAX`] means never active. Proving
+/// artifacts bake one of those two extremes (an artifact only ever executes
+/// one side of an upgrade boundary), while the worker tracks the real
+/// activation height discovered from the ASM VK upgrade log.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ForkSchedule {
     /// Activation height of [`ForkId::Fork1`].
-    pub fork1: u64,
+    pub fork1: L1Height,
 }
 
 impl ForkSchedule {
-    /// Schedule with every fork disabled (activation at [`u64::MAX`]).
+    /// Schedule with every fork disabled (activation at [`L1Height::MAX`]).
     pub const fn all_disabled() -> Self {
-        Self { fork1: u64::MAX }
+        Self {
+            fork1: L1Height::MAX,
+        }
     }
 
     /// Returns the activation height of `fork`.
-    pub fn activation_height(&self, fork: ForkId) -> u64 {
+    pub fn activation_height_of(&self, fork: ForkId) -> L1Height {
         match fork {
             ForkId::Fork1 => self.fork1,
         }
     }
 
     /// Returns whether `fork` is active at L1 `height`.
-    pub fn is_active(&self, fork: ForkId, height: u64) -> bool {
-        height >= self.activation_height(fork)
+    pub fn is_active(&self, fork: ForkId, height: L1Height) -> bool {
+        height >= self.activation_height_of(fork)
     }
 
     /// Sets the activation height of `fork`.
-    pub fn activate_at(&mut self, fork: ForkId, height: u64) {
+    pub fn set_fork_activation(&mut self, fork: ForkId, height: L1Height) {
         match fork {
             ForkId::Fork1 => self.fork1 = height,
         }
@@ -136,23 +139,23 @@ mod tests {
     fn zero_means_always_active() {
         let sched = ForkSchedule { fork1: 0 };
         assert!(sched.is_active(ForkId::Fork1, 0));
-        assert!(sched.is_active(ForkId::Fork1, u64::MAX));
+        assert!(sched.is_active(ForkId::Fork1, L1Height::MAX));
     }
 
     #[test]
     fn max_means_never_active() {
         let sched = ForkSchedule::all_disabled();
         assert!(!sched.is_active(ForkId::Fork1, 0));
-        assert!(!sched.is_active(ForkId::Fork1, u64::MAX - 1));
+        assert!(!sched.is_active(ForkId::Fork1, L1Height::MAX - 1));
         // Degenerate boundary: is_active is a plain >= comparison.
-        assert!(sched.is_active(ForkId::Fork1, u64::MAX));
+        assert!(sched.is_active(ForkId::Fork1, L1Height::MAX));
     }
 
     #[test]
-    fn activate_at_overrides() {
+    fn set_fork_activation_overrides() {
         let mut sched = ForkSchedule::all_disabled();
-        sched.activate_at(ForkId::Fork1, 42);
-        assert_eq!(sched.activation_height(ForkId::Fork1), 42);
+        sched.set_fork_activation(ForkId::Fork1, 42);
+        assert_eq!(sched.activation_height_of(ForkId::Fork1), 42);
         assert!(sched.is_active(ForkId::Fork1, 42));
         assert!(!sched.is_active(ForkId::Fork1, 41));
     }

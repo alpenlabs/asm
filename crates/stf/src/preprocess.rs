@@ -76,9 +76,9 @@ pub fn pre_process_asm<'b, S: AsmSpec>(
     // `pow_state` was advanced above, so its last verified block IS the block being
     // pre-processed — the same height `process_txs` later sees, keeping fork gates in
     // both phases in lockstep.
-    let target_height = pow_state.last_verified_block.height() as u64;
+    let block_height = pow_state.last_verified_block.height();
     let ctx = PreProcessTxsCtx {
-        target_height,
+        block_height,
         stf_params,
     };
     let mut pre_process_stage =
