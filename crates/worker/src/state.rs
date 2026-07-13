@@ -77,19 +77,19 @@ where
         let genesis_state = spec.construct_genesis_state(&params);
         validate_anchor_against_l1(&context, &genesis_state.chain_view.pow_state)?;
 
-        let (anchor, blkid) = match context.get_latest_asm_state()? {
-            Some((blkid, state)) => {
-                tracing::info!(%blkid, "ASM worker resuming from stored anchor state");
-                (state, blkid)
+        let anchor = match context.get_latest_anchor_state()? {
+            Some(state) => {
+                tracing::info!(blkid = %state.last_processed_block(), "ASM worker resuming from stored anchor state");
+                state
             }
             None => {
-                let genesis_blk = genesis_state.chain_view.pow_state.last_verified_block;
-                tracing::info!(%genesis_blk, "no stored ASM state; initializing genesis anchor");
+                tracing::info!(genesis_blk = %genesis_state.last_processed_block(), "no stored ASM state; initializing genesis anchor");
 
-                context.store_anchor_state(&genesis_blk, &genesis_state)?;
-                (genesis_state, genesis_blk)
+                context.store_anchor_state(&genesis_state)?;
+                genesis_state
             }
         };
+        let blkid = anchor.last_processed_block();
 
         Ok(Self {
             context,
@@ -264,7 +264,7 @@ mod tests {
 
     use super::*;
     use crate::{
-        AnchorStateStore,
+        AnchorStateStore, L1DataProvider,
         test_utils::{
             fixtures::{self, TestAsmSpec},
             get_l1_anchor,
@@ -300,8 +300,11 @@ mod tests {
             fx.state.context.get_anchor_state(&fx.state.blkid).is_ok(),
             "genesis anchor persisted",
         );
-        let latest = fx.state.context.get_latest_asm_state().unwrap();
-        assert_eq!(latest.map(|(blk, _)| blk), Some(fx.state.blkid));
+        let latest = fx.state.context.get_latest_anchor_state().unwrap();
+        assert_eq!(
+            latest.map(|s| s.last_processed_block()),
+            Some(fx.state.blkid)
+        );
     }
 
     /// When the store already holds a latest anchor, `new` adopts it — a worker
@@ -309,21 +312,31 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn new_adopts_stored_latest() {
         let seed = fixtures::setup_state(101).await;
-        let context = seed.state.context.clone(); // shares the in-memory store
 
-        // Simulate prior progress: a later block becomes the latest anchor.
-        let advanced = *fixtures::mine(&seed.node, &seed.client, 4)
-            .await
-            .last()
-            .unwrap(); // 105
-        context
-            .store_anchor_state(&advanced, &seed.state.anchor)
-            .unwrap();
+        // Prior progress: process one real block so a genuine anchor for height
+        // 102 lands in the store as the new latest.
+        let advanced = fixtures::mine(&seed.node, &seed.client, 1).await[0]; // 102
+        let block = seed
+            .state
+            .context
+            .get_l1_block(advanced.blkid())
+            .expect("fetch block 102");
+        let (out, _aux) = seed.state.transition(&block).expect("process block 102");
+        seed.state
+            .context
+            .store_anchor_state(&out.state)
+            .expect("store the processed anchor");
 
+        // A fresh service over the same store resumes from that stored anchor
+        // rather than reconstructing genesis.
         let params = fixtures::genesis_params(&seed.client, 101).await;
-        let reloaded =
-            AsmWorkerServiceState::new(context, TestAsmSpec, params, Subscribers::default())
-                .unwrap();
+        let reloaded = AsmWorkerServiceState::new(
+            seed.state.context.clone(),
+            TestAsmSpec,
+            params,
+            Subscribers::default(),
+        )
+        .unwrap();
 
         assert_eq!(
             reloaded.blkid, advanced,

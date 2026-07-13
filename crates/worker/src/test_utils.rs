@@ -1,53 +1,55 @@
 //! Test utilities for the ASM worker.
 //!
 //! Provides [`TestAsmWorkerContext`], a [`WorkerContext`](crate::WorkerContext)
-//! implementation backed by a Bitcoin regtest node (for L1 data) and in-memory
-//! stores (for anchor state, the manifest-hash MMR, and aux data). The worker's
-//! own unit tests use it via `cfg(test)`; downstream integration tests pull it in
-//! with the `test-utils` feature.
+//! implementation backed by a Bitcoin regtest node (for L1 data) and the real
+//! sled-backed [`asm_storage`] stores (for anchor state, the manifest-hash MMR,
+//! manifests, and aux data), opened on a throwaway [`TempDir`]. Backing the
+//! tests with the production storage — rather than bespoke in-memory maps —
+//! exercises the same persistence path the runner uses. The worker's own unit
+//! tests use it via `cfg(test)`; downstream integration tests pull it in with
+//! the `test-utils` feature.
 
-use std::{
-    collections::HashMap,
-    sync::{Arc, Mutex},
-};
+use std::sync::Arc;
 
+use asm_storage::{SledAsmAuxDataDb, SledAsmManifestDb, SledAsmManifestMmrDb, SledAsmStateDb};
 use bitcoin::{Block, BlockHash, Network, Txid, block::Header, params::Params};
 use bitcoind_async_client::{Client, traits::Reader};
 use strata_asm_common::{AnchorState, AsmManifest, AsmManifestHash};
 use strata_btc_types::{BitcoinTxid, BlockHashExt, L1BlockIdBitcoinExt, RawBitcoinTx};
 use strata_btc_verification::{L1Anchor, get_relative_difficulty_adjustment_height};
 use strata_identifiers::{L1BlockCommitment, L1BlockId};
-use strata_merkle::{MerkleProofB32, Sha256Hasher};
-use strata_merkle_node_store::{MemMmr, StoredMmr};
+use strata_merkle::MerkleProofB32;
+use tempfile::TempDir;
 use tokio::{runtime::Handle, task::block_in_place};
 
 use crate::{
     AnchorStateStore, AuxDataStore, L1DataProvider, ManifestMmrStore, WorkerError, WorkerResult,
 };
 
-/// Shared mutable state for the test worker context.
+/// Sled-backed state stores for the test worker context.
 ///
-/// Consolidating these fields lets us hold a single `Arc<Mutex<_>>` instead of
-/// one per field, and keeps related state (the manifest MMR, manifests in
-/// insertion order) close together.
-#[derive(Debug, Default)]
-pub struct TestWorkerStateInner {
-    /// ASM anchor states indexed by L1 block commitment
-    pub asm_states: HashMap<L1BlockCommitment, AnchorState>,
-    /// Latest ASM anchor state
-    pub latest_asm_state: Option<(L1BlockCommitment, AnchorState)>,
-    /// Height-indexed manifest-hash MMR. A full node store, so inclusion proofs
-    /// come straight from stored nodes in `O(log n)`. The leading entries are
-    /// sentinel-prefill for L1 heights up to genesis; real manifest hashes
-    /// follow.
-    pub manifest_mmr: MemMmr<[u8; 32]>,
-    /// Stored manifests in insertion order
-    pub manifests: Vec<AsmManifest>,
+/// Consolidating the stores — plus the temp dir that backs them — into one
+/// struct lets the context hold a single `Arc<AsmWorkerState>` rather than one
+/// `Arc` per store, and ties the whole storage lifetime together: the temp dir
+/// (and its on-disk data) is deleted when the last clone of the context drops
+/// this.
+#[derive(Debug)]
+pub struct AsmWorkerState {
+    state_db: SledAsmStateDb,
+    aux_db: SledAsmAuxDataDb,
+    manifest_db: SledAsmManifestDb,
+    mmr_db: SledAsmManifestMmrDb,
+    /// Temp dir the sled database lives in; deleted when this is dropped.
+    _tempdir: TempDir,
 }
 
 /// Test implementation of WorkerContext for integration tests
 ///
-/// Integrates with local regtest node via RPC client.
+/// Integrates with local regtest node via RPC client, and persists all ASM
+/// state through the same sled-backed [`asm_storage`] stores the production
+/// runner uses. The stores are opened on a [`TempDir`] that lives as long as the
+/// context (and is deleted when the last clone drops), so each context is fully
+/// isolated on disk.
 #[derive(Clone, Debug)]
 pub struct TestAsmWorkerContext {
     /// Bitcoin RPC client for fetching blocks
@@ -55,8 +57,8 @@ pub struct TestAsmWorkerContext {
     /// Tokio runtime handle from the test runtime, used for async operations
     /// from the worker's dedicated OS thread (which has no tokio context).
     pub tokio_handle: Handle,
-    /// Consolidated shared mutable state.
-    pub inner: Arc<Mutex<TestWorkerStateInner>>,
+    /// Consolidated sled-backed state stores.
+    state: Arc<AsmWorkerState>,
 }
 
 impl TestAsmWorkerContext {
@@ -64,32 +66,42 @@ impl TestAsmWorkerContext {
     ///
     /// Captures the current tokio runtime handle so the worker's dedicated OS
     /// thread can drive async operations on the original runtime (where the
-    /// HTTP client's connection pool lives).
+    /// HTTP client's connection pool lives). Opens a fresh sled database in a
+    /// throwaway temp directory to back all ASM state stores.
     pub fn new(client: Client) -> Self {
+        let tempdir = tempfile::tempdir().expect("create temp dir for sled db");
+        let db = sled::open(tempdir.path()).expect("open sled db");
+        let state_db = SledAsmStateDb::open(&db).expect("open state db");
+        let aux_db = SledAsmAuxDataDb::open(&db).expect("open aux db");
+        let manifest_db = SledAsmManifestDb::open(&db).expect("open manifest db");
+        let mmr_db = SledAsmManifestMmrDb::open(&db).expect("open manifest mmr db");
+
         Self {
             client: Arc::new(client),
             tokio_handle: Handle::current(),
-            inner: Arc::new(Mutex::new(TestWorkerStateInner::default())),
+            state: Arc::new(AsmWorkerState {
+                state_db,
+                aux_db,
+                manifest_db,
+                mmr_db,
+                _tempdir: tempdir,
+            }),
         }
     }
 
     /// Number of leaves in the manifest MMR (sentinels + real manifest hashes).
     pub fn mmr_leaf_count(&self) -> u64 {
-        let inner = self.inner.lock().unwrap();
-        StoredMmr::<Sha256Hasher>::leaf_count(&inner.manifest_mmr).unwrap()
+        self.state.mmr_db.leaf_count().expect("read mmr leaf count")
     }
 
-    /// Snapshot of every manifest-MMR leaf in index order.
-    pub fn mmr_leaves(&self) -> Vec<[u8; 32]> {
-        let inner = self.inner.lock().unwrap();
-        let count = StoredMmr::<Sha256Hasher>::leaf_count(&inner.manifest_mmr).unwrap();
-        (0..count)
-            .map(|i| {
-                StoredMmr::<Sha256Hasher>::get_leaf(&inner.manifest_mmr, i)
-                    .unwrap()
-                    .expect("leaf below count is present")
-            })
-            .collect()
+    /// The full [`AsmManifest`] recorded for `blockid`, if any.
+    ///
+    /// A targeted lookup: tests fetch the one manifest they care about by block
+    /// rather than snapshotting the whole store. Pair with
+    /// [`get_manifest_hash`](ManifestMmrStore::get_manifest_hash) (by MMR index)
+    /// for the leaf side.
+    pub fn get_manifest(&self, blockid: &L1BlockCommitment) -> Option<AsmManifest> {
+        self.state.manifest_db.get(blockid).expect("read manifest")
     }
 }
 
@@ -184,47 +196,48 @@ impl L1DataProvider for TestAsmWorkerContext {
 
 impl AnchorStateStore for TestAsmWorkerContext {
     fn get_anchor_state(&self, blockid: &L1BlockCommitment) -> WorkerResult<AnchorState> {
-        self.inner
-            .lock()
-            .unwrap()
-            .asm_states
+        self.state
+            .state_db
             .get(blockid)
-            .cloned()
+            .map_err(|_| WorkerError::DbError)?
             .ok_or(WorkerError::MissingAsmState(*blockid.blkid()))
     }
 
-    fn get_latest_asm_state(&self) -> WorkerResult<Option<(L1BlockCommitment, AnchorState)>> {
-        Ok(self.inner.lock().unwrap().latest_asm_state.clone())
+    fn get_latest_anchor_state(&self) -> WorkerResult<Option<AnchorState>> {
+        self.state
+            .state_db
+            .get_latest()
+            .map_err(|_| WorkerError::DbError)
     }
 
-    fn store_anchor_state(
-        &self,
-        blockid: &L1BlockCommitment,
-        state: &AnchorState,
-    ) -> WorkerResult<()> {
-        let mut inner = self.inner.lock().unwrap();
-        inner.asm_states.insert(*blockid, state.clone());
-        inner.latest_asm_state = Some((*blockid, state.clone()));
-        Ok(())
+    fn store_anchor_state(&self, state: &AnchorState) -> WorkerResult<()> {
+        self.state
+            .state_db
+            .put(state)
+            .map_err(|_| WorkerError::DbError)
     }
 }
 
 impl ManifestMmrStore for TestAsmWorkerContext {
     fn put_manifest(&self, manifest: AsmManifest) -> WorkerResult<()> {
-        self.inner.lock().unwrap().manifests.push(manifest);
-        Ok(())
+        self.state
+            .manifest_db
+            .put(&manifest)
+            .map_err(|_| WorkerError::DbError)
     }
 
     fn put_manifest_hash(&self, height: u64, hash: AsmManifestHash) -> WorkerResult<()> {
-        let inner = self.inner.lock().unwrap();
-        StoredMmr::<Sha256Hasher>::put_leaf(&inner.manifest_mmr, height, *hash.as_ref())
-            .map_err(|_| WorkerError::DbError)?;
-        Ok(())
+        self.state
+            .mmr_db
+            .put_leaf(height, hash)
+            .map_err(|_| WorkerError::DbError)
     }
 
     fn manifest_mmr_leaf_count(&self) -> WorkerResult<u64> {
-        let inner = self.inner.lock().unwrap();
-        StoredMmr::<Sha256Hasher>::leaf_count(&inner.manifest_mmr).map_err(|_| WorkerError::DbError)
+        self.state
+            .mmr_db
+            .leaf_count()
+            .map_err(|_| WorkerError::DbError)
     }
 
     fn generate_mmr_proof_at(
@@ -232,21 +245,17 @@ impl ManifestMmrStore for TestAsmWorkerContext {
         index: u64,
         at_leaf_count: u64,
     ) -> WorkerResult<MerkleProofB32> {
-        let inner = self.inner.lock().unwrap();
-        let proof = StoredMmr::<Sha256Hasher>::generate_proof_at_size(
-            &inner.manifest_mmr,
-            index,
-            at_leaf_count,
-        )
-        .map_err(|_| WorkerError::MmrProofFailed { index })?;
-        Ok(MerkleProofB32::from_generic(&proof))
+        self.state
+            .mmr_db
+            .generate_proof(index, at_leaf_count)
+            .map_err(|_| WorkerError::MmrProofFailed { index })
     }
 
     fn get_manifest_hash(&self, index: u64) -> WorkerResult<AsmManifestHash> {
-        let inner = self.inner.lock().unwrap();
-        StoredMmr::<Sha256Hasher>::get_leaf(&inner.manifest_mmr, index)
+        self.state
+            .mmr_db
+            .get_leaf(index)
             .map_err(|_| WorkerError::DbError)?
-            .map(AsmManifestHash::from)
             .ok_or(WorkerError::ManifestHashNotFound { index })
     }
 }
@@ -254,17 +263,24 @@ impl ManifestMmrStore for TestAsmWorkerContext {
 impl AuxDataStore for TestAsmWorkerContext {
     fn store_aux_data(
         &self,
-        _blockid: &L1BlockCommitment,
-        _data: &strata_asm_common::AuxData,
+        blockid: &L1BlockCommitment,
+        data: &strata_asm_common::AuxData,
     ) -> WorkerResult<()> {
-        Ok(())
+        self.state
+            .aux_db
+            .put(blockid, data)
+            .map_err(|_| WorkerError::DbError)
     }
 
     fn get_aux_data(
         &self,
         blockid: &L1BlockCommitment,
     ) -> WorkerResult<strata_asm_common::AuxData> {
-        Err(WorkerError::MissingAuxData(*blockid))
+        self.state
+            .aux_db
+            .get(blockid)
+            .map_err(|_| WorkerError::DbError)?
+            .ok_or(WorkerError::MissingAuxData(*blockid))
     }
 }
 

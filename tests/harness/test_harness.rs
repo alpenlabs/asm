@@ -51,12 +51,14 @@ use bitcoind_async_client::{
 use corepc_node::Node;
 use rand::RngCore;
 use strata_asm_common::{AnchorState, AsmLogEntry};
+use strata_asm_manifest_types::AsmLog;
 use strata_asm_params::{AdministrationInitConfig, AsmParams, SubprotocolInstance};
 use strata_asm_spec::StrataAsmSpec;
 use strata_asm_worker::{
     test_utils::{get_l1_anchor, TestAsmWorkerContext},
     AnchorStateStore, AsmWorkerBuilder, AsmWorkerHandle, ManifestMmrStore,
 };
+use strata_btc_types::BlockHashExt;
 use strata_identifiers::L1BlockCommitment;
 use strata_l1_envelope_fmt::builder::{build_envelope_script, EnvelopeScriptBuilder};
 use strata_l1_txfmt::{ParseConfig, TagData};
@@ -251,7 +253,10 @@ impl AsmTestHarness {
 
     /// Get the latest ASM anchor state from the worker context.
     pub fn get_latest_asm_state(&self) -> anyhow::Result<Option<(L1BlockCommitment, AnchorState)>> {
-        Ok(self.context.get_latest_asm_state()?)
+        Ok(self
+            .context
+            .get_latest_anchor_state()?
+            .map(|state| (state.last_processed_block(), state)))
     }
 
     /// Get the ASM anchor state at a specific block.
@@ -265,14 +270,42 @@ impl AsmTestHarness {
     /// keyed by block. Returns an empty vec when no manifest was recorded for the
     /// block (e.g. the genesis anchor, seeded without running the STF).
     pub fn get_logs_at(&self, blockid: &L1BlockCommitment) -> Vec<AsmLogEntry> {
-        let inner = self.context.inner.lock().unwrap();
-        inner
-            .manifests
-            .iter()
-            .rev()
-            .find(|m| m.blkid() == blockid.blkid())
+        self.context
+            .get_manifest(blockid)
             .map(|m| m.logs().to_vec())
             .unwrap_or_default()
+    }
+
+    /// Resolve a mined block hash to its height-tagged [`L1BlockCommitment`], so
+    /// callers can request that block's manifest or logs directly instead of
+    /// scanning every stored manifest.
+    pub async fn commitment_of(&self, hash: BlockHash) -> anyhow::Result<L1BlockCommitment> {
+        let height = self.client.get_block_height(&hash).await?;
+        Ok(L1BlockCommitment::new(height as u32, hash.to_l1_block_id()))
+    }
+
+    /// Search the given mined blocks for the first log of type `T`, reading each
+    /// block's recorded manifest. Returns `None` when none of the blocks emitted
+    /// such a log.
+    ///
+    /// Callers pass the blocks they just mined (e.g. an activation batch) so the
+    /// search stays scoped to those blocks rather than scanning every stored
+    /// manifest.
+    pub async fn find_log_in_blocks<T: AsmLog>(
+        &self,
+        block_hashes: &[BlockHash],
+    ) -> anyhow::Result<Option<T>> {
+        for hash in block_hashes {
+            let block = self.commitment_of(*hash).await?;
+            if let Some(log) = self
+                .get_logs_at(&block)
+                .iter()
+                .find_map(|log| log.try_into_log::<T>().ok())
+            {
+                return Ok(Some(log));
+            }
+        }
+        Ok(None)
     }
 
     /// Fetch a block from Bitcoin by hash.
@@ -293,14 +326,12 @@ impl AsmTestHarness {
         Ok(self.context.get_manifest_hash(index)?)
     }
 
-    /// Get a snapshot of all stored manifests.
-    pub fn get_stored_manifests(&self) -> Vec<strata_asm_manifest_types::AsmManifest> {
-        self.context.inner.lock().unwrap().manifests.clone()
-    }
-
-    /// Get all MMR leaf hashes in leaf-index order.
-    pub fn get_mmr_leaves(&self) -> Vec<[u8; 32]> {
-        self.context.mmr_leaves()
+    /// Get the full manifest recorded for a specific block, if any.
+    pub fn get_manifest(
+        &self,
+        blockid: &L1BlockCommitment,
+    ) -> Option<strata_asm_manifest_types::AsmManifest> {
+        self.context.get_manifest(blockid)
     }
 
     // Funding & Wallet

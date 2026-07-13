@@ -45,7 +45,7 @@ async fn test_ee_predicate_update_emits_log() {
     assert_eq!(state.queued().len(), 1, "Predicate update should be queued");
 
     // Mine blocks to trigger activation.
-    harness
+    let activation_blocks = harness
         .mine_blocks(DEFAULT_CONFIRMATION_DEPTH as usize)
         .await
         .unwrap();
@@ -58,13 +58,13 @@ async fn test_ee_predicate_update_emits_log() {
         "Queue should be empty after activation"
     );
 
-    // Find the EePredicateKeyUpdate log in the stored manifests.
-    let manifests = harness.get_stored_manifests();
-    let ee_update = manifests
-        .iter()
-        .flat_map(|m| &m.logs)
-        .find_map(|log| log.try_into_log::<EePredicateKeyUpdate>().ok())
-        .expect("expected an EePredicateKeyUpdate log in manifests");
+    // The update log is emitted at whichever block activated it; search the
+    // blocks we just mined rather than dumping every stored manifest.
+    let ee_update = harness
+        .find_log_in_blocks::<EePredicateKeyUpdate>(&activation_blocks)
+        .await
+        .unwrap()
+        .expect("expected an EePredicateKeyUpdate log in the activation blocks");
 
     assert_eq!(
         ee_update.new_predicate(),

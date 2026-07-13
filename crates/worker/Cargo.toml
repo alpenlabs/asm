@@ -16,9 +16,12 @@ strata-merkle = { workspace = true, features = ["ssz"] }
 strata-service.workspace = true
 strata-tasks.workspace = true
 
-# Optional deps, enabled by the `test-utils` feature for `test_utils::TestAsmWorkerContext`.
+# Optional deps, enabled by the `test-utils` feature for `test_utils::TestAsmWorkerContext`,
+# whose stores are backed by the sled-based `asm-storage` opened on a throwaway temp dir.
+asm-storage = { workspace = true, optional = true }
 bitcoind-async-client = { workspace = true, optional = true }
-strata-merkle-node-store = { workspace = true, optional = true }
+sled = { workspace = true, optional = true }
+tempfile = { workspace = true, optional = true }
 
 anyhow.workspace = true
 bitcoin.workspace = true
@@ -31,12 +34,14 @@ tracing.workspace = true
 [features]
 # Exposes `test_utils` (the regtest-backed `TestAsmWorkerContext`) to downstream
 # integration tests. The worker's own unit tests reach it via `cfg(test)`.
-test-utils = ["dep:bitcoind-async-client", "dep:strata-merkle-node-store"]
+test-utils = ["dep:asm-storage", "dep:bitcoind-async-client", "dep:sled", "dep:tempfile"]
 
 [dev-dependencies]
 strata-l1-txfmt.workspace = true
 strata-test-utils-btcio.workspace = true
 
+asm-storage.workspace = true
 bitcoind-async-client.workspace = true
 corepc-node.workspace = true
-strata-merkle-node-store.workspace = true
+sled.workspace = true
+tempfile.workspace = true

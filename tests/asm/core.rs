@@ -10,6 +10,7 @@
 use bitcoin::Network;
 use harness::test_harness::{AsmTestHarnessBuilder, Setup};
 use integration_tests::harness;
+use strata_asm_manifest_types::AsmManifestHash;
 use strata_asm_worker::{test_utils::TestAsmWorkerContext, AnchorStateStore, L1DataProvider};
 use strata_btc_types::BlockHashExt;
 use strata_test_utils_btcio::{get_bitcoind_and_client, mine_blocks};
@@ -25,7 +26,7 @@ async fn test_worker_context_initialization() {
     let context = TestAsmWorkerContext::new(client);
 
     assert_eq!(context.get_network().unwrap(), Network::Regtest);
-    assert!(context.get_latest_asm_state().unwrap().is_none());
+    assert!(context.get_latest_anchor_state().unwrap().is_none());
 }
 
 /// Verifies blocks are fetched from regtest by hash.
@@ -80,28 +81,46 @@ async fn test_single_block_processing() {
 async fn test_genesis_manifest_not_stored() {
     let Setup { harness, .. } = AsmTestHarnessBuilder::default().build().await;
 
-    // Right after init: no blocks processed, no manifests stored.
-    assert!(
-        harness.get_stored_manifests().is_empty(),
+    // Right after init: only the sentinel prefill (`0..=genesis_height`) exists,
+    // no real manifest — the genesis block never gets one.
+    let prefill_count = harness.genesis_height + 1;
+    assert_eq!(
+        harness.get_mmr_leaf_count() as u64,
+        prefill_count,
         "no manifest should be stored before any post-genesis block is processed"
+    );
+
+    // The genesis anchor is the latest stored state before any block is mined;
+    // assert the manifest store itself holds nothing for it, not merely that its
+    // MMR slot is a sentinel.
+    let genesis_commitment = harness
+        .get_latest_asm_state()
+        .unwrap()
+        .expect("genesis anchor stored")
+        .0;
+    assert!(
+        harness.get_manifest(&genesis_commitment).is_none(),
+        "no manifest should be stored for the genesis block"
     );
 
     // Mine one block on top of genesis and verify exactly one manifest is
     // stored, at height `genesis_height + 1`.
-    harness
+    let hash = harness
         .mine_block(None)
         .await
         .expect("Failed to mine block");
+    let block = harness.commitment_of(hash).await.expect("commitment");
 
-    let manifests = harness.get_stored_manifests();
     assert_eq!(
-        manifests.len(),
-        1,
-        "mining one block should produce exactly one stored manifest, got {}",
-        manifests.len()
+        harness.get_mmr_leaf_count() as u64,
+        prefill_count + 1,
+        "mining one block should append exactly one manifest leaf"
     );
+    let manifest = harness
+        .get_manifest(&block)
+        .expect("manifest stored for the mined block");
     assert_eq!(
-        manifests[0].height() as u64,
+        manifest.height() as u64,
         harness.genesis_height + 1,
         "first stored manifest should be for height `genesis_height + 1`"
     );
@@ -190,12 +209,24 @@ async fn test_proven_and_external_mmr_index_alignment() {
         "external MMR should be sentinel-prefilled to `genesis_height + 1` entries"
     );
 
+    // The genesis anchor is the latest stored state before any block is mined;
+    // hold onto its commitment to assert the manifest store never gains a
+    // genesis entry.
+    let genesis_commitment = harness
+        .get_latest_asm_state()
+        .unwrap()
+        .expect("genesis anchor stored")
+        .0;
+
     // Mine blocks in multiple rounds of increasing size to exercise the MMR
     // across different tree shapes (powers of two, odd counts, etc.).
     // The compact MMR's internal peak structure changes at each power-of-two
     // boundary, so we want to cross several of them.
     let rounds: &[usize] = &[1, 3, 4, 8, 16];
     let mut total_blocks_mined: usize = 0;
+    // Commitments for every mined block, so the integrity check below can
+    // request each block's manifest by block rather than dumping the store.
+    let mut mined_commitments = Vec::new();
 
     for (round, &count) in rounds.iter().enumerate() {
         let block_hashes = harness
@@ -204,6 +235,14 @@ async fn test_proven_and_external_mmr_index_alignment() {
             .unwrap_or_else(|e| panic!("round {round}: failed to mine {count} blocks: {e}"));
         assert_eq!(block_hashes.len(), count);
         total_blocks_mined += count;
+        for hash in &block_hashes {
+            mined_commitments.push(
+                harness
+                    .commitment_of(*hash)
+                    .await
+                    .unwrap_or_else(|e| panic!("round {round}: commitment for {hash}: {e}")),
+            );
+        }
 
         // -- Proven (internal) compact MMR --
         let (_commitment, latest_state) = harness
@@ -238,58 +277,48 @@ async fn test_proven_and_external_mmr_index_alignment() {
 
     // -- Leaf hash integrity over real (post-genesis) leaves --
     // Verify every post-genesis external MMR leaf matches its corresponding
-    // manifest hash. Indices `0..=genesis_height` are prefill sentinels and
-    // are skipped here.
-    let external_leaves = harness.get_mmr_leaves();
-    let stored_manifests = harness.get_stored_manifests();
+    // manifest hash. Indices `0..=genesis_height` are prefill sentinels.
     let prefill_count = (genesis_height + 1) as usize;
 
     assert_eq!(
-        external_leaves.len(),
+        harness.get_mmr_leaf_count(),
         prefill_count + total_blocks_mined,
         "final external MMR should have {prefill_count} prefill + {total_blocks_mined} real leaves"
     );
 
-    let sentinel = strata_asm_common::MMR_SENTINEL_DUMMY_LEAF;
-    for (mmr_index, leaf) in external_leaves.iter().take(prefill_count).enumerate() {
+    let sentinel = AsmManifestHash::from(strata_asm_common::MMR_SENTINEL_DUMMY_LEAF);
+    for mmr_index in 0..prefill_count as u64 {
         assert_eq!(
-            *leaf, sentinel,
+            harness.get_manifest_hash(mmr_index).expect("prefill leaf"),
+            sentinel,
             "pre-genesis leaf at index {mmr_index} must be the prefill sentinel"
         );
     }
 
-    for (mmr_index, external_leaf_hash) in external_leaves.iter().enumerate().skip(prefill_count) {
-        let block_height = mmr_index as u64;
-        let manifest = stored_manifests
-            .iter()
-            .find(|m| m.height() as u64 == block_height)
+    // Each real leaf must equal the recorded manifest's hash, both fetched by
+    // the specific mined block.
+    for commitment in &mined_commitments {
+        let block_height = commitment.height() as u64;
+        let external_leaf_hash = harness
+            .get_manifest_hash(block_height)
+            .expect("real leaf hash");
+        let manifest = harness
+            .get_manifest(commitment)
             .unwrap_or_else(|| panic!("no stored manifest for height {block_height}"));
 
-        let proven_leaf_hash: [u8; 32] = *manifest.compute_hash().as_ref();
         assert_eq!(
-            *external_leaf_hash, proven_leaf_hash,
-            "leaf hash mismatch at MMR index {mmr_index} (L1 height {block_height}): \
+            external_leaf_hash,
+            manifest.compute_hash(),
+            "leaf hash mismatch at L1 height {block_height}: \
              external MMR disagrees with manifest compute_hash()"
         );
     }
 
-    // No manifest should ever be stored for the genesis block; the worker
-    // skips genesis entirely and only stores manifests for post-genesis blocks.
+    // The worker stores no manifest for the genesis block: assert its manifest
+    // store holds nothing at the genesis commitment. The sentinel prefill loop
+    // above independently confirms genesis's MMR slot was never overwritten.
     assert!(
-        stored_manifests
-            .iter()
-            .all(|m| (m.height() as u64) > genesis_height),
-        "no manifest should be stored for genesis (or earlier) heights; \
-         got heights {:?}",
-        stored_manifests
-            .iter()
-            .map(|m| m.height())
-            .collect::<Vec<_>>()
-    );
-
-    // The genesis MMR slot must remain the prefill sentinel.
-    assert_eq!(
-        external_leaves[genesis_height as usize], sentinel,
-        "genesis MMR slot must hold the prefill sentinel"
+        harness.get_manifest(&genesis_commitment).is_none(),
+        "no manifest should be stored for the genesis block"
     );
 }

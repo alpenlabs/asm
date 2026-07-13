@@ -5,6 +5,7 @@ use ssz_types::{FixedBytes, VariableList};
 use strata_btc_verification::{
     HeaderVerificationState as NativeHeaderVerificationState, L1Anchor, L1VerificationError,
 };
+use strata_identifiers::L1BlockCommitment;
 use strata_l1_txfmt::MagicBytes;
 
 use crate::{
@@ -25,6 +26,12 @@ impl AnchorState {
     /// Creates the SSZ magic field from `MagicBytes`.
     pub fn magic_ssz(magic: MagicBytes) -> FixedBytes<4> {
         FixedBytes::from(magic.into_inner())
+    }
+
+    /// Returns the last processed L1 block, i.e. this state was created by
+    /// processing blocks up to and including this one.
+    pub fn last_processed_block(&self) -> L1BlockCommitment {
+        self.chain_view.pow_state.last_verified_block
     }
 }
 
