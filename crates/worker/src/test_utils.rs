@@ -211,10 +211,7 @@ impl AnchorStateStore for TestAsmWorkerContext {
     }
 
     fn store_anchor_state(&self, state: &AnchorState) -> WorkerResult<()> {
-        self.state
-            .state_db
-            .put(state)
-            .map_err(WorkerError::DbError)
+        self.state.state_db.put(state).map_err(WorkerError::DbError)
     }
 }
 
@@ -234,10 +231,7 @@ impl ManifestMmrStore for TestAsmWorkerContext {
     }
 
     fn manifest_mmr_leaf_count(&self) -> WorkerResult<u64> {
-        self.state
-            .mmr_db
-            .leaf_count()
-            .map_err(WorkerError::DbError)
+        self.state.mmr_db.leaf_count().map_err(WorkerError::DbError)
     }
 
     fn generate_mmr_proof_at(
