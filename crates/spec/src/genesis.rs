@@ -18,7 +18,7 @@ use crate::StrataAsmSpec;
 /// so the pipeline and the genesis layout cannot drift apart — and assembles
 /// the chain view (PoW header verification + history accumulator).
 pub fn construct_genesis_state(params: &AsmGenesisParams) -> AnchorState {
-    let mut stage = GenesisSectionStage {
+    let mut stage = GenesisStateStage {
         params,
         sections: Vec::new(),
     };
@@ -49,17 +49,18 @@ pub fn construct_genesis_state(params: &AsmGenesisParams) -> AnchorState {
     }
 }
 
-/// [`Stage`] that builds each subprotocol's genesis section from its config.
+/// [`Stage`] that builds each subprotocol's genesis state from its config,
+/// packed into its [`SectionState`] envelope.
 ///
 /// Configs are located in the params' heterogeneous list by their type: each
 /// subprotocol's `InitConfig` type appears in exactly one
 /// [`SubprotocolInstance`] variant.
-struct GenesisSectionStage<'p> {
+struct GenesisStateStage<'p> {
     params: &'p AsmGenesisParams,
     sections: Vec<SectionState>,
 }
 
-impl Stage for GenesisSectionStage<'_> {
+impl Stage for GenesisStateStage<'_> {
     fn invoke_subprotocol<S: Subprotocol>(&mut self) {
         let config = self
             .params
