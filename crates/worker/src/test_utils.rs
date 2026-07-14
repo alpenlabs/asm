@@ -199,7 +199,7 @@ impl AnchorStateStore for TestAsmWorkerContext {
         self.state
             .state_db
             .get(blockid)
-            .map_err(|_| WorkerError::DbError)?
+            .map_err(WorkerError::DbError)?
             .ok_or(WorkerError::MissingAsmState(*blockid.blkid()))
     }
 
@@ -207,14 +207,11 @@ impl AnchorStateStore for TestAsmWorkerContext {
         self.state
             .state_db
             .get_latest()
-            .map_err(|_| WorkerError::DbError)
+            .map_err(WorkerError::DbError)
     }
 
     fn store_anchor_state(&self, state: &AnchorState) -> WorkerResult<()> {
-        self.state
-            .state_db
-            .put(state)
-            .map_err(|_| WorkerError::DbError)
+        self.state.state_db.put(state).map_err(WorkerError::DbError)
     }
 }
 
@@ -223,21 +220,18 @@ impl ManifestMmrStore for TestAsmWorkerContext {
         self.state
             .manifest_db
             .put(&manifest)
-            .map_err(|_| WorkerError::DbError)
+            .map_err(WorkerError::DbError)
     }
 
     fn put_manifest_hash(&self, height: u64, hash: AsmManifestHash) -> WorkerResult<()> {
         self.state
             .mmr_db
             .put_leaf(height, hash)
-            .map_err(|_| WorkerError::DbError)
+            .map_err(WorkerError::DbError)
     }
 
     fn manifest_mmr_leaf_count(&self) -> WorkerResult<u64> {
-        self.state
-            .mmr_db
-            .leaf_count()
-            .map_err(|_| WorkerError::DbError)
+        self.state.mmr_db.leaf_count().map_err(WorkerError::DbError)
     }
 
     fn generate_mmr_proof_at(
@@ -255,7 +249,7 @@ impl ManifestMmrStore for TestAsmWorkerContext {
         self.state
             .mmr_db
             .get_leaf(index)
-            .map_err(|_| WorkerError::DbError)?
+            .map_err(WorkerError::DbError)?
             .ok_or(WorkerError::ManifestHashNotFound { index })
     }
 }
@@ -269,7 +263,7 @@ impl AuxDataStore for TestAsmWorkerContext {
         self.state
             .aux_db
             .put(blockid, data)
-            .map_err(|_| WorkerError::DbError)
+            .map_err(WorkerError::DbError)
     }
 
     fn get_aux_data(
@@ -279,7 +273,7 @@ impl AuxDataStore for TestAsmWorkerContext {
         self.state
             .aux_db
             .get(blockid)
-            .map_err(|_| WorkerError::DbError)?
+            .map_err(WorkerError::DbError)?
             .ok_or(WorkerError::MissingAuxData(*blockid))
     }
 }

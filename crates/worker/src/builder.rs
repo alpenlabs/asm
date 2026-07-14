@@ -3,8 +3,12 @@ use strata_service::ServiceBuilder;
 use strata_tasks::TaskExecutor;
 
 use crate::{
-    Subscribers, constants, errors::WorkerError, handle::AsmWorkerHandle,
-    service::AsmWorkerService, state::AsmWorkerServiceState, traits::WorkerContext,
+    Subscribers, constants,
+    errors::{WorkerError, WorkerResult},
+    handle::AsmWorkerHandle,
+    service::AsmWorkerService,
+    state::AsmWorkerServiceState,
+    traits::WorkerContext,
 };
 
 /// Builder for constructing and launching an ASM worker service.
@@ -60,7 +64,7 @@ impl<W, S: AsmSpec> AsmWorkerBuilder<W, S> {
     /// This method validates all required dependencies, creates the service state,
     /// uses [`ServiceBuilder`] to set up the service infrastructure, and returns
     /// a handle for interacting with the worker.
-    pub fn launch(self, executor: &TaskExecutor) -> anyhow::Result<AsmWorkerHandle>
+    pub fn launch(self, executor: &TaskExecutor) -> WorkerResult<AsmWorkerHandle>
     where
         W: WorkerContext + Send + Sync + 'static,
         S: AsmSpec + Send + Sync + 'static,
@@ -89,8 +93,11 @@ impl<W, S: AsmSpec> AsmWorkerBuilder<W, S> {
         // Create the command handle before launching.
         let command_handle = service_builder.create_command_handle(64);
 
-        // Launch the service using the sync worker.
-        let service_monitor = service_builder.launch_sync(constants::SERVICE_NAME, executor)?;
+        // Launch the service using the sync worker. The framework reports launch
+        // failures as `anyhow`; wrap them in a typed variant at this seam.
+        let service_monitor = service_builder
+            .launch_sync(constants::SERVICE_NAME, executor)
+            .map_err(WorkerError::ServiceLaunch)?;
 
         // Create and return the handle.
         let handle = AsmWorkerHandle::new(command_handle, service_monitor, subscribers);

@@ -7,7 +7,7 @@ use strata_service::{ServiceBuilder, StreamInput};
 use strata_tasks::TaskExecutor;
 
 use crate::{
-    MohoWorkerContext, MohoWorkerHandle, constants,
+    MohoWorkerContext, MohoWorkerHandle, MohoWorkerResult, constants,
     errors::MohoWorkerError,
     service::{self, MohoWorkerService},
     state::MohoWorkerServiceState,
@@ -70,7 +70,7 @@ impl<W> MohoWorkerBuilder<W> {
     ///
     /// Validates dependencies, seeds or resumes the service state, adapts the
     /// subscription into a stream input, and spawns the async worker.
-    pub async fn launch(self, executor: &TaskExecutor) -> anyhow::Result<MohoWorkerHandle>
+    pub async fn launch(self, executor: &TaskExecutor) -> MohoWorkerResult<MohoWorkerHandle>
     where
         W: MohoWorkerContext + Send + Sync + 'static,
     {
@@ -109,11 +109,14 @@ impl<W> MohoWorkerBuilder<W> {
         service::sync_to_tip(&mut state)?;
 
         let input = StreamInput::new(subscription);
+        // `launch_async` reports `anyhow::Error`; flatten it into a typed
+        // variant so the whole builder surface stays typed.
         let monitor = ServiceBuilder::<MohoWorkerService<W>, _>::new()
             .with_state(state)
             .with_input(input)
             .launch_async(constants::SERVICE_NAME, executor)
-            .await?;
+            .await
+            .map_err(MohoWorkerError::ServiceLaunch)?;
 
         Ok(MohoWorkerHandle::new(monitor, subscribers))
     }

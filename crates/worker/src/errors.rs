@@ -1,6 +1,7 @@
 use bitcoin::Network;
 use strata_btc_types::BitcoinTxid;
 use strata_identifiers::{L1BlockCommitment, L1BlockId};
+use strata_service::ServiceError;
 use thiserror::Error;
 
 /// Return type for worker messages.
@@ -66,15 +67,22 @@ pub enum WorkerError {
     #[error("missing aux data for the block {0:?}")]
     MissingAuxData(L1BlockCommitment),
 
-    /// A Bitcoin RPC call failed after exhausting its retry budget. The
-    /// payload carries the underlying error's display so the operator sees
-    /// the actual cause (block not found, timeout, connection refused, auth,
-    /// etc.) without us bucketing it.
+    /// A Bitcoin RPC call failed after exhausting its retry budget.
+    ///
+    /// Carries the underlying error as a `#[source]` so `Error::source()` chains
+    /// all the way down to the concrete RPC error (e.g. `ClientError`), which
+    /// stays recoverable via `downcast_ref`. The worker is generic over its
+    /// `WorkerContext`, so it deliberately does not name the concrete RPC client
+    /// type here; the context impl attaches call context (which call, which
+    /// block) before wrapping.
     #[error("btc rpc: {0}")]
-    BtcRpc(String),
+    BtcRpc(#[source] anyhow::Error),
 
-    #[error("db error")]
-    DbError,
+    /// A backing store operation failed. Carries the underlying storage error as
+    /// a `#[source]` so its full chain is preserved rather than bucketed into an
+    /// opaque marker.
+    #[error("db error: {0}")]
+    DbError(#[source] anyhow::Error),
 
     #[error("missing required dependency: {0}")]
     MissingDependency(&'static str),
@@ -110,6 +118,16 @@ pub enum WorkerError {
     #[error("ASM worker exited unexpectedly")]
     WorkerExited,
 
-    #[error("unexpected error: {0}")]
-    Unexpected(String),
+    /// A service-framework operation failed for a reason other than the worker
+    /// having exited (a cancelled wait, a panicked blocking thread, an unknown
+    /// input). Carries the concrete [`ServiceError`] as a `#[source]` so the
+    /// exact framework cause is preserved rather than flattened to a string.
+    #[error("service framework error: {0}")]
+    Service(#[source] ServiceError),
+
+    /// Launching the worker through the service framework failed. The framework
+    /// reports these as open-ended `anyhow` errors (thread spawn, runtime
+    /// wiring), so carry the cause verbatim rather than bucketing it.
+    #[error("failed to launch worker service: {0}")]
+    ServiceLaunch(#[source] anyhow::Error),
 }

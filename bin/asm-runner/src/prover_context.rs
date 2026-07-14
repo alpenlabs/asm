@@ -12,7 +12,6 @@
 
 use std::sync::Arc;
 
-use anyhow::Context;
 use asm_storage::{SledAsmAuxDataDb, SledAsmStateDb};
 use bitcoin::{Block, block::Header};
 use bitcoind_async_client::{Client, traits::Reader};
@@ -24,7 +23,9 @@ use strata_asm_prover_storage::{
     RemoteProofStatusError, SledProofDb,
 };
 use strata_asm_prover_types::{AsmProof, L1Range, MohoProof, ProofId, RemoteProofId};
-use strata_asm_prover_worker::{AnchorStateReader, AuxDataReader, L1BlockProvider};
+use strata_asm_prover_worker::{
+    AnchorStateReader, AuxDataReader, L1BlockProvider, ProverError, ProverResult,
+};
 use strata_btc_types::{BlockHashExt, L1BlockIdBitcoinExt};
 use strata_identifiers::{L1BlockCommitment, L1BlockId};
 use zkaleido::RemoteProofStatus;
@@ -188,59 +189,79 @@ impl MohoStateDb for AsmProverContext {
 // ---- Chain/state reads for the input builder ------------------------------
 
 impl AnchorStateReader for AsmProverContext {
-    fn get_anchor_state(&self, blockid: &L1BlockCommitment) -> anyhow::Result<AnchorState> {
+    fn get_anchor_state(&self, blockid: &L1BlockCommitment) -> ProverResult<AnchorState> {
+        // `SledAsmStateDb` returns `anyhow::Result`; carry the cause chain by
+        // boxing it into the `Storage` variant's source rather than re-stringifying.
         self.state_db
-            .get(blockid)?
-            .context("anchor state not found")
+            .get(blockid)
+            .map_err(|e| ProverError::Storage {
+                context: "failed to read anchor state",
+                source: e.into(),
+            })?
+            .ok_or(ProverError::NotFound("anchor state not found"))
     }
 
-    fn get_latest_anchor_state(&self) -> anyhow::Result<Option<AnchorState>> {
-        self.state_db.get_latest()
+    fn get_latest_anchor_state(&self) -> ProverResult<Option<AnchorState>> {
+        self.state_db
+            .get_latest()
+            .map_err(|e| ProverError::Storage {
+                context: "failed to read latest anchor state",
+                source: e.into(),
+            })
     }
 
-    fn contains_anchor_state(&self, blockid: &L1BlockCommitment) -> anyhow::Result<bool> {
-        self.state_db.contains(blockid)
+    fn contains_anchor_state(&self, blockid: &L1BlockCommitment) -> ProverResult<bool> {
+        self.state_db
+            .contains(blockid)
+            .map_err(|e| ProverError::Storage {
+                context: "failed to check anchor state presence",
+                source: e.into(),
+            })
     }
 }
 
 impl AuxDataReader for AsmProverContext {
-    fn get_aux_data(&self, blockid: &L1BlockCommitment) -> anyhow::Result<AuxData> {
+    fn get_aux_data(&self, blockid: &L1BlockCommitment) -> ProverResult<AuxData> {
         self.aux_db
-            .get(blockid)?
-            .context("aux data not found for block")
+            .get(blockid)
+            .map_err(|e| ProverError::Storage {
+                context: "failed to read aux data",
+                source: e.into(),
+            })?
+            .ok_or(ProverError::NotFound("aux data not found for block"))
     }
 }
 
 impl L1BlockProvider for AsmProverContext {
-    async fn get_l1_block(&self, blockid: &L1BlockId) -> anyhow::Result<Block> {
+    async fn get_l1_block(&self, blockid: &L1BlockId) -> ProverResult<Block> {
         let hash = blockid.to_block_hash();
         self.bitcoin_client
             .get_block(&hash)
             .await
-            .context("failed to fetch Bitcoin block")
+            .map_err(|e| ProverError::storage("failed to fetch Bitcoin block", e))
     }
 
-    async fn get_l1_block_header(&self, blockid: &L1BlockId) -> anyhow::Result<Header> {
+    async fn get_l1_block_header(&self, blockid: &L1BlockId) -> ProverResult<Header> {
         let hash = blockid.to_block_hash();
         self.bitcoin_client
             .get_block_header(&hash)
             .await
-            .context("failed to fetch Bitcoin block header")
+            .map_err(|e| ProverError::storage("failed to fetch Bitcoin block header", e))
     }
 
-    async fn get_l1_block_count(&self) -> anyhow::Result<u64> {
+    async fn get_l1_block_count(&self) -> ProverResult<u64> {
         self.bitcoin_client
             .get_block_count()
             .await
-            .context("failed to fetch L1 block count")
+            .map_err(|e| ProverError::storage("failed to fetch L1 block count", e))
     }
 
-    async fn get_l1_block_hash(&self, height: u64) -> anyhow::Result<L1BlockId> {
+    async fn get_l1_block_hash(&self, height: u64) -> ProverResult<L1BlockId> {
         let hash = self
             .bitcoin_client
             .get_block_hash(height)
             .await
-            .context("failed to fetch L1 block hash")?;
+            .map_err(|e| ProverError::storage("failed to fetch L1 block hash", e))?;
         Ok(hash.to_l1_block_id())
     }
 }
