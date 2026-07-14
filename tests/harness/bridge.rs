@@ -31,7 +31,7 @@ use bitcoin::{
 };
 use bitcoind_async_client::traits::Wallet;
 use rand::RngCore;
-use strata_asm_common::{AnchorState, Subprotocol};
+use strata_asm_common::{AnchorState, SectionStateExt, Subprotocol};
 use strata_asm_params::BridgeV1InitConfig;
 use strata_asm_proto_bridge_v1::{BridgeV1State, BridgeV1Subproto};
 use strata_asm_proto_bridge_v1_txs::{

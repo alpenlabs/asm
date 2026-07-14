@@ -2,48 +2,25 @@
 //! and interacting with subprotocols in an ASM (Anchor State Machine) framework.
 
 mod aux;
-mod constants;
 mod errors;
 mod log;
 mod manifest;
-mod mmr;
 mod msg;
+mod section;
 pub mod sorted_vec;
 mod spec;
-mod state;
 mod subprotocol;
 mod tx;
 
-#[allow(
-    clippy::all,
-    unreachable_pub,
-    clippy::allow_attributes,
-    clippy::absolute_paths,
-    reason = "generated code"
-)]
-mod ssz_generated {
-    include!(concat!(env!("OUT_DIR"), "/generated.rs"));
-}
-
 pub use aux::*;
-pub use constants::*;
 pub use errors::*;
 pub use log::*;
 pub use manifest::*;
-pub use mmr::*;
 pub use msg::*;
+pub use section::*;
 pub use spec::*;
-pub use ssz_generated::ssz::{
-    self as ssz,
-    pow::{
-        BtcParams, BtcParamsRef, BtcWork, BtcWorkRef, HeaderVerificationState,
-        HeaderVerificationStateRef, TimestampStore, TimestampStoreRef,
-    },
-    state::{
-        AnchorState, AnchorStateRef, AsmHistoryAccumulatorState, AsmHistoryAccumulatorStateRef,
-        ChainViewState, ChainViewStateRef, SectionState, SectionStateRef,
-    },
-};
+// Re-export the anchor state types so downstream crates keep a single import path.
+pub use strata_asm_state::*;
 pub use subprotocol::*;
 use tracing as _;
 pub use tx::*;

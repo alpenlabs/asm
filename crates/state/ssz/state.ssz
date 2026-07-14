@@ -2,7 +2,7 @@ MAX_SECTIONS = 256
 # TODO(STR-2535): revisit this state bound once the broader ASM state limit ticket lands.
 MAX_SECTION_STATE_BYTES = 1 << 20
 
-import pow
+import strata_btc_verification
 import strata_merkle
 
 ### Verifiable accumulator for ASM history.
@@ -23,7 +23,10 @@ class SectionState(Container):
 
 ### Chain view state required by the ASM transition.
 class ChainViewState(Container):
-    pow_state: pow.HeaderVerificationState
+    ### Bitcoin header verification state, encoded via its SSZ delegate
+    ### (see `strata-btc-verification/ssz/header_verification.ssz`).
+    #~# external_kind: container
+    pow_state: strata_btc_verification.HeaderVerificationState
     history_accumulator: AsmHistoryAccumulatorState
 
 ### Top-level ASM state.

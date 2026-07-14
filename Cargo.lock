@@ -793,6 +793,7 @@ dependencies = [
  "anyhow",
  "borsh",
  "sled",
+ "ssz",
  "strata-asm-common",
  "strata-identifiers",
  "strata-merkle",
@@ -7616,13 +7617,11 @@ version = "0.1.0"
 dependencies = [
  "bitcoin",
  "borsh",
- "serde",
  "ssz",
- "ssz_codegen",
  "ssz_derive",
- "ssz_primitives",
  "ssz_types",
  "strata-asm-manifest-types",
+ "strata-asm-state",
  "strata-btc-types",
  "strata-btc-verification",
  "strata-identifiers",
@@ -7632,8 +7631,6 @@ dependencies = [
  "strata-test-utils-arb",
  "thiserror 2.0.18",
  "tracing",
- "tree_hash",
- "tree_hash_derive",
  "zkaleido-logging",
 ]
 
@@ -7829,7 +7826,6 @@ dependencies = [
  "strata-asm-proto-bridge-v1-types",
  "strata-asm-proto-checkpoint-msgs",
  "strata-btc-types",
- "strata-btc-verification",
  "strata-codec",
  "strata-crypto",
  "strata-identifiers",
@@ -8136,7 +8132,27 @@ dependencies = [
  "strata-asm-proto-admin",
  "strata-asm-proto-bridge-v1",
  "strata-asm-proto-checkpoint",
+]
+
+[[package]]
+name = "strata-asm-state"
+version = "0.1.0"
+dependencies = [
+ "bitcoin",
+ "serde",
+ "serde_json",
+ "ssz",
+ "ssz_codegen",
+ "ssz_derive",
+ "ssz_primitives",
+ "ssz_types",
+ "strata-asm-manifest-types",
  "strata-btc-verification",
+ "strata-identifiers",
+ "strata-l1-txfmt",
+ "strata-merkle",
+ "tree_hash",
+ "tree_hash_derive",
 ]
 
 [[package]]
@@ -8211,12 +8227,17 @@ dependencies = [
  "rand 0.8.6",
  "serde",
  "ssz",
+ "ssz_codegen",
  "ssz_derive",
+ "ssz_primitives",
+ "ssz_types",
  "strata-btc-types",
  "strata-crypto",
  "strata-identifiers",
  "strata-test-utils-btc",
  "thiserror 2.0.18",
+ "tree_hash",
+ "tree_hash_derive",
 ]
 
 [[package]]

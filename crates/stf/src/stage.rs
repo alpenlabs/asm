@@ -3,8 +3,8 @@
 use std::collections::BTreeMap;
 
 use strata_asm_common::{
-    AnchorState, AuxRequestCollector, AuxRequests, HeaderVerificationState, Stage, Subprotocol,
-    SubprotocolId, TxInputRef, VerifiedAuxData,
+    AnchorState, AuxRequestCollector, AuxRequests, HeaderVerificationState, SectionStateExt, Stage,
+    Subprotocol, SubprotocolId, TxInputRef, VerifiedAuxData,
 };
 use strata_identifiers::L1BlockCommitment;
 

@@ -15,6 +15,7 @@ strata-merkle-node-store.workspace = true
 anyhow.workspace = true
 borsh.workspace = true
 sled.workspace = true
+ssz.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true

@@ -195,7 +195,7 @@ fn validate_anchor_against_l1<W: L1DataProvider>(
 
     // Network must match the backing L1 source.
     let l1_network = context.get_network()?;
-    let anchor_network = pow_state.params.clone().into_native().inner().network;
+    let anchor_network = pow_state.network();
     if l1_network != anchor_network {
         return Err(AnchorMismatch::Network {
             anchor: anchor_network,
@@ -222,10 +222,10 @@ fn validate_anchor_against_l1<W: L1DataProvider>(
     // anchor's current difficulty-adjustment epoch.
     let epoch_start_height = get_relative_difficulty_adjustment_height(0, height, &btc_params);
     let epoch_start_header = context.get_l1_block_header_at_height(epoch_start_height as u64)?;
-    if epoch_start_header.time != pow_state.epoch_start_timestamp {
+    if epoch_start_header.time != pow_state.epoch_start_timestamp() {
         return Err(AnchorMismatch::EpochStartTimestamp {
             epoch_start_height: epoch_start_height as u64,
-            anchor: pow_state.epoch_start_timestamp,
+            anchor: pow_state.epoch_start_timestamp(),
             l1: epoch_start_header.time,
         }
         .into());
@@ -245,9 +245,9 @@ fn validate_anchor_against_l1<W: L1DataProvider>(
     } else {
         anchor_header.bits.to_consensus()
     };
-    if expected_next_target != pow_state.next_block_target {
+    if expected_next_target != pow_state.next_block_target() {
         return Err(AnchorMismatch::NextTarget {
-            anchor: pow_state.next_block_target,
+            anchor: pow_state.next_block_target(),
             l1: expected_next_target,
         }
         .into());

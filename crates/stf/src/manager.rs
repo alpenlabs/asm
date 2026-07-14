@@ -4,7 +4,8 @@ use std::{any::Any, collections::BTreeMap, marker};
 
 use strata_asm_common::{
     AsmError, AsmLogEntry, AuxRequestCollector, HeaderVerificationState, InterprotoMsg, MsgRelayer,
-    SectionState, SubprotoHandler, Subprotocol, SubprotocolId, TxInputRef, VerifiedAuxData,
+    SectionState, SectionStateExt, SubprotoHandler, Subprotocol, SubprotocolId, TxInputRef,
+    VerifiedAuxData,
 };
 use strata_identifiers::L1BlockCommitment;
 

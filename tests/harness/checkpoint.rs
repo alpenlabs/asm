@@ -16,7 +16,7 @@ use std::future::Future;
 
 use bitcoin::{key::UntweakedKeypair, secp256k1::Secp256k1, BlockHash, Transaction};
 use bitcoin_bosd::Descriptor;
-use strata_asm_common::{AnchorState, Subprotocol};
+use strata_asm_common::{AnchorState, SectionStateExt, Subprotocol};
 use strata_asm_logs::CheckpointTipUpdate;
 use strata_asm_manifest_types::{AsmLog, AsmManifestHash};
 use strata_asm_params::CheckpointInitConfig;
