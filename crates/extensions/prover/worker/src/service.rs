@@ -99,7 +99,8 @@ pub struct ProverStatus {
     /// Number of proofs queued but not yet submitted to the remote prover.
     pub pending: usize,
 
-    /// Most recent block the Moho worker reported as committed, if any.
+    /// Most recent block the Moho worker committed, if any — from the current
+    /// session's commit subscription, or persisted state after a restart.
     pub last_committed: Option<L1BlockCommitment>,
 
     /// Highest block with a completed Moho recursive proof, if any. The gap

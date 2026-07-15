@@ -43,7 +43,9 @@ pub struct ProverServiceState<C, H> {
     /// Proofs awaiting submission to the remote prover.
     pub(crate) queue: PendingProofQueue,
 
-    /// Most recent block the Moho worker reported as committed. Surfaced through
+    /// Most recent block the Moho worker committed. Initialized from the
+    /// latest persisted Moho state at construction and advanced by the commit
+    /// subscription. Surfaced through
     /// [`ProverStatus`](crate::service::ProverStatus) for observability.
     pub(crate) last_committed: Option<L1BlockCommitment>,
 
@@ -84,28 +86,33 @@ where
         config: OrchestratorConfig,
         input_builder: InputBuilder,
     ) -> ProverResult<Self> {
-        let mut queue = PendingProofQueue::new();
-        let latest = ctx
+        let last_committed = ctx
             .get_latest_moho_state()
             .await
-            .map_err(|e| ProverError::storage("failed to fetch latest moho state", e))?;
-        if let Some((seed, _)) = latest {
+            .map_err(|e| ProverError::storage("failed to fetch latest moho state", e))?
+            .map(|(block, _)| block);
+        let last_proven = ctx
+            .get_latest_moho_proof()
+            .await
+            .map_err(|e| ProverError::storage("failed to fetch latest moho proof", e))?
+            .map(|(block, _)| block);
+
+        let mut queue = PendingProofQueue::new();
+        if let Some(seed) = last_committed {
+            // Nothing to recover when the committed tip is already proven.
+            // Compare blocks, not heights: an orphaned proof can outrank the
+            // committed tip after a reorg to a shorter chain.
+            //
             // Proofs exist only above genesis; seeding a Moho proof at or
             // below it would leave the scheduler chasing prerequisites that
             // can never be built.
-            if seed.height() > input_builder.genesis().height() {
+            if last_proven != Some(seed) && seed.height() > input_builder.genesis().height() {
                 info!(%seed, "seeding proof recovery from latest committed block");
                 // The Moho proof alone is enough: its ASM step proof, if
                 // missing, is pulled in by the prerequisite cascade.
                 queue.enqueue(ProofId::Moho(seed));
             }
         }
-
-        let last_proven = ctx
-            .get_latest_moho_proof()
-            .await
-            .map_err(|e| ProverError::storage("failed to fetch latest moho proof", e))?
-            .map(|(block, _)| block);
 
         Ok(Self {
             ctx,
@@ -114,7 +121,7 @@ where
             config,
             input_builder,
             queue,
-            last_committed: None,
+            last_committed,
             last_proven,
         })
     }
