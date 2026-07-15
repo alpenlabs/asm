@@ -34,7 +34,7 @@ pub trait AnchorStateReader {
 
     /// Fetches the latest persisted [`AnchorState`], if any.
     ///
-    /// Used by restart recovery to bound the backfill walk; `None` when no
+    /// Used by restart recovery to bound the seed search; `None` when no
     /// anchor has been persisted yet. May belong to an abandoned reorg branch,
     /// so callers establish canonicality per height rather than trusting it.
     fn get_latest_anchor_state(&self) -> ProverResult<Option<AnchorState>>;
@@ -72,7 +72,7 @@ pub trait L1BlockProvider {
 
     /// Fetches the height of the current canonical L1 tip.
     ///
-    /// Used by restart recovery to clamp the backfill walk to the active chain,
+    /// Used by restart recovery to clamp the seed search to the active chain,
     /// so a persisted block that outranks the current tip (after a reorg to a
     /// shorter chain) is not queried at a height bitcoind no longer has.
     fn get_l1_block_count(&self) -> impl Future<Output = ProverResult<u64>> + Send;

@@ -82,19 +82,12 @@ where
     C: ProverContext + Send + Sync,
     H: ZkVmRemoteHost + Send + Sync,
 {
-    // Rebuild the pending queue from durable state on the first tick after
-    // startup. The commit subscription only re-delivers blocks the worker
-    // reprocesses, and an already-processed block is a no-op on restart — so
-    // proofs pending but never submitted (e.g. a Moho proof deferred on a
-    // missing prerequisite) would otherwise be lost, stalling the recursive
-    // chain behind the gap forever.
-    //
-    // Recovery is the only path that re-enqueues those blocks, so a transient
-    // failure (Bitcoin RPC or sled) must not leave the queue permanently short.
-    // Retry once per tick until it succeeds rather than proceeding with a
-    // half-rebuilt queue; `proofs_to_backfill` is all-or-nothing (it errors
-    // before enqueuing anything), so each retry is clean and the successful run
-    // enqueues exactly once.
+    // Seed the pending queue from durable state on the first tick after
+    // startup (see `recover_pending_proofs`). Recovery is the only path that
+    // resurrects work pending at shutdown, so a transient failure (Bitcoin RPC
+    // or sled) must not leave the queue permanently short: retry once per tick
+    // until it succeeds. The seed errors before enqueuing anything, so each
+    // retry is clean and the successful run enqueues exactly once.
     if !state.recovered {
         match recover_pending_proofs(state).await {
             Ok(()) => state.recovered = true,
@@ -111,36 +104,30 @@ where
     Ok(())
 }
 
-/// Re-enqueues proofs that were pending at restart but are not yet completed or
-/// in flight.
+/// Seeds the pending queue after a restart with the proofs of the latest
+/// worker-processed canonical block.
 ///
-/// Enumerates every worker-processed canonical block above the highest canonical
-/// block that already has a Moho proof (see [`InputBuilder`](crate::input::InputBuilder)'s
-/// `proofs_to_backfill`) and enqueues its ASM and Moho proof requests.
-/// Already-completed or already-submitted proofs are filtered out downstream by
-/// the scheduler's `try_submit`, so this only resurrects the genuinely-missing
-/// work.
+/// The commit subscription only re-delivers blocks the worker *reprocesses*,
+/// and an already-processed block is a no-op on restart — so proofs pending
+/// but never submitted at shutdown would otherwise be lost, stalling the
+/// recursive Moho chain behind the gap forever. The single seed is sufficient:
+/// the scheduler pulls a deferred proof's missing prerequisites back into the
+/// queue, recursively walking the chain down to the last block that already
+/// has a Moho proof. Already-completed or already-submitted proofs are
+/// filtered out by the scheduler's `try_submit`, so this only resurrects the
+/// genuinely-missing work.
 async fn recover_pending_proofs<C, H>(state: &mut ProverServiceState<C, H>) -> ProverResult<()>
 where
     C: ProverContext + Send + Sync,
     H: ZkVmRemoteHost + Send + Sync,
 {
-    let backfill = state.input_builder.proofs_to_backfill(&state.ctx).await?;
-
-    if backfill.is_empty() {
+    let Some(seed) = state.input_builder.recovery_seed(&state.ctx).await? else {
         return Ok(());
-    }
+    };
 
-    info!(
-        blocks = backfill.len(),
-        "re-enqueuing pending proofs after restart"
-    );
-    for commitment in backfill {
-        state
-            .queue
-            .enqueue(ProofId::Asm(L1Range::single(commitment)));
-        state.queue.enqueue(ProofId::Moho(commitment));
-    }
+    info!(%seed, "seeding proof recovery from latest processed block");
+    state.queue.enqueue(ProofId::Asm(L1Range::single(seed)));
+    state.queue.enqueue(ProofId::Moho(seed));
     Ok(())
 }
 

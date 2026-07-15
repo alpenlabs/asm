@@ -67,8 +67,8 @@ enum SubmitOutcome {
     Submitted(RemoteProofId),
     /// Nothing to do for this proof; it is dropped from the queue.
     Skipped(SkipReason),
-    /// Prerequisite proofs not yet available; caller should re-enqueue for
-    /// later.
+    /// Prerequisite proofs not yet available; caller should re-enqueue the
+    /// proof and pull the missing prerequisites into the queue.
     Deferred { missing: Vec<ProofId> },
 }
 
@@ -100,6 +100,14 @@ trait ProofSubmitter {
 /// the same tick. Deferred proofs (and submission errors) are parked in a local
 /// buffer and re-enqueued at the end, so the same blocked item is not popped
 /// twice within one loop. All submission errors are absorbed and logged.
+///
+/// A deferral also enqueues the proof's missing prerequisites, which recurses
+/// through the loop itself: a deferred Moho proof pulls in its parent's Moho
+/// proof, which is popped next (lower heights first), defers, and pulls in its
+/// own parent — walking any gap back to the last proven block within a single
+/// cycle. This makes the queue self-healing: any missing ancestor proof (after
+/// a restart, a reorg, or a lost proof) is rediscovered from whatever proof
+/// depends on it.
 async fn schedule_with<S: ProofSubmitter>(
     queue: &mut PendingProofQueue,
     submitter: &mut S,
@@ -121,6 +129,17 @@ async fn schedule_with<S: ProofSubmitter>(
             }
             Ok(SubmitOutcome::Deferred { missing }) => {
                 debug!(?proof_id, ?missing, "prerequisites not ready, deferring");
+                // Pull the missing prerequisites into the queue. Since the
+                // queue pops lowest heights first and deferrals are free, this
+                // walks a gap of any depth level by level within this loop,
+                // down to the last proven block. Prerequisites already parked
+                // in the deferred buffer must not re-enter the queue, or they
+                // would be popped a second time within this cycle.
+                for id in missing {
+                    if !deferred.contains(&id) {
+                        queue.enqueue(id);
+                    }
+                }
                 deferred.push(proof_id);
             }
             Err(e) => {
@@ -247,9 +266,11 @@ mod tests {
     }
 
     fn deferred() -> SubmitOutcome {
-        SubmitOutcome::Deferred {
-            missing: Vec::new(),
-        }
+        deferred_missing(Vec::new())
+    }
+
+    fn deferred_missing(missing: Vec<ProofId>) -> SubmitOutcome {
+        SubmitOutcome::Deferred { missing }
     }
 
     /// One scripted reply for [`FakeSubmitter`].
@@ -402,6 +423,52 @@ mod tests {
 
         assert_eq!(submitter.call_log, vec![asm(3), asm(4)]);
         assert!(queue.is_empty());
+    }
+
+    /// A deferral's missing prerequisites are pulled into the queue and, since
+    /// lower heights pop first, the gap is walked level by level down to the
+    /// last proven block within a single cycle.
+    #[tokio::test]
+    async fn deferred_missing_prereqs_cascade_within_one_cycle() {
+        let mut queue = PendingProofQueue::new();
+        queue.enqueue(moho(3));
+
+        let mut submitter = FakeSubmitter::default()
+            .with(moho(3), vec![deferred_missing(vec![asm(3), moho(2)])])
+            .with(moho(2), vec![deferred_missing(vec![asm(2)])]);
+
+        schedule_with(&mut queue, &mut submitter, 4).await;
+
+        // moho(3) defers pulling in asm(3) + moho(2); moho(2) pops next (lower
+        // height), defers pulling in asm(2); both ASM proofs then submit.
+        assert_eq!(submitter.call_log, vec![moho(3), moho(2), asm(2), asm(3)]);
+
+        // Both deferred Moho proofs are re-enqueued for the next cycle.
+        assert_eq!(queue.len(), 2);
+        assert_eq!(queue.dequeue_one(), Some(moho(2)));
+        assert_eq!(queue.dequeue_one(), Some(moho(3)));
+    }
+
+    /// A missing prerequisite that was already popped and deferred this cycle
+    /// must not re-enter the queue, or it would be popped twice in one loop.
+    #[tokio::test]
+    async fn missing_prereq_already_deferred_not_repopped() {
+        let mut queue = PendingProofQueue::new();
+        queue.enqueue(moho(2));
+        queue.enqueue(moho(3));
+
+        let mut submitter = FakeSubmitter::default()
+            .with(moho(2), vec![deferred_missing(vec![asm(2)])])
+            .with(moho(3), vec![deferred_missing(vec![moho(2)])]);
+
+        schedule_with(&mut queue, &mut submitter, 4).await;
+
+        // moho(2) is popped exactly once even though moho(3)'s deferral names
+        // it as missing.
+        assert_eq!(submitter.call_log, vec![moho(2), asm(2), moho(3)]);
+        assert_eq!(queue.len(), 2);
+        assert_eq!(queue.dequeue_one(), Some(moho(2)));
+        assert_eq!(queue.dequeue_one(), Some(moho(3)));
     }
 
     /// Two consecutive cycles: an item deferred in cycle one must be retried

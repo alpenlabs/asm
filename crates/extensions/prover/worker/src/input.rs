@@ -98,73 +98,43 @@ impl InputBuilder {
             .ok_or(ProverError::NotFound("moho state not found for block"))
     }
 
-    /// Returns the worker-processed L1 blocks that may still need proofs after a
-    /// restart: every persisted anchor on the *canonical* chain above the highest
-    /// canonical block that already has a Moho proof, and above genesis.
+    /// Returns the latest worker-processed *canonical* block, used to seed the
+    /// pending queue after a restart.
     ///
-    /// The in-memory pending queue is rebuilt from this on startup. The commit
-    /// subscription only re-delivers blocks the worker *reprocesses*, and an
-    /// already-processed block is a no-op — so a proof that was pending (enqueued
-    /// but not yet submitted, e.g. a Moho proof deferred on a missing
-    /// prerequisite) at restart time would otherwise be lost, permanently
-    /// stalling the recursive Moho chain behind the gap.
+    /// Enqueuing this one block's proofs is enough to recover everything
+    /// pending below it: the scheduler pulls a deferred proof's missing
+    /// prerequisites back into the queue, recursively walking the chain down
+    /// to the last block that already has a Moho proof.
     ///
-    /// The watermark must be derived along the canonical chain, *not* from the
-    /// global-maximum Moho proof. Orphaned states and proofs from abandoned reorg
+    /// The seed must be canonical. Orphaned states from abandoned reorg
     /// branches are never pruned (see
     /// [`AnchorStateStore::get_latest_asm_state`](strata_asm_worker::AnchorStateStore::get_latest_asm_state)),
-    /// so an orphaned branch's proof can outrank the canonical proof frontier;
-    /// trusting the global max would skip the genuinely-pending canonical blocks
-    /// below it and stall their Moho chain forever. Instead we walk the canonical
-    /// L1 ancestry downward and stop at the first block that already has a Moho
-    /// proof: since `Moho(H)` is only submitted once `Moho(H-1)` and `Asm(H)` are
-    /// stored, a canonical proof at height H implies every canonical proof at or
-    /// below H is done. `try_submit` drops any re-enqueued proof that turns out
-    /// to already exist or be in flight.
-    pub(crate) async fn proofs_to_backfill<C: ProverContext>(
+    /// so the highest persisted anchor can outrank the canonical chain; it
+    /// only bounds the walk. From there, descend the canonical chain — clamped
+    /// to the L1 tip, which can be lower after a reorg to a shorter chain — to
+    /// the first height the worker actually processed.
+    pub(crate) async fn recovery_seed<C: ProverContext>(
         &self,
         ctx: &C,
-    ) -> ProverResult<Vec<L1BlockCommitment>> {
-        let genesis_height = self.genesis.height();
-
-        // Highest persisted anchor. May belong to an abandoned reorg branch, so
-        // it only bounds the walk — canonicality is established per height below.
+    ) -> ProverResult<Option<L1BlockCommitment>> {
         let Some(latest) = ctx.get_latest_anchor_state()? else {
-            return Ok(Vec::new());
+            return Ok(None);
         };
         let latest_height = latest.chain_view.pow_state.last_verified_block.height();
 
-        // Clamp to the canonical tip: after a reorg to a shorter chain the
-        // highest persisted block can outrank the current L1 tip, and
-        // `get_l1_block_hash` would fail for a height bitcoind no longer has.
         let tip_height = ctx.get_l1_block_count().await?;
         let mut height = latest_height.min(u32::try_from(tip_height).unwrap_or(u32::MAX));
 
-        let mut backfill = Vec::new();
-        while height > genesis_height {
+        while height > self.genesis.height() {
             let block_id = ctx.get_l1_block_hash(u64::from(height)).await?;
             let commitment = L1BlockCommitment::new(height, block_id);
-
-            // Heights above the processed tip are not yet persisted; the worker
-            // re-processes and re-enqueues them on sync, so recovery skips them.
             if ctx.contains_anchor_state(&commitment)? {
-                if ctx
-                    .get_moho_proof(commitment)
-                    .await
-                    .map_err(|e| ProverError::storage("failed to fetch moho proof", e))?
-                    .is_some()
-                {
-                    break;
-                }
-                backfill.push(commitment);
+                return Ok(Some(commitment));
             }
-
             height -= 1;
         }
 
-        // Oldest-first, the order the recursive Moho chain needs.
-        backfill.reverse();
-        Ok(backfill)
+        Ok(None)
     }
 
     /// Builds the [`RuntimeInput`] for a single-block ASM proof.
