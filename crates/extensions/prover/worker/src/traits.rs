@@ -31,13 +31,6 @@ pub trait AnchorStateReader {
     /// Errors if the state is missing — the orchestrator only requests proofs
     /// for blocks the ASM worker has already processed.
     fn get_anchor_state(&self, blockid: &L1BlockCommitment) -> ProverResult<AnchorState>;
-
-    /// Fetches the latest persisted [`AnchorState`], if any.
-    ///
-    /// Used by restart recovery to seed the pending queue; `None` when no
-    /// anchor has been persisted yet. May belong to an abandoned reorg branch,
-    /// which is acceptable for a seed — see `ProverServiceState::new`.
-    fn get_latest_anchor_state(&self) -> ProverResult<Option<AnchorState>>;
 }
 
 /// Reads per-block auxiliary data captured during STF execution.

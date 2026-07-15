@@ -7,8 +7,12 @@ use tracing::{debug, info};
 use zkaleido::ZkVmRemoteHost;
 
 use crate::{
-    ProverContext, config::OrchestratorConfig, constants, errors::ProverResult,
-    input::InputBuilder, queue::PendingProofQueue,
+    ProverContext,
+    config::OrchestratorConfig,
+    constants,
+    errors::{ProverError, ProverResult},
+    input::InputBuilder,
+    queue::PendingProofQueue,
 };
 
 /// Service state for the prover worker.
@@ -48,12 +52,13 @@ impl<C, H> ProverServiceState<C, H>
 where
     C: ProverContext + Send + Sync,
 {
-    /// Creates the service state, seeding the pending queue with the proofs of
-    /// the latest worker-processed block — mirroring how the ASM worker
-    /// resumes from its stored anchor state at construction.
+    /// Creates the service state, seeding the pending queue with the Moho
+    /// proof of the latest Moho-worker-committed block — mirroring how the
+    /// workers resume from their stored state at construction.
     ///
-    /// The commit subscription only delivers blocks the worker processes after
-    /// subscribing, so proofs pending at shutdown would otherwise sit
+    /// The latest Moho state is the exact watermark of the commit stream that
+    /// drives the prover, and that stream only delivers blocks committed after
+    /// subscribing — so proofs pending at shutdown would otherwise sit
     /// unrecovered until the next new L1 block arrives. The single seed is
     /// sufficient: the scheduler pulls a deferred proof's missing
     /// prerequisites back into the queue, recursively walking the chain down
@@ -61,12 +66,12 @@ where
     /// already-submitted proofs are filtered out by the scheduler, so this
     /// only resurrects the genuinely-missing work.
     ///
-    /// The latest anchor may sit on an abandoned reorg branch (orphaned states
-    /// are never pruned). That is acceptable for a seed: its ancestry still
-    /// covers all history shared with the canonical chain, and any
+    /// The latest Moho state may sit on an abandoned reorg branch (orphaned
+    /// states are never pruned). That is acceptable for a seed: its ancestry
+    /// still covers all history shared with the canonical chain, and any
     /// canonical-only blocks are pulled in by the cascade when the next
     /// commit arrives.
-    pub(crate) fn new(
+    pub(crate) async fn new(
         ctx: C,
         asm: H,
         moho: H,
@@ -74,14 +79,18 @@ where
         input_builder: InputBuilder,
     ) -> ProverResult<Self> {
         let mut queue = PendingProofQueue::new();
-        if let Some(latest) = ctx.get_latest_anchor_state()? {
-            let seed = latest.chain_view.pow_state.last_verified_block;
+        let latest = ctx
+            .get_latest_moho_state()
+            .await
+            .map_err(|e| ProverError::storage("failed to fetch latest moho state", e))?;
+        if let Some((seed, _)) = latest {
             // Proofs exist only above genesis; seeding a Moho proof at or
             // below it would leave the scheduler chasing prerequisites that
             // can never be built.
             if seed.height() > input_builder.genesis().height() {
-                info!(%seed, "seeding proof recovery from latest processed block");
-                queue.enqueue(ProofId::Asm(L1Range::single(seed)));
+                info!(%seed, "seeding proof recovery from latest committed block");
+                // The Moho proof alone is enough: its ASM step proof, if
+                // missing, is pulled in by the prerequisite cascade.
                 queue.enqueue(ProofId::Moho(seed));
             }
         }

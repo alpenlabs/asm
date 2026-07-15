@@ -181,6 +181,12 @@ impl MohoStateDb for AsmProverContext {
         self.moho_state_db.get_moho_state(l1ref).await
     }
 
+    async fn get_latest_moho_state(
+        &self,
+    ) -> Result<Option<(L1BlockCommitment, MohoState)>, Self::Error> {
+        self.moho_state_db.get_latest_moho_state().await
+    }
+
     async fn prune(&self, before_height: u32) -> Result<(), Self::Error> {
         self.moho_state_db.prune(before_height).await
     }
@@ -199,15 +205,6 @@ impl AnchorStateReader for AsmProverContext {
                 source: e.into(),
             })?
             .ok_or(ProverError::NotFound("anchor state not found"))
-    }
-
-    fn get_latest_anchor_state(&self) -> ProverResult<Option<AnchorState>> {
-        self.state_db
-            .get_latest()
-            .map_err(|e| ProverError::Storage {
-                context: "failed to read latest anchor state",
-                source: e.into(),
-            })
     }
 }
 

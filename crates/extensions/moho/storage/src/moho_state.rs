@@ -26,6 +26,12 @@ pub trait MohoStateDb {
         l1ref: L1BlockCommitment,
     ) -> impl Future<Output = Result<Option<MohoState>, Self::Error>> + Send;
 
+    /// Retrieves the highest-height stored Moho state and the block it is
+    /// anchored to, or `None` when the store is empty.
+    fn get_latest_moho_state(
+        &self,
+    ) -> impl Future<Output = Result<Option<(L1BlockCommitment, MohoState)>, Self::Error>> + Send;
+
     /// Prunes all Moho state entries for blocks before the given height.
     ///
     /// Deletes all entries with height strictly less than `before_height`.
