@@ -14,10 +14,9 @@
 use std::marker;
 
 use serde::{Deserialize, Serialize};
-use strata_asm_prover_types::{L1Range, ProofId};
 use strata_identifiers::L1BlockCommitment;
 use strata_service::{AsyncService, Response, Service, TickMsg};
-use tracing::{debug, error, info};
+use tracing::{debug, error};
 use zkaleido::ZkVmRemoteHost;
 
 use crate::{
@@ -75,59 +74,19 @@ where
     }
 }
 
-/// Executes one orchestration cycle: recover pending proofs (once), reconcile
-/// in-flight proofs, then schedule pending ones.
+/// Executes one orchestration cycle: reconcile in-flight proofs, then schedule
+/// pending ones.
 async fn tick<C, H>(state: &mut ProverServiceState<C, H>) -> ProverResult<()>
 where
     C: ProverContext + Send + Sync,
     H: ZkVmRemoteHost + Send + Sync,
 {
-    // Seed the pending queue from durable state on the first tick after
-    // startup (see `recover_pending_proofs`). Recovery is the only path that
-    // resurrects work pending at shutdown, so a transient failure (Bitcoin RPC
-    // or sled) must not leave the queue permanently short: retry once per tick
-    // until it succeeds. The seed errors before enqueuing anything, so each
-    // retry is clean and the successful run enqueues exactly once.
-    if !state.recovered {
-        match recover_pending_proofs(state).await {
-            Ok(()) => state.recovered = true,
-            Err(e) => error!(?e, "failed to recover pending proofs; retrying next tick"),
-        }
-    }
-
     if !state.queue.is_empty() {
         debug!(pending = state.queue.len(), "prover tick");
     }
 
     reconcile::reconcile_active_proofs(state).await?;
     schedule::schedule_proofs(state).await?;
-    Ok(())
-}
-
-/// Seeds the pending queue after a restart with the proofs of the latest
-/// worker-processed canonical block.
-///
-/// The commit subscription only re-delivers blocks the worker *reprocesses*,
-/// and an already-processed block is a no-op on restart — so proofs pending
-/// but never submitted at shutdown would otherwise be lost, stalling the
-/// recursive Moho chain behind the gap forever. The single seed is sufficient:
-/// the scheduler pulls a deferred proof's missing prerequisites back into the
-/// queue, recursively walking the chain down to the last block that already
-/// has a Moho proof. Already-completed or already-submitted proofs are
-/// filtered out by the scheduler's `try_submit`, so this only resurrects the
-/// genuinely-missing work.
-async fn recover_pending_proofs<C, H>(state: &mut ProverServiceState<C, H>) -> ProverResult<()>
-where
-    C: ProverContext + Send + Sync,
-    H: ZkVmRemoteHost + Send + Sync,
-{
-    let Some(seed) = state.input_builder.recovery_seed(&state.ctx).await? else {
-        return Ok(());
-    };
-
-    info!(%seed, "seeding proof recovery from latest processed block");
-    state.queue.enqueue(ProofId::Asm(L1Range::single(seed)));
-    state.queue.enqueue(ProofId::Moho(seed));
     Ok(())
 }
 

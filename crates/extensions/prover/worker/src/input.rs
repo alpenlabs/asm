@@ -98,43 +98,10 @@ impl InputBuilder {
             .ok_or(ProverError::NotFound("moho state not found for block"))
     }
 
-    /// Returns the latest worker-processed *canonical* block, used to seed the
-    /// pending queue after a restart.
-    ///
-    /// Enqueuing this one block's proofs is enough to recover everything
-    /// pending below it: the scheduler pulls a deferred proof's missing
-    /// prerequisites back into the queue, recursively walking the chain down
-    /// to the last block that already has a Moho proof.
-    ///
-    /// The seed must be canonical. Orphaned states from abandoned reorg
-    /// branches are never pruned (see
-    /// [`AnchorStateStore::get_latest_asm_state`](strata_asm_worker::AnchorStateStore::get_latest_asm_state)),
-    /// so the highest persisted anchor can outrank the canonical chain; it
-    /// only bounds the walk. From there, descend the canonical chain — clamped
-    /// to the L1 tip, which can be lower after a reorg to a shorter chain — to
-    /// the first height the worker actually processed.
-    pub(crate) async fn recovery_seed<C: ProverContext>(
-        &self,
-        ctx: &C,
-    ) -> ProverResult<Option<L1BlockCommitment>> {
-        let Some(latest) = ctx.get_latest_anchor_state()? else {
-            return Ok(None);
-        };
-        let latest_height = latest.chain_view.pow_state.last_verified_block.height();
-
-        let tip_height = ctx.get_l1_block_count().await?;
-        let mut height = latest_height.min(u32::try_from(tip_height).unwrap_or(u32::MAX));
-
-        while height > self.genesis.height() {
-            let block_id = ctx.get_l1_block_hash(u64::from(height)).await?;
-            let commitment = L1BlockCommitment::new(height, block_id);
-            if ctx.contains_anchor_state(&commitment)? {
-                return Ok(Some(commitment));
-            }
-            height -= 1;
-        }
-
-        Ok(None)
+    /// The genesis block commitment the recursive Moho chain is rooted at.
+    /// Proofs exist only for blocks strictly above it.
+    pub(crate) fn genesis(&self) -> L1BlockCommitment {
+        self.genesis
     }
 
     /// Builds the [`RuntimeInput`] for a single-block ASM proof.

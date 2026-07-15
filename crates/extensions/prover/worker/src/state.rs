@@ -3,12 +3,12 @@
 use strata_asm_prover_types::{L1Range, ProofId};
 use strata_identifiers::L1BlockCommitment;
 use strata_service::ServiceState;
-use tracing::debug;
+use tracing::{debug, info};
 use zkaleido::ZkVmRemoteHost;
 
 use crate::{
-    ProverContext, config::OrchestratorConfig, constants, input::InputBuilder,
-    queue::PendingProofQueue,
+    ProverContext, config::OrchestratorConfig, constants, errors::ProverResult,
+    input::InputBuilder, queue::PendingProofQueue,
 };
 
 /// Service state for the prover worker.
@@ -42,32 +42,59 @@ pub struct ProverServiceState<C, H> {
     /// Most recent block the ASM worker reported as committed. Surfaced through
     /// [`ProverStatus`](crate::service::ProverStatus) for observability.
     pub(crate) last_committed: Option<L1BlockCommitment>,
-
-    /// Whether restart recovery has rebuilt the pending queue from durable
-    /// state. `false` until the first tick's `recover_pending_proofs` succeeds;
-    /// retried each tick until it does.
-    pub(crate) recovered: bool,
 }
 
-impl<C, H> ProverServiceState<C, H> {
-    /// Creates a new service state with an empty pending queue.
+impl<C, H> ProverServiceState<C, H>
+where
+    C: ProverContext + Send + Sync,
+{
+    /// Creates the service state, seeding the pending queue with the proofs of
+    /// the latest worker-processed block — mirroring how the ASM worker
+    /// resumes from its stored anchor state at construction.
+    ///
+    /// The commit subscription only delivers blocks the worker processes after
+    /// subscribing, so proofs pending at shutdown would otherwise sit
+    /// unrecovered until the next new L1 block arrives. The single seed is
+    /// sufficient: the scheduler pulls a deferred proof's missing
+    /// prerequisites back into the queue, recursively walking the chain down
+    /// to the last block that already has a Moho proof. Already-completed or
+    /// already-submitted proofs are filtered out by the scheduler, so this
+    /// only resurrects the genuinely-missing work.
+    ///
+    /// The latest anchor may sit on an abandoned reorg branch (orphaned states
+    /// are never pruned). That is acceptable for a seed: its ancestry still
+    /// covers all history shared with the canonical chain, and any
+    /// canonical-only blocks are pulled in by the cascade when the next
+    /// commit arrives.
     pub(crate) fn new(
         ctx: C,
         asm: H,
         moho: H,
         config: OrchestratorConfig,
         input_builder: InputBuilder,
-    ) -> Self {
-        Self {
+    ) -> ProverResult<Self> {
+        let mut queue = PendingProofQueue::new();
+        if let Some(latest) = ctx.get_latest_anchor_state()? {
+            let seed = latest.chain_view.pow_state.last_verified_block;
+            // Proofs exist only above genesis; seeding a Moho proof at or
+            // below it would leave the scheduler chasing prerequisites that
+            // can never be built.
+            if seed.height() > input_builder.genesis().height() {
+                info!(%seed, "seeding proof recovery from latest processed block");
+                queue.enqueue(ProofId::Asm(L1Range::single(seed)));
+                queue.enqueue(ProofId::Moho(seed));
+            }
+        }
+
+        Ok(Self {
             ctx,
             asm,
             moho,
             config,
             input_builder,
-            queue: PendingProofQueue::new(),
+            queue,
             last_committed: None,
-            recovered: false,
-        }
+        })
     }
 
     /// Expands a committed block into the proofs it requires and enqueues them.

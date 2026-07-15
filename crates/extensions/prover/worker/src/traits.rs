@@ -34,13 +34,10 @@ pub trait AnchorStateReader {
 
     /// Fetches the latest persisted [`AnchorState`], if any.
     ///
-    /// Used by restart recovery to bound the seed search; `None` when no
+    /// Used by restart recovery to seed the pending queue; `None` when no
     /// anchor has been persisted yet. May belong to an abandoned reorg branch,
-    /// so callers establish canonicality per height rather than trusting it.
+    /// which is acceptable for a seed — see `ProverServiceState::new`.
     fn get_latest_anchor_state(&self) -> ProverResult<Option<AnchorState>>;
-
-    /// Reports whether an anchor state is persisted for `blockid`.
-    fn contains_anchor_state(&self, blockid: &L1BlockCommitment) -> ProverResult<bool>;
 }
 
 /// Reads per-block auxiliary data captured during STF execution.
@@ -69,19 +66,6 @@ pub trait L1BlockProvider {
         &self,
         blockid: &L1BlockId,
     ) -> impl Future<Output = ProverResult<Header>> + Send;
-
-    /// Fetches the height of the current canonical L1 tip.
-    ///
-    /// Used by restart recovery to clamp the seed search to the active chain,
-    /// so a persisted block that outranks the current tip (after a reorg to a
-    /// shorter chain) is not queried at a height bitcoind no longer has.
-    fn get_l1_block_count(&self) -> impl Future<Output = ProverResult<u64>> + Send;
-
-    /// Fetches the canonical L1 block id at `height`.
-    fn get_l1_block_hash(
-        &self,
-        height: u64,
-    ) -> impl Future<Output = ProverResult<L1BlockId>> + Send;
 }
 
 /// Umbrella context the [`ProverService`](crate::ProverService) runs

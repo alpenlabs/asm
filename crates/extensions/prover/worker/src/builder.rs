@@ -122,7 +122,9 @@ where
         // Capture the tick interval before `config` is moved into the state.
         let tick_interval = config.tick_interval;
 
-        let state = ProverServiceState::new(ctx, asm_host, moho_host, config, input_builder);
+        // State construction seeds the pending queue from durable state; a
+        // failure fails the launch, matching the ASM worker's startup reads.
+        let state = ProverServiceState::new(ctx, asm_host, moho_host, config, input_builder)?;
 
         // The Moho worker's commit subscription is a `Stream`; wrap it as a
         // service input and overlay the periodic wakeup tick.

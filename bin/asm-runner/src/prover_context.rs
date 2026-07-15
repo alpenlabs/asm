@@ -26,7 +26,7 @@ use strata_asm_prover_types::{AsmProof, L1Range, MohoProof, ProofId, RemoteProof
 use strata_asm_prover_worker::{
     AnchorStateReader, AuxDataReader, L1BlockProvider, ProverError, ProverResult,
 };
-use strata_btc_types::{BlockHashExt, L1BlockIdBitcoinExt};
+use strata_btc_types::L1BlockIdBitcoinExt;
 use strata_identifiers::{L1BlockCommitment, L1BlockId};
 use zkaleido::RemoteProofStatus;
 
@@ -209,15 +209,6 @@ impl AnchorStateReader for AsmProverContext {
                 source: e.into(),
             })
     }
-
-    fn contains_anchor_state(&self, blockid: &L1BlockCommitment) -> ProverResult<bool> {
-        self.state_db
-            .contains(blockid)
-            .map_err(|e| ProverError::Storage {
-                context: "failed to check anchor state presence",
-                source: e.into(),
-            })
-    }
 }
 
 impl AuxDataReader for AsmProverContext {
@@ -247,21 +238,5 @@ impl L1BlockProvider for AsmProverContext {
             .get_block_header(&hash)
             .await
             .map_err(|e| ProverError::storage("failed to fetch Bitcoin block header", e))
-    }
-
-    async fn get_l1_block_count(&self) -> ProverResult<u64> {
-        self.bitcoin_client
-            .get_block_count()
-            .await
-            .map_err(|e| ProverError::storage("failed to fetch L1 block count", e))
-    }
-
-    async fn get_l1_block_hash(&self, height: u64) -> ProverResult<L1BlockId> {
-        let hash = self
-            .bitcoin_client
-            .get_block_hash(height)
-            .await
-            .map_err(|e| ProverError::storage("failed to fetch L1 block hash", e))?;
-        Ok(hash.to_l1_block_id())
     }
 }
