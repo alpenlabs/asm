@@ -3,7 +3,7 @@
 //! Mirrors the ASM worker (`strata-asm-worker`): a logic-only [`ProverService`]
 //! ZST implements the framework traits, while all mutable data lives in
 //! [`ProverServiceState`]. The service is driven by the framework's input loop,
-//! fed by a [`TickingInput`](strata_service::TickingInput) that merges the ASM
+//! fed by a [`TickingInput`](strata_service::TickingInput) that merges the Moho
 //! worker's commit subscription with a periodic wakeup tick:
 //!
 //! - [`TickMsg::Msg`] — a newly committed block; expand it into its ASM step and Moho recursive
@@ -98,6 +98,6 @@ pub struct ProverStatus {
     /// Number of proofs queued but not yet submitted to the remote prover.
     pub pending: usize,
 
-    /// Most recent block the ASM worker reported as committed, if any.
+    /// Most recent block the Moho worker reported as committed, if any.
     pub last_committed: Option<L1BlockCommitment>,
 }

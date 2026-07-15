@@ -39,7 +39,7 @@ pub struct ProverServiceState<C, H> {
     /// Proofs awaiting submission to the remote prover.
     pub(crate) queue: PendingProofQueue,
 
-    /// Most recent block the ASM worker reported as committed. Surfaced through
+    /// Most recent block the Moho worker reported as committed. Surfaced through
     /// [`ProverStatus`](crate::service::ProverStatus) for observability.
     pub(crate) last_committed: Option<L1BlockCommitment>,
 }
@@ -103,7 +103,7 @@ where
     /// Moho recursive proof. Scheduling happens on the next tick; this only
     /// records the work.
     pub(crate) fn enqueue_block_proofs(&mut self, block: L1BlockCommitment) {
-        debug!(%block, "ASM worker committed block, enqueuing proofs");
+        debug!(%block, "moho worker committed block, enqueuing proofs");
         self.queue.enqueue(ProofId::Asm(L1Range::single(block)));
         self.queue.enqueue(ProofId::Moho(block));
         self.last_committed = Some(block);
