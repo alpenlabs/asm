@@ -22,6 +22,10 @@ use crate::{
     errors::{ProverError, ProverResult},
 };
 
+/// Leaf index of `next_predicate` in the [`MohoState`] commitment tree, whose
+/// leaves are `inner_state`, `next_predicate`, `export_state`, and padding.
+const NEXT_PREDICATE_LEAF_INDEX: usize = 1;
+
 /// Builds [`RuntimeInput`] for proof generation, dispatching by proof type.
 ///
 /// Holds only the values that are fixed for the lifetime of the prover (the
@@ -235,7 +239,7 @@ impl InputBuilder {
         };
 
         // 3. Build the step input.
-        let step_input = AsmStepInput::new(block.clone(), aux_data, coinbase_inclusion_proof);
+        let step_input = AsmStepInput::new(block, aux_data, coinbase_inclusion_proof);
 
         // 4. Fetch the pre-state (anchor state for the parent block).
         let parent_commitment = self.get_parent_commitment(ctx, commitment).await?;
@@ -276,7 +280,7 @@ impl InputBuilder {
         let parent = self.get_parent_commitment(ctx, l1_ref).await?;
         let parent_state = self.get_moho_state(ctx, parent).await?;
 
-        let leaves = vec![
+        let leaves = [
             <_ as TreeHash>::tree_hash_root::<TreeSha256Hasher>(&parent_state.inner_state)
                 .into_inner(),
             <_ as TreeHash>::tree_hash_root::<TreeSha256Hasher>(&parent_state.next_predicate)
@@ -288,7 +292,7 @@ impl InputBuilder {
 
         let generic_proof = BinaryMerkleTree::from_leaves::<Sha256NoPrefixHasher>(leaves)
             .expect("valid tree")
-            .gen_proof(1)
+            .gen_proof(NEXT_PREDICATE_LEAF_INDEX)
             .expect("proof exists");
         let step_predicate_merkle_proof = MerkleProofB32::from_generic(&generic_proof);
 
