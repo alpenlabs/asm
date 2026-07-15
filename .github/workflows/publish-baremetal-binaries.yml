@@ -1,0 +1,115 @@
+name: Publish Bare-Metal Binaries (S3)
+
+# Builds the strata-asm-runner bare-metal binary — both the native and the sp1
+# backend variants — from a chosen ref and publishes them, with SHA-256
+# checksums, to the central shared-services artifact bucket so external
+# bare-metal operators can DOWNLOAD prebuilt binaries instead of building from
+# source. STR-3985.
+#
+# Manual only, and always run FROM main so the pipeline steps stay reviewed and
+# stable. The ref it BUILDS is a free-form input (commit / branch / tag /
+# release) — GitHub's OIDC `sub` claim reflects the workflow's own ref (main),
+# which is what github-actions-asm-binary-s3 trusts, so the built ref is
+# irrelevant to the S3 write permission.
+#
+# The runner build does NOT need the SP1 toolchain: the repo default
+# SKIP_VKEY_BUILD=1 (.cargo/config.toml) skips guest/vkey compilation — the
+# runner uses the SP1 network prover at runtime, ELFs are fetched separately.
+#
+# Objects land at:
+#   s3://alpen-mosaic-artifacts/binaries/asm/<built-commit>/linux-amd64/
+#     strata-asm-runner        (native backend)
+#     strata-asm-runner-sp1    (sp1 backend)
+#     (+ a .sha256 sidecar each)
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Ref to build & publish — commit SHA, branch, tag, or release (default: main)"
+        required: false
+        default: "main"
+        type: string
+
+permissions:
+  id-token: write # assume the S3 upload role via OIDC
+  contents: read
+
+env:
+  AWS_REGION: us-east-1
+  AWS_ROLE_TO_ASSUME: arn:aws:iam::496607027995:role/github-actions-asm-binary-s3
+  S3_BUCKET: alpen-mosaic-artifacts
+  S3_PREFIX_ROOT: binaries/asm
+  PLATFORM: linux-amd64
+
+jobs:
+  publish:
+    name: Build & publish binaries
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    environment: baremetal-binaries
+    steps:
+      - name: Checkout the ref to build
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ inputs.ref }}
+          persist-credentials: false
+
+      - name: Resolve built commit
+        id: rev
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Install protoc
+        uses: arduino/setup-protoc@c65c819552d16ad3c9b72d9dfd5ba5237b9c906b # v3.0.0
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2
+        with:
+          cache-on-failure: true
+
+      - name: Build strata-asm-runner (native + sp1)
+        # rustup auto-installs the pinned nightly from rust-toolchain.toml.
+        # SKIP_VKEY_BUILD stays at the repo default (1) so no SP1 guest build is
+        # triggered — the runner links the network prover client, not the ELFs.
+        run: |
+          mkdir -p out
+          cargo build --release --locked -p strata-asm-runner
+          install -m 0755 target/release/strata-asm-runner out/strata-asm-runner
+          cargo build --release --locked -p strata-asm-runner --features sp1
+          install -m 0755 target/release/strata-asm-runner out/strata-asm-runner-sp1
+
+      - name: Checksums
+        run: |
+          for b in strata-asm-runner strata-asm-runner-sp1; do
+            ( cd out && sha256sum "${b}" > "${b}.sha256" )
+          done
+          echo "Staged:"; ls -la out
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@e7f100cf4c008499ea8adda475de1042d6975c7b # v6.2.0
+        with:
+          role-to-assume: ${{ env.AWS_ROLE_TO_ASSUME }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Upload to S3
+        env:
+          COMMIT: ${{ steps.rev.outputs.sha }}
+        run: |
+          DEST="s3://${S3_BUCKET}/${S3_PREFIX_ROOT}/${COMMIT}/${PLATFORM}"
+          aws s3 cp out/ "${DEST}/" --recursive --no-progress
+          echo "Published to ${DEST}/"
+
+      - name: Job summary
+        env:
+          BUILT_REF: ${{ inputs.ref }}
+          COMMIT: ${{ steps.rev.outputs.sha }}
+        run: |
+          {
+            echo "### Bare-metal binaries published"
+            echo ""
+            echo "- ref built: \`${BUILT_REF}\` → commit \`${COMMIT}\`"
+            echo "- location: \`s3://${S3_BUCKET}/${S3_PREFIX_ROOT}/${COMMIT}/${PLATFORM}/\`"
+            echo "- binaries: \`strata-asm-runner\` (native), \`strata-asm-runner-sp1\` (sp1) (+ \`.sha256\` each)"
+          } >> "$GITHUB_STEP_SUMMARY"
