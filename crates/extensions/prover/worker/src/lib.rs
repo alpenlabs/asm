@@ -36,7 +36,7 @@ pub use builder::ProverWorkerBuilder;
 pub use config::{BackendConfig, OrchestratorConfig};
 pub use errors::{ProverError, ProverResult};
 pub use handle::ProverWorkerHandle;
-pub use input::{InputBuilder, MohoPrerequisite};
+pub use input::{InputBuilder, MohoInput};
 pub use message::ProverMessage;
 pub use service::{ProverService, ProverStatus};
 pub use state::ProverServiceState;

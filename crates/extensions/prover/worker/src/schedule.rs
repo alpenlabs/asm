@@ -15,7 +15,7 @@ use zkaleido::{RemoteProofStatus, ZkVmRemoteHost, ZkVmRemoteProgram};
 use crate::{
     ProverContext,
     errors::{ProverError, ProverResult},
-    input::InputBuilder,
+    input::{InputBuilder, MohoInput},
     proof_store,
     queue::PendingProofQueue,
     state::ProverServiceState,
@@ -56,14 +56,29 @@ where
 }
 
 /// Outcome of a single [`ProofSubmitter::try_submit`] call.
+///
+/// Each variant carries the detail the scheduling loop needs to log the
+/// decision (and, for deferrals, which prerequisites are outstanding), so the
+/// submitter itself stays log-free.
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum SubmitOutcome {
-    /// Proof was submitted to the remote prover and counts against capacity.
-    Submitted,
-    /// Proof was already submitted or already exists locally; nothing to do.
-    Skipped,
-    /// Prerequisites not yet available; caller should re-enqueue for later.
-    Deferred,
+    /// Proof was submitted to the remote prover under the returned remote ID
+    /// and counts against capacity.
+    Submitted(RemoteProofId),
+    /// Nothing to do for this proof; it is dropped from the queue.
+    Skipped(SkipReason),
+    /// Prerequisite proofs not yet available; caller should re-enqueue for
+    /// later.
+    Deferred { missing: Vec<ProofId> },
+}
+
+/// Why a proof required no submission.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SkipReason {
+    /// Already submitted to the remote prover (a remote ID mapping exists).
+    AlreadySubmitted,
+    /// A completed proof already exists in local storage.
+    ProofExists,
 }
 
 /// Submits a single proof to the remote prover.
@@ -97,9 +112,17 @@ async fn schedule_with<S: ProofSubmitter>(
             break;
         };
         match submitter.try_submit(proof_id).await {
-            Ok(SubmitOutcome::Submitted) => capacity -= 1,
-            Ok(SubmitOutcome::Skipped) => {}
-            Ok(SubmitOutcome::Deferred) => deferred.push(proof_id),
+            Ok(SubmitOutcome::Submitted(remote_id)) => {
+                info!(?proof_id, %remote_id, "proof submitted to remote prover");
+                capacity -= 1;
+            }
+            Ok(SubmitOutcome::Skipped(reason)) => {
+                debug!(?proof_id, ?reason, "nothing to submit, skipping");
+            }
+            Ok(SubmitOutcome::Deferred { missing }) => {
+                debug!(?proof_id, ?missing, "prerequisites not ready, deferring");
+                deferred.push(proof_id);
+            }
             Err(e) => {
                 warn!(?proof_id, %e, "failed to submit proof, re-enqueuing");
                 deferred.push(proof_id);
@@ -137,20 +160,20 @@ where
             .map_err(|e| ProverError::storage("failed to check remote proof mapping", e))?
             .is_some()
         {
-            debug!(?proof_id, "proof already submitted, skipping");
-            return Ok(SubmitOutcome::Skipped);
+            return Ok(SubmitOutcome::Skipped(SkipReason::AlreadySubmitted));
         }
 
         // Skip if proof already exists locally.
         if proof_store::proof_exists(self.ctx, &proof_id).await? {
-            debug!(?proof_id, "proof already exists, skipping");
-            return Ok(SubmitOutcome::Skipped);
+            return Ok(SubmitOutcome::Skipped(SkipReason::ProofExists));
         }
 
         // Build input and submit to remote prover, dispatching by proof type.
         // `ZkVmRemoteProgram::start_proving` returns a `Send` future, so it drives
         // directly on the multi-threaded async framework.
         let typed_id = match &proof_id {
+            // ASM step proofs depend only on worker-persisted state, never on
+            // another proof, so there is nothing to defer on.
             ProofId::Asm(range) => {
                 let runtime_input = self
                     .input_builder
@@ -161,29 +184,23 @@ where
                     .map_err(ProverError::RemoteSubmit)?
             }
             ProofId::Moho(block) => {
-                let prerequisite = match self
+                let input = match self
                     .input_builder
-                    .check_moho_prerequisite(self.ctx, *block)
-                    .await
+                    .build_moho_runtime_input(self.ctx, *block)
+                    .await?
                 {
-                    Ok(prereq) => prereq,
-                    Err(e) => {
-                        debug!(?proof_id, %e, "moho prerequisite not ready, deferring");
-                        return Ok(SubmitOutcome::Deferred);
+                    MohoInput::Ready(input) => input,
+                    MohoInput::MissingPrerequisites(missing) => {
+                        return Ok(SubmitOutcome::Deferred { missing });
                     }
                 };
-                let input = self
-                    .input_builder
-                    .build_moho_runtime_input(self.ctx, prerequisite, *block)
-                    .await?;
                 MohoRecursiveProgram::start_proving(&input, self.moho)
                     .await
                     .map_err(ProverError::RemoteSubmit)?
             }
         };
 
-        let remote_id = RemoteProofId(typed_id.clone().into());
-        info!(?proof_id, %typed_id, "proof submitted to remote prover");
+        let remote_id = RemoteProofId(typed_id.into());
 
         // Store mapping and initial status.
         self.ctx
@@ -196,7 +213,7 @@ where
             .await
             .map_err(|e| ProverError::storage("failed to store initial proof status", e))?;
 
-        Ok(SubmitOutcome::Submitted)
+        Ok(SubmitOutcome::Submitted(remote_id))
     }
 }
 
@@ -221,6 +238,20 @@ mod tests {
         ProofId::Moho(commitment(height))
     }
 
+    fn submitted() -> SubmitOutcome {
+        SubmitOutcome::Submitted(RemoteProofId(vec![0xab]))
+    }
+
+    fn skipped() -> SubmitOutcome {
+        SubmitOutcome::Skipped(SkipReason::AlreadySubmitted)
+    }
+
+    fn deferred() -> SubmitOutcome {
+        SubmitOutcome::Deferred {
+            missing: Vec::new(),
+        }
+    }
+
     /// One scripted reply for [`FakeSubmitter`].
     enum FakeResult {
         Outcome(SubmitOutcome),
@@ -230,7 +261,7 @@ mod tests {
     /// Scriptable [`ProofSubmitter`] for unit tests.
     ///
     /// Returns scripted results in order per `ProofId`. Missing or exhausted
-    /// scripts default to [`SubmitOutcome::Submitted`].
+    /// scripts default to `Submitted`.
     #[derive(Default)]
     struct FakeSubmitter {
         script: HashMap<ProofId, Vec<FakeResult>>,
@@ -263,7 +294,7 @@ mod tests {
             match next {
                 Some(FakeResult::Outcome(o)) => Ok(o),
                 Some(FakeResult::Err) => Err(ProverError::NotFound("scripted error")),
-                None => Ok(SubmitOutcome::Submitted),
+                None => Ok(submitted()),
             }
         }
     }
@@ -278,7 +309,7 @@ mod tests {
         queue.enqueue(asm(4));
         queue.enqueue(asm(5));
 
-        let mut submitter = FakeSubmitter::default().with(moho(3), vec![SubmitOutcome::Deferred]);
+        let mut submitter = FakeSubmitter::default().with(moho(3), vec![deferred()]);
 
         schedule_with(&mut queue, &mut submitter, 2).await;
 
@@ -295,7 +326,7 @@ mod tests {
         queue.enqueue(asm(4));
         queue.enqueue(asm(5));
 
-        let mut submitter = FakeSubmitter::default().with(moho(3), vec![SubmitOutcome::Deferred]);
+        let mut submitter = FakeSubmitter::default().with(moho(3), vec![deferred()]);
 
         schedule_with(&mut queue, &mut submitter, 2).await;
 
@@ -320,7 +351,7 @@ mod tests {
         queue.enqueue(asm(3));
         queue.enqueue(asm(4));
 
-        let mut submitter = FakeSubmitter::default().with(asm(3), vec![SubmitOutcome::Skipped]);
+        let mut submitter = FakeSubmitter::default().with(asm(3), vec![skipped()]);
 
         schedule_with(&mut queue, &mut submitter, 1).await;
 
@@ -383,7 +414,7 @@ mod tests {
         queue.enqueue(asm(4));
 
         // Cycle 1: moho(3) defers, asm(4) submits, moho(3) is re-enqueued.
-        let mut submitter = FakeSubmitter::default().with(moho(3), vec![SubmitOutcome::Deferred]);
+        let mut submitter = FakeSubmitter::default().with(moho(3), vec![deferred()]);
         schedule_with(&mut queue, &mut submitter, 2).await;
 
         assert_eq!(submitter.call_log, vec![moho(3), asm(4)]);
