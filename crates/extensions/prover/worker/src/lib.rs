@@ -25,6 +25,8 @@ mod input;
 mod message;
 mod proof_store;
 mod queue;
+mod reconcile;
+mod schedule;
 mod service;
 mod state;
 mod traits;
