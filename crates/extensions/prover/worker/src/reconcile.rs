@@ -5,7 +5,7 @@
 //! persisted to the proof store, failed proofs are dropped so the scheduler can
 //! resubmit them, and everything else just has its stored status refreshed.
 
-use strata_asm_prover_types::RemoteProofId;
+use strata_asm_prover_types::{ProofId, RemoteProofId};
 use tracing::{debug, error, warn};
 use zkaleido::{RemoteProofStatus, ZkVmRemoteHost};
 
@@ -18,7 +18,7 @@ use crate::{
 
 /// Polls all in-progress remote proofs and stores any that have completed.
 pub(crate) async fn reconcile_active_proofs<C, H>(
-    state: &ProverServiceState<C, H>,
+    state: &mut ProverServiceState<C, H>,
 ) -> ProverResult<()>
 where
     C: ProverContext + Send + Sync,
@@ -40,7 +40,7 @@ where
 
 /// Reconciles a single remote proof.
 async fn reconcile_one<C, H>(
-    state: &ProverServiceState<C, H>,
+    state: &mut ProverServiceState<C, H>,
     remote_id: &RemoteProofId,
     old_status: &RemoteProofStatus,
 ) -> ProverResult<()>
@@ -88,9 +88,10 @@ where
     Ok(())
 }
 
-/// Retrieves a completed proof and stores it in the proof store.
+/// Retrieves a completed proof, stores it in the proof store, and advances the
+/// proven frontier surfaced through the service status.
 async fn handle_completed<C, H>(
-    state: &ProverServiceState<C, H>,
+    state: &mut ProverServiceState<C, H>,
     remote_id: &RemoteProofId,
     typed_id: &H::ProofId,
 ) -> ProverResult<()>
@@ -116,6 +117,14 @@ where
         ))?;
 
     proof_store::store_completed_proof(&state.ctx, proof_id, receipt).await?;
+
+    if let ProofId::Moho(block) = proof_id
+        && state
+            .last_proven
+            .is_none_or(|cur| block.height() > cur.height())
+    {
+        state.last_proven = Some(block);
+    }
 
     state
         .ctx

@@ -46,6 +46,7 @@ where
         ProverStatus {
             pending: state.queue.len(),
             last_committed: state.last_committed,
+            last_proven: state.last_proven,
         }
     }
 }
@@ -100,4 +101,9 @@ pub struct ProverStatus {
 
     /// Most recent block the Moho worker reported as committed, if any.
     pub last_committed: Option<L1BlockCommitment>,
+
+    /// Highest block with a completed Moho recursive proof, if any. The gap
+    /// between this and `last_committed` is the work still in flight or
+    /// pending.
+    pub last_proven: Option<L1BlockCommitment>,
 }

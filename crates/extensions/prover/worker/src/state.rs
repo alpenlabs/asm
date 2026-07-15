@@ -46,6 +46,12 @@ pub struct ProverServiceState<C, H> {
     /// Most recent block the Moho worker reported as committed. Surfaced through
     /// [`ProverStatus`](crate::service::ProverStatus) for observability.
     pub(crate) last_committed: Option<L1BlockCommitment>,
+
+    /// Highest block with a completed Moho recursive proof. Initialized from
+    /// the proof store at construction and advanced as reconciliation stores
+    /// newly completed proofs. Surfaced through
+    /// [`ProverStatus`](crate::service::ProverStatus) for observability.
+    pub(crate) last_proven: Option<L1BlockCommitment>,
 }
 
 impl<C, H> ProverServiceState<C, H>
@@ -95,6 +101,12 @@ where
             }
         }
 
+        let last_proven = ctx
+            .get_latest_moho_proof()
+            .await
+            .map_err(|e| ProverError::storage("failed to fetch latest moho proof", e))?
+            .map(|(block, _)| block);
+
         Ok(Self {
             ctx,
             asm,
@@ -103,6 +115,7 @@ where
             input_builder,
             queue,
             last_committed: None,
+            last_proven,
         })
     }
 
