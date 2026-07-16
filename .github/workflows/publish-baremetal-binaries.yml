@@ -1,0 +1,207 @@
+name: Publish Bare-Metal Binaries (S3)
+
+# Builds the strata-asm-runner bare-metal binary from a chosen ref and publishes
+# it, with a SHA-256 checksum, to the central shared-services artifact bucket so
+# external bare-metal operators can DOWNLOAD a prebuilt binary instead of
+# building from source. STR-3985.
+#
+# Built WITH --features sp1 to match the deployed asm-runner image, which
+# strata-bridge's production build matrix produces with ASM_FEATURES=--features=sp1
+# (build_matrix.py) — testnet uses Sp1Groth16 predicates, so the native build
+# can't verify them. No SP1 toolchain needed for the binary: the repo default
+# SKIP_VKEY_BUILD=1 (.cargo/config.toml) skips guest/vkey compilation; the sp1
+# feature only links the verifier/host crates.
+#
+# SECURITY MODEL
+# --------------
+# The ref to build is a free-form dispatch input (any commit/branch/tag/release),
+# so its build scripts (build.rs, proc-macros) are UNTRUSTED code. Two jobs keep
+# that code away from the AWS credentials:
+#   * build   — checks out + compiles the untrusted ref. Has NO id-token, so a
+#               malicious ref cannot mint/exfiltrate an OIDC token. Emits the
+#               binary as a workflow artifact.
+#   * publish — downloads that artifact and uploads to S3. Has id-token:write but
+#               checks out no untrusted code and runs only trusted steps.
+#
+# Publish is gated on the `baremetal-binaries` GitHub Environment: GitHub sets
+# the OIDC `sub` to `repo:alpenlabs/asm:environment:baremetal-binaries`, which is
+# what github-actions-asm-binary-s3 trusts. The environment's deployment-branch
+# policy is pinned to `main` and carries required-reviewer protection.
+#
+# Objects land at:
+#   s3://alpen-mosaic-artifacts/binaries/asm/<built-commit>/linux-amd64/
+#     strata-asm-runner   (+ a .sha256 sidecar)
+# A COMPLETED publish (`.publish-complete` marker, written last) is write-once;
+# an interrupted upload is healed by re-running, never wedged.
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Ref to build & publish — commit SHA, branch, tag, or release (default: main)"
+        required: false
+        default: "main"
+        type: string
+
+# One publish per ref at a time; never cancel an in-flight publish mid-upload.
+concurrency:
+  group: publish-baremetal-binaries-${{ inputs.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  AWS_REGION: us-east-1
+  AWS_ROLE_TO_ASSUME: arn:aws:iam::496607027995:role/github-actions-asm-binary-s3
+  S3_BUCKET: alpen-mosaic-artifacts
+  S3_PREFIX_ROOT: binaries/asm
+  PLATFORM: linux-amd64
+
+jobs:
+  build:
+    name: Build binary (untrusted ref, no credentials)
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    permissions:
+      contents: read # deliberately no id-token here
+    outputs:
+      commit: ${{ steps.rev.outputs.sha }}
+    steps:
+      - name: Checkout the ref to build
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ inputs.ref }}
+          persist-credentials: false
+
+      - name: Resolve built commit (immutable SHA)
+        id: rev
+        run: |
+          set -euo pipefail
+          sha="$(git rev-parse HEAD)"
+          if [ -z "${sha}" ]; then
+            echo "::error::failed to resolve commit SHA"; exit 1
+          fi
+          echo "sha=${sha}" >> "$GITHUB_OUTPUT"
+          echo "Built commit: ${sha}"
+
+      - name: Install protoc
+        uses: arduino/setup-protoc@c65c819552d16ad3c9b72d9dfd5ba5237b9c906b # v3.0.0
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2
+        with:
+          cache-on-failure: true
+
+      - name: Pre-build SP1 core runner helper
+        # The sp1 feature pulls in sp1-core-executor-runner, whose build.rs embeds
+        # a nested-built helper that rust-cache does not preserve — on a cache hit
+        # the include_bytes! fails. Pre-install the helper (version pinned by the
+        # ref's Cargo.lock) and pass SP1_CORE_RUNNER_OVERRIDE_BINARY, same as the
+        # repo's other sp1 workflows. Inlined (not ./.github/actions) so any older
+        # ref without that action still builds.
+        id: sp1-runner
+        run: |
+          set -euo pipefail
+          VER="$(awk -F'"' '/^name = "sp1-core-executor-runner-binary"$/{f=1;next} f&&/^version = /{print $2;exit}' Cargo.lock)"
+          test -n "$VER" || { echo "::error::could not determine sp1-core-executor-runner-binary version from Cargo.lock"; exit 1; }
+          cargo install sp1-core-executor-runner-binary --version "$VER" --root "$RUNNER_TEMP/sp1-core-runner" --force
+          echo "override-binary=$RUNNER_TEMP/sp1-core-runner/bin/sp1-core-executor-runner-binary" >> "$GITHUB_OUTPUT"
+
+      - name: Build strata-asm-runner (--features sp1)
+        # Built --features sp1 to match the deployed image (build_matrix.py). The
+        # binary keeps the plain name strata-asm-runner. SKIP_VKEY_BUILD stays at
+        # the repo default (1) so no guest/vkey compile is triggered; rustup
+        # auto-installs the pinned nightly from rust-toolchain.toml.
+        env:
+          SP1_CORE_RUNNER_OVERRIDE_BINARY: ${{ steps.sp1-runner.outputs.override-binary }}
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          cargo build --release --locked -p strata-asm-runner --features sp1
+          install -m 0755 target/release/strata-asm-runner out/strata-asm-runner
+          ( cd out && sha256sum strata-asm-runner > strata-asm-runner.sha256 )
+          echo "Staged:"; ls -la out
+
+      - name: Upload built binary as workflow artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: asm-binary-${{ steps.rev.outputs.sha }}
+          path: out/
+          if-no-files-found: error
+          retention-days: 7 # must outlast the publish job's reviewer-approval wait
+
+  publish:
+    name: Publish to S3 (credentialed, no untrusted code)
+    needs: build
+    # Only the reviewed main copy of this workflow may publish. workflow_dispatch
+    # can run a feature branch's YAML, so gate the OIDC-enabled job on the run ref
+    # (belt-and-suspenders with the environment's main-only deployment policy).
+    if: ${{ github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: baremetal-binaries
+    # Serialize by resolved commit so two refs at the same commit can't double-publish.
+    concurrency:
+      group: publish-baremetal-s3-${{ needs.build.outputs.commit }}
+      cancel-in-progress: false
+    permissions:
+      id-token: write # assume the S3 upload role via OIDC
+      contents: read
+    env:
+      COMMIT: ${{ needs.build.outputs.commit }}
+    steps:
+      - name: Download built binary
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: asm-binary-${{ needs.build.outputs.commit }}
+          path: out
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@e7f100cf4c008499ea8adda475de1042d6975c7b # v6.2.0
+        with:
+          role-to-assume: ${{ env.AWS_ROLE_TO_ASSUME }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Upload to S3 (write-once per completed publish)
+        run: |
+          set -euo pipefail
+          DEST_KEY="${S3_PREFIX_ROOT}/${COMMIT}/${PLATFORM}"
+          DEST="s3://${S3_BUCKET}/${DEST_KEY}"
+          # Write-once is keyed on a completion marker written LAST, so an
+          # interrupted upload never wedges the prefix: marker present = complete
+          # publish, refuse; objects without marker = interrupted, heal by
+          # re-uploading. List results are captured OUTSIDE an `if` so a list
+          # error (missing ListBucket, transient) fails the job via set -e
+          # instead of being treated as "not published".
+          marker="$(aws s3api list-objects-v2 --bucket "${S3_BUCKET}" \
+                     --prefix "${DEST_KEY}/.publish-complete" --max-items 1 \
+                     --query 'Contents[0].Key' --output text)"
+          if [ "${marker}" != "None" ] && [ -n "${marker}" ]; then
+            echo "::error::${DEST_KEY}/ already published (completion marker present) — refusing to overwrite"
+            exit 1
+          fi
+          partial="$(aws s3api list-objects-v2 --bucket "${S3_BUCKET}" \
+                      --prefix "${DEST_KEY}/" --max-items 1 \
+                      --query 'Contents[0].Key' --output text)"
+          if [ "${partial}" != "None" ] && [ -n "${partial}" ]; then
+            echo "::warning::${DEST_KEY}/ has objects but no completion marker (interrupted publish) — re-uploading"
+          fi
+          aws s3 cp out/ "${DEST}/" --recursive --no-progress
+          printf 'commit=%s\ncompleted=%s\n' "${COMMIT}" "$(date -u +%FT%TZ)" \
+            | aws s3 cp - "${DEST}/.publish-complete"
+          echo "Published to ${DEST}/"
+
+      - name: Job summary
+        env:
+          BUILT_REF: ${{ inputs.ref }}
+        run: |
+          {
+            echo "### Bare-metal binary published"
+            echo ""
+            echo "- ref built: \`${BUILT_REF}\` → commit \`${COMMIT}\`"
+            echo "- location: \`s3://${S3_BUCKET}/${S3_PREFIX_ROOT}/${COMMIT}/${PLATFORM}/\`"
+            echo "- binary: \`strata-asm-runner\` (+ \`.sha256\`)"
+          } >> "$GITHUB_STEP_SUMMARY"
