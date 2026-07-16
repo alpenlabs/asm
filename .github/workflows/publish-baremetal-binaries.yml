@@ -5,10 +5,12 @@ name: Publish Bare-Metal Binaries (S3)
 # external bare-metal operators can DOWNLOAD a prebuilt binary instead of
 # building from source. STR-3985.
 #
-# Built native (no --features sp1) to match how strata-bridge's own
-# docker/asm-runner image and functional tests build the runner (the sp1
-# build-arg is opt-in and unused by that CD). No SP1 toolchain needed: the repo
-# default SKIP_VKEY_BUILD=1 (.cargo/config.toml) skips guest/vkey compilation.
+# Built WITH --features sp1 to match the deployed asm-runner image, which
+# strata-bridge's production build matrix produces with ASM_FEATURES=--features=sp1
+# (build_matrix.py) — testnet uses Sp1Groth16 predicates, so the native build
+# can't verify them. No SP1 toolchain needed for the binary: the repo default
+# SKIP_VKEY_BUILD=1 (.cargo/config.toml) skips guest/vkey compilation; the sp1
+# feature only links the verifier/host crates.
 #
 # SECURITY MODEL
 # --------------
@@ -92,14 +94,15 @@ jobs:
         with:
           cache-on-failure: true
 
-      - name: Build strata-asm-runner
-        # Native build (no --features sp1) to match strata-bridge's docker/asm-runner
-        # image + functional tests. rustup auto-installs the pinned nightly from
-        # rust-toolchain.toml; SKIP_VKEY_BUILD stays at the repo default (1).
+      - name: Build strata-asm-runner (--features sp1)
+        # Built --features sp1 to match the deployed image (build_matrix.py). The
+        # binary keeps the plain name strata-asm-runner. SKIP_VKEY_BUILD stays at
+        # the repo default (1) so no guest/vkey compile is triggered; rustup
+        # auto-installs the pinned nightly from rust-toolchain.toml.
         run: |
           set -euo pipefail
           mkdir -p out
-          cargo build --release --locked -p strata-asm-runner
+          cargo build --release --locked -p strata-asm-runner --features sp1
           install -m 0755 target/release/strata-asm-runner out/strata-asm-runner
           ( cd out && sha256sum strata-asm-runner > strata-asm-runner.sha256 )
           echo "Staged:"; ls -la out
@@ -148,8 +151,13 @@ jobs:
         run: |
           set -euo pipefail
           DEST="s3://${S3_BUCKET}/${S3_PREFIX_ROOT}/${COMMIT}/${PLATFORM}"
-          existing="$(aws s3 ls "s3://${S3_BUCKET}/${S3_PREFIX_ROOT}/${COMMIT}/" || true)"
-          if [ -n "${existing}" ]; then
+          # Fail closed: capture the list result OUTSIDE an `if` so a list error
+          # (missing ListBucket, transient) fails the job via set -e instead of
+          # being treated as "not published" and overwriting a trusted prefix.
+          key="$(aws s3api list-objects-v2 --bucket "${S3_BUCKET}" \
+                  --prefix "${S3_PREFIX_ROOT}/${COMMIT}/" --max-items 1 \
+                  --query 'Contents[0].Key' --output text)"
+          if [ "${key}" != "None" ] && [ -n "${key}" ]; then
             echo "::error::${S3_PREFIX_ROOT}/${COMMIT}/ already published — refusing to overwrite"
             exit 1
           fi
