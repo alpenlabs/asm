@@ -11,10 +11,11 @@ use clap::{Args, Parser, Subcommand};
 #[derive(Parser, Debug)]
 #[command(name = "dbtool", version, about, long_about = None)]
 pub(crate) struct Cli {
-    /// Path to the sled DB the command operates on. Each command targets exactly
-    /// one database — the storage DB for `asm` commands, the proof DB for
-    /// `moho`/`proof` commands — so point this at whichever the command needs.
-    /// The runner must be stopped: sled takes an exclusive lock on the directory.
+    /// Path to the sled DB the command operates on. Each domain targets exactly
+    /// one database — the ASM DB for `asm`, the Moho DB for the planned `moho`,
+    /// the proof DB for the planned `proof` — so point this at whichever the
+    /// command needs. The runner must be stopped: sled takes an exclusive lock
+    /// on the directory.
     #[arg(long, global = true)]
     pub(crate) db: Option<PathBuf>,
 

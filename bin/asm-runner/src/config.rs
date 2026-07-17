@@ -55,11 +55,19 @@ pub(crate) struct RpcConfig {
     pub port: u16,
 }
 
-/// Database configuration
+/// Database configuration.
+///
+/// The runner persists into separate sled databases: the ASM DB (anchor
+/// states, aux data, manifests, manifest-hash MMR) and the Moho DB (Moho
+/// state snapshots, export entries). The proof DB is configured with the
+/// orchestrator that owns it — see
+/// [`OrchestratorConfig::proof_db_path`](strata_asm_prover_worker::OrchestratorConfig).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct DatabaseConfig {
-    /// SledDB path (directory)
-    pub path: PathBuf,
+    /// SledDB path (directory) for the ASM stores.
+    pub asm_path: PathBuf,
+    /// SledDB path (directory) for the Moho stores.
+    pub moho_path: PathBuf,
     /// Optional number of threads for database operations.
     pub num_threads: Option<usize>,
     /// Optional number of retries for failed database operations.
@@ -109,7 +117,8 @@ mod tests {
             port = 8000
 
             [database]
-            path = "/tmp/asm-db"
+            asm_path = "/tmp/asm-db"
+            moho_path = "/tmp/moho-db"
 
             [bitcoin]
             rpc_url = "http://localhost:18443"
@@ -143,7 +152,8 @@ mod tests {
             port = 8000
 
             [database]
-            path = "/tmp/asm-db"
+            asm_path = "/tmp/asm-db"
+            moho_path = "/tmp/moho-db"
 
             [bitcoin]
             rpc_url = "http://localhost:18443"

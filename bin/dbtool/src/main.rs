@@ -4,10 +4,10 @@
 //! databases, modeled on alpen's `strata-dbtool` but built in the layered
 //! grammar STR-3564 recommends rather than a flat verb-prefixed surface.
 //!
-//! This first increment covers the `asm` domain backed by the **storage DB**
-//! (anchor state, aux data, manifests, and the manifest-hash MMR). The
-//! proof-DB-backed resources (`asm proof`, `moho …`, `proof …`) land in a
-//! follow-up; see `README.md`.
+//! This first increment covers the `asm` domain backed by the **ASM DB**
+//! (anchor state, aux data, manifests, and the manifest-hash MMR). The `moho`
+//! resources (Moho DB) and `proof` resources (proof DB) land in follow-ups;
+//! see `README.md`.
 //!
 //! Output is JSON on stdout; errors go to stderr. The tool opens sled read-only
 //! by intent: mutating verbs refuse to run without `--write`. sled takes an
@@ -48,7 +48,7 @@ fn run() -> anyhow::Result<()> {
 
     let value = match domain {
         Domain::Asm { resource } => {
-            let db = db::open_storage(db)?;
+            let db = db::open_asm(db)?;
             cmd::run_asm(&db, resource, write)?
         }
     };

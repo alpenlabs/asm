@@ -18,9 +18,14 @@ class RpcConfig:
 
 @dataclass
 class DatabaseConfig:
-    """Database configuration."""
+    """Database configuration.
 
-    path: str
+    The runner opens separate sled DBs for the ASM and Moho stores; the proof
+    DB path lives in `OrchestratorConfig`.
+    """
+
+    asm_path: str
+    moho_path: str
     num_threads: int | None = None
     retry_count: int | None = None
     delay: Duration | None = None

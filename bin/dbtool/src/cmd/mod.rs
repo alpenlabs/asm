@@ -11,7 +11,7 @@ use serde_json::Value;
 
 use crate::cli::AsmResource;
 
-/// Dispatches an `asm <resource> <verb>` command against the storage DB.
+/// Dispatches an `asm <resource> <verb>` command against the ASM DB.
 pub(crate) fn run_asm(db: &sled::Db, resource: AsmResource, write: bool) -> Result<Value> {
     match resource {
         AsmResource::State { verb } => state::run(db, verb, write),

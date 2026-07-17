@@ -89,7 +89,7 @@ def prepare_populated_db(ctx, num_blocks: int = 6) -> str:
 
     db_path = asm_service.props["db_path"]
     asm_service.stop()
-    logging.info("runner stopped; storage DB at %s", db_path)
+    logging.info("runner stopped; ASM DB at %s", db_path)
     return db_path
 
 
