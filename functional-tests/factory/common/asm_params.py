@@ -11,10 +11,9 @@ from constants import ASM_MAGIC_BYTES
 # tests. Address `bc1ppuxgmd6n4j73wdp688p08a8rte97dkn5n70r2ym6kgsw0v3c5ensrytduf`.
 DEFAULT_SAFE_HARBOUR_ADDRESS = "040f0c8db753acbd17343a39c2f3f4e35e4be6da749f9e35137ab220e7b238a667"
 
-# Fork activation height meaning "never". Capped at i64::MAX rather than
-# u64::MAX because the value also rides through the prover's TOML config,
-# and TOML integers are signed 64-bit. Equally unreachable in practice.
-FORK_NEVER = 2**63 - 1
+# Fork activation height meaning "disabled". `None` serializes to JSON `null`,
+# matching the `Option<L1Height>` on the Rust side.
+FORK_DISABLED = None
 
 
 @dataclass
@@ -85,9 +84,10 @@ class AsmParams:
     magic: str
     anchor: L1Anchor
     subprotocols: list[dict[str, Any]]
-    # STF config: base fork schedule. Dynamic activations come from enacted
-    # ASM VK upgrades, which name the fork they activate.
-    fork1_height: int = 0
+    # STF config: base fork schedule. `None` disables the fork. Dynamic
+    # activations come from enacted ASM VK upgrades, which name the fork they
+    # activate.
+    fork1_height: int | None = 0
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -219,7 +219,7 @@ def build_asm_params(
     recovery_delay: int = 1_008,
     safe_harbour_address: str = DEFAULT_SAFE_HARBOUR_ADDRESS,
     confirmation_depth: int = 144,
-    fork1_height: int = 0,
+    fork1_height: int | None = 0,
 ) -> AsmParams:
     anchor = build_l1_anchor(genesis_height, block_hash, header, epoch_start_header)
     subprotocols = build_subprotocols(

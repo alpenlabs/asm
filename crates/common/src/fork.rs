@@ -63,27 +63,26 @@ impl TryFrom<u16> for ForkId {
 
 /// Activation heights for every named fork.
 ///
-/// A fork is active at L1 height `h` iff `h >= activation_height_of`. `0`
-/// means active since genesis; [`L1Height::MAX`] means never active. Proving
-/// artifacts bake one of those two extremes (an artifact only ever executes
-/// one side of an upgrade boundary), while the worker tracks the real
-/// activation height discovered from the ASM VK upgrade log.
+/// A fork with activation height `Some(n)` is active at L1 height `h` iff
+/// `h >= n` — so `Some(0)` means active since genesis. `None` means disabled.
+/// Proving artifacts bake one of the two extremes (`Some(0)` or `None` — an
+/// artifact only ever executes one side of an upgrade boundary), while the
+/// worker tracks the real activation height discovered from the ASM VK
+/// upgrade log.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ForkSchedule {
-    /// Activation height of [`ForkId::Fork1`].
-    pub fork1: L1Height,
+    /// Activation height of [`ForkId::Fork1`], or `None` if disabled.
+    pub fork1: Option<L1Height>,
 }
 
 impl ForkSchedule {
-    /// Schedule with every fork disabled (activation at [`L1Height::MAX`]).
+    /// Schedule with every fork disabled (no activation height).
     pub const fn all_disabled() -> Self {
-        Self {
-            fork1: L1Height::MAX,
-        }
+        Self { fork1: None }
     }
 
-    /// Returns the activation height of `fork`.
-    pub fn activation_height_of(&self, fork: ForkId) -> L1Height {
+    /// Returns the activation height of `fork`, or `None` if disabled.
+    pub fn activation_height_of(&self, fork: ForkId) -> Option<L1Height> {
         match fork {
             ForkId::Fork1 => self.fork1,
         }
@@ -91,13 +90,14 @@ impl ForkSchedule {
 
     /// Returns whether `fork` is active at L1 `height`.
     pub fn is_active(&self, fork: ForkId, height: L1Height) -> bool {
-        height >= self.activation_height_of(fork)
+        self.activation_height_of(fork)
+            .is_some_and(|activation| height >= activation)
     }
 
     /// Sets the activation height of `fork`.
     pub fn set_fork_activation(&mut self, fork: ForkId, height: L1Height) {
         match fork {
-            ForkId::Fork1 => self.fork1 = height,
+            ForkId::Fork1 => self.fork1 = Some(height),
         }
     }
 }
@@ -129,7 +129,7 @@ mod tests {
 
     #[test]
     fn is_active_boundaries() {
-        let sched = ForkSchedule { fork1: 100 };
+        let sched = ForkSchedule { fork1: Some(100) };
         assert!(!sched.is_active(ForkId::Fork1, 99));
         assert!(sched.is_active(ForkId::Fork1, 100));
         assert!(sched.is_active(ForkId::Fork1, 101));
@@ -137,25 +137,24 @@ mod tests {
 
     #[test]
     fn zero_means_always_active() {
-        let sched = ForkSchedule { fork1: 0 };
+        let sched = ForkSchedule { fork1: Some(0) };
         assert!(sched.is_active(ForkId::Fork1, 0));
         assert!(sched.is_active(ForkId::Fork1, L1Height::MAX));
     }
 
     #[test]
-    fn max_means_never_active() {
+    fn none_means_never_active() {
         let sched = ForkSchedule::all_disabled();
+        assert_eq!(sched.activation_height_of(ForkId::Fork1), None);
         assert!(!sched.is_active(ForkId::Fork1, 0));
-        assert!(!sched.is_active(ForkId::Fork1, L1Height::MAX - 1));
-        // Degenerate boundary: is_active is a plain >= comparison.
-        assert!(sched.is_active(ForkId::Fork1, L1Height::MAX));
+        assert!(!sched.is_active(ForkId::Fork1, L1Height::MAX));
     }
 
     #[test]
     fn set_fork_activation_overrides() {
         let mut sched = ForkSchedule::all_disabled();
         sched.set_fork_activation(ForkId::Fork1, 42);
-        assert_eq!(sched.activation_height_of(ForkId::Fork1), 42);
+        assert_eq!(sched.activation_height_of(ForkId::Fork1), Some(42));
         assert!(sched.is_active(ForkId::Fork1, 42));
         assert!(!sched.is_active(ForkId::Fork1, 41));
     }
@@ -163,12 +162,20 @@ mod tests {
     #[test]
     fn serde_roundtrip() {
         let params = AsmStfParams {
-            forks: ForkSchedule { fork1: 7 },
+            forks: ForkSchedule { fork1: Some(7) },
         };
         let json = serde_json::to_string(&params).unwrap();
         assert_eq!(json, r#"{"forks":{"fork1":7}}"#);
         let back: AsmStfParams = serde_json::from_str(&json).unwrap();
         assert_eq!(back, params);
+
+        let disabled = AsmStfParams {
+            forks: ForkSchedule::all_disabled(),
+        };
+        let json = serde_json::to_string(&disabled).unwrap();
+        assert_eq!(json, r#"{"forks":{"fork1":null}}"#);
+        let back: AsmStfParams = serde_json::from_str(&json).unwrap();
+        assert_eq!(back, disabled);
     }
 
     #[test]

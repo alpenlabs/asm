@@ -31,6 +31,6 @@ mod tests {
     #[test]
     fn test_runtime_params_deserialize() {
         let params: AsmRuntimeParams = serde_json::from_str(r#"{"forks":{"fork1":5}}"#).unwrap();
-        assert_eq!(params.stf_params().forks.fork1, 5);
+        assert_eq!(params.stf_params().forks.fork1, Some(5));
     }
 }

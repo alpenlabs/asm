@@ -142,7 +142,7 @@ mod tests {
 
         let params: AsmParams =
             serde_json::from_str(raw_json).expect("deserialization from raw JSON should succeed");
-        assert_eq!(params.runtime.forks.fork1, 0);
+        assert_eq!(params.runtime.forks.fork1, Some(0));
     }
 
     #[cfg(feature = "arbitrary")]
