@@ -4,7 +4,7 @@
 //! records carry a lossless `borsh_hex` blob rather than the `ssz_hex` the `asm`
 //! records use. Remote-prover ids are opaque bytes, rendered and parsed as hex.
 
-use anyhow::Result;
+use anyhow::{Result, bail};
 use serde_json::{Value, json};
 use strata_asm_prover_storage::SledProofDb;
 use strata_asm_prover_types::{AsmProof, L1Range, MohoProof, ProofId, RemoteProofId};
@@ -18,6 +18,13 @@ use crate::{
 };
 
 pub(crate) fn run(db: &sled::Db, resource: ProofResource, write: bool) -> Result<Value> {
+    // `open` creates missing trees as a side effect, which would mutate a
+    // directory dbtool doesn't own and make a wrong `--db` read as an empty
+    // store. The runner always creates these trees, so their absence means
+    // this is not a proof DB.
+    if !SledProofDb::exists_in(db) {
+        bail!("no proof trees in this database — point --db at the proof DB");
+    }
     let store = SledProofDb::open(db)?;
     match resource {
         ProofResource::Asm { verb } => asm(&store, verb, write),

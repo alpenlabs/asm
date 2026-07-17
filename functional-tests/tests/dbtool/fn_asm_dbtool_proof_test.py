@@ -63,6 +63,12 @@ class AsmDbtoolProofTest(flexitest.Test):
         asm_service.stop()
         logging.info("runner stopped; proof DB at %s", proof_db)
 
+        # Pointing a proof command at the wrong database must fail up front
+        # rather than silently materializing empty proof trees in a directory
+        # dbtool doesn't own (and then reading them back as an empty store).
+        code, _out, err = run_dbtool(db_path, "proof", "asm", "list")
+        assert code != 0 and "proof DB" in err, (code, err)
+
         # proof asm: list has entries; a listed range round-trips through get.
         asm_list = run_dbtool_json(proof_db, "proof", "asm", "list")
         assert asm_list["count"] > 0, f"expected ASM proofs, got {asm_list}"
