@@ -29,7 +29,7 @@
 //! harness.submit_admin_action(&mut ctx, sequencer_update([1u8; 32])).await?;
 //! ```
 
-use std::{fmt, sync::Arc};
+use std::{fmt, sync::Arc, time::Duration};
 
 use bitcoin::{
     absolute::LockTime,
@@ -49,9 +49,11 @@ use bitcoind_async_client::{
     Client,
 };
 use corepc_node::Node;
+use moho_types::MohoState;
 use rand::RngCore;
 use strata_asm_common::{AnchorState, AsmLogEntry};
 use strata_asm_manifest_types::AsmLog;
+use strata_asm_moho_worker::{MohoStateStore, MohoWorkerBuilder, MohoWorkerHandle};
 use strata_asm_params::{AdministrationInitConfig, AsmParams, SubprotocolInstance};
 use strata_asm_spec::StrataAsmSpec;
 use strata_asm_worker::{
@@ -62,15 +64,17 @@ use strata_btc_types::BlockHashExt;
 use strata_identifiers::L1BlockCommitment;
 use strata_l1_envelope_fmt::builder::{build_envelope_script, EnvelopeScriptBuilder};
 use strata_l1_txfmt::{ParseConfig, TagData};
+use strata_predicate::PredicateKey;
 use strata_tasks::{TaskExecutor, TaskManager};
 use strata_test_utils_arb::ArbitraryGenerator;
 use strata_test_utils_checkpoint::CheckpointTestHarness;
-use tokio::{runtime::Handle, task::block_in_place};
+use tokio::{runtime::Handle, task::block_in_place, time::sleep};
 
 use super::{
     admin::{create_test_admin_setup, AdminContext, DEFAULT_CONFIRMATION_DEPTH},
     bridge::{create_test_bridge_setup, BridgeContext, DEFAULT_NUM_OPERATORS},
     checkpoint::create_test_checkpoint_setup,
+    moho::TestMohoWorkerContext,
 };
 
 // Test Harness
@@ -96,6 +100,11 @@ pub struct AsmTestHarness {
     pub asm_handle: AsmWorkerHandle,
     /// ASM worker context for querying state
     pub context: TestAsmWorkerContext,
+    /// Moho worker handle. The worker derives a per-block [`MohoState`] from each
+    /// ASM commit; kept alive so the service task keeps running.
+    pub moho_handle: MohoWorkerHandle,
+    /// Moho worker context for querying derived Moho state.
+    pub moho_context: TestMohoWorkerContext,
     /// ASM-specific parameters
     pub asm_params: Arc<AsmParams>,
     /// Task executor for spawning tasks
@@ -118,7 +127,8 @@ impl AsmTestHarness {
     /// 3. Submit the block commitment to ASM worker
     /// 4. Wait until ASM worker has processed the block
     ///
-    /// When this method returns, the block is guaranteed to be processed by ASM.
+    /// When this method returns, the block is guaranteed to be processed by both
+    /// the ASM worker and the Moho worker.
     ///
     /// # Returns
     /// The block hash of the mined block
@@ -141,7 +151,32 @@ impl AsmTestHarness {
         // returns.
         block_in_place(|| self.asm_handle.submit_block(block_hash))?;
 
+        // The Moho worker folds each ASM commit asynchronously off the
+        // subscription, so it can trail the (blocking) ASM submit. Wait for it to
+        // catch up so callers observe both stores as processed.
+        self.wait_for_moho(block_hash).await?;
+
         Ok(block_hash)
+    }
+
+    /// Block until the Moho worker has committed a Moho state for `block_hash`.
+    ///
+    /// The Moho worker consumes the ASM commit stream on its own service task, so
+    /// it lags a blocking `submit_block` by however long the fold takes. We poll
+    /// its store for the block rather than reaching into the service's status,
+    /// yielding to the runtime between attempts so the worker task can run.
+    async fn wait_for_moho(&self, block_hash: BlockHash) -> anyhow::Result<()> {
+        let height = self.client.get_block_height(&block_hash).await?;
+        let commitment = L1BlockCommitment::new(height as u32, block_hash.to_l1_block_id());
+
+        for _ in 0..2000 {
+            if self.moho_context.get_moho_state(&commitment).is_ok() {
+                return Ok(());
+            }
+            sleep(Duration::from_millis(5)).await;
+        }
+
+        anyhow::bail!("Moho worker did not process block {commitment} in time")
     }
 
     /// Mine multiple blocks, waiting for each to be processed by ASM.
@@ -183,8 +218,10 @@ impl AsmTestHarness {
         let result = self.bitcoind.client.generate_block(&output, &raw, true)?;
         let block_hash: BlockHash = result.hash.parse()?;
 
-        // Same post-step as `mine_block`: feed the block hash to the ASM worker.
+        // Same post-step as `mine_block`: feed the block hash to the ASM worker,
+        // then wait for the Moho worker to fold the resulting commit.
         block_in_place(|| self.asm_handle.submit_block(block_hash))?;
+        self.wait_for_moho(block_hash).await?;
 
         Ok(block_hash)
     }
@@ -262,6 +299,11 @@ impl AsmTestHarness {
     /// Get the ASM anchor state at a specific block.
     pub fn get_asm_state_at(&self, blockid: &L1BlockCommitment) -> anyhow::Result<AnchorState> {
         Ok(self.context.get_anchor_state(blockid)?)
+    }
+
+    /// Get the latest Moho state the Moho worker has committed.
+    pub fn get_latest_moho_state(&self) -> anyhow::Result<Option<(L1BlockCommitment, MohoState)>> {
+        Ok(self.moho_context.get_latest_moho_state()?)
     }
 
     /// Get the STF logs a block emitted, read from its recorded manifest.
@@ -743,24 +785,48 @@ impl AsmTestHarnessBuilder {
         let task_manager = TaskManager::new(Handle::current());
         let executor = task_manager.create_executor();
 
-        // 7. Launch ASM worker service
+        // 7. Launch ASM worker service. `launch` stores the genesis anchor
+        // synchronously, so the Moho worker (step 8) can seed its genesis Moho
+        // state from it.
         let asm_handle = AsmWorkerBuilder::new()
             .with_context(context.clone())
             .with_asm_spec(StrataAsmSpec)
             .with_params((*asm_params).clone())
             .launch(&executor)?;
 
+        // 8. Launch the Moho worker, driven by the ASM worker's per-block commit
+        // stream, mirroring the production wiring in `asm-runner`. It shares the
+        // ASM worker's context so it folds the anchor states that worker commits.
+        //
+        // Subscribe *before* any block is submitted (the genesis submit below and
+        // every later `mine_block`): the subscription has no replay, so a later
+        // subscriber would miss already-committed blocks. The `always_accept`
+        // predicate stands in for the real ASM predicate the runner derives from
+        // its proof backend — the harness has no verifier.
+        let moho_context = TestMohoWorkerContext::new(context.clone());
+        let moho_handle = MohoWorkerBuilder::new()
+            .with_context(moho_context.clone())
+            .with_subscription(asm_handle.subscribe_blocks())
+            .with_genesis_block(asm_params.anchor.block)
+            .with_asm_predicate(PredicateKey::always_accept())
+            .launch(&executor)
+            .await?;
+
         let harness = AsmTestHarness {
             bitcoind,
             client,
             asm_handle,
             context,
+            moho_handle,
+            moho_context,
             asm_params,
             executor,
             genesis_height,
         };
 
-        // Submit genesis block hash and wait for processing to complete
+        // Submit genesis block hash and wait for processing to complete. This is
+        // a no-op for the ASM worker (genesis already has a stored anchor, so the
+        // plan is empty and nothing is emitted), hence no Moho commit to await.
         block_in_place(|| harness.asm_handle.submit_block(genesis_hash))?;
 
         Ok(Setup {

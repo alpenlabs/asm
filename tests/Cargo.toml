@@ -13,6 +13,8 @@ moho-types.workspace = true
 strata-asm-common.workspace = true
 strata-asm-logs.workspace = true
 strata-asm-manifest-types.workspace = true
+strata-asm-moho-storage.workspace = true
+strata-asm-moho-worker.workspace = true
 strata-asm-params = { workspace = true, features = ["arbitrary"] }
 strata-asm-proof-impl = { workspace = true, features = ["test-utils"] }
 strata-asm-proto-admin.workspace = true
@@ -51,7 +53,9 @@ borsh.workspace = true
 corepc-node.workspace = true
 rand.workspace = true
 rand_chacha.workspace = true
+sled.workspace = true
 ssz.workspace = true
+tempfile.workspace = true
 tokio.workspace = true
 
 [dev-dependencies]

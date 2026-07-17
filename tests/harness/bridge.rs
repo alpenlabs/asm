@@ -41,6 +41,7 @@ use strata_asm_proto_bridge_v1_txs::{
     },
     test_utils::create_test_operators,
     unstake::{stake_connector_script, UnstakeTxHeaderAux},
+    withdrawal_fulfillment::WithdrawalFulfillmentTxHeaderAux,
 };
 use strata_asm_proto_bridge_v1_types::{OperatorIdx, SafeHarbourAddress};
 use strata_btc_types::BitcoinAmount;
@@ -600,6 +601,82 @@ pub async fn submit_attacker_keyed_unstake_tx(
     exploit_tx.input[0].witness = witness;
 
     harness.submit_and_mine_tx(&exploit_tx).await
+}
+
+// ============================================================================
+// Withdrawal fulfillment
+// ============================================================================
+
+/// Submits a valid withdrawal fulfillment (frontpayment) for the assignment on
+/// `deposit_idx`, paying the assigned user their net amount.
+///
+/// An operator fulfills a withdrawal by paying the user out of its own funds
+/// before it may later claim the locked N/N deposit. The bridge validates only
+/// the transaction's outputs against the assignment — the SPS-50 header naming
+/// the deposit, and output 1 paying exactly `net_amount` to the assignment's
+/// destination — and ignores the inputs (the operator funds it however it
+/// likes). We exploit that by funding the frontpayment from a throwaway
+/// anyone-can-spend P2WSH UTXO rather than modelling a real operator wallet, so
+/// no signing is needed.
+///
+/// Reads the live assignment for `deposit_idx` to mirror its destination and
+/// net amount, so the caller only needs the deposit index. Panics if no
+/// assignment exists for it. Returns the block hash containing the fulfillment.
+pub async fn submit_withdrawal_fulfillment_tx(
+    harness: &AsmTestHarness,
+    deposit_idx: u32,
+) -> anyhow::Result<BlockHash> {
+    // 1. Mirror the assignment: the fulfillment output must pay exactly the net amount to the
+    //    assignment's destination, or the bridge rejects it.
+    let bridge_state = harness.bridge_state()?;
+    let assignment = bridge_state
+        .assignments()
+        .get_assignment(deposit_idx)
+        .ok_or_else(|| anyhow::anyhow!("no assignment for deposit {deposit_idx}"))?;
+    let net_amount: Amount = assignment.net_amount().into();
+    let destination = assignment.withdrawal_output().destination().to_script();
+
+    // 2. Fund an anyone-can-spend P2WSH UTXO with the payout plus the mining fee. The bridge never
+    //    inspects the inputs, so this stands in for the operator's own funding.
+    let fee = AsmTestHarness::DEFAULT_FEE;
+    let witness_script = build_trivial_script();
+    let p2wsh_address = Address::p2wsh(&witness_script, Network::Regtest);
+    let (funding_txid, funding_vout) = harness
+        .create_funding_utxo(&p2wsh_address, net_amount + fee)
+        .await?;
+    harness.mine_block(None).await?;
+
+    // 3. SPS-50 OP_RETURN naming the fulfilled deposit, then the payout output.
+    let aux = WithdrawalFulfillmentTxHeaderAux::new(deposit_idx);
+    let tag_data = aux.build_tag_data();
+    let op_return_script =
+        ParseConfig::new(harness.asm_params.magic).encode_script_buf(&tag_data.as_ref())?;
+
+    let mut witness = Witness::new();
+    witness.push(witness_script.as_bytes());
+
+    let fulfillment_tx = Transaction {
+        version: Version::TWO,
+        lock_time: LockTime::ZERO,
+        input: vec![TxIn {
+            previous_output: OutPoint::new(funding_txid, funding_vout),
+            script_sig: ScriptBuf::new(),
+            sequence: Sequence::ENABLE_RBF_NO_LOCKTIME,
+            witness,
+        }],
+        output: vec![
+            TxOut {
+                value: Amount::ZERO,
+                script_pubkey: op_return_script,
+            },
+            TxOut {
+                value: net_amount,
+                script_pubkey: destination,
+            },
+        ],
+    };
+
+    harness.submit_and_mine_tx(&fulfillment_tx).await
 }
 
 // ============================================================================

@@ -14,12 +14,15 @@
 //!
 //! # Module Structure
 //!
-//! - `harness`: Core test harness (Bitcoin regtest + ASM worker) - subprotocol-agnostic
+//! - `harness`: Core test harness (Bitcoin regtest + ASM worker + Moho worker) -
+//!   subprotocol-agnostic
 //! - `admin`: Admin subprotocol utilities (AdminExt trait, action builders)
 //! - `bridge`: Bridge subprotocol utilities (BridgeExt trait, deposit building)
 //! - `checkpoint`: Checkpoint subprotocol utilities (CheckpointExt trait)
+//! - `moho`: Regtest-backed Moho worker context the harness drives alongside the ASM worker
 
 pub mod admin;
 pub mod bridge;
 pub mod checkpoint;
+pub mod moho;
 pub mod test_harness;

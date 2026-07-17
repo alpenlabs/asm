@@ -6,13 +6,19 @@
 )]
 
 use harness::{
-    bridge::{submit_attacker_keyed_unstake_tx, submit_forged_unstake_tx, BridgeExt},
+    bridge::{
+        submit_attacker_keyed_unstake_tx, submit_forged_unstake_tx,
+        submit_withdrawal_fulfillment_tx, BridgeExt,
+    },
+    checkpoint::CheckpointExt,
     test_harness::{AsmTestHarnessBuilder, Setup},
 };
 use integration_tests::harness;
 use strata_asm_common::Subprotocol;
 use strata_asm_logs::ExportExtraDataUpdate;
-use strata_asm_proto_bridge_v1::BridgeV1Subproto;
+use strata_asm_proto_bridge_v1::{BridgeV1Subproto, OperatorClaimUnlock};
+use strata_asm_proto_bridge_v1_txs::BRIDGE_V1_SUBPROTOCOL_ID;
+use strata_asm_proto_bridge_v1_types::OperatorSelection;
 
 /// Regression: a forged unstake transaction must NOT remove an operator.
 ///
@@ -138,4 +144,106 @@ async fn test_bridge_publishes_increasing_accumulated_pow() {
         }
         last_pow = Some(pow);
     }
+}
+
+/// End-to-end: fulfilling a withdrawal makes the Moho worker mirror an
+/// `OperatorClaimUnlock` export entry for the assigned operator and deposit.
+///
+/// When the bridge processes a withdrawal fulfillment it emits a
+/// `NewExportEntry` log whose leaf is the hash of `OperatorClaimUnlock { deposit_idx, operator_idx
+/// }`, under the bridge container. The Moho worker folds that log into the bridge
+/// container's `ExportState` MMR and mirrors the leaf into its export-entry
+/// store (which the runner rebuilds inclusion proofs from). This drives the full
+/// deposit → assignment → fulfillment chain and asserts the derived Moho state
+/// carries exactly that entry.
+///
+/// Flow:
+/// 1. Submit one deposit (index 0).
+/// 2. Submit a checkpoint whose withdrawal pins operator 1, creating the assignment.
+/// 3. Fulfill the withdrawal for deposit 0.
+/// 4. Assert the Moho export-entry store resolves the `OperatorClaimUnlock` hash, and the latest
+///    Moho state's bridge container MMR gained exactly that one leaf.
+#[tokio::test(flavor = "multi_thread")]
+async fn test_withdrawal_fulfillment_creates_moho_export_entry() {
+    let Setup {
+        harness,
+        bridge: ctx,
+        checkpoint: mut checkpoint_harness,
+        ..
+    } = AsmTestHarnessBuilder::default()
+        .with_txindex()
+        .build()
+        .await;
+    let denomination = ctx.denomination().to_sat();
+
+    // 1. One deposit to assign against.
+    harness.submit_deposits(&ctx, 1).await.unwrap();
+
+    // 2. A withdrawal pinned to operator 1 so the assignee is deterministic.
+    let pinned_operator = 1u32;
+    harness
+        .submit_checkpoint_with_withdrawal_intents(
+            &mut checkpoint_harness,
+            &[(denomination, OperatorSelection::specific(pinned_operator))],
+        )
+        .await
+        .unwrap();
+
+    // Capture the assignment (removed once fulfilled) to build the expected leaf.
+    let deposit_idx = 0u32;
+    let assignee = {
+        let bridge_state = harness.bridge_state().unwrap();
+        let assignment = bridge_state
+            .assignments()
+            .get_assignment(deposit_idx)
+            .expect("assignment for deposit 0 should exist");
+        assert_eq!(assignment.current_assignee(), pinned_operator);
+        assignment.current_assignee()
+    };
+
+    // 3. Fulfill the withdrawal.
+    submit_withdrawal_fulfillment_tx(&harness, deposit_idx)
+        .await
+        .unwrap();
+
+    // The assignment is consumed on fulfillment.
+    assert!(
+        harness
+            .bridge_state()
+            .unwrap()
+            .assignments()
+            .get_assignment(deposit_idx)
+            .is_none(),
+        "assignment should be removed after fulfillment"
+    );
+
+    // 4a. The Moho worker mirrored the export-entry leaf: the hash of the
+    //     operator's claim on this deposit resolves in its export-entry store.
+    let expected_leaf = OperatorClaimUnlock::new(deposit_idx, assignee).compute_hash();
+    assert!(
+        harness
+            .moho_context
+            .find_export_entry(BRIDGE_V1_SUBPROTOCOL_ID, &expected_leaf)
+            .is_some(),
+        "Moho export-entry store should resolve the OperatorClaimUnlock leaf",
+    );
+
+    // 4b. The same leaf lives in the committed Moho state: the bridge container's
+    //     export MMR gained exactly one leaf (accumulated-pow updates only touch
+    //     the container's extra data, never its leaves).
+    let (_, moho_state) = harness
+        .get_latest_moho_state()
+        .unwrap()
+        .expect("Moho state available after fulfillment");
+    let bridge_container = moho_state
+        .export_state()
+        .containers()
+        .iter()
+        .find(|c| c.container_id() == BRIDGE_V1_SUBPROTOCOL_ID)
+        .expect("bridge export container should be present in the Moho state");
+    assert_eq!(
+        bridge_container.entries_mmr().num_entries(),
+        1,
+        "the fulfillment should append exactly one export-entry leaf",
+    );
 }
