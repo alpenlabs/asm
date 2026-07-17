@@ -19,6 +19,13 @@ use crate::{
 };
 
 pub(crate) fn run(db: &sled::Db, verb: MohoStateVerb, write: bool) -> Result<Value> {
+    // `open` creates a missing tree as a side effect, which would mutate a
+    // directory dbtool doesn't own and make a wrong `--db` read as an empty
+    // store. The runner always creates this tree, so its absence means this
+    // is not a Moho DB.
+    if !SledMohoStateDb::exists_in(db) {
+        bail!("no Moho-state tree in this database — point --db at the Moho DB");
+    }
     let store = SledMohoStateDb::open(db)?;
     match verb {
         MohoStateVerb::Get { commitment } => {

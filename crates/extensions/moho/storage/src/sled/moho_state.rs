@@ -17,6 +17,9 @@ pub struct SledMohoStateDb {
 }
 
 impl SledMohoStateDb {
+    /// Tree name the store occupies within its sled database.
+    const TREE_NAME: &'static str = "moho_states";
+
     /// Opens the Moho-state tree on an already-open sled database.
     ///
     /// Callers open the [`sled::Db`] themselves so multiple handles can share
@@ -24,8 +27,19 @@ impl SledMohoStateDb {
     /// twice in a process.
     pub fn open(db: &sled::Db) -> Result<Self, sled::Error> {
         Ok(Self {
-            moho_states: db.open_tree("moho_states")?,
+            moho_states: db.open_tree(Self::TREE_NAME)?,
         })
+    }
+
+    /// Whether `db` already contains the Moho-state tree.
+    ///
+    /// [`Self::open`] creates a missing tree as a side effect. Callers that
+    /// must not mutate a database they did not create — offline tooling
+    /// probing an operator-supplied path — check this before opening.
+    pub fn exists_in(db: &sled::Db) -> bool {
+        db.tree_names()
+            .iter()
+            .any(|name| name.as_ref() == Self::TREE_NAME.as_bytes())
     }
 
     /// Synchronous variant of [`MohoStateDb::store_moho_state`]. The Moho worker
@@ -176,6 +190,20 @@ mod tests {
     fn get_latest_on_empty_returns_none() {
         let (db, _dir) = temp_moho_db();
         assert!(db.get_latest().unwrap().is_none());
+    }
+
+    // `exists_in` must not itself create the tree — it is the guard callers
+    // use to avoid `open`'s create-on-miss side effect.
+    #[test]
+    fn exists_in_reports_tree_presence_without_creating_it() {
+        let dir = tempfile::tempdir().expect("failed to create temp dir");
+        let db = sled::open(dir.path()).expect("failed to open sled db");
+
+        assert!(!SledMohoStateDb::exists_in(&db));
+        assert!(!SledMohoStateDb::exists_in(&db)); // probing twice creates nothing
+
+        SledMohoStateDb::open(&db).expect("failed to open moho state tree");
+        assert!(SledMohoStateDb::exists_in(&db));
     }
 
     #[test]

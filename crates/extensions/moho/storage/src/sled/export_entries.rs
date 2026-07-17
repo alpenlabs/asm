@@ -364,13 +364,33 @@ pub struct SledExportEntriesDb {
 }
 
 impl SledExportEntriesDb {
+    /// Tree names the store occupies within its sled database.
+    const TREE_NAMES: [&'static str; 3] = [
+        "export_entry_nodes",
+        "export_entries_by_hash",
+        "export_entries_by_height",
+    ];
+
     /// Opens or creates the export entries trees in the given sled instance.
     pub fn open(db: &sled::Db) -> Result<Self> {
+        let [nodes, by_hash, by_height] = Self::TREE_NAMES;
         Ok(Self {
-            nodes: db.open_tree("export_entry_nodes")?,
-            index_by_hash: db.open_tree("export_entries_by_hash")?,
-            index_by_height: db.open_tree("export_entries_by_height")?,
+            nodes: db.open_tree(nodes)?,
+            index_by_hash: db.open_tree(by_hash)?,
+            index_by_height: db.open_tree(by_height)?,
         })
+    }
+
+    /// Whether `db` already contains the export-entry trees.
+    ///
+    /// [`Self::open`] creates missing trees as a side effect. Callers that
+    /// must not mutate a database they did not create — offline tooling
+    /// probing an operator-supplied path — check this before opening.
+    pub fn exists_in(db: &sled::Db) -> bool {
+        let names = db.tree_names();
+        Self::TREE_NAMES
+            .iter()
+            .all(|tree| names.iter().any(|name| name.as_ref() == tree.as_bytes()))
     }
 
     /// One container's view onto the shared trees.
@@ -535,6 +555,19 @@ mod tests {
         let mut bytes = [seed; 32];
         bytes[31] = 0xAB;
         bytes
+    }
+
+    // `exists_in` must not itself create the trees — it is the guard callers
+    // use to avoid `open`'s create-on-miss side effect.
+    #[test]
+    fn exists_in_reports_tree_presence_without_creating_them() {
+        let db = test_db();
+
+        assert!(!SledExportEntriesDb::exists_in(&db));
+        assert!(!SledExportEntriesDb::exists_in(&db)); // probing twice creates nothing
+
+        SledExportEntriesDb::open(&db).unwrap();
+        assert!(SledExportEntriesDb::exists_in(&db));
     }
 
     #[test]

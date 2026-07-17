@@ -57,9 +57,18 @@ class AsmDbtoolMohoTest(flexitest.Test):
         wait_until_moho_proof_exists(asm_rpc, target_block_hash)
 
         moho_db = asm_service.props["moho_db_path"]
-        # Stopping the runner releases sled's lock on the directory.
+        asm_db = asm_service.props["db_path"]
+        # Stopping the runner releases sled's locks on the directories.
         asm_service.stop()
         logging.info("runner stopped; Moho DB at %s", moho_db)
+
+        # Pointing a moho command at the wrong database must fail up front
+        # rather than silently materializing empty Moho trees in a directory
+        # dbtool doesn't own (and then reading them back as an empty store).
+        code, _out, err = run_dbtool(asm_db, "moho", "state", "list")
+        assert code != 0 and "Moho DB" in err, (code, err)
+        code, _out, err = run_dbtool(asm_db, "moho", "export-entries", "count", "2")
+        assert code != 0 and "Moho DB" in err, (code, err)
 
         # moho state: list / latest / get round-trip / get (missing).
         states = run_dbtool_json(moho_db, "moho", "state", "list")

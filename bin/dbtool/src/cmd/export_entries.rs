@@ -21,6 +21,13 @@ use crate::{
 };
 
 pub(crate) fn run(db: &sled::Db, verb: ExportEntriesVerb, write: bool) -> Result<Value> {
+    // `open` creates missing trees as a side effect, which would mutate a
+    // directory dbtool doesn't own and make a wrong `--db` read as an empty
+    // store. The runner always creates these trees, so their absence means
+    // this is not a Moho DB.
+    if !SledExportEntriesDb::exists_in(db) {
+        bail!("no export-entry trees in this database — point --db at the Moho DB");
+    }
     let store = SledExportEntriesDb::open(db)?;
     match verb {
         ExportEntriesVerb::Get { container, index } => Ok(match store.get(container, index)? {
