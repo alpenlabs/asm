@@ -228,43 +228,50 @@ impl AsmTestHarness {
 
     /// Force an L1 reorg and drive both workers onto the replacement branch.
     ///
-    /// Invalidates `invalidate` (dropping it and every block above it), then
-    /// mines `new_len` empty blocks on the resulting tip, submitting each to the
-    /// ASM and Moho workers so they follow the reorg. The ASM worker walks real
-    /// parents back to the fork point and re-derives forward over the new branch;
-    /// the Moho worker re-anchors from the fork point's committed state.
+    /// Invalidates `invalidate` (dropping it and every block above it), then mines
+    /// `new_len` empty blocks on the resulting tip via [`Self::mine_empty_blocks`],
+    /// submitting each to the ASM and Moho workers so they follow the reorg. The
+    /// ASM worker walks real parents back to the fork point and re-derives forward
+    /// over the new branch; the Moho worker re-anchors from the fork point's
+    /// committed state. The empty blocks exclude the transactions `invalidateblock`
+    /// returns to the mempool, so the new branch is a clean fork.
     ///
-    /// The replacement blocks are mined with `generateblock` and an empty
-    /// transaction list, so the transactions the invalidated branch confirmed —
-    /// which Bitcoin Core returns to the mempool on `invalidateblock` — are *not*
-    /// re-included; the new branch is a clean fork. `invalidateblock` marks the
-    /// abandoned branch invalid, so it becomes canonical regardless of length;
-    /// pass `new_len` large enough to out-height the dropped blocks to reorg to a
-    /// strictly higher tip.
+    /// `invalidateblock` marks the abandoned branch invalid, so it becomes
+    /// canonical regardless of length; pass `new_len` large enough to out-height
+    /// the dropped blocks to reorg to a strictly higher tip. A `new_len` that
+    /// leaves the new tip at or below the old one is a valid short reorg, but the
+    /// height-max `latest` state pointer then keeps resolving to the taller
+    /// abandoned branch until the new branch out-heights it (see
+    /// `test_short_reorg_latest_pointer_diverges_then_converges`).
     ///
     /// # Returns
     /// The new tip's block hash.
     pub async fn reorg(&self, invalidate: BlockHash, new_len: usize) -> anyhow::Result<BlockHash> {
         self.bitcoind.client.invalidate_block(invalidate)?;
+        self.mine_empty_blocks(new_len).await
+    }
 
+    /// Mine `count` coinbase-only blocks on the active tip and drive both workers
+    /// over each, returning the new tip.
+    ///
+    /// Uses `generateblock` with an empty transaction list, so the mempool is
+    /// ignored — any transactions a preceding `invalidate_block` resurrected are
+    /// excluded, keeping an extended branch a clean, empty fork. Each block is
+    /// handed to the ASM worker (which follows any fork by walking parents to the
+    /// fork point) before the Moho worker folds the resulting commit.
+    pub async fn mine_empty_blocks(&self, count: usize) -> anyhow::Result<BlockHash> {
         let mut tip = None;
-        for _ in 0..new_len {
-            // `generateblock` with an empty tx list mines a coinbase-only block,
-            // ignoring the mempool — so the resurrected transactions from the
-            // invalidated branch are excluded from the replacement chain.
+        for _ in 0..count {
             let output = self.client.get_new_address().await?.to_string();
             let result = self.bitcoind.client.generate_block(&output, &[], true)?;
             let block_hash: BlockHash = result.hash.parse()?;
 
-            // Same post-step as `mine_block`: hand the block to the ASM worker
-            // (which follows the reorg by walking parents to the fork point),
-            // then wait for the Moho worker to fold the resulting commit.
             block_in_place(|| self.asm_handle.submit_block(block_hash))?;
             self.wait_for_moho(block_hash).await?;
             tip = Some(block_hash);
         }
 
-        tip.ok_or_else(|| anyhow::anyhow!("reorg requires new_len >= 1"))
+        tip.ok_or_else(|| anyhow::anyhow!("mine_empty_blocks requires count >= 1"))
     }
 
     // Transaction Submission
@@ -309,6 +316,11 @@ impl AsmTestHarness {
     /// Get the current chain tip height from Bitcoin.
     pub async fn get_chain_tip(&self) -> anyhow::Result<u64> {
         Ok(self.client.get_blockchain_info().await?.blocks.into())
+    }
+
+    /// Resolve the active-chain block hash at `height`.
+    pub async fn block_hash_at(&self, height: u64) -> anyhow::Result<BlockHash> {
+        Ok(self.client.get_block_hash(height).await?)
     }
 
     /// Get the current processed height from ASM state.
