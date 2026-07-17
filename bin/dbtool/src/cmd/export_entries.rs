@@ -3,7 +3,7 @@
 //! Lives in the Moho DB. Each container is an independent MMR over its entry
 //! hashes; a leaf's `<index>` is its `mmr_index` within that container.
 
-use std::{fs, path::Path};
+use std::{collections::HashSet, fs, path::Path};
 
 use anyhow::{Context, Result, bail};
 use serde_json::{Value, json};
@@ -100,6 +100,27 @@ pub(crate) fn run(db: &sled::Db, verb: ExportEntriesVerb, write: bool) -> Result
                     bail!(
                         "cannot append at height {height}: container {container} already has \
                          leaves up to height {latest}; `prune --from` the stale suffix first"
+                    );
+                }
+            }
+            // The store keeps a single `hash → index` row per container, so a
+            // duplicate leaf would overwrite the older leaf's row, and a later
+            // `prune --from` of the newer run would then orphan the surviving
+            // leaf from `find`. Real entries never repeat — each commits to a
+            // unique fulfillment — so reject duplicates, both within the file
+            // and against the container.
+            let mut seen = HashSet::new();
+            for hash in &entries {
+                if !seen.insert(hash) {
+                    bail!(
+                        "duplicate entry hash {} in the input file",
+                        hex::encode(hash)
+                    );
+                }
+                if store.find_index(container, hash)?.is_some() {
+                    bail!(
+                        "entry hash {} is already stored in container {container}",
+                        hex::encode(hash)
                     );
                 }
             }

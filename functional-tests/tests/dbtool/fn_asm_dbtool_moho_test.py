@@ -171,4 +171,35 @@ class AsmDbtoolMohoTest(flexitest.Test):
         )
         assert code != 0 and "all-zero" in err, (code, err)
 
+        # Duplicate hashes are refused — both repeats within one file and a
+        # hash the container already stores (the store keeps one `hash → index`
+        # row, so a duplicate would corrupt `find` after a later prune).
+        dup_in_file = write_ssz_file("ee" * 32 + "ee" * 32)
+        code, _out, err = run_dbtool(
+            snap,
+            "--write",
+            "moho",
+            "export-entries",
+            "append",
+            container,
+            "1000000",
+            "--file",
+            dup_in_file,
+        )
+        assert code != 0 and "duplicate" in err, (code, err)
+
+        dup_in_store = write_ssz_file("ab" * 32)
+        code, _out, err = run_dbtool(
+            snap,
+            "--write",
+            "moho",
+            "export-entries",
+            "append",
+            container,
+            "1000000",
+            "--file",
+            dup_in_store,
+        )
+        assert code != 0 and "already stored" in err, (code, err)
+
         return True
