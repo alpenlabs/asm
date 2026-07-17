@@ -57,10 +57,13 @@ impl From<sled::Error> for RemoteProofMappingError {
     }
 }
 
-impl RemoteProofMappingDb for SledProofDb {
-    type Error = RemoteProofMappingError;
-
-    async fn get_remote_proof_id(&self, id: ProofId) -> Result<Option<RemoteProofId>, Self::Error> {
+/// Synchronous mapping accessors, for offline tooling that stays synchronous.
+///
+/// The read half of [`RemoteProofMappingDb`] delegates to these; `list_mappings`
+/// has no async-trait counterpart and exists only for that tooling.
+impl SledProofDb {
+    /// Returns the remote proof ID mapped to local `id`, if any.
+    pub fn get_remote(&self, id: ProofId) -> Result<Option<RemoteProofId>, sled::Error> {
         let key = borsh::to_vec(&id).expect("borsh serialization should not fail");
         Ok(self
             .proof_to_remote
@@ -68,13 +71,43 @@ impl RemoteProofMappingDb for SledProofDb {
             .map(|v| RemoteProofId(v.to_vec())))
     }
 
+    /// Returns the local proof ID mapped to `remote_id`, if any.
+    pub fn get_local(&self, remote_id: &RemoteProofId) -> Result<Option<ProofId>, sled::Error> {
+        Ok(self.remote_to_proof.get(&remote_id.0)?.map(|v| {
+            BorshDeserialize::try_from_slice(&v).expect("stored ProofId should be valid borsh")
+        }))
+    }
+
+    /// Lists every stored mapping as `(local, remote)` pairs.
+    ///
+    /// Iterates the reverse (`remote → local`) index, which holds one row per
+    /// remote id; the forward index can point several proof ids at the latest
+    /// remote id on resubmission, so it is not authoritative for enumeration.
+    pub fn list_mappings(&self) -> Result<Vec<(ProofId, RemoteProofId)>, sled::Error> {
+        self.remote_to_proof
+            .iter()
+            .map(|entry| {
+                let (remote_bytes, local_bytes) = entry?;
+                let local: ProofId = BorshDeserialize::try_from_slice(&local_bytes)
+                    .expect("stored ProofId should be valid borsh");
+                Ok((local, RemoteProofId(remote_bytes.to_vec())))
+            })
+            .collect()
+    }
+}
+
+impl RemoteProofMappingDb for SledProofDb {
+    type Error = RemoteProofMappingError;
+
+    async fn get_remote_proof_id(&self, id: ProofId) -> Result<Option<RemoteProofId>, Self::Error> {
+        Ok(self.get_remote(id)?)
+    }
+
     async fn get_proof_id(
         &self,
         remote_id: &RemoteProofId,
     ) -> Result<Option<ProofId>, Self::Error> {
-        Ok(self.remote_to_proof.get(&remote_id.0)?.map(|v| {
-            BorshDeserialize::try_from_slice(&v).expect("stored ProofId should be valid borsh")
-        }))
+        Ok(self.get_local(remote_id)?)
     }
 
     async fn put_remote_proof_id(
@@ -277,6 +310,30 @@ mod tests {
                     let got_local = db.get_proof_id(remote_id).await.unwrap();
                     prop_assert_eq!(got_local, Some(*proof_id));
                 }
+
+                Ok(())
+            })?;
+        }
+
+        /// Property: `list_mappings` enumerates every stored `(local, remote)` pair.
+        #[test]
+        fn list_mappings_enumerates_all(
+            entries in vec((arb_proof_id(), arb_remote_proof_id()), 1..8)
+                .prop_filter("proof IDs must be unique",
+                    |es| es.iter().map(|(p, _)| p).collect::<HashSet<_>>().len() == es.len())
+                .prop_filter("remote IDs must be unique",
+                    |es| es.iter().map(|(_, r)| r).collect::<HashSet<_>>().len() == es.len())
+        ) {
+            let (db, _dir) = temp_db();
+
+            Runtime::new().unwrap().block_on(async {
+                for (proof_id, remote_id) in &entries {
+                    db.put_remote_proof_id(*proof_id, remote_id.clone()).await.unwrap();
+                }
+
+                let expected: HashSet<_> = entries.iter().map(|(p, r)| (*p, r.clone())).collect();
+                let got: HashSet<_> = db.list_mappings().unwrap().into_iter().collect();
+                prop_assert_eq!(got, expected);
 
                 Ok(())
             })?;

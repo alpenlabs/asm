@@ -15,7 +15,7 @@ The runner persists into three independent sled databases:
 - **Moho DB** — Moho state snapshots and the per-container export-entry MMR.
   Backed by `strata-asm-moho-storage`. Targeted by `moho` commands.
 - **Proof DB** — ASM/Moho proofs and the remote-prover bookkeeping. Backed by
-  `strata-asm-prover-storage`. Targeted by the planned `proof` commands.
+  `strata-asm-prover-storage`. Targeted by `proof` commands.
 
 Each invocation opens exactly the one database its domain needs, so all are
 selected with a single `--db <path>` flag — point it at whichever directory the
@@ -43,7 +43,8 @@ dbtool [--db <path>] [--pretty] [--write] <domain> <resource> <verb> [args]
   plus an `ssz_hex` blob carrying the canonical bytes losslessly. `put` consumes
   those same bytes from `--file` (raw SSZ, not the hex text), so get → put
   round-trips once you hex-decode `ssz_hex` back to bytes — see the round-trip
-  example below.
+  example below. `proof` records are borsh-encoded instead, so they carry a
+  `borsh_hex` blob in place of `ssz_hex`.
 
 ### Examples
 
@@ -77,6 +78,14 @@ dbtool --db ./data/moho moho state get 1234:6f1a...ee
 # Export-entry MMR: a container's size, a leaf, and its proof
 dbtool --db ./data/moho moho export-entries count 0
 dbtool --db ./data/moho moho export-entries proof 0 5 --at 100
+
+# Proofs (proof DB): latest Moho proof, and the ASM proof for a block range
+dbtool --db ./data/proof --pretty proof moho latest
+dbtool --db ./data/proof proof asm get 1234:6f1a...ee..1240:9c2b...af
+
+# Remote-prover bookkeeping: in-flight jobs and one mapping
+dbtool --db ./data/proof proof status in-progress
+dbtool --db ./data/proof proof mapping get-remote moho:1234:6f1a...ee
 ```
 
 ## Command surface
@@ -109,11 +118,19 @@ and `prune --from` drops every leaf at or above a height across all containers.
 Nothing deduplicates entry hashes: a hash may appear as several leaves, and
 `find` resolves to the most recently appended one.
 
-### Planned (proof DB) — not yet implemented
+### `proof` (proof DB) — implemented
 
-These share the proof DB and the `strata-asm-prover-storage` crate and land in a
-follow-up:
+| Resource | Verbs |
+|---|---|
+| `proof asm` | `get <range>` · `list` · `delete <range>` (w) |
+| `proof moho` | `get <commitment>` · `latest` · `list` · `delete <commitment>` (w) |
+| `proof mapping` | `get-remote <proof_id>` · `get-local <remote_id>` · `list` |
+| `proof status` | `get <remote_id>` · `list` · `in-progress` · `delete <remote_id>` (w) |
+| `proof prune` | `--before <h>` (w) |
 
-- `proof asm get/list/delete` (ASM step proofs)
-- `proof moho get/list/latest/delete` (Moho recursive proofs)
-- `proof mapping` · `proof status` · `proof prune` (remote-prover bookkeeping)
+A `<range>` is `<commitment>` (single block) or `<commitment>..<commitment>`
+(inclusive); a `<proof_id>` is `asm:<range>` or `moho:<commitment>`; a
+`<remote_id>` is the opaque remote id as hex. All three round-trip: the string
+each verb prints copies straight back into the next command. `proof prune`
+drops ASM and Moho proofs only — the mapping and status bookkeeping are left
+untouched.

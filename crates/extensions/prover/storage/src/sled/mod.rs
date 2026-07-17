@@ -35,19 +35,47 @@ pub struct SledProofDb {
 }
 
 impl SledProofDb {
+    /// Tree names the store occupies within its sled database.
+    const TREE_NAMES: [&'static str; 5] = [
+        "asm_proofs",
+        "moho_proofs",
+        "proof_to_remote",
+        "remote_to_proof",
+        "remote_proof_status",
+    ];
+
     /// Opens the proof trees on an already-open sled database.
     ///
     /// Callers open the [`sled::Db`] themselves so multiple handles — e.g. the
     /// `strata-asm-moho-storage` state store — can share the same on-disk
     /// directory; sled does not allow opening the same path twice in a process.
     pub fn open(db: &sled::Db) -> Result<Self, sled::Error> {
+        let [
+            asm_proofs,
+            moho_proofs,
+            proof_to_remote,
+            remote_to_proof,
+            remote_proof_status,
+        ] = Self::TREE_NAMES;
         Ok(Self {
-            asm_proofs: db.open_tree("asm_proofs")?,
-            moho_proofs: db.open_tree("moho_proofs")?,
-            proof_to_remote: db.open_tree("proof_to_remote")?,
-            remote_to_proof: db.open_tree("remote_to_proof")?,
-            remote_proof_status: db.open_tree("remote_proof_status")?,
+            asm_proofs: db.open_tree(asm_proofs)?,
+            moho_proofs: db.open_tree(moho_proofs)?,
+            proof_to_remote: db.open_tree(proof_to_remote)?,
+            remote_to_proof: db.open_tree(remote_to_proof)?,
+            remote_proof_status: db.open_tree(remote_proof_status)?,
         })
+    }
+
+    /// Whether `db` already contains the proof trees.
+    ///
+    /// [`Self::open`] creates missing trees as a side effect. Callers that must
+    /// not mutate a database they did not create — offline tooling probing an
+    /// operator-supplied path — check this before opening.
+    pub fn exists_in(db: &sled::Db) -> bool {
+        let names = db.tree_names();
+        Self::TREE_NAMES
+            .iter()
+            .all(|tree| names.iter().any(|name| name.as_ref() == tree.as_bytes()))
     }
 }
 
@@ -91,13 +119,6 @@ pub(crate) fn encode_asm_key(range: &L1Range) -> [u8; ENCODED_L1_RANGE_SIZE] {
 }
 
 /// Decodes a 72-byte ASM proof key back into an [`L1Range`].
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "completes the encode/decode pair; useful for key iteration/debugging"
-    )
-)]
 pub(crate) fn decode_asm_key(key: &[u8; ENCODED_L1_RANGE_SIZE]) -> L1Range {
     let start = decode_block_commitment(&key[..ENCODED_L1_COMMITMENT_SIZE]);
     let end = decode_block_commitment(&key[ENCODED_L1_COMMITMENT_SIZE..]);
@@ -176,7 +197,24 @@ pub(crate) mod test_util {
 mod tests {
     use proptest::prelude::*;
 
-    use super::test_util::{arb_l1_block_commitment, arb_l1_range};
+    use super::{
+        SledProofDb,
+        test_util::{arb_l1_block_commitment, arb_l1_range},
+    };
+
+    // `exists_in` must not itself create the trees — it is the guard callers
+    // use to avoid `open`'s create-on-miss side effect.
+    #[test]
+    fn exists_in_reports_tree_presence_without_creating_them() {
+        let dir = tempfile::tempdir().expect("failed to create temp dir");
+        let db = sled::open(dir.path()).expect("failed to open sled db");
+
+        assert!(!SledProofDb::exists_in(&db));
+        assert!(!SledProofDb::exists_in(&db)); // probing twice creates nothing
+
+        SledProofDb::open(&db).expect("failed to open proof trees");
+        assert!(SledProofDb::exists_in(&db));
+    }
 
     proptest! {
         #[test]

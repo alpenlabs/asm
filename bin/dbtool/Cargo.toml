@@ -14,11 +14,15 @@ workspace = true
 asm-storage.workspace = true
 strata-asm-common.workspace = true
 strata-asm-moho-storage.workspace = true
+strata-asm-prover-storage.workspace = true
+strata-asm-prover-types.workspace = true
 strata-identifiers.workspace = true
 
 moho-types.workspace = true
+zkaleido.workspace = true
 
 anyhow.workspace = true
+borsh.workspace = true
 clap.workspace = true
 hex.workspace = true
 serde_json.workspace = true

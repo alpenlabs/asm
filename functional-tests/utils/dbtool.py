@@ -100,6 +100,16 @@ def snapshot_db(db_path: str) -> str:
     return dst
 
 
+def proof_db_path(db_path: str) -> str:
+    """The proof DB path beside a storage `db_path`.
+
+    The runner opens the storage DB at `<envdd>/asm_rpc/db` and the proof DB at
+    `<envdd>/asm_rpc/proof_db` (see `ProverEnv._orchestrator_config`), so the
+    proof DB is the storage DB's sibling. Only populated under the `prover` env.
+    """
+    return os.path.join(os.path.dirname(db_path), "proof_db")
+
+
 def write_ssz_file(ssz_hex: str) -> str:
     """Decode an `ssz_hex` field to raw bytes in a temp file `put --file` can read."""
     fd, path = tempfile.mkstemp(suffix=".ssz")

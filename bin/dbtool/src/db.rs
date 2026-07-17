@@ -25,6 +25,14 @@ pub(crate) fn open_moho(path: Option<PathBuf>) -> Result<sled::Db> {
     open_at(path, "Moho")
 }
 
+/// Opens the proof sled DB at the required `--db` path.
+///
+/// Backs the `proof` commands (proofs and the remote-prover bookkeeping share
+/// one directory).
+pub(crate) fn open_proof(path: Option<PathBuf>) -> Result<sled::Db> {
+    open_at(path, "proof")
+}
+
 /// Opens an existing sled DB at `path`, rejecting a missing directory.
 ///
 /// `dbtool` only ever inspects or maintains a database the runner already
