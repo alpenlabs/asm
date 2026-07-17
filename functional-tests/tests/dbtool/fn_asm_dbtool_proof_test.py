@@ -2,6 +2,7 @@ import logging
 
 import flexitest
 
+from envs import ProverEnv
 from utils.dbtool import (
     proof_db_path,
     run_dbtool,
@@ -27,7 +28,10 @@ class AsmDbtoolProofTest(flexitest.Test):
     """
 
     def __init__(self, ctx: flexitest.InitContext):
-        ctx.set_env("prover")
+        # A dedicated prover env, not the shared `prover` one: the test stops the
+        # runner to release sled's lock for offline dbtool inspection, which must
+        # not disturb other tests. flexitest tears this env down afterwards.
+        ctx.set_env(ProverEnv())
 
     def main(self, ctx: flexitest.RunContext):
         bitcoind_service = ctx.get_service("bitcoin")
