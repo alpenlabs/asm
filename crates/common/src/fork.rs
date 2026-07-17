@@ -12,9 +12,18 @@ use strata_identifiers::L1Height;
 
 /// Identifies a named fork.
 ///
-/// One variant per protocol upgrade, in activation order. Discriminants are
-/// stable: they key persisted fork-activation records and are the raw fork
-/// ids carried in ASM VK upgrade actions.
+/// One variant per protocol upgrade, in activation order. The numeric
+/// discriminant is the stable identity: it keys persisted fork-activation
+/// records (stored as the raw discriminant byte) and is the raw id carried in
+/// ASM VK upgrade actions. Neither path goes through this type's serde, so a
+/// persisted record or an in-flight action is unaffected by a variant being
+/// renamed — the byte and the id stay the same.
+///
+/// The variant name is the human-readable form: it is this type's serde
+/// representation (snake_case) and is mirrored by the [`ForkSchedule`] params
+/// field. Names are meant to change — `Fork1` is a placeholder for an upgrade
+/// not yet defined — so renaming one once defined is a routine migration of the
+/// human-facing config, leaving persisted records and wire actions untouched.
 ///
 /// The id crosses two boundaries with opposite tolerances:
 ///
@@ -29,8 +38,11 @@ use strata_identifiers::L1Height;
 #[serde(rename_all = "snake_case")]
 #[repr(u8)]
 pub enum ForkId {
-    /// Placeholder for the first protocol upgrade; renamed once that upgrade
-    /// is defined.
+    /// Placeholder for the first protocol upgrade; renamed once that upgrade is
+    /// defined. The rename is a migration of the human-readable name (this
+    /// variant's serde form and the [`ForkSchedule`] params field); persisted
+    /// records and wire actions key on the numeric discriminant and are
+    /// unaffected.
     Fork1 = 0,
 }
 
@@ -185,9 +197,17 @@ mod tests {
         assert_eq!(back, disabled);
     }
 
+    /// Serde is the human-readable form (the variant name). The stable numeric
+    /// identity used for persistence and the wire is exercised by
+    /// [`fork_id_u16_roundtrip`] instead.
     #[test]
-    fn fork_id_serde_snake_case() {
+    fn fork_id_serde_is_the_variant_name() {
         assert_eq!(serde_json::to_string(&ForkId::Fork1).unwrap(), r#""fork1""#);
+        assert_eq!(
+            serde_json::from_str::<ForkId>(r#""fork1""#).unwrap(),
+            ForkId::Fork1
+        );
+        assert!(serde_json::from_str::<ForkId>(r#""nope""#).is_err());
     }
 
     /// Raw fork ids on the wire round-trip through the enum; unknown ids
