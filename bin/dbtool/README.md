@@ -8,16 +8,16 @@ The binary is `dbtool` (crate `asm-dbtool`).
 
 ## Storage model
 
-The runner persists into two independent sled databases:
+The runner persists into three independent sled databases:
 
-- **Storage DB** — anchor state, aux data, full manifests, and the
-  manifest-hash MMR. Backed by the `asm-storage` crate. Targeted by `asm`
-  commands.
-- **Proof DB** — ASM/Moho proofs, Moho state, and the remote-prover bookkeeping.
-  Backed by `strata-asm-proof-db`. Targeted by the planned `moho`/`proof`
-  commands.
+- **ASM DB** — anchor state, aux data, full manifests, and the manifest-hash
+  MMR. Backed by the `asm-storage` crate. Targeted by `asm` commands.
+- **Moho DB** — Moho state snapshots and the per-container export-entry MMR.
+  Backed by `strata-asm-moho-storage`. Targeted by the planned `moho` commands.
+- **Proof DB** — ASM/Moho proofs and the remote-prover bookkeeping. Backed by
+  `strata-asm-proof-db`. Targeted by the planned `proof` commands.
 
-Each invocation opens exactly the one database its command needs, so both are
+Each invocation opens exactly the one database its domain needs, so all are
 selected with a single `--db <path>` flag — point it at whichever directory the
 command operates on. **sled takes an exclusive lock on the directory, so the
 runner must be stopped** while `dbtool` runs.
@@ -70,7 +70,7 @@ dbtool --db ./data/asm --write asm manifest put --file manifest.ssz
 
 ## Command surface
 
-### `asm` (storage DB) — implemented
+### `asm` (ASM DB) — implemented
 
 | Resource | Verbs |
 |---|---|
@@ -84,11 +84,11 @@ height-indexed, so the `<index>` read by `leaf`/`proof` and the `<height>`
 written by `put-leaf` are the same value — the leaf for the block at height `h`
 is leaf index `h`.
 
-### Planned (proof DB) — not yet implemented
+### Planned — not yet implemented
 
-These share the proof DB and the `strata-asm-proof-db` crate and land in a
-follow-up:
+These land in follow-ups:
 
-- `asm proof get/list/delete` (ASM step proofs)
-- `moho state` · `moho export-entries[-mmr]` · `moho proof`
-- `proof mapping` · `proof status` · `proof prune` (remote-prover bookkeeping)
+- `moho state` · `moho export-entries[-mmr]` (Moho DB, `strata-asm-moho-storage`)
+- `proof asm get/list/delete` (ASM step proofs), `proof moho …` (Moho recursive
+  proofs), and `proof mapping` · `proof status` · `proof prune` (remote-prover
+  bookkeeping) — all in the proof DB, `strata-asm-proof-db`

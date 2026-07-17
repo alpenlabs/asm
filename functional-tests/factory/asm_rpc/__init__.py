@@ -45,12 +45,14 @@ class AsmRpcFactory(flexitest.Factory):
 
         rpc_port = self.next_port()
         db_path = str((envdd_path / service_name / "db").resolve())
+        moho_db_path = str((envdd_path / service_name / "moho_db").resolve())
 
         config_toml_path = str((envdd_path / service_name / "config.toml").resolve())
         generate_asm_rpc_config(
             bitcoind_props=bitcoind_props,
             rpc_port=rpc_port,
             db_path=db_path,
+            moho_db_path=moho_db_path,
             output_path=config_toml_path,
             orchestrator=orchestrator,
         )
@@ -68,6 +70,7 @@ class AsmRpcFactory(flexitest.Factory):
             "rpc_port": rpc_port,
             "rpc_url": f"http://127.0.0.1:{rpc_port}",
             "db_path": db_path,
+            "moho_db_path": moho_db_path,
             "log_path": logfile,
         }
 
@@ -106,6 +109,7 @@ def generate_asm_rpc_config(
     bitcoind_props: dict,
     rpc_port: int,
     db_path: str,
+    moho_db_path: str,
     output_path: str,
     orchestrator: OrchestratorConfig | None = None,
 ):
@@ -113,7 +117,8 @@ def generate_asm_rpc_config(
     config = AsmRpcConfig(
         rpc=RpcConfig(host="127.0.0.1", port=rpc_port),
         database=DatabaseConfig(
-            path=db_path,
+            asm_path=db_path,
+            moho_path=moho_db_path,
             num_threads=4,
             retry_count=4,
             delay=Duration(secs=0, nanos=150_000_000),

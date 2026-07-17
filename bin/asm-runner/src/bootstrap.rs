@@ -2,10 +2,8 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use bitcoind_async_client::{Auth, Client};
-use strata_asm_moho_storage::SledMohoStateDb;
 use strata_asm_moho_worker::MohoWorkerBuilder;
 use strata_asm_params::AsmParams;
-use strata_asm_prover_storage::SledProofDb;
 use strata_asm_prover_worker::{InputBuilder, ProofBackend, ProverWorkerBuilder};
 use strata_asm_spec::StrataAsmSpec;
 use strata_asm_worker::AsmWorkerBuilder;
@@ -18,7 +16,9 @@ use crate::{
     moho_context::MohoWorkerContextImpl,
     prover_context::AsmProverContext,
     rpc_server::{AsmProofRpcDeps, run_rpc_server},
-    storage::{Storage, create_storage},
+    storage::{
+        AsmStorage, MohoStorage, create_asm_storage, create_moho_storage, create_proof_storage,
+    },
     worker_context::AsmWorkerContext,
 };
 pub(crate) async fn bootstrap(
@@ -26,27 +26,29 @@ pub(crate) async fn bootstrap(
     params: AsmParams,
     executor: TaskExecutor,
 ) -> Result<()> {
-    // 1. Create storage
-    let Storage {
+    // 1. Create storage. The ASM and Moho stores live in two separate sled DBs; the proof DB is
+    //    opened with the orchestrator that owns it (step 3).
+    let AsmStorage {
         state_db,
         aux_db,
         manifest_db,
         mmr_db,
+    } = create_asm_storage(&config.database.asm_path)?;
+    let MohoStorage {
+        state_db: moho_state_db,
         export_entries_db,
-    } = create_storage(&config.database)?;
+    } = create_moho_storage(&config.database.moho_path)?;
 
     // 2. Connect to Bitcoin node
     let bitcoin_client = Arc::new(connect_bitcoin(&config.bitcoin).await?);
 
     // 3. If the orchestrator is configured, open proof storage and build the proof backend up front
-    //    so the Moho worker and orchestrator can receive the moho-state db and the asm predicate.
+    //    so the Moho worker and orchestrator can receive the asm predicate.
     let runtime_handle = Handle::current();
     let orch_prep = if let Some(orch_config) = config.orchestrator {
-        let sled_db = sled::open(&orch_config.proof_db_path)?;
-        let proof_db = SledProofDb::open(&sled_db)?;
-        let moho_state_db = SledMohoStateDb::open(&sled_db)?;
+        let proof_db = create_proof_storage(&orch_config.proof_db_path)?;
         let backend = ProofBackend::new(&orch_config.backend).await?;
-        Some((orch_config, proof_db, moho_state_db, backend))
+        Some((orch_config, proof_db, backend))
     } else {
         None
     };
@@ -84,7 +86,7 @@ pub(crate) async fn bootstrap(
     let asm_worker = Arc::new(asm_worker);
 
     // 6. Finish orchestrator wiring if it was configured.
-    let proof_rpc_deps = if let Some((orch_config, proof_db, moho_state_db, backend)) = orch_prep {
+    let proof_rpc_deps = if let Some((orch_config, proof_db, backend)) = orch_prep {
         let rpc_deps = AsmProofRpcDeps {
             proof_db: proof_db.clone(),
             moho_state_db: moho_state_db.clone(),
