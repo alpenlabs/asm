@@ -69,6 +69,9 @@ class AsmDbtoolMohoTest(flexitest.Test):
         assert code != 0 and "Moho DB" in err, (code, err)
         code, _out, err = run_dbtool(asm_db, "moho", "export-entries", "count", "2")
         assert code != 0 and "Moho DB" in err, (code, err)
+        # And the reverse: asm commands against the Moho DB.
+        code, _out, err = run_dbtool(moho_db, "asm", "state", "latest")
+        assert code != 0 and "ASM DB" in err, (code, err)
 
         # moho state: list / latest / get round-trip / get (missing).
         states = run_dbtool_json(moho_db, "moho", "state", "list")

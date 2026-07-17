@@ -19,8 +19,11 @@ The runner persists into three independent sled databases:
 
 Each invocation opens exactly the one database its domain needs, so all are
 selected with a single `--db <path>` flag — point it at whichever directory the
-command operates on. **sled takes an exclusive lock on the directory, so the
-runner must be stopped** while `dbtool` runs.
+command operates on. A wrong `--db` fails up front: every command requires the
+runner-created trees it reads to already exist, so dbtool never mutates — or
+reads a phantom empty store out of — a database that isn't the one it expects.
+**sled takes an exclusive lock on the directory, so the runner must be
+stopped** while `dbtool` runs.
 
 ## Usage
 

@@ -15,6 +15,13 @@ use crate::{
 };
 
 pub(crate) fn run(db: &sled::Db, verb: AuxVerb, write: bool) -> Result<Value> {
+    // `open` creates a missing tree as a side effect, which would mutate a
+    // directory dbtool doesn't own and make a wrong `--db` read as an empty
+    // store. The runner always creates this tree, so its absence means this
+    // is not an ASM DB.
+    if !SledAsmAuxDataDb::exists_in(db) {
+        bail!("no aux-data tree in this database — point --db at the ASM DB");
+    }
     let store = SledAsmAuxDataDb::open(db)?;
     match verb {
         AuxVerb::Get { commitment } => {

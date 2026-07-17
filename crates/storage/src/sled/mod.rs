@@ -72,7 +72,10 @@ pub(crate) mod test_util {
 
 #[cfg(test)]
 mod tests {
-    use super::test_util::make_commitment;
+    use super::{
+        SledAsmAuxDataDb, SledAsmManifestDb, SledAsmManifestMmrDb, SledAsmStateDb,
+        test_util::{make_commitment, test_db},
+    };
 
     #[test]
     fn block_commitment_key_roundtrip() {
@@ -80,5 +83,30 @@ mod tests {
         let encoded = super::encode_block_commitment(&commitment);
         let decoded = super::decode_block_commitment(&encoded);
         assert_eq!(commitment, decoded);
+    }
+
+    // `exists_in` must not itself create the tree — it is the guard callers
+    // use to avoid `open`'s create-on-miss side effect. One check per store,
+    // probed twice to prove probing creates nothing.
+    #[test]
+    fn exists_in_reports_tree_presence_without_creating_it() {
+        let (db, _dir) = test_db();
+
+        for _ in 0..2 {
+            assert!(!SledAsmStateDb::exists_in(&db));
+            assert!(!SledAsmAuxDataDb::exists_in(&db));
+            assert!(!SledAsmManifestDb::exists_in(&db));
+            assert!(!SledAsmManifestMmrDb::exists_in(&db));
+        }
+
+        SledAsmStateDb::open(&db).unwrap();
+        SledAsmAuxDataDb::open(&db).unwrap();
+        SledAsmManifestDb::open(&db).unwrap();
+        SledAsmManifestMmrDb::open(&db).unwrap();
+
+        assert!(SledAsmStateDb::exists_in(&db));
+        assert!(SledAsmAuxDataDb::exists_in(&db));
+        assert!(SledAsmManifestDb::exists_in(&db));
+        assert!(SledAsmManifestMmrDb::exists_in(&db));
     }
 }
