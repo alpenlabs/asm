@@ -14,10 +14,17 @@ use strata_identifiers::L1Height;
 ///
 /// One variant per protocol upgrade, in activation order. Discriminants are
 /// stable: they key persisted fork-activation records and are the raw fork
-/// ids carried in ASM VK upgrade actions. Actions carry the raw id rather
-/// than this enum so that artifacts predating a fork can still parse and
-/// enact the upgrade that activates it; consumers that act on the id (the
-/// worker) map the ones they know via [`TryFrom`] and skip the rest.
+/// ids carried in ASM VK upgrade actions.
+///
+/// The id crosses two boundaries with opposite tolerances:
+///
+/// - Parse-time: ASM VK upgrade actions carry the raw id, not this enum, so an artifact predating a
+///   fork can still parse and enact the upgrade that activates it — the wire format never requires
+///   knowing the fork.
+/// - Act-time: a consumer that must *apply* the fork's rules (the worker) maps the id via
+///   [`TryFrom`]. An id it does not know is not skipped: it means the worker is running old
+///   software past an upgrade it cannot execute, so it MUST halt rather than silently limp along on
+///   stale rules.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 #[repr(u8)]
