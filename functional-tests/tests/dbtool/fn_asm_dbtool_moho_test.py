@@ -6,6 +6,7 @@ from utils.dbtool import (
     run_dbtool,
     run_dbtool_json,
     snapshot_db,
+    write_ssz_file,
 )
 from utils.utils import (
     wait_until_asm_reaches_height,
@@ -116,5 +117,58 @@ class AsmDbtoolMohoTest(flexitest.Test):
             moho_db, "moho", "export-entries", "range", container, "999999"
         )
         assert range_missing["found"] is False, range_missing
+
+        # export-entries writes (on a snapshot): append extends the container
+        # and reads back, and the CLI enforces the worker's invariants — runs
+        # must arrive in ascending height order, and the all-zero hash (the
+        # compact MMR's empty-peak sentinel) is not a representable leaf.
+        snap = snapshot_db(moho_db)
+        base = run_dbtool_json(snap, "moho", "export-entries", "count", container)["count"]
+        entries_file = write_ssz_file("ab" * 32 + "cd" * 32)
+        appended = run_dbtool_json(
+            snap,
+            "--write",
+            "moho",
+            "export-entries",
+            "append",
+            container,
+            "999999",
+            "--file",
+            entries_file,
+        )
+        assert appended["appended"] == 2, appended
+        leaf = run_dbtool_json(snap, "moho", "export-entries", "get", container, str(base))
+        assert leaf["found"] is True and leaf["hash"] == "ab" * 32, leaf
+        height = run_dbtool_json(snap, "moho", "export-entries", "height", container, str(base + 1))
+        assert height["height"] == 999999, height
+
+        # A second append at (or below) the latest populated height must be
+        # refused — it would corrupt the height index.
+        code, _out, err = run_dbtool(
+            snap,
+            "--write",
+            "moho",
+            "export-entries",
+            "append",
+            container,
+            "999999",
+            "--file",
+            entries_file,
+        )
+        assert code != 0 and "prune" in err, (code, err)
+
+        zero_file = write_ssz_file("00" * 32)
+        code, _out, err = run_dbtool(
+            snap,
+            "--write",
+            "moho",
+            "export-entries",
+            "append",
+            container,
+            "1000000",
+            "--file",
+            zero_file,
+        )
+        assert code != 0 and "all-zero" in err, (code, err)
 
         return True

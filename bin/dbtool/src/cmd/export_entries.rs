@@ -5,7 +5,7 @@
 
 use std::{fs, path::Path};
 
-use anyhow::{Result, bail};
+use anyhow::{Context, Result, bail};
 use serde_json::{Value, json};
 use ssz::Encode;
 use strata_asm_moho_storage::SledExportEntriesDb;
@@ -86,6 +86,23 @@ pub(crate) fn run(db: &sled::Db, verb: ExportEntriesVerb, write: bool) -> Result
             ensure_write(write)?;
             let entries = read_hashes(&file)?;
             let count = entries.len();
+            // The store's height index assumes runs arrive in ascending height
+            // order — the worker prunes stale suffixes before re-appending.
+            // Appending at or below the latest populated height would record an
+            // out-of-order run start and corrupt `height`, `range`, and
+            // `prune --from`, so require a clean suffix here too.
+            let num_entries = store.num_entries(container)?;
+            if num_entries > 0 {
+                let latest = store
+                    .entry_height(container, num_entries - 1)?
+                    .context("last leaf has no height row")?;
+                if height <= latest {
+                    bail!(
+                        "cannot append at height {height}: container {container} already has \
+                         leaves up to height {latest}; `prune --from` the stale suffix first"
+                    );
+                }
+            }
             store.append(container, height, entries)?;
             Ok(json!({ "appended": count, "container": container, "height": height }))
         }
@@ -103,14 +120,19 @@ pub(crate) fn run(db: &sled::Db, verb: ExportEntriesVerb, write: bool) -> Result
 /// file must be a whole number of 32-byte hashes.
 fn read_hashes(file: &Path) -> Result<Vec<[u8; 32]>> {
     let bytes = fs::read(file)?;
-    if bytes.len() % 32 != 0 {
+    let (hashes, remainder) = bytes.as_chunks::<32>();
+    if !remainder.is_empty() {
         bail!(
             "entry file length {} is not a multiple of 32 bytes",
             bytes.len()
         );
     }
-    Ok(bytes
-        .chunks_exact(32)
-        .map(|chunk| chunk.try_into().expect("chunk is 32 bytes"))
-        .collect())
+    // The compact-peaks MMR these leaves verify against reads an all-zero
+    // hash as an empty-peak sentinel, so it isn't a representable leaf —
+    // storing one would silently corrupt later proofs (same guard as
+    // `asm manifest-mmr put-leaf`).
+    if hashes.contains(&[0u8; 32]) {
+        bail!("refusing to store an all-zero leaf: it is the MMR's empty-peak sentinel");
+    }
+    Ok(hashes.to_vec())
 }
