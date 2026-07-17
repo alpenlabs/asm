@@ -648,3 +648,97 @@ async fn test_first_valid_second_malformed_only_first_accepted() {
         "only the valid first checkpoint should emit a tip-update log"
     );
 }
+
+// ============================================================================
+// Reorg + manifest MMR
+// ============================================================================
+
+/// A checkpoint's proof binds to the ASM manifests of the exact L1 blocks it
+/// covers, so the *same* checkpoint transaction that verifies against one chain
+/// is rejected once those blocks are reorged out from under it.
+///
+/// Flow:
+/// 1. Mine one L1 block (branch A) and a checkpoint covering it; the checkpoint is accepted, so the
+///    epoch advances to 1.
+/// 2. Reorg branch A out from the covered block onto a longer, empty branch B. The block carrying
+///    the checkpoint is abandoned and the covered height's manifest leaf is replaced.
+/// 3. Re-broadcast and mine the very same checkpoint transaction on branch B. Its proof still
+///    commits to branch A's manifest, which branch B no longer reproduces, so it is now rejected:
+///    the epoch stays 0 and no tip-update log is emitted.
+#[tokio::test(flavor = "multi_thread")]
+async fn test_reorg_invalidates_checkpoint_proof_via_manifest_mmr() {
+    let Setup {
+        harness,
+        checkpoint: checkpoint_harness,
+        ..
+    } = AsmTestHarnessBuilder::default()
+        .with_txindex()
+        .build()
+        .await;
+
+    // 1. One block on branch A, then a checkpoint covering it. Capture the covered manifest leaf
+    //    (which commits to branch A's block id) to assert the reorg replaces it below.
+    let branch_a_block = harness.mine_block(None).await.unwrap();
+    let covered_height = harness.get_processed_height().unwrap();
+    let branch_a_leaf = harness.get_manifest_hash(covered_height).unwrap();
+
+    let (checkpoint_tx, _) = harness
+        .build_checkpoint_tx(&checkpoint_harness, vec![])
+        .await
+        .unwrap();
+
+    // The checkpoint's funding tx (built into the mempool but not returned). Capture its bytes now
+    // so the same checkpoint can be re-broadcast after the reorg. Whether `invalidateblock`
+    // restores the disconnected txs to the mempool is not deterministic (it depends on whether
+    // the funding's coinbase input stays mature once the tip drops), but re-submitting is
+    // idempotent, so step 3 works either way.
+    let funding_txid = checkpoint_tx.input[0].previous_output.txid;
+    let funding_tx = harness.get_raw_transaction(funding_txid).await.unwrap();
+
+    // The checkpoint verifies against branch A: its proof binds to branch A's live manifests.
+    harness.submit_and_mine_tx(&checkpoint_tx).await.unwrap();
+    assert_eq!(
+        harness.checkpoint_state().unwrap().verified_tip().epoch,
+        1,
+        "the checkpoint should be accepted on branch A, advancing the epoch to 1",
+    );
+    assert_eq!(
+        harness.checkpoint_tip_update_logs().unwrap().len(),
+        1,
+        "the accepted checkpoint should emit one tip-update log on branch A",
+    );
+
+    // 2. Reorg branch A out from the covered block, under a strictly longer, empty branch B. The
+    //    ASM reprocesses onto branch B — replacing the covered height's manifest leaf and rolling
+    //    the epoch back to 0. The empty branch-B blocks are mined with `generateblock`, so branch B
+    //    does not confirm the checkpoint or its funding.
+    harness.reorg(branch_a_block, 4).await.unwrap();
+    assert_ne!(
+        harness.get_manifest_hash(covered_height).unwrap(),
+        branch_a_leaf,
+        "the reorg should replace the covered height's manifest leaf",
+    );
+    assert_eq!(
+        harness.checkpoint_state().unwrap().verified_tip().epoch,
+        0,
+        "reorging the checkpoint's block out should roll the epoch back to 0",
+    );
+
+    // 3. Re-broadcast the very same funding and checkpoint transactions and mine them on branch B
+    //    (`submit_transaction` returns the txid whether or not the tx is already in the mempool, so
+    //    this is a no-op when the reorg restored them). The bytes are identical to what verified on
+    //    branch A, but the covered height's manifest is now branch B's: the handler reconstructs a
+    //    claim the proof never signed, so the checkpoint is rejected. The epoch stays 0 and no
+    //    tip-update log is emitted.
+    harness.submit_transaction(&funding_tx).await.unwrap();
+    harness.submit_and_mine_tx(&checkpoint_tx).await.unwrap();
+    assert_eq!(
+        harness.checkpoint_state().unwrap().verified_tip().epoch,
+        0,
+        "the same checkpoint is rejected on branch B: its covered manifest was reorged out",
+    );
+    assert!(
+        harness.checkpoint_tip_update_logs().unwrap().is_empty(),
+        "the rejected checkpoint must emit no tip-update log on branch B",
+    );
+}

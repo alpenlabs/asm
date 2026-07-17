@@ -396,6 +396,15 @@ impl AsmTestHarness {
         Ok(self.context.client.get_block(&block_hash).await?)
     }
 
+    /// Fetch a confirmed or mempool transaction from Bitcoin by txid.
+    pub async fn get_raw_transaction(&self, txid: Txid) -> anyhow::Result<Transaction> {
+        Ok(self
+            .client
+            .get_raw_transaction_verbosity_zero(&txid)
+            .await?
+            .0)
+    }
+
     /// Get the number of MMR leaves (manifest hashes) stored.
     pub fn get_mmr_leaf_count(&self) -> usize {
         self.context.mmr_leaf_count() as usize
