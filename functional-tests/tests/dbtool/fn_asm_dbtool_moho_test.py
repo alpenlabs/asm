@@ -171,11 +171,11 @@ class AsmDbtoolMohoTest(flexitest.Test):
         )
         assert code != 0 and "all-zero" in err, (code, err)
 
-        # Duplicate hashes are refused — both repeats within one file and a
-        # hash the container already stores (the store keeps one `hash → index`
-        # row, so a duplicate would corrupt `find` after a later prune).
-        dup_in_file = write_ssz_file("ee" * 32 + "ee" * 32)
-        code, _out, err = run_dbtool(
+        # Duplicate hashes are legal — nothing deduplicates entries. The store
+        # keeps one `hash → index` row, so `find` resolves to the newest leaf
+        # while the older leaf stays readable by index.
+        dup_file = write_ssz_file("ab" * 32)
+        appended = run_dbtool_json(
             snap,
             "--write",
             "moho",
@@ -184,22 +184,12 @@ class AsmDbtoolMohoTest(flexitest.Test):
             container,
             "1000000",
             "--file",
-            dup_in_file,
+            dup_file,
         )
-        assert code != 0 and "duplicate" in err, (code, err)
-
-        dup_in_store = write_ssz_file("ab" * 32)
-        code, _out, err = run_dbtool(
-            snap,
-            "--write",
-            "moho",
-            "export-entries",
-            "append",
-            container,
-            "1000000",
-            "--file",
-            dup_in_store,
-        )
-        assert code != 0 and "already stored" in err, (code, err)
+        assert appended["appended"] == 1, appended
+        found = run_dbtool_json(snap, "moho", "export-entries", "find", container, "ab" * 32)
+        assert found["found"] is True and found["index"] == base + 2, found
+        old_leaf = run_dbtool_json(snap, "moho", "export-entries", "get", container, str(base))
+        assert old_leaf["found"] is True and old_leaf["hash"] == "ab" * 32, old_leaf
 
         return True

@@ -213,7 +213,9 @@ pub(crate) enum MohoStateVerb {
 pub(crate) enum ExportEntriesVerb {
     /// Print the entry hash at `(container, index)`.
     Get { container: u8, index: u64 },
-    /// Resolve the `mmr_index` of `hash_hex` within `container`.
+    /// Resolve the `mmr_index` of `hash_hex` within `container`. Duplicate
+    /// hashes are legal; when leaves share a hash this resolves to the most
+    /// recently appended one.
     Find { container: u8, hash: String },
     /// Print the L1 height at which the leaf at `(container, index)` was inserted.
     Height { container: u8, index: u64 },
@@ -230,7 +232,9 @@ pub(crate) enum ExportEntriesVerb {
         at: Option<u64>,
     },
     /// Append 32-byte entry hashes for `container` at `height` from a file of
-    /// concatenated raw hashes (length must be a multiple of 32).
+    /// concatenated raw hashes (length must be a multiple of 32). A hash the
+    /// container already stores may be appended again — `find` then resolves
+    /// to the newest leaf.
     Append {
         container: u8,
         height: u32,

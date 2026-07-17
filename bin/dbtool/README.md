@@ -103,6 +103,8 @@ is leaf index `h`.
 its own key. `moho export-entries` addresses each leaf by its `mmr_index`
 within a container; `append` reads a file of concatenated raw 32-byte hashes,
 and `prune --from` drops every leaf at or above a height across all containers.
+Nothing deduplicates entry hashes: a hash may appear as several leaves, and
+`find` resolves to the most recently appended one.
 
 ### Planned (proof DB) — not yet implemented
 
