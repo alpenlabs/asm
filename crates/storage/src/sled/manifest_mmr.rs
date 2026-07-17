@@ -80,13 +80,27 @@ pub struct SledAsmManifestMmrDb {
 }
 
 impl SledAsmManifestMmrDb {
+    /// Tree name the store occupies within its sled database.
+    const TREE_NAME: &'static str = "mmr_nodes";
+
     /// Opens or creates the MMR node tree in the given sled instance.
     pub fn open(db: &sled::Db) -> Result<Self> {
         Ok(Self {
             inner: AsmManifestMmrNodeStore {
-                nodes: db.open_tree("mmr_nodes")?,
+                nodes: db.open_tree(Self::TREE_NAME)?,
             },
         })
+    }
+
+    /// Whether `db` already contains the MMR node tree.
+    ///
+    /// [`Self::open`] creates a missing tree as a side effect. Callers that
+    /// must not mutate a database they did not create — offline tooling
+    /// probing an operator-supplied path — check this before opening.
+    pub fn exists_in(db: &sled::Db) -> bool {
+        db.tree_names()
+            .iter()
+            .any(|name| name.as_ref() == Self::TREE_NAME.as_bytes())
     }
 
     /// Synchronous variant of [`AsmManifestMmrDb::leaf_count`].

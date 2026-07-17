@@ -17,11 +17,25 @@ pub struct SledAsmAuxDataDb {
 }
 
 impl SledAsmAuxDataDb {
+    /// Tree name the store occupies within its sled database.
+    const TREE_NAME: &'static str = "asm_aux";
+
     /// Opens or creates the auxiliary-data tree in the given sled instance.
     pub fn open(db: &sled::Db) -> Result<Self> {
         Ok(Self {
-            aux: db.open_tree("asm_aux")?,
+            aux: db.open_tree(Self::TREE_NAME)?,
         })
+    }
+
+    /// Whether `db` already contains the auxiliary-data tree.
+    ///
+    /// [`Self::open`] creates a missing tree as a side effect. Callers that
+    /// must not mutate a database they did not create — offline tooling
+    /// probing an operator-supplied path — check this before opening.
+    pub fn exists_in(db: &sled::Db) -> bool {
+        db.tree_names()
+            .iter()
+            .any(|name| name.as_ref() == Self::TREE_NAME.as_bytes())
     }
 
     /// Synchronous variant of [`AsmAuxDataDb::put`]. The ASM worker runs on a

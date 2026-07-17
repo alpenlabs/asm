@@ -16,6 +16,13 @@ use crate::{
 };
 
 pub(crate) fn run(db: &sled::Db, verb: StateVerb, write: bool) -> Result<Value> {
+    // `open` creates a missing tree as a side effect, which would mutate a
+    // directory dbtool doesn't own and make a wrong `--db` read as an empty
+    // store. The runner always creates this tree, so its absence means this
+    // is not an ASM DB.
+    if !SledAsmStateDb::exists_in(db) {
+        bail!("no anchor-state tree in this database — point --db at the ASM DB");
+    }
     let store = SledAsmStateDb::open(db)?;
     match verb {
         StateVerb::Get { commitment } => {

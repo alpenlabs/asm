@@ -779,10 +779,12 @@ dependencies = [
  "asm-storage",
  "clap",
  "hex",
+ "moho-types",
  "serde_json",
  "sled",
  "ssz",
  "strata-asm-common",
+ "strata-asm-moho-storage",
  "strata-identifiers",
 ]
 

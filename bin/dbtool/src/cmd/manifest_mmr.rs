@@ -12,6 +12,13 @@ use crate::{
 };
 
 pub(crate) fn run(db: &sled::Db, verb: MmrVerb, write: bool) -> Result<Value> {
+    // `open` creates a missing tree as a side effect, which would mutate a
+    // directory dbtool doesn't own and make a wrong `--db` read as an empty
+    // store. The runner always creates this tree, so its absence means this
+    // is not an ASM DB.
+    if !SledAsmManifestMmrDb::exists_in(db) {
+        bail!("no manifest-MMR tree in this database — point --db at the ASM DB");
+    }
     let store = SledAsmManifestMmrDb::open(db)?;
     match verb {
         MmrVerb::Count => Ok(json!({ "leaf_count": store.leaf_count()? })),
