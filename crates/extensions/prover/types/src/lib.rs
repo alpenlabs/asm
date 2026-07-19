@@ -39,10 +39,11 @@ impl fmt::Display for ProofId {
 }
 
 impl ProofId {
-    /// Returns the height used for ordering.
+    /// Returns the proof's L1 height.
     ///
-    /// For ASM proofs this is the start height; for Moho proofs the anchor height.
-    fn ordering_height(&self) -> u32 {
+    /// For ASM proofs this is the start height; for Moho proofs the anchor
+    /// height. Also used for ordering.
+    pub fn height(&self) -> u32 {
         match self {
             ProofId::Asm(range) => range.start().height(),
             ProofId::Moho(commitment) => commitment.height(),
@@ -62,8 +63,8 @@ impl ProofId {
 
 impl Ord for ProofId {
     fn cmp(&self, other: &Self) -> Ordering {
-        self.ordering_height()
-            .cmp(&other.ordering_height())
+        self.height()
+            .cmp(&other.height())
             .then_with(|| self.variant_rank().cmp(&other.variant_rank()))
             .then_with(|| {
                 // Within the same variant and height, break ties by full key.

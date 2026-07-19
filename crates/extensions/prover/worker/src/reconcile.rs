@@ -5,7 +5,7 @@
 //! persisted to the proof store, failed proofs are dropped so the scheduler can
 //! resubmit them, and everything else just has its stored status refreshed.
 
-use strata_asm_prover_types::{ProofId, RemoteProofId};
+use strata_asm_prover_types::RemoteProofId;
 use tracing::{debug, error, warn};
 use zkaleido::{RemoteProofStatus, ZkVmRemoteHost};
 
@@ -118,13 +118,7 @@ where
 
     proof_store::store_completed_proof(&state.ctx, proof_id, receipt).await?;
 
-    if let ProofId::Moho(block) = proof_id
-        && state
-            .last_proven
-            .is_none_or(|cur| block.height() > cur.height())
-    {
-        state.last_proven = Some(block);
-    }
+    state.advance_proven(&proof_id);
 
     state
         .ctx

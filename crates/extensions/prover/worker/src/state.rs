@@ -1,5 +1,7 @@
 //! Service state for the prover worker.
 
+use std::sync::Arc;
+
 use strata_asm_prover_types::{L1Range, ProofId};
 use strata_identifiers::L1BlockCommitment;
 use strata_service::ServiceState;
@@ -12,6 +14,7 @@ use crate::{
     constants,
     errors::{ProverError, ProverResult},
     input::InputBuilder,
+    peer::ProofPeer,
     queue::PendingProofQueue,
 };
 
@@ -54,6 +57,14 @@ pub struct ProverServiceState<C, H> {
     /// newly completed proofs. Surfaced through
     /// [`ProverStatus`](crate::service::ProverStatus) for observability.
     pub(crate) last_proven: Option<L1BlockCommitment>,
+
+    /// Peer proof source; present iff the worker runs in
+    /// [`ProverMode::Follower`](crate::config::ProverMode::Follower).
+    pub(crate) peer: Option<Arc<dyn ProofPeer + Send + Sync>>,
+
+    /// Consecutive failed peer status probes (follower mode). Reset on the
+    /// first successful probe.
+    pub(crate) peer_failures: u32,
 }
 
 impl<C, H> ProverServiceState<C, H>
@@ -85,6 +96,7 @@ where
         moho: H,
         config: OrchestratorConfig,
         input_builder: InputBuilder,
+        peer: Option<Arc<dyn ProofPeer + Send + Sync>>,
     ) -> ProverResult<Self> {
         let last_committed = ctx
             .get_latest_moho_state()
@@ -123,6 +135,8 @@ where
             queue,
             last_committed,
             last_proven,
+            peer,
+            peer_failures: 0,
         })
     }
 
@@ -136,6 +150,20 @@ where
         self.queue.enqueue(ProofId::Asm(L1Range::single(block)));
         self.queue.enqueue(ProofId::Moho(block));
         self.last_committed = Some(block);
+    }
+
+    /// Advances the proven frontier if `proof_id` is a Moho proof above it.
+    ///
+    /// Called whenever a completed Moho proof lands in the proof store —
+    /// whether reconciled from the remote prover or fetched from a peer.
+    pub(crate) fn advance_proven(&mut self, proof_id: &ProofId) {
+        if let ProofId::Moho(block) = proof_id
+            && self
+                .last_proven
+                .is_none_or(|cur| block.height() > cur.height())
+        {
+            self.last_proven = Some(*block);
+        }
     }
 }
 

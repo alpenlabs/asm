@@ -45,6 +45,7 @@ zkaleido-sp1-host = { workspace = true, optional = true }
 
 [dev-dependencies]
 tokio.workspace = true
+toml.workspace = true
 
 [features]
 default = []

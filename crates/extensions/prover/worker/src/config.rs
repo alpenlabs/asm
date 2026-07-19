@@ -18,7 +18,57 @@ pub struct OrchestratorConfig {
     pub proof_db_path: PathBuf,
 
     /// Which proof backend to construct at startup, plus its configuration.
+    ///
+    /// Required in both modes: a follower still proves locally when its peer
+    /// is unavailable or lagging.
     pub backend: BackendConfig,
+
+    /// How the worker obtains proofs. Omit for [`ProverMode::Generator`].
+    #[serde(default)]
+    pub mode: ProverMode,
+}
+
+/// How the prover worker obtains proofs.
+///
+/// Tagged with `kind`, mirroring [`BackendConfig`].
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum ProverMode {
+    /// Generate every proof locally by submitting jobs to the configured
+    /// proving backend. This is the default.
+    #[default]
+    Generator,
+
+    /// Fetch completed proofs from a peer asm-runner's proof RPC instead of
+    /// generating them, falling back to local generation when the peer is
+    /// unreachable or its proven frontier lags too far behind.
+    Follower(FollowerConfig),
+}
+
+/// Tuning for [`ProverMode::Follower`].
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FollowerConfig {
+    /// URL of the peer asm-runner's RPC server to fetch proofs from.
+    pub peer_url: String,
+
+    /// Maximum number of L1 blocks the peer's proven frontier may trail this
+    /// node's committed tip before the worker falls back to generating proofs
+    /// locally.
+    #[serde(default = "default_max_lag")]
+    pub max_lag: u32,
+
+    /// Consecutive failed peer status probes (one per tick) tolerated before
+    /// falling back to generating proofs locally.
+    #[serde(default = "default_max_peer_failures")]
+    pub max_peer_failures: u32,
+}
+
+fn default_max_lag() -> u32 {
+    12
+}
+
+fn default_max_peer_failures() -> u32 {
+    3
 }
 
 /// Backend-specific orchestrator configuration.
@@ -87,5 +137,55 @@ mod hex_signing_key {
         let s = String::deserialize(d)?;
         let bytes = hex::decode(&s).map_err(D::Error::custom)?;
         SigningKey::from_bytes(&bytes).map_err(D::Error::custom)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const BASE: &str = r#"
+        tick_interval = { secs = 1, nanos = 0 }
+        max_concurrent_proofs = 4
+        proof_db_path = "/tmp/proof-db"
+
+        [backend]
+        kind = "native"
+        asm_schnorr_signing_key = "0101010101010101010101010101010101010101010101010101010101010101"
+        moho_schnorr_signing_key = "0202020202020202020202020202020202020202020202020202020202020202"
+    "#;
+
+    // Pre-existing configs carry no `[mode]` table and must keep parsing as
+    // generator mode.
+    #[test]
+    fn mode_defaults_to_generator() {
+        let config: OrchestratorConfig = toml::from_str(BASE).expect("should parse");
+        assert!(matches!(config.mode, ProverMode::Generator));
+    }
+
+    #[test]
+    fn follower_mode_parses_with_defaults() {
+        let src =
+            format!("{BASE}\n[mode]\nkind = \"follower\"\npeer_url = \"http://127.0.0.1:12400\"\n");
+        let config: OrchestratorConfig = toml::from_str(&src).expect("should parse");
+        let ProverMode::Follower(follower) = config.mode else {
+            panic!("expected follower mode");
+        };
+        assert_eq!(follower.peer_url, "http://127.0.0.1:12400");
+        assert_eq!(follower.max_lag, default_max_lag());
+        assert_eq!(follower.max_peer_failures, default_max_peer_failures());
+    }
+
+    #[test]
+    fn follower_mode_parses_explicit_thresholds() {
+        let src = format!(
+            "{BASE}\n[mode]\nkind = \"follower\"\npeer_url = \"http://127.0.0.1:12400\"\nmax_lag = 100\nmax_peer_failures = 5\n"
+        );
+        let config: OrchestratorConfig = toml::from_str(&src).expect("should parse");
+        let ProverMode::Follower(follower) = config.mode else {
+            panic!("expected follower mode");
+        };
+        assert_eq!(follower.max_lag, 100);
+        assert_eq!(follower.max_peer_failures, 5);
     }
 }

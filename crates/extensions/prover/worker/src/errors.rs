@@ -71,6 +71,24 @@ pub enum ProverError {
     #[error("failed to submit proof to remote prover: {0}")]
     RemoteSubmit(#[source] zkaleido::ZkVmError),
 
+    /// A call to the peer asm-runner's proof RPC failed (follower mode). The
+    /// underlying transport error type is supplied by the binary's client, so
+    /// it is carried as a boxed source; `context` names the operation.
+    #[error("{context}: {source}")]
+    Peer {
+        /// What the worker was asking the peer for when the call failed.
+        context: &'static str,
+        /// The underlying client error, preserved as the cause.
+        #[source]
+        source: BoxedError,
+    },
+
+    /// A proof ID cannot be addressed over the peer's proof RPC (follower
+    /// mode), e.g. a multi-block ASM range, which `getAsmProof` can only key
+    /// by a single block hash.
+    #[error("proof not addressable over peer RPC: {0}")]
+    PeerUnaddressable(&'static str),
+
     /// A persisted remote proof ID could not be decoded into the host's typed
     /// proof ID.
     ///
@@ -123,6 +141,18 @@ impl ProverError {
         E: StdError + Send + Sync + 'static,
     {
         Self::Backend {
+            context,
+            source: Box::new(source),
+        }
+    }
+
+    /// Builds a [`ProverError::Peer`] from a static context and a client
+    /// error, preserving the error as the cause chain.
+    pub fn peer<E>(context: &'static str, source: E) -> Self
+    where
+        E: StdError + Send + Sync + 'static,
+    {
+        Self::Peer {
             context,
             source: Box::new(source),
         }
