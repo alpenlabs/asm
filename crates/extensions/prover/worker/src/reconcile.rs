@@ -12,7 +12,7 @@ use zkaleido::{RemoteProofStatus, ZkVmRemoteHost};
 use crate::{
     ProverContext,
     errors::{ProverError, ProverResult},
-    proof_store,
+    proof_store::{self, ProofSource},
     state::ProverServiceState,
 };
 
@@ -116,7 +116,7 @@ where
             "no mapping found for completed remote proof",
         ))?;
 
-    proof_store::store_completed_proof(&state.ctx, proof_id, receipt).await?;
+    proof_store::store_completed_proof(&state.ctx, proof_id, receipt, ProofSource::Backend).await?;
 
     state.advance_proven(&proof_id);
 

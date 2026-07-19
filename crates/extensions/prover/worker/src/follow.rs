@@ -36,7 +36,7 @@ use crate::{
     ProverContext,
     config::{FollowerConfig, ProverMode},
     errors::{ProverError, ProverResult},
-    proof_store,
+    proof_store::{self, ProofSource},
     queue::PendingProofQueue,
     schedule,
     state::ProverServiceState,
@@ -293,7 +293,7 @@ where
             return Ok(FetchOutcome::NotAvailable);
         };
 
-        proof_store::store_completed_proof(self.ctx, proof_id, receipt).await?;
+        proof_store::store_completed_proof(self.ctx, proof_id, receipt, ProofSource::Peer).await?;
         self.fetched.push(proof_id);
         Ok(FetchOutcome::Fetched)
     }
