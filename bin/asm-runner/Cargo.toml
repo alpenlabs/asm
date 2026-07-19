@@ -8,7 +8,7 @@ workspace = true
 
 [dependencies]
 moho-types.workspace = true
-strata-asm-rpc = { workspace = true, features = ["client"] }
+strata-asm-rpc.workspace = true
 
 strata-asm-bridge-types.workspace = true
 strata-asm-checkpoint-types.workspace = true
@@ -41,7 +41,7 @@ bitcoincore-zmq = { version = "1.5.2", features = ["async"] }
 bitcoind-async-client.workspace = true
 clap.workspace = true
 futures.workspace = true
-jsonrpsee = { workspace = true, features = ["server", "macros", "http-client"] }
+jsonrpsee = { workspace = true, features = ["server", "macros"] }
 serde.workspace = true
 serde_json.workspace = true
 sled.workspace = true

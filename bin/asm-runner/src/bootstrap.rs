@@ -4,7 +4,9 @@ use anyhow::Result;
 use bitcoind_async_client::{Auth, Client};
 use strata_asm_moho_worker::MohoWorkerBuilder;
 use strata_asm_params::AsmParams;
-use strata_asm_prover_worker::{InputBuilder, ProofBackend, ProverMode, ProverWorkerBuilder};
+use strata_asm_prover_worker::{
+    InputBuilder, ProofBackend, ProverMode, ProverWorkerBuilder, RpcProofPeer,
+};
 use strata_asm_spec::StrataAsmSpec;
 use strata_asm_worker::AsmWorkerBuilder;
 use strata_tasks::TaskExecutor;
@@ -14,7 +16,6 @@ use crate::{
     block_watcher::drive_asm_from_bitcoin,
     config::{AsmRpcConfig, BitcoinConfig},
     moho_context::MohoWorkerContextImpl,
-    peer_client::RpcProofPeer,
     prover_context::AsmProverContext,
     rpc_server::{AsmProofRpcDeps, run_rpc_server},
     storage::{

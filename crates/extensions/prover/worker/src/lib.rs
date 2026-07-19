@@ -40,7 +40,7 @@ pub use errors::{ProverError, ProverResult};
 pub use handle::ProverWorkerHandle;
 pub use input::{InputBuilder, MohoInput};
 pub use message::ProverMessage;
-pub use peer::ProofPeer;
+pub use peer::{ProofPeer, RpcProofPeer};
 pub use service::ProverService;
 pub use state::ProverServiceState;
 pub use traits::{AnchorStateReader, AuxDataReader, L1BlockProvider, ProverContext};

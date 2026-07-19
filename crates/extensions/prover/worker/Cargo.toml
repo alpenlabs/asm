@@ -15,6 +15,7 @@ strata-asm-moho-storage.workspace = true
 strata-asm-proof-impl.workspace = true
 strata-asm-prover-storage.workspace = true
 strata-asm-prover-types.workspace = true
+strata-asm-rpc = { workspace = true, features = ["client"] }
 strata-asm-worker.workspace = true
 strata-btc-types.workspace = true
 strata-btc-verification.workspace = true
@@ -28,6 +29,7 @@ anyhow.workspace = true
 async-trait.workspace = true
 bitcoin.workspace = true
 hex.workspace = true
+jsonrpsee = { workspace = true, features = ["http-client"] }
 k256 = { workspace = true, features = ["schnorr"] }
 serde.workspace = true
 ssz.workspace = true
