@@ -26,7 +26,7 @@ class ProverEnv(BasicEnv):
 
     def _orchestrator_config(
         self, ectx: flexitest.EnvContext, service_name: str = "asm_rpc"
-    ) -> OrchestratorConfig | None:
+    ) -> OrchestratorConfig:
         envdd_path = Path(ectx.envdd_path)
         proof_db_path = str((envdd_path / service_name / "proof_db").resolve())
         return OrchestratorConfig(
