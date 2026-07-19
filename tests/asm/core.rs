@@ -8,7 +8,10 @@
 )]
 
 use bitcoin::Network;
-use harness::test_harness::{AsmTestHarnessBuilder, Setup};
+use harness::{
+    bridge::{extract_bridge_state, BridgeExt},
+    test_harness::{AsmTestHarnessBuilder, Setup},
+};
 use integration_tests::harness;
 use strata_asm_manifest_types::AsmManifestHash;
 use strata_asm_worker::{test_utils::TestAsmWorkerContext, AnchorStateStore, L1DataProvider};
@@ -320,5 +323,115 @@ async fn test_proven_and_external_mmr_index_alignment() {
     assert!(
         harness.get_manifest(&genesis_commitment).is_none(),
         "no manifest should be stored for the genesis block"
+    );
+}
+
+/// A short reorg — onto a branch that is *shorter* than the one it abandons —
+/// leaves the durable "latest state" pointer resolving to the taller abandoned
+/// branch until the new branch out-heights it.
+///
+/// The anchor-state store is keyed by block commitment `(height, blkid)`, and
+/// "latest" is the highest key. The worker's forward pass only ever appends
+/// states (it never prunes an abandoned branch), while the in-memory anchor
+/// correctly follows the new branch by walking real parents. So after a reorg to
+/// a lower tip, the canonical branch's state is persisted and correct, but every
+/// query that reads the height-max latest — `get_latest_asm_state`,
+/// `bridge_state`, and what a restarting worker resumes from — still sees the
+/// taller abandoned branch. It converges only once the new branch grows strictly
+/// past the old tip, at which point height dominates the key ordering.
+///
+/// Deposits stand in as observable per-branch state; the property under test is
+/// the ASM state store's, not the bridge's.
+///
+/// Flow:
+/// 1. Branch A: submit 2 deposits, making A several blocks tall and carrying two deposits in its
+///    bridge state.
+/// 2. Reorg onto a strictly shorter, empty branch B (which reproduces none of the deposits). The
+///    workers follow B, but `latest` still resolves to A.
+/// 3. Grow B with empty blocks until it out-heights A. `latest` now tracks B and the stale deposits
+///    are gone.
+///
+/// This pins the current (pre-fix) behavior. STR-3819 tracks closing the
+/// divergence window — the worker never prunes orphaned anchors on reorg, so the
+/// max-height `latest` pointer can outrank the canonical tip; pruning them (or
+/// making the pointer canonical-aware) would collapse it. Update this test when
+/// that lands.
+#[tokio::test(flavor = "multi_thread")]
+async fn test_short_reorg_latest_pointer_diverges_then_converges() {
+    let Setup {
+        harness,
+        bridge: ctx,
+        ..
+    } = AsmTestHarnessBuilder::default()
+        .with_txindex()
+        .build()
+        .await;
+
+    // The fork point both branches share: the tip before branch A is mined. The
+    // first block above it is the first block of branch A.
+    let fork_height = harness.get_chain_tip().await.unwrap();
+
+    // 1. Branch A: two deposits make it several blocks tall and give it state.
+    harness.submit_deposits(&ctx, 2).await.unwrap();
+    let (branch_a_tip, _) = harness.get_latest_asm_state().unwrap().unwrap();
+    let branch_a_height = branch_a_tip.height();
+    assert_eq!(
+        harness.bridge_state().unwrap().deposits().len(),
+        2,
+        "branch A should carry the two deposits before the reorg",
+    );
+
+    // 2. Reorg onto a strictly shorter branch B: invalidate branch A's first block and mine a
+    //    single empty block. B reproduces none of the deposits.
+    let branch_a_first = harness.block_hash_at(fork_height + 1).await.unwrap();
+    let branch_b_tip_hash = harness.reorg(branch_a_first, 1).await.unwrap();
+    let branch_b_tip = harness.commitment_of(branch_b_tip_hash).await.unwrap();
+    assert!(
+        branch_b_tip.height() < branch_a_height,
+        "branch B ({}) must be shorter than branch A ({branch_a_height})",
+        branch_b_tip.height(),
+    );
+
+    // The canonical branch B is persisted and correct — the worker followed it...
+    let branch_b_state = harness.get_asm_state_at(&branch_b_tip).unwrap();
+    assert!(
+        extract_bridge_state(&branch_b_state)
+            .unwrap()
+            .deposits()
+            .is_empty(),
+        "branch B reproduces none of the deposits",
+    );
+    // ...but the height-max latest pointer still resolves to the abandoned branch A.
+    let (latest_tip, _) = harness.get_latest_asm_state().unwrap().unwrap();
+    assert_eq!(
+        latest_tip, branch_a_tip,
+        "latest still resolves to the taller abandoned branch A after the short reorg",
+    );
+    assert_eq!(
+        harness.bridge_state().unwrap().deposits().len(),
+        2,
+        "bridge_state, read through latest, still shows branch A's stale deposits",
+    );
+
+    // 3. Grow branch B strictly past branch A with empty blocks (excluding the mempool-resurrected
+    //    deposits), so height dominates the key ordering.
+    let delta = (branch_a_height - branch_b_tip.height() + 1) as usize;
+    let grown_tip_hash = harness.mine_empty_blocks(delta).await.unwrap();
+    let grown_tip = harness.commitment_of(grown_tip_hash).await.unwrap();
+    assert!(
+        grown_tip.height() > branch_a_height,
+        "branch B ({}) must now out-height branch A ({branch_a_height})",
+        grown_tip.height(),
+    );
+
+    // Convergence: latest now tracks branch B, and the stale deposits are gone.
+    let (latest_tip, _) = harness.get_latest_asm_state().unwrap().unwrap();
+    assert_eq!(
+        latest_tip, grown_tip,
+        "latest converges to branch B once it out-heights the abandoned branch A",
+    );
+    assert!(
+        harness.bridge_state().unwrap().deposits().is_empty(),
+        "bridge_state converges to branch B: the abandoned deposits are gone",
     );
 }

@@ -247,3 +247,114 @@ async fn test_withdrawal_fulfillment_creates_moho_export_entry() {
         "the fulfillment should append exactly one export-entry leaf",
     );
 }
+
+/// Reorg counterpart to [`test_withdrawal_fulfillment_creates_moho_export_entry`]:
+/// if the block that fulfilled the withdrawal is reorged out and the replacement
+/// (larger) chain does not re-include the fulfillment, the derived Moho state
+/// carries no `OperatorClaimUnlock` for that deposit.
+///
+/// Flow:
+/// 1. Deposit → assignment → fulfillment, exactly as the non-reorg test, and confirm the Moho state
+///    gained the `OperatorClaimUnlock` leaf.
+/// 2. Invalidate the fulfillment block and mine a strictly longer branch of empty blocks (which
+///    excludes the resurrected fulfillment tx).
+/// 3. Assert the fulfillment is undone: the assignment is live again, the export-entry store no
+///    longer resolves the leaf, and the latest Moho state's bridge container MMR has zero leaves.
+#[tokio::test(flavor = "multi_thread")]
+async fn test_reorg_drops_moho_export_entry_when_fulfillment_excluded() {
+    let Setup {
+        harness,
+        bridge: ctx,
+        checkpoint: mut checkpoint_harness,
+        ..
+    } = AsmTestHarnessBuilder::default()
+        .with_txindex()
+        .build()
+        .await;
+    let denomination = ctx.denomination().to_sat();
+
+    // 1. Deposit → assignment → fulfillment, as in the non-reorg test.
+    harness.submit_deposits(&ctx, 1).await.unwrap();
+
+    let pinned_operator = 1u32;
+    harness
+        .submit_checkpoint_with_withdrawal_intents(
+            &mut checkpoint_harness,
+            &[(denomination, OperatorSelection::specific(pinned_operator))],
+        )
+        .await
+        .unwrap();
+
+    let deposit_idx = 0u32;
+    let assignee = {
+        let bridge_state = harness.bridge_state().unwrap();
+        let assignment = bridge_state
+            .assignments()
+            .get_assignment(deposit_idx)
+            .expect("assignment for deposit 0 should exist");
+        assert_eq!(assignment.current_assignee(), pinned_operator);
+        assignment.current_assignee()
+    };
+
+    let fulfillment_block = submit_withdrawal_fulfillment_tx(&harness, deposit_idx)
+        .await
+        .unwrap();
+
+    // Precondition: the fulfillment mirrored the OperatorClaimUnlock leaf, so the
+    // reorg below has something to drop.
+    let leaf = OperatorClaimUnlock::new(deposit_idx, assignee).compute_hash();
+    assert!(
+        harness
+            .moho_context
+            .find_export_entry(BRIDGE_V1_SUBPROTOCOL_ID, &leaf)
+            .is_some(),
+        "fulfillment should have mirrored the OperatorClaimUnlock leaf before the reorg",
+    );
+
+    // 2. Reorg the fulfillment block out under a strictly longer, fulfillment-free branch: three
+    //    empty blocks replace the single dropped one, so the new tip out-heights the old chain and
+    //    both workers re-anchor onto it.
+    harness.reorg(fulfillment_block, 3).await.unwrap();
+
+    // 3a. The reorg genuinely undid the fulfillment at the ASM level: deposit 0's
+    //     assignment is live again on the replacement branch (the checkpoint that
+    //     created it sits below the fork point, so it survives).
+    assert!(
+        harness
+            .bridge_state()
+            .unwrap()
+            .assignments()
+            .get_assignment(deposit_idx)
+            .is_some(),
+        "the assignment should be restored once its fulfillment is reorged out",
+    );
+
+    // 3b. The mirrored leaf is pruned when the fork point is re-derived forward
+    //     over the branch that never fulfilled the withdrawal.
+    assert!(
+        harness
+            .moho_context
+            .find_export_entry(BRIDGE_V1_SUBPROTOCOL_ID, &leaf)
+            .is_none(),
+        "reorg dropping the fulfillment must prune the OperatorClaimUnlock leaf",
+    );
+
+    // 3c. The latest Moho state is the new tip's, and its bridge export container
+    //     carries no leaves — the accumulated-pow update maintains the container
+    //     every block but never appends an export entry.
+    let (_, moho_state) = harness
+        .get_latest_moho_state()
+        .unwrap()
+        .expect("Moho state available after reorg");
+    let bridge_container = moho_state
+        .export_state()
+        .containers()
+        .iter()
+        .find(|c| c.container_id() == BRIDGE_V1_SUBPROTOCOL_ID)
+        .expect("bridge export container should be present in the Moho state");
+    assert_eq!(
+        bridge_container.entries_mmr().num_entries(),
+        0,
+        "the reorged-out fulfillment must leave the bridge export MMR empty",
+    );
+}
