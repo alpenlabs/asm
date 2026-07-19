@@ -35,7 +35,7 @@ class AsmProofFollowerSyncTest(flexitest.Test):
 
     Phase 2 (fallback): stop the generator and mine more blocks. After the
     configured number of failed status probes the follower must switch to
-    local proving and keep its proof frontier advancing on its own.
+    local proving and keep its last proven block advancing on its own.
     """
 
     def __init__(self, ctx: flexitest.InitContext):
