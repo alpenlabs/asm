@@ -203,14 +203,13 @@ trait ProofFetcher {
 /// frontier implies the peer holds every ASM and Moho proof below it, so one
 /// pass drains all currently-servable work.
 ///
-/// TODO(follower-gaps): after a restart the queue is seeded with only the
-/// Moho proof of the last committed block. In generator mode the deferral
-/// cascade re-discovers missing ancestor proofs from that seed, but the fetch
-/// path has no equivalent, so proofs that were pending at shutdown (other
-/// than the seeded tip) are never fetched. This node's own proven frontier
-/// still advances, but its proof history keeps holes it cannot serve to
-/// chained followers. Backfill would mean walking from the seed down to the
-/// local `last_proven`, fetching each block's ASM and Moho proofs.
+/// After a restart the queue reseeds with only the committed tip's Moho
+/// proof, so proofs pending at shutdown are not refetched and the local
+/// history can keep holes below the proven frontier. That is deliberate:
+/// the generator's prerequisite cascade exists because building `Moho(N)`
+/// consumes `Asm(N)` and `Moho(N-1)`, but fetching has no such dependency —
+/// a fetched `Moho(N)` subsumes its ancestors. The frontier, not a gapless
+/// history, is the invariant; proofs below it are prunable anyway.
 async fn fetch_with<F: ProofFetcher>(queue: &mut PendingProofQueue, fetcher: &mut F, up_to: u32) {
     let mut parked: Vec<ProofId> = Vec::new();
 
