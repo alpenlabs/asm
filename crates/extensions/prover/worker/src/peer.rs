@@ -33,17 +33,18 @@ pub trait ProofPeer: Debug {
 
 /// [`ProofPeer`] backed by a peer asm-runner's proof RPC over HTTP.
 ///
+/// Constructed by the worker builder from the follower config's `peer_url`.
 /// No retry wrapper: the follower probes the peer every tick and tolerates a
 /// configured number of consecutive failures before falling back to local
 /// proving, so the tick loop *is* the retry policy.
 #[derive(Debug)]
-pub struct RpcProofPeer {
+pub(crate) struct RpcProofPeer {
     client: HttpClient,
 }
 
 impl RpcProofPeer {
     /// Builds a client for the peer asm-runner's RPC server at `peer_url`.
-    pub fn new(peer_url: &str) -> ProverResult<Self> {
+    pub(crate) fn new(peer_url: &str) -> ProverResult<Self> {
         let client = HttpClientBuilder::default()
             .build(peer_url)
             .map_err(|e| ProverError::peer("failed to build peer RPC client", e))?;

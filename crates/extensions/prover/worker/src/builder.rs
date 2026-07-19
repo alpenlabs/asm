@@ -14,7 +14,7 @@ use crate::{
     constants,
     errors::{ProverError, ProverResult},
     handle::ProverWorkerHandle,
-    peer::ProofPeer,
+    peer::{ProofPeer, RpcProofPeer},
     service::ProverService,
     state::ProverServiceState,
 };
@@ -42,7 +42,6 @@ pub struct ProverWorkerBuilder<C, H> {
     config: Option<OrchestratorConfig>,
     input_builder: Option<InputBuilder>,
     subscription: Option<Subscription<L1BlockCommitment>>,
-    peer: Option<Arc<dyn ProofPeer + Send + Sync>>,
 }
 
 impl<C, H> ProverWorkerBuilder<C, H> {
@@ -55,7 +54,6 @@ impl<C, H> ProverWorkerBuilder<C, H> {
             config: None,
             input_builder: None,
             subscription: None,
-            peer: None,
         }
     }
 
@@ -96,13 +94,6 @@ impl<C, H> ProverWorkerBuilder<C, H> {
         self.subscription = Some(subscription);
         self
     }
-
-    /// Sets the peer proof source. Required when the config selects
-    /// [`ProverMode::Follower`]; ignored otherwise.
-    pub fn with_peer(mut self, peer: Arc<dyn ProofPeer + Send + Sync>) -> Self {
-        self.peer = Some(peer);
-        self
-    }
 }
 
 impl<C, H> ProverWorkerBuilder<C, H>
@@ -131,11 +122,14 @@ where
             .subscription
             .ok_or(ProverError::MissingDependency("subscription"))?;
 
-        // Follower mode is inert without a peer to fetch from; fail the
-        // launch rather than ticking into an error loop.
-        if matches!(config.mode, ProverMode::Follower(_)) && self.peer.is_none() {
-            return Err(ProverError::MissingDependency("peer"));
-        }
+        // A follower fetches proofs from the peer its config names; the RPC
+        // client is derived here so callers only ever supply the config.
+        let peer: Option<Arc<dyn ProofPeer + Send + Sync>> = match &config.mode {
+            ProverMode::Follower(follower) => {
+                Some(Arc::new(RpcProofPeer::new(&follower.peer_url)?))
+            }
+            ProverMode::Generator => None,
+        };
 
         // Capture the tick interval before `config` is moved into the state.
         let tick_interval = config.tick_interval;
@@ -143,8 +137,7 @@ where
         // State construction seeds the pending queue from durable state; a
         // failure fails the launch, matching the ASM worker's startup reads.
         let state =
-            ProverServiceState::new(ctx, asm_host, moho_host, config, input_builder, self.peer)
-                .await?;
+            ProverServiceState::new(ctx, asm_host, moho_host, config, input_builder, peer).await?;
 
         // The Moho worker's commit subscription is a `Stream`; wrap it as a
         // service input and overlay the periodic wakeup tick.
