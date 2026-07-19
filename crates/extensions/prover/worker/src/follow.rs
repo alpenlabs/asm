@@ -52,22 +52,23 @@ where
     let ProverMode::Follower(config) = state.config.mode.clone() else {
         return Ok(());
     };
-    let peer = state
-        .peer
-        .clone()
-        .ok_or(ProverError::MissingDependency("peer"))?;
+    let Some(peer) = state.peer.as_mut() else {
+        return Err(ProverError::MissingDependency("peer"));
+    };
 
-    let status = match peer.get_prover_status().await {
+    let status = match peer.client.get_prover_status().await {
         Ok(status) => {
-            state.peer_failures = 0;
+            peer.failures = 0;
             Some(status)
         }
         Err(e) => {
-            state.peer_failures = state.peer_failures.saturating_add(1);
-            warn!(%e, failures = state.peer_failures, "failed to probe peer prover status");
+            peer.failures = peer.failures.saturating_add(1);
+            warn!(%e, failures = peer.failures, "failed to probe peer prover status");
             None
         }
     };
+    // Cheap handle clone, releasing the state borrow for the arms below.
+    let (client, peer_failures) = (peer.client.clone(), peer.failures);
 
     let genesis_height = state.input_builder.genesis().height();
     match follow_action(
@@ -75,12 +76,12 @@ where
         state.last_committed,
         genesis_height,
         &config,
-        state.peer_failures,
+        peer_failures,
     ) {
         FollowAction::Fetch { up_to } => {
             let mut fetcher = StateFetcher {
                 ctx: &state.ctx,
-                peer: &peer,
+                peer: &client,
                 fetched: Vec::new(),
             };
             fetch_with(&mut state.queue, &mut fetcher, up_to).await;

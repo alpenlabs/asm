@@ -56,15 +56,20 @@ pub struct ProverServiceState<C, H> {
     /// [`ProverStatus`](strata_asm_prover_types::ProverStatus) for observability.
     pub(crate) last_proven: Option<L1BlockCommitment>,
 
-    /// RPC client for the peer asm-runner proofs are fetched from; present
-    /// iff the worker runs in
-    /// [`ProverMode::Follower`](crate::config::ProverMode::Follower). Used
-    /// through the `AsmProofApiClient` trait `strata-asm-rpc` generates.
-    pub(crate) peer: Option<HttpClient>,
+    /// Peer asm-runner proofs are fetched from; present iff the worker runs
+    /// in [`ProverMode::Follower`](crate::config::ProverMode::Follower).
+    pub(crate) peer: Option<Peer>,
+}
 
-    /// Consecutive failed peer status probes (follower mode). Reset on the
-    /// first successful probe.
-    pub(crate) peer_failures: u32,
+/// The peer a follower fetches proofs from, with its probe health.
+#[derive(Debug)]
+pub(crate) struct Peer {
+    /// RPC client for the peer asm-runner, used through the
+    /// `AsmProofApiClient` trait `strata-asm-rpc` generates.
+    pub(crate) client: HttpClient,
+
+    /// Consecutive failed status probes. Reset on the first success.
+    pub(crate) failures: u32,
 }
 
 impl<C, H> ProverServiceState<C, H>
@@ -135,8 +140,10 @@ where
             queue,
             last_committed,
             last_proven,
-            peer,
-            peer_failures: 0,
+            peer: peer.map(|client| Peer {
+                client,
+                failures: 0,
+            }),
         })
     }
 
