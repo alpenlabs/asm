@@ -30,6 +30,14 @@ class FollowerEnv(ProverEnv):
         )
         svcs["asm_rpc"] = generator
 
+        # Built through the same `_orchestrator_config`, the follower shares
+        # the generator's backend identity (one guest-ELF pair for sp1, one
+        # Schnorr key pair for native). That sharing is required, not a
+        # convenience: the predicate keys pinned in the Moho state derive from
+        # that identity, and the recursion verifies every prior proof against
+        # them — proofs fetched from the peer only chain with proofs the
+        # follower generates itself on fallback because both nodes prove
+        # under the same identity.
         follower_orch = self._orchestrator_config(ectx, service_name=FOLLOWER_SERVICE_NAME)
         follower_orch.mode = FollowerMode(
             peer_url=generator.get_prop("rpc_url"),
