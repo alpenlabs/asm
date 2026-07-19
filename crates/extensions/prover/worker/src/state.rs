@@ -1,7 +1,6 @@
 //! Service state for the prover worker.
 
-use std::sync::Arc;
-
+use jsonrpsee::http_client::HttpClient;
 use strata_asm_prover_types::{L1Range, ProofId};
 use strata_identifiers::L1BlockCommitment;
 use strata_service::ServiceState;
@@ -14,7 +13,6 @@ use crate::{
     constants,
     errors::{ProverError, ProverResult},
     input::InputBuilder,
-    peer::ProofPeer,
     queue::PendingProofQueue,
 };
 
@@ -58,9 +56,11 @@ pub struct ProverServiceState<C, H> {
     /// [`ProverStatus`](strata_asm_prover_types::ProverStatus) for observability.
     pub(crate) last_proven: Option<L1BlockCommitment>,
 
-    /// Peer proof source; present iff the worker runs in
-    /// [`ProverMode::Follower`](crate::config::ProverMode::Follower).
-    pub(crate) peer: Option<Arc<dyn ProofPeer + Send + Sync>>,
+    /// RPC client for the peer asm-runner proofs are fetched from; present
+    /// iff the worker runs in
+    /// [`ProverMode::Follower`](crate::config::ProverMode::Follower). Used
+    /// through the `AsmProofApiClient` trait `strata-asm-rpc` generates.
+    pub(crate) peer: Option<HttpClient>,
 
     /// Consecutive failed peer status probes (follower mode). Reset on the
     /// first successful probe.
@@ -96,7 +96,7 @@ where
         moho: H,
         config: OrchestratorConfig,
         input_builder: InputBuilder,
-        peer: Option<Arc<dyn ProofPeer + Send + Sync>>,
+        peer: Option<HttpClient>,
     ) -> ProverResult<Self> {
         let last_committed = ctx
             .get_latest_moho_state()

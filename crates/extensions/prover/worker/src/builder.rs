@@ -1,7 +1,6 @@
 //! Builder for assembling and launching a prover worker.
 
-use std::sync::Arc;
-
+use jsonrpsee::http_client::{HttpClient, HttpClientBuilder};
 use strata_asm_worker::Subscription;
 use strata_identifiers::L1BlockCommitment;
 use strata_service::{ServiceBuilder, StreamInput, TickingInput};
@@ -14,7 +13,6 @@ use crate::{
     constants,
     errors::{ProverError, ProverResult},
     handle::ProverWorkerHandle,
-    peer::{ProofPeer, RpcProofPeer},
     service::ProverService,
     state::ProverServiceState,
 };
@@ -124,10 +122,12 @@ where
 
         // A follower fetches proofs from the peer its config names; the RPC
         // client is derived here so callers only ever supply the config.
-        let peer: Option<Arc<dyn ProofPeer + Send + Sync>> = match &config.mode {
-            ProverMode::Follower(follower) => {
-                Some(Arc::new(RpcProofPeer::new(&follower.peer_url)?))
-            }
+        let peer: Option<HttpClient> = match &config.mode {
+            ProverMode::Follower(follower) => Some(
+                HttpClientBuilder::default()
+                    .build(&follower.peer_url)
+                    .map_err(|e| ProverError::peer("failed to build peer RPC client", e))?,
+            ),
             ProverMode::Generator => None,
         };
 

@@ -24,7 +24,10 @@
 //! mirroring [`schedule`](crate::schedule).
 
 use async_trait::async_trait;
+use jsonrpsee::http_client::HttpClient;
 use strata_asm_prover_types::{ProofId, ProverStatus};
+use strata_asm_rpc::traits::AsmProofApiClient;
+use strata_btc_types::L1BlockIdBitcoinExt;
 use strata_identifiers::L1BlockCommitment;
 use tracing::{debug, info, warn};
 use zkaleido::ZkVmRemoteHost;
@@ -33,7 +36,6 @@ use crate::{
     ProverContext,
     config::{FollowerConfig, ProverMode},
     errors::{ProverError, ProverResult},
-    peer::ProofPeer,
     proof_store,
     queue::PendingProofQueue,
     schedule,
@@ -78,7 +80,7 @@ where
         FollowAction::Fetch { up_to } => {
             let mut fetcher = StateFetcher {
                 ctx: &state.ctx,
-                peer: peer.as_ref(),
+                peer: &peer,
                 fetched: Vec::new(),
             };
             fetch_with(&mut state.queue, &mut fetcher, up_to).await;
@@ -241,12 +243,16 @@ async fn fetch_with<F: ProofFetcher>(queue: &mut PendingProofQueue, fetcher: &mu
     }
 }
 
-/// [`ProofFetcher`] backed by the service state's context and the configured
-/// peer. Constructed inline by [`follow_proofs`] for the duration of one
-/// fetch cycle.
+/// [`ProofFetcher`] backed by the service state's context and the peer's
+/// `AsmProofApi` RPC client. Constructed inline by [`follow_proofs`] for the
+/// duration of one fetch cycle.
+///
+/// No retry wrapper around the client: the follower probes the peer every
+/// tick and tolerates a configured number of consecutive failures before
+/// falling back to local proving, so the tick loop *is* the retry policy.
 struct StateFetcher<'a, C> {
     ctx: &'a C,
-    peer: &'a (dyn ProofPeer + Send + Sync),
+    peer: &'a HttpClient,
     /// Proofs fetched this cycle, for advancing the proven frontier once the
     /// loop's borrows are released.
     fetched: Vec<ProofId>,
@@ -263,8 +269,24 @@ where
         }
 
         let receipt = match &proof_id {
-            ProofId::Asm(range) => self.peer.get_asm_proof(range).await?.map(|proof| proof.0),
-            ProofId::Moho(block) => self.peer.get_moho_proof(block).await?.map(|proof| proof.0),
+            ProofId::Asm(range) => {
+                // The peer keys proofs by block hash, which can only address
+                // single-block ranges — the only kind the worker creates.
+                if range.start() != range.end() {
+                    return Err(ProverError::PeerUnaddressable("multi-block ASM range"));
+                }
+                self.peer
+                    .get_asm_proof(range.end().blkid().to_block_hash())
+                    .await
+                    .map_err(|e| ProverError::peer("failed to fetch ASM proof from peer", e))?
+                    .map(|proof| proof.0)
+            }
+            ProofId::Moho(block) => self
+                .peer
+                .get_moho_proof(block.blkid().to_block_hash())
+                .await
+                .map_err(|e| ProverError::peer("failed to fetch Moho proof from peer", e))?
+                .map(|proof| proof.0),
         };
         let Some(receipt) = receipt else {
             return Ok(FetchOutcome::NotAvailable);
