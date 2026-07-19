@@ -24,9 +24,11 @@ NATIVE_TEST_MOHO_SIGNING_KEY = "02" * 32
 class ProverEnv(BasicEnv):
     """Functional-test environment with proof orchestrator enabled."""
 
-    def _orchestrator_config(self, ectx: flexitest.EnvContext) -> OrchestratorConfig | None:
+    def _orchestrator_config(
+        self, ectx: flexitest.EnvContext, service_name: str = "asm_rpc"
+    ) -> OrchestratorConfig | None:
         envdd_path = Path(ectx.envdd_path)
-        proof_db_path = str((envdd_path / "asm_rpc" / "proof_db").resolve())
+        proof_db_path = str((envdd_path / service_name / "proof_db").resolve())
         return OrchestratorConfig(
             tick_interval=Duration(secs=1, nanos=0),
             max_concurrent_proofs=4,

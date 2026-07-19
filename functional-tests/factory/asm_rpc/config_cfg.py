@@ -74,6 +74,30 @@ BackendConfig = Sp1Backend | NativeBackend
 
 
 @dataclass
+class FollowerMode:
+    """Follower prover mode: fetch proofs from a peer asm-runner.
+
+    Mirrors `ProverMode::Follower` in crates/extensions/prover/worker/src/config.rs.
+    `max_lag` / `max_peer_failures` fall back to the Rust-side defaults when None.
+    """
+
+    peer_url: str
+    max_lag: int | None = None
+    max_peer_failures: int | None = None
+    kind: str = "follower"
+
+
+@dataclass
+class GeneratorMode:
+    """Generator prover mode: prove locally (the Rust-side default)."""
+
+    kind: str = "generator"
+
+
+ProverMode = GeneratorMode | FollowerMode
+
+
+@dataclass
 class OrchestratorConfig:
     """Proof orchestrator configuration."""
 
@@ -81,6 +105,8 @@ class OrchestratorConfig:
     max_concurrent_proofs: int
     proof_db_path: str
     backend: BackendConfig
+    # None omits the key, selecting generator mode on the Rust side.
+    mode: ProverMode | None = None
 
 
 @dataclass
