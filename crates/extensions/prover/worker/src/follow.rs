@@ -213,6 +213,12 @@ trait ProofFetcher {
 /// consumes `Asm(N)` and `Moho(N-1)`, but fetching has no such dependency —
 /// a fetched `Moho(N)` subsumes its ancestors. The frontier, not a gapless
 /// history, is the invariant; proofs below it are prunable anyway.
+// TODO(STR-4012): entries for blocks orphaned by our own reorg are never served by the
+// peer and are re-parked here forever (the generator at least proves its
+// orphans away). Since a Moho proof subsumes everything below it, entries at
+// heights at or below the proven frontier could be evicted outright when
+// it advances — pending confirmation that the Moho worker re-commits blocks
+// on a reorg back, which would make eviction safe in generator mode too.
 async fn fetch_with<F: ProofFetcher>(queue: &mut PendingProofQueue, fetcher: &mut F, up_to: u32) {
     let mut parked: Vec<ProofId> = Vec::new();
 
@@ -251,6 +257,14 @@ async fn fetch_with<F: ProofFetcher>(queue: &mut PendingProofQueue, fetcher: &mu
 /// No retry wrapper around the client: the follower probes the peer every
 /// tick and tolerates a configured number of consecutive failures before
 /// falling back to local proving, so the tick loop *is* the retry policy.
+///
+/// Fetched receipts are stored unverified. That trusts the peer exactly as
+/// far as the generator path trusts its own proving backend, which holds for
+/// the same-operator HA setup this mode is built for.
+// TODO(STR-4011): if a follower is ever pointed at a third-party peer, verify fetched
+// receipts against the expected verification key and public values before
+// storing — hash-keyed lookups bind an *honest* peer's proofs to the right
+// block, but nothing checks the receipt itself.
 struct StateFetcher<'a, C> {
     ctx: &'a C,
     peer: &'a HttpClient,
