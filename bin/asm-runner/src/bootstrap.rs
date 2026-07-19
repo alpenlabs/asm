@@ -4,7 +4,7 @@ use anyhow::Result;
 use bitcoind_async_client::{Auth, Client};
 use strata_asm_moho_worker::MohoWorkerBuilder;
 use strata_asm_params::AsmParams;
-use strata_asm_prover_worker::{InputBuilder, ProofBackend, ProverWorkerBuilder};
+use strata_asm_prover_worker::{InputBuilder, ProofBackend, ProverMode, ProverWorkerBuilder};
 use strata_asm_spec::StrataAsmSpec;
 use strata_asm_worker::AsmWorkerBuilder;
 use strata_tasks::TaskExecutor;
@@ -14,6 +14,7 @@ use crate::{
     block_watcher::drive_asm_from_bitcoin,
     config::{AsmRpcConfig, BitcoinConfig},
     moho_context::MohoWorkerContextImpl,
+    peer_client::RpcProofPeer,
     prover_context::AsmProverContext,
     rpc_server::{AsmProofRpcDeps, run_rpc_server},
     storage::{
@@ -152,12 +153,21 @@ pub(crate) async fn bootstrap(
         // `?Send` `ZkVmRemoteProgram` wrapper), so the service runs on the
         // standard async framework via `launch` — no dedicated thread or
         // `LocalSet` needed.
-        let prover_handle = ProverWorkerBuilder::new()
+        let mut prover_builder = ProverWorkerBuilder::new()
             .with_context(prover_ctx)
             .with_hosts(asm_host, moho_host)
-            .with_config(orch_config)
             .with_input_builder(input_builder)
-            .with_block_subscription(block_subscription)
+            .with_block_subscription(block_subscription);
+
+        // In follower mode the worker fetches proofs from a peer asm-runner
+        // instead of proving; supply the RPC client it fetches through.
+        if let ProverMode::Follower(follower) = &orch_config.mode {
+            let peer = RpcProofPeer::new(&follower.peer_url)?;
+            prover_builder = prover_builder.with_peer(Arc::new(peer));
+        }
+
+        let prover_handle = prover_builder
+            .with_config(orch_config)
             .launch(&executor)
             .await?;
 
