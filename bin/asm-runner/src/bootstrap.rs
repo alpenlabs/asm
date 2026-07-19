@@ -87,12 +87,6 @@ pub(crate) async fn bootstrap(
 
     // 6. Finish orchestrator wiring if it was configured.
     let proof_rpc_deps = if let Some((orch_config, proof_db, backend)) = orch_prep {
-        let rpc_deps = AsmProofRpcDeps {
-            proof_db: proof_db.clone(),
-            moho_state_db: moho_state_db.clone(),
-            export_entries_db: export_entries_db.clone(),
-        };
-
         let ProofBackend {
             asm_host,
             moho_host,
@@ -127,7 +121,10 @@ pub(crate) async fn bootstrap(
 
         // The prover context wires the proof store, moho-state store, ASM
         // anchor-state store, aux-data store, and Bitcoin client into the
-        // worker's traits.
+        // worker's traits. Clone the two stores the RPC handlers also read from
+        // before the context takes ownership.
+        let rpc_proof_db = proof_db.clone();
+        let rpc_moho_state_db = moho_state_db.clone();
         let prover_ctx = AsmProverContext::new(
             proof_db,
             moho_state_db,
@@ -155,7 +152,7 @@ pub(crate) async fn bootstrap(
         // `?Send` `ZkVmRemoteProgram` wrapper), so the service runs on the
         // standard async framework via `launch` — no dedicated thread or
         // `LocalSet` needed.
-        let _prover_handle = ProverWorkerBuilder::new()
+        let prover_handle = ProverWorkerBuilder::new()
             .with_context(prover_ctx)
             .with_hosts(asm_host, moho_host)
             .with_config(orch_config)
@@ -164,7 +161,12 @@ pub(crate) async fn bootstrap(
             .launch(&executor)
             .await?;
 
-        Some(rpc_deps)
+        Some(AsmProofRpcDeps {
+            proof_db: rpc_proof_db,
+            prover_handle: Arc::new(prover_handle),
+            moho_state_db: rpc_moho_state_db,
+            export_entries_db,
+        })
     } else {
         None
     };

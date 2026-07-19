@@ -13,10 +13,12 @@ strata-asm-common.workspace = true
 strata-asm-params.workspace = true
 strata-asm-proto-bridge.workspace = true
 strata-asm-prover-types.workspace = true
+strata-asm-prover-worker.workspace = true
 strata-asm-worker.workspace = true
 
 bitcoin.workspace = true
 jsonrpsee = { workspace = true, features = ["server", "macros"] }
+moho-types = { workspace = true, features = ["serde"] }
 
 [features]
 default = []

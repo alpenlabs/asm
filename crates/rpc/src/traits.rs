@@ -2,12 +2,14 @@
 
 use bitcoin::BlockHash;
 use jsonrpsee::{core::RpcResult, proc_macros::rpc};
+use moho_types::MohoState;
 use strata_asm_bridge_types::SafeHarbour;
 use strata_asm_checkpoint_types::CheckpointTip;
 use strata_asm_common::{AnchorState, AsmManifest};
 use strata_asm_params::AsmParams;
 use strata_asm_proto_bridge::{AssignmentEntry, DepositEntry};
 use strata_asm_prover_types::{AsmProof, MohoProof};
+use strata_asm_prover_worker::ProverStatus;
 use strata_asm_worker::AsmWorkerStatus;
 
 /// Control-plane ASM RPCs: liveness and overall worker status.
@@ -65,6 +67,11 @@ pub trait AsmStateApi {
 #[cfg_attr(not(feature = "client"), rpc(server, namespace = "strata_asm"))]
 #[cfg_attr(feature = "client", rpc(server, client, namespace = "strata_asm"))]
 pub trait AsmProofApi {
+    /// Return the current prover worker status: queue depth and the last
+    /// committed/proven blocks.
+    #[method(name = "getProverStatus")]
+    async fn get_prover_status(&self) -> RpcResult<ProverStatus>;
+
     /// Return the ASM step proof for the given block, if one exists.
     #[method(name = "getAsmProof")]
     async fn get_asm_proof(&self, block_hash: BlockHash) -> RpcResult<Option<AsmProof>>;
@@ -72,10 +79,16 @@ pub trait AsmProofApi {
     /// Return the Moho recursive proof for the given block, if one exists.
     #[method(name = "getMohoProof")]
     async fn get_moho_proof(&self, block_hash: BlockHash) -> RpcResult<Option<MohoProof>>;
+}
 
-    /// Return the SSZ-encoded `MohoState` for the provided Bitcoin block hash.
+/// Moho-state ASM RPCs: registered only when the proof orchestrator is configured, since the
+/// Moho worker that materializes this state runs alongside it.
+#[cfg_attr(not(feature = "client"), rpc(server, namespace = "strata_asm"))]
+#[cfg_attr(feature = "client", rpc(server, client, namespace = "strata_asm"))]
+pub trait AsmMohoApi {
+    /// Return the `MohoState` for the provided Bitcoin block hash.
     #[method(name = "getMohoState")]
-    async fn get_moho_state(&self, block_hash: BlockHash) -> RpcResult<Option<Vec<u8>>>;
+    async fn get_moho_state(&self, block_hash: BlockHash) -> RpcResult<Option<MohoState>>;
 
     /// Return the MMR inclusion proof for `leaf` in the export container at `container_id`.
     #[method(name = "getExportEntryMMRProof")]

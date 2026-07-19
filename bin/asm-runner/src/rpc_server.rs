@@ -12,6 +12,7 @@ use jsonrpsee::{
     server::ServerBuilder,
     types::{ErrorObject, ErrorObjectOwned},
 };
+use moho_types::MohoState;
 use ssz::{Decode, Encode};
 use strata_asm_bridge_types::SafeHarbour;
 use strata_asm_checkpoint_types::CheckpointTip;
@@ -24,7 +25,10 @@ use strata_asm_proto_checkpoint::CheckpointState;
 use strata_asm_proto_checkpoint_txs::CHECKPOINT_SUBPROTOCOL_ID;
 use strata_asm_prover_storage::{ProofDb, SledProofDb};
 use strata_asm_prover_types::{AsmProof, L1Range, MohoProof};
-use strata_asm_rpc::traits::{AsmControlApiServer, AsmProofApiServer, AsmStateApiServer};
+use strata_asm_prover_worker::{ProverStatus, ProverWorkerHandle};
+use strata_asm_rpc::traits::{
+    AsmControlApiServer, AsmMohoApiServer, AsmProofApiServer, AsmStateApiServer,
+};
 use strata_asm_worker::{AsmWorkerHandle, AsmWorkerStatus};
 use strata_btc_types::BlockHashExt;
 use strata_identifiers::L1BlockCommitment;
@@ -181,35 +185,42 @@ impl AsmStateApiServer for AsmRpcServer {
     }
 }
 
-/// DB handles required by [`AsmProofRpcServer`] — populated only when proof generation
-/// is configured.
+/// DB handles and the prover worker handle required to serve the proof and Moho-state
+/// RPCs — populated only when proof generation is configured.
 pub(crate) struct AsmProofRpcDeps {
     pub proof_db: SledProofDb,
+    pub prover_handle: Arc<ProverWorkerHandle>,
     pub moho_state_db: SledMohoStateDb,
     pub export_entries_db: SledExportEntriesDb,
 }
 
-/// RPC handlers serving ASM and Moho proofs plus the per-block Moho state they're built on.
+/// RPC handlers serving the ASM/Moho proofs and the prover worker's status.
 pub(crate) struct AsmProofRpcServer {
     bitcoin_client: Arc<Client>,
     proof_db: SledProofDb,
-    moho_state_db: SledMohoStateDb,
-    export_entries_db: SledExportEntriesDb,
+    prover_handle: Arc<ProverWorkerHandle>,
 }
 
 impl AsmProofRpcServer {
-    pub(crate) fn new(bitcoin_client: Arc<Client>, deps: AsmProofRpcDeps) -> Self {
+    pub(crate) fn new(
+        bitcoin_client: Arc<Client>,
+        proof_db: SledProofDb,
+        prover_handle: Arc<ProverWorkerHandle>,
+    ) -> Self {
         Self {
             bitcoin_client,
-            proof_db: deps.proof_db,
-            moho_state_db: deps.moho_state_db,
-            export_entries_db: deps.export_entries_db,
+            proof_db,
+            prover_handle,
         }
     }
 }
 
 #[async_trait]
 impl AsmProofApiServer for AsmProofRpcServer {
+    async fn get_prover_status(&self) -> RpcResult<ProverStatus> {
+        Ok(self.prover_handle.status())
+    }
+
     async fn get_asm_proof(&self, block_hash: BlockHash) -> RpcResult<Option<AsmProof>> {
         let commitment = to_block_commitment(&self.bitcoin_client, block_hash)
             .await
@@ -232,17 +243,37 @@ impl AsmProofApiServer for AsmProofRpcServer {
             .await
             .map_err(to_rpc_error)
     }
+}
 
-    async fn get_moho_state(&self, block_hash: BlockHash) -> RpcResult<Option<Vec<u8>>> {
+/// RPC handlers serving the per-block Moho state and export-entry MMR proofs.
+pub(crate) struct AsmMohoRpcServer {
+    bitcoin_client: Arc<Client>,
+    moho_state_db: SledMohoStateDb,
+    export_entries_db: SledExportEntriesDb,
+}
+
+impl AsmMohoRpcServer {
+    pub(crate) fn new(
+        bitcoin_client: Arc<Client>,
+        moho_state_db: SledMohoStateDb,
+        export_entries_db: SledExportEntriesDb,
+    ) -> Self {
+        Self {
+            bitcoin_client,
+            moho_state_db,
+            export_entries_db,
+        }
+    }
+}
+
+#[async_trait]
+impl AsmMohoApiServer for AsmMohoRpcServer {
+    async fn get_moho_state(&self, block_hash: BlockHash) -> RpcResult<Option<MohoState>> {
         let commitment = to_block_commitment(&self.bitcoin_client, block_hash)
             .await
             .map_err(to_rpc_error)?;
 
-        let Some(state) = self.moho_state_db.get(commitment).map_err(to_rpc_error)? else {
-            return Ok(None);
-        };
-
-        Ok(Some(state.as_ssz_bytes()))
+        self.moho_state_db.get(commitment).map_err(to_rpc_error)
     }
 
     async fn get_export_entry_mmr_proof(
@@ -348,8 +379,20 @@ pub(crate) async fn run_rpc_server(
     module.merge(AsmStateApiServer::into_rpc(asm_rpc))?;
 
     if let Some(deps) = proof_deps {
-        let proof_module = AsmProofRpcServer::new(bitcoin_client, deps).into_rpc();
+        let AsmProofRpcDeps {
+            proof_db,
+            prover_handle,
+            moho_state_db,
+            export_entries_db,
+        } = deps;
+
+        let proof_module =
+            AsmProofRpcServer::new(bitcoin_client.clone(), proof_db, prover_handle).into_rpc();
         module.merge(proof_module)?;
+
+        let moho_module =
+            AsmMohoRpcServer::new(bitcoin_client, moho_state_db, export_entries_db).into_rpc();
+        module.merge(moho_module)?;
     }
 
     let server = ServerBuilder::default()

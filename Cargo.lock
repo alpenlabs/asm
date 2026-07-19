@@ -8087,12 +8087,14 @@ version = "0.1.0"
 dependencies = [
  "bitcoin",
  "jsonrpsee",
+ "moho-types",
  "strata-asm-bridge-types",
  "strata-asm-checkpoint-types",
  "strata-asm-common",
  "strata-asm-params",
  "strata-asm-proto-bridge",
  "strata-asm-prover-types",
+ "strata-asm-prover-worker",
  "strata-asm-worker",
 ]
 
