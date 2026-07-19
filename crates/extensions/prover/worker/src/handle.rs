@@ -1,8 +1,7 @@
 //! Handle for interacting with the prover worker service.
 
+use strata_asm_prover_types::ProverStatus;
 use strata_service::ServiceMonitor;
-
-use crate::service::ProverStatus;
 
 /// Handle for observing the prover worker service.
 ///

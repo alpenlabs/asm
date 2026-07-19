@@ -7,6 +7,27 @@ use serde::{Deserialize, Serialize};
 use strata_identifiers::L1BlockCommitment;
 use zkaleido::ProofReceiptWithMetadata;
 
+/// Status snapshot of a prover worker.
+///
+/// Produced by the prover worker's service monitor and served over RPC, so
+/// operators — and follower nodes deciding whether to fetch or fall back to
+/// local proving — can judge how far a prover has progressed.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ProverStatus {
+    /// Number of proofs queued but not yet submitted or fetched.
+    pub pending: usize,
+
+    /// Most recent block the Moho worker committed, if any — from the
+    /// current session's commit subscription, or persisted state after a
+    /// restart.
+    pub last_committed: Option<L1BlockCommitment>,
+
+    /// Highest block with a completed Moho recursive proof, if any. The gap
+    /// between this and `last_committed` is the work still in flight or
+    /// pending.
+    pub last_proven: Option<L1BlockCommitment>,
+}
+
 /// ASM step proof for a range of L1 blocks.
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, Serialize, Deserialize)]
 pub struct AsmProof(pub ProofReceiptWithMetadata);

@@ -49,13 +49,13 @@ pub struct ProverServiceState<C, H> {
     /// Most recent block the Moho worker committed. Initialized from the
     /// latest persisted Moho state at construction and advanced by the commit
     /// subscription. Surfaced through
-    /// [`ProverStatus`](crate::service::ProverStatus) for observability.
+    /// [`ProverStatus`](strata_asm_prover_types::ProverStatus) for observability.
     pub(crate) last_committed: Option<L1BlockCommitment>,
 
     /// Highest block with a completed Moho recursive proof. Initialized from
     /// the proof store at construction and advanced as reconciliation stores
     /// newly completed proofs. Surfaced through
-    /// [`ProverStatus`](crate::service::ProverStatus) for observability.
+    /// [`ProverStatus`](strata_asm_prover_types::ProverStatus) for observability.
     pub(crate) last_proven: Option<L1BlockCommitment>,
 
     /// Peer proof source; present iff the worker runs in

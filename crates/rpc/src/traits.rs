@@ -8,8 +8,7 @@ use strata_asm_checkpoint_types::CheckpointTip;
 use strata_asm_common::{AnchorState, AsmManifest};
 use strata_asm_params::AsmParams;
 use strata_asm_proto_bridge::{AssignmentEntry, DepositEntry};
-use strata_asm_prover_types::{AsmProof, MohoProof};
-use strata_asm_prover_worker::ProverStatus;
+use strata_asm_prover_types::{AsmProof, MohoProof, ProverStatus};
 use strata_asm_worker::AsmWorkerStatus;
 
 /// Control-plane ASM RPCs: liveness and overall worker status.

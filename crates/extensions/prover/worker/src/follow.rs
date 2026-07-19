@@ -24,7 +24,7 @@
 //! mirroring [`schedule`](crate::schedule).
 
 use async_trait::async_trait;
-use strata_asm_prover_types::ProofId;
+use strata_asm_prover_types::{ProofId, ProverStatus};
 use strata_identifiers::L1BlockCommitment;
 use tracing::{debug, info, warn};
 use zkaleido::ZkVmRemoteHost;
@@ -37,7 +37,6 @@ use crate::{
     proof_store,
     queue::PendingProofQueue,
     schedule,
-    service::ProverStatus,
     state::ProverServiceState,
 };
 

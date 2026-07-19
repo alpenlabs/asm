@@ -3,10 +3,10 @@
 use std::fmt::Debug;
 
 use async_trait::async_trait;
-use strata_asm_prover_types::{AsmProof, L1Range, MohoProof};
+use strata_asm_prover_types::{AsmProof, L1Range, MohoProof, ProverStatus};
 use strata_identifiers::L1BlockCommitment;
 
-use crate::{errors::ProverResult, service::ProverStatus};
+use crate::errors::ProverResult;
 
 /// A peer asm-runner completed proofs can be fetched from.
 ///

@@ -10,8 +10,8 @@
 
 use async_trait::async_trait;
 use jsonrpsee::http_client::{HttpClient, HttpClientBuilder};
-use strata_asm_prover_types::{AsmProof, L1Range, MohoProof};
-use strata_asm_prover_worker::{ProofPeer, ProverError, ProverResult, ProverStatus};
+use strata_asm_prover_types::{AsmProof, L1Range, MohoProof, ProverStatus};
+use strata_asm_prover_worker::{ProofPeer, ProverError, ProverResult};
 use strata_asm_rpc::traits::AsmProofApiClient;
 use strata_btc_types::L1BlockIdBitcoinExt;
 use strata_identifiers::L1BlockCommitment;

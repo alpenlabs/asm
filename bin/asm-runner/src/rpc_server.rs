@@ -24,8 +24,8 @@ use strata_asm_proto_bridge_txs::BRIDGE_SUBPROTOCOL_ID;
 use strata_asm_proto_checkpoint::CheckpointState;
 use strata_asm_proto_checkpoint_txs::CHECKPOINT_SUBPROTOCOL_ID;
 use strata_asm_prover_storage::{ProofDb, SledProofDb};
-use strata_asm_prover_types::{AsmProof, L1Range, MohoProof};
-use strata_asm_prover_worker::{ProverStatus, ProverWorkerHandle};
+use strata_asm_prover_types::{AsmProof, L1Range, MohoProof, ProverStatus};
+use strata_asm_prover_worker::ProverWorkerHandle;
 use strata_asm_rpc::traits::{
     AsmControlApiServer, AsmMohoApiServer, AsmProofApiServer, AsmStateApiServer,
 };

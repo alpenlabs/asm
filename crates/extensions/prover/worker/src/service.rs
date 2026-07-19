@@ -14,8 +14,7 @@
 
 use std::marker;
 
-use serde::{Deserialize, Serialize};
-use strata_identifiers::L1BlockCommitment;
+use strata_asm_prover_types::ProverStatus;
 use strata_service::{AsyncService, Response, Service, TickMsg};
 use tracing::{debug, error};
 use zkaleido::ZkVmRemoteHost;
@@ -96,22 +95,4 @@ where
         ProverMode::Follower(_) => follow::follow_proofs(state).await?,
     }
     Ok(())
-}
-
-/// Status snapshot for the prover service, surfaced through the
-/// [`ServiceMonitor`](strata_service::ServiceMonitor) on
-/// [`ProverWorkerHandle`](crate::ProverWorkerHandle).
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct ProverStatus {
-    /// Number of proofs queued but not yet submitted to the remote prover.
-    pub pending: usize,
-
-    /// Most recent block the Moho worker committed, if any — from the current
-    /// session's commit subscription, or persisted state after a restart.
-    pub last_committed: Option<L1BlockCommitment>,
-
-    /// Highest block with a completed Moho recursive proof, if any. The gap
-    /// between this and `last_committed` is the work still in flight or
-    /// pending.
-    pub last_proven: Option<L1BlockCommitment>,
 }
