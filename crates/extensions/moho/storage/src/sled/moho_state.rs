@@ -143,6 +143,12 @@ impl MohoStateDb for SledMohoStateDb {
         self.get(l1ref)
     }
 
+    async fn get_latest_moho_state(
+        &self,
+    ) -> Result<Option<(L1BlockCommitment, MohoState)>, Self::Error> {
+        self.get_latest()
+    }
+
     async fn prune(&self, before_height: u32) -> Result<(), Self::Error> {
         self.prune_before(before_height)
     }

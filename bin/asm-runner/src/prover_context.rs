@@ -26,7 +26,7 @@ use strata_asm_prover_types::{AsmProof, L1Range, MohoProof, ProofId, RemoteProof
 use strata_asm_prover_worker::{
     AnchorStateReader, AuxDataReader, L1BlockProvider, ProverError, ProverResult,
 };
-use strata_btc_types::{BlockHashExt, L1BlockIdBitcoinExt};
+use strata_btc_types::L1BlockIdBitcoinExt;
 use strata_identifiers::{L1BlockCommitment, L1BlockId};
 use zkaleido::RemoteProofStatus;
 
@@ -181,6 +181,12 @@ impl MohoStateDb for AsmProverContext {
         self.moho_state_db.get_moho_state(l1ref).await
     }
 
+    async fn get_latest_moho_state(
+        &self,
+    ) -> Result<Option<(L1BlockCommitment, MohoState)>, Self::Error> {
+        self.moho_state_db.get_latest_moho_state().await
+    }
+
     async fn prune(&self, before_height: u32) -> Result<(), Self::Error> {
         self.moho_state_db.prune(before_height).await
     }
@@ -199,24 +205,6 @@ impl AnchorStateReader for AsmProverContext {
                 source: e.into(),
             })?
             .ok_or(ProverError::NotFound("anchor state not found"))
-    }
-
-    fn get_latest_anchor_state(&self) -> ProverResult<Option<AnchorState>> {
-        self.state_db
-            .get_latest()
-            .map_err(|e| ProverError::Storage {
-                context: "failed to read latest anchor state",
-                source: e.into(),
-            })
-    }
-
-    fn contains_anchor_state(&self, blockid: &L1BlockCommitment) -> ProverResult<bool> {
-        self.state_db
-            .contains(blockid)
-            .map_err(|e| ProverError::Storage {
-                context: "failed to check anchor state presence",
-                source: e.into(),
-            })
     }
 }
 
@@ -247,21 +235,5 @@ impl L1BlockProvider for AsmProverContext {
             .get_block_header(&hash)
             .await
             .map_err(|e| ProverError::storage("failed to fetch Bitcoin block header", e))
-    }
-
-    async fn get_l1_block_count(&self) -> ProverResult<u64> {
-        self.bitcoin_client
-            .get_block_count()
-            .await
-            .map_err(|e| ProverError::storage("failed to fetch L1 block count", e))
-    }
-
-    async fn get_l1_block_hash(&self, height: u64) -> ProverResult<L1BlockId> {
-        let hash = self
-            .bitcoin_client
-            .get_block_hash(height)
-            .await
-            .map_err(|e| ProverError::storage("failed to fetch L1 block hash", e))?;
-        Ok(hash.to_l1_block_id())
     }
 }

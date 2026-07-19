@@ -7,7 +7,7 @@ use crate::service::ProverStatus;
 /// Handle for observing the prover worker service.
 ///
 /// Unlike [`AsmWorkerHandle`](https://docs.rs/strata-asm-worker), the prover has
-/// no command surface: it is driven entirely by the ASM worker's commit
+/// no command surface: it is driven entirely by the Moho worker's commit
 /// subscription plus a periodic tick, so the handle exposes only the status
 /// monitor. Holding it is optional — the framework keeps the service task alive
 /// independently — but it is the way to observe queue depth and the last

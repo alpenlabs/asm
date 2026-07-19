@@ -1,7 +1,7 @@
 //! Input messages driving the prover worker.
 //!
 //! Unlike the ASM worker, the prover has no external command surface: it is
-//! driven entirely by the ASM worker's commit subscription plus a periodic
+//! driven entirely by the Moho worker's commit subscription plus a periodic
 //! wakeup tick. The framework's [`TickingInput`](strata_service::TickingInput)
 //! merges those two sources into a single stream of [`TickMsg`]:
 //!

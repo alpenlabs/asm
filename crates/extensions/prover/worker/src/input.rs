@@ -9,7 +9,7 @@ use moho_runtime_impl::RuntimeInput;
 use moho_types::{MohoState, RecursiveMohoProof, StepMohoAttestation, StepMohoProof};
 use ssz::{Decode, Encode};
 use strata_asm_proof_impl::moho_program::input::AsmStepInput;
-use strata_asm_prover_types::L1Range;
+use strata_asm_prover_types::{L1Range, ProofId};
 use strata_btc_types::BlockHashExt;
 use strata_btc_verification::TxidInclusionProof;
 use strata_identifiers::L1BlockCommitment;
@@ -21,6 +21,10 @@ use crate::{
     ProverContext,
     errors::{ProverError, ProverResult},
 };
+
+/// Leaf index of `next_predicate` in the [`MohoState`] commitment tree, whose
+/// leaves are `inner_state`, `next_predicate`, `export_state`, and padding.
+const NEXT_PREDICATE_LEAF_INDEX: usize = 1;
 
 /// Builds [`RuntimeInput`] for proof generation, dispatching by proof type.
 ///
@@ -34,12 +38,20 @@ pub struct InputBuilder {
     moho_predicate: PredicateKey,
 }
 
-/// Prerequisites required to build a Moho recursive proof input for a block:
-/// the inner ASM step proof and (unless genesis) the previous Moho proof.
+/// Result of assembling a Moho recursive proof input: either the input, ready
+/// to prove, or the prerequisite proofs that are still missing.
+///
+/// Missing prerequisites are an expected scheduling state — the scheduler
+/// defers the proof and enqueues what is missing — distinct from a
+/// [`ProverError`], which signals an actual failure to read or decode data.
 #[derive(Debug)]
-pub struct MohoPrerequisite {
-    prev_moho_proof: Option<RecursiveMohoProof>,
-    incremental_step_proof: StepMohoProof,
+pub enum MohoInput {
+    /// All inputs were available. Boxed: the assembled input carries whole
+    /// proofs and dwarfs the other variant.
+    Ready(Box<MohoRecursiveInput>),
+    /// Prerequisite proofs not yet available, listed for the scheduler to
+    /// enqueue.
+    MissingPrerequisites(Vec<ProofId>),
 }
 
 impl InputBuilder {
@@ -86,130 +98,10 @@ impl InputBuilder {
             .ok_or(ProverError::NotFound("moho state not found for block"))
     }
 
-    /// Returns the worker-processed L1 blocks that may still need proofs after a
-    /// restart: every persisted anchor on the *canonical* chain above the highest
-    /// canonical block that already has a Moho proof, and above genesis.
-    ///
-    /// The in-memory pending queue is rebuilt from this on startup. The commit
-    /// subscription only re-delivers blocks the worker *reprocesses*, and an
-    /// already-processed block is a no-op — so a proof that was pending (enqueued
-    /// but not yet submitted, e.g. a Moho proof deferred on a missing
-    /// prerequisite) at restart time would otherwise be lost, permanently
-    /// stalling the recursive Moho chain behind the gap.
-    ///
-    /// The watermark must be derived along the canonical chain, *not* from the
-    /// global-maximum Moho proof. Orphaned states and proofs from abandoned reorg
-    /// branches are never pruned (see
-    /// [`AnchorStateStore::get_latest_asm_state`](strata_asm_worker::AnchorStateStore::get_latest_asm_state)),
-    /// so an orphaned branch's proof can outrank the canonical proof frontier;
-    /// trusting the global max would skip the genuinely-pending canonical blocks
-    /// below it and stall their Moho chain forever. Instead we walk the canonical
-    /// L1 ancestry downward and stop at the first block that already has a Moho
-    /// proof: since `Moho(H)` is only submitted once `Moho(H-1)` and `Asm(H)` are
-    /// stored, a canonical proof at height H implies every canonical proof at or
-    /// below H is done. `try_submit` drops any re-enqueued proof that turns out
-    /// to already exist or be in flight.
-    pub(crate) async fn proofs_to_backfill<C: ProverContext>(
-        &self,
-        ctx: &C,
-    ) -> ProverResult<Vec<L1BlockCommitment>> {
-        let genesis_height = self.genesis.height();
-
-        // Highest persisted anchor. May belong to an abandoned reorg branch, so
-        // it only bounds the walk — canonicality is established per height below.
-        let Some(latest) = ctx.get_latest_anchor_state()? else {
-            return Ok(Vec::new());
-        };
-        let latest_height = latest.chain_view.pow_state.last_verified_block.height();
-
-        // Clamp to the canonical tip: after a reorg to a shorter chain the
-        // highest persisted block can outrank the current L1 tip, and
-        // `get_l1_block_hash` would fail for a height bitcoind no longer has.
-        let tip_height = ctx.get_l1_block_count().await?;
-        let mut height = latest_height.min(u32::try_from(tip_height).unwrap_or(u32::MAX));
-
-        let mut backfill = Vec::new();
-        while height > genesis_height {
-            let block_id = ctx.get_l1_block_hash(u64::from(height)).await?;
-            let commitment = L1BlockCommitment::new(height, block_id);
-
-            // Heights above the processed tip are not yet persisted; the worker
-            // re-processes and re-enqueues them on sync, so recovery skips them.
-            if ctx.contains_anchor_state(&commitment)? {
-                if ctx
-                    .get_moho_proof(commitment)
-                    .await
-                    .map_err(|e| ProverError::storage("failed to fetch moho proof", e))?
-                    .is_some()
-                {
-                    break;
-                }
-                backfill.push(commitment);
-            }
-
-            height -= 1;
-        }
-
-        // Oldest-first, the order the recursive Moho chain needs.
-        backfill.reverse();
-        Ok(backfill)
-    }
-
-    /// Checks whether the prerequisites for a Moho recursive proof at `block`
-    /// are available, returning them if so.
-    pub async fn check_moho_prerequisite<C: ProverContext>(
-        &self,
-        ctx: &C,
-        block: L1BlockCommitment,
-    ) -> ProverResult<MohoPrerequisite> {
-        // 1. ASM step proof is required.
-        let asm_proof = ctx
-            .get_asm_proof(L1Range::single(block))
-            .await
-            .map_err(|e| ProverError::storage("failed to fetch ASM step proof", e))?
-            .ok_or(ProverError::NotFound(
-                "ASM step proof not available yet for this block",
-            ))?;
-
-        let asm_receipt = asm_proof.0.receipt();
-        let asm_attestation = StepMohoAttestation::from_ssz_bytes(
-            asm_receipt.public_values().as_bytes(),
-        )
-        .map_err(|source| ProverError::Decode {
-            what: "ASM attestation",
-            source,
-        })?;
-        let asm_step_proof =
-            StepMohoProof::new(asm_attestation, asm_receipt.proof().as_bytes().to_vec());
-
-        // 2. Previous moho proof: required unless this is the genesis block.
-        let parent = self.get_parent_commitment(ctx, block).await?;
-        let prev_moho_proof = if parent == self.genesis {
-            None
-        } else {
-            let proof = ctx
-                .get_moho_proof(parent)
-                .await
-                .map_err(|e| ProverError::storage("failed to fetch previous moho proof", e))?
-                .ok_or(ProverError::NotFound(
-                    "previous moho recursive proof not available yet",
-                ))?;
-            let receipt = proof.0.receipt();
-            let output = MohoRecursiveOutput::from_ssz_bytes(receipt.public_values().as_bytes())
-                .map_err(|source| ProverError::Decode {
-                    what: "moho recursive output",
-                    source,
-                })?;
-            Some(RecursiveMohoProof::new(
-                output.attestation().clone(),
-                receipt.proof().as_bytes().to_vec(),
-            ))
-        };
-
-        Ok(MohoPrerequisite {
-            incremental_step_proof: asm_step_proof,
-            prev_moho_proof,
-        })
+    /// The genesis block commitment the recursive Moho chain is rooted at.
+    /// Proofs exist only for blocks strictly above it.
+    pub(crate) fn genesis(&self) -> L1BlockCommitment {
+        self.genesis
     }
 
     /// Builds the [`RuntimeInput`] for a single-block ASM proof.
@@ -235,7 +127,7 @@ impl InputBuilder {
         };
 
         // 3. Build the step input.
-        let step_input = AsmStepInput::new(block.clone(), aux_data, coinbase_inclusion_proof);
+        let step_input = AsmStepInput::new(block, aux_data, coinbase_inclusion_proof);
 
         // 4. Fetch the pre-state (anchor state for the parent block).
         let parent_commitment = self.get_parent_commitment(ctx, commitment).await?;
@@ -255,28 +147,91 @@ impl InputBuilder {
         Ok(runtime_input)
     }
 
-    /// Builds the [`MohoRecursiveInput`] for a Moho recursive proof at `l1_ref`.
+    /// Assembles the [`MohoRecursiveInput`] for a Moho recursive proof at
+    /// `l1_ref`, or reports which prerequisite proofs are still missing: the
+    /// ASM step proof for the block and, unless the parent is genesis, the
+    /// Moho recursive proof for the parent. Only Moho proofs have proof
+    /// prerequisites — ASM step proofs depend solely on worker-persisted
+    /// state.
+    ///
+    /// Only one level of prerequisites is reported. The scheduler enqueues
+    /// what is missing, and the recursion continues when those entries are
+    /// themselves popped and checked — walking a gap of any depth back to the
+    /// last proven block without re-probing the same ancestry from every
+    /// dependent proof.
     pub async fn build_moho_runtime_input<C: ProverContext>(
         &self,
         ctx: &C,
-        prerequisite: MohoPrerequisite,
         l1_ref: L1BlockCommitment,
-    ) -> ProverResult<MohoRecursiveInput> {
-        let moho_predicate = self.moho_predicate.clone();
+    ) -> ProverResult<MohoInput> {
+        // 1. Fetch the prerequisite proofs: the inner ASM step proof for this
+        // block and, unless the parent is genesis, the previous Moho proof.
+        let asm_proof = ctx
+            .get_asm_proof(L1Range::single(l1_ref))
+            .await
+            .map_err(|e| ProverError::storage("failed to fetch ASM step proof", e))?;
 
-        let MohoPrerequisite {
-            prev_moho_proof,
-            incremental_step_proof,
-        } = prerequisite;
+        let parent = self.get_parent_commitment(ctx, l1_ref).await?;
+        let requires_prev = parent != self.genesis;
+        let prev_moho = if requires_prev {
+            ctx.get_moho_proof(parent)
+                .await
+                .map_err(|e| ProverError::storage("failed to fetch previous moho proof", e))?
+        } else {
+            None
+        };
+
+        let (asm_proof, prev_moho) = match (asm_proof, requires_prev, prev_moho) {
+            (Some(asm), false, _) => (asm, None),
+            (Some(asm), true, Some(prev)) => (asm, Some(prev)),
+            (asm, requires_prev, prev) => {
+                let mut missing = Vec::new();
+                if asm.is_none() {
+                    missing.push(ProofId::Asm(L1Range::single(l1_ref)));
+                }
+                if requires_prev && prev.is_none() {
+                    missing.push(ProofId::Moho(parent));
+                }
+                return Ok(MohoInput::MissingPrerequisites(missing));
+            }
+        };
+
+        // 2. Decode the prerequisites into the proof types the input carries.
+        let asm_receipt = asm_proof.0.receipt();
+        let asm_attestation = StepMohoAttestation::from_ssz_bytes(
+            asm_receipt.public_values().as_bytes(),
+        )
+        .map_err(|source| ProverError::Decode {
+            what: "ASM attestation",
+            source,
+        })?;
+        let incremental_step_proof =
+            StepMohoProof::new(asm_attestation, asm_receipt.proof().as_bytes().to_vec());
+
+        let prev_moho_proof = prev_moho
+            .map(|proof| -> ProverResult<RecursiveMohoProof> {
+                let receipt = proof.0.receipt();
+                let output =
+                    MohoRecursiveOutput::from_ssz_bytes(receipt.public_values().as_bytes())
+                        .map_err(|source| ProverError::Decode {
+                            what: "moho recursive output",
+                            source,
+                        })?;
+                Ok(RecursiveMohoProof::new(
+                    output.attestation().clone(),
+                    receipt.proof().as_bytes().to_vec(),
+                ))
+            })
+            .transpose()?;
+
+        let moho_predicate = self.moho_predicate.clone();
 
         // The inner step proof is the ASM STF proof, so the step predicate is
         // the ASM predicate.
         let step_predicate = self.asm_predicate.clone();
-
-        let parent = self.get_parent_commitment(ctx, l1_ref).await?;
         let parent_state = self.get_moho_state(ctx, parent).await?;
 
-        let leaves = vec![
+        let leaves = [
             <_ as TreeHash>::tree_hash_root::<TreeSha256Hasher>(&parent_state.inner_state)
                 .into_inner(),
             <_ as TreeHash>::tree_hash_root::<TreeSha256Hasher>(&parent_state.next_predicate)
@@ -288,16 +243,16 @@ impl InputBuilder {
 
         let generic_proof = BinaryMerkleTree::from_leaves::<Sha256NoPrefixHasher>(leaves)
             .expect("valid tree")
-            .gen_proof(1)
+            .gen_proof(NEXT_PREDICATE_LEAF_INDEX)
             .expect("proof exists");
         let step_predicate_merkle_proof = MerkleProofB32::from_generic(&generic_proof);
 
-        Ok(MohoRecursiveInput::new(
+        Ok(MohoInput::Ready(Box::new(MohoRecursiveInput::new(
             moho_predicate,
             prev_moho_proof,
             incremental_step_proof,
             step_predicate,
             step_predicate_merkle_proof,
-        ))
+        ))))
     }
 }
