@@ -124,7 +124,11 @@ jobs:
           SP1_CORE_RUNNER_OVERRIDE_BINARY: ${{ steps.sp1-runner.outputs.override-binary }}
         run: |
           set -euo pipefail
-          mkdir -p out
+          # Recreate out/ from scratch: the dispatched ref (or its build
+          # scripts) may have planted files there, and the recursive
+          # artifact/S3 upload would publish anything in this directory
+          # under the approved commit prefix.
+          rm -rf out && mkdir out
           cargo build --release --locked -p strata-asm-runner --features sp1
           install -m 0755 target/release/strata-asm-runner out/strata-asm-runner
           ( cd out && sha256sum strata-asm-runner > strata-asm-runner.sha256 )
@@ -136,7 +140,7 @@ jobs:
           name: asm-binary-${{ steps.rev.outputs.sha }}
           path: out/
           if-no-files-found: error
-          retention-days: 7 # must outlast the publish job's reviewer-approval wait
+          retention-days: 30 # environment approval can wait up to 30 days (GitHub max)
 
   publish:
     name: Publish to S3 (credentialed, no untrusted code)
