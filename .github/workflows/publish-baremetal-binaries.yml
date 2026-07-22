@@ -124,12 +124,18 @@ jobs:
           SP1_CORE_RUNNER_OVERRIDE_BINARY: ${{ steps.sp1-runner.outputs.override-binary }}
         run: |
           set -euo pipefail
-          # Recreate out/ from scratch: the dispatched ref (or its build
-          # scripts) may have planted files there, and the recursive
-          # artifact/S3 upload would publish anything in this directory
-          # under the approved commit prefix.
-          rm -rf out && mkdir out
           cargo build --release --locked -p strata-asm-runner --features sp1
+
+      - name: Stage the binary (fresh dir, explicit files, AFTER untrusted build code)
+        # Create out/ from scratch AFTER cargo build and copy ONLY the known
+        # binary + its checksum by explicit path. Doing this post-build (in its
+        # own step, so nothing from the build run can touch it) guarantees a
+        # dispatched ref's build.rs/proc-macros cannot plant extra files that
+        # the recursive artifact/S3 upload would then publish under the approved
+        # commit prefix — only strata-asm-runner and its .sha256 leave the runner.
+        run: |
+          set -euo pipefail
+          rm -rf out && mkdir out
           install -m 0755 target/release/strata-asm-runner out/strata-asm-runner
           ( cd out && sha256sum strata-asm-runner > strata-asm-runner.sha256 )
           echo "Staged:"; ls -la out
