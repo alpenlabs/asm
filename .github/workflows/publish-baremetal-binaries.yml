@@ -61,7 +61,10 @@ env:
 jobs:
   build:
     name: Build binary (untrusted ref, no credentials)
-    runs-on: ubuntu-latest
+    # Pinned (not -latest): the binary is dynamically linked; a floating runner
+    # advancing would silently raise the glibc/libstdc++ floor above what
+    # operators' Ubuntu 24.04 hosts ship (docs pin the target OS to 24.04).
+    runs-on: ubuntu-24.04
     timeout-minutes: 90
     permissions:
       contents: read # deliberately no id-token here
