@@ -142,6 +142,12 @@ enum FallbackReason {
 /// frontier (or `genesis_height`, when it has proven nothing yet) trails our
 /// committed tip. A young chain therefore never trips the lag fallback, while
 /// a peer that never proves anything eventually does.
+// TODO(STR-4062): a peer on a different fork passes both checks forever — probes
+// succeed and its proven frontier keeps pace — yet every hash-keyed fetch
+// misses, so proof acquisition silently stalls. Judge lag against the peer's
+// last proven block as confirmed on our own chain instead, so a diverged
+// peer's confirmed progress freezes and the max_lag tolerance converts
+// persistent divergence into local-proving fallback.
 fn follow_action(
     peer_status: Option<&ProverStatus>,
     last_committed: Option<L1BlockCommitment>,
