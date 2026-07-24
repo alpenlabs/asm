@@ -3,7 +3,7 @@ use strata_asm_proto_bridge_types::OperatorIdx;
 use strata_codec::{Codec, encode_to_vec};
 use strata_l1_txfmt::TagData;
 
-use crate::{BRIDGE_V1_SUBPROTOCOL_ID, constants::BridgeTxType};
+use crate::{BRIDGE_SUBPROTOCOL_V1_ID, constants::BridgeTxType};
 
 /// Auxiliary data in the SPS-50 header for [`BridgeTxType::Unstake`].
 #[derive(Debug, Clone, PartialEq, Eq, Arbitrary, Codec)]
@@ -33,7 +33,7 @@ impl UnstakeTxHeaderAux {
     pub fn build_tag_data(&self) -> TagData {
         let aux_data = encode_to_vec(self).expect("auxiliary data encoding should be infallible");
         TagData::new(
-            BRIDGE_V1_SUBPROTOCOL_ID,
+            BRIDGE_SUBPROTOCOL_V1_ID,
             BridgeTxType::Unstake as u8,
             aux_data,
         )
@@ -52,7 +52,7 @@ mod tests {
         fn build_tag_data_is_infallible(operator_idx in any::<OperatorIdx>()) {
             let aux = UnstakeTxHeaderAux::new(operator_idx);
             let tag = aux.build_tag_data();
-            prop_assert_eq!(tag.subproto_id(), BRIDGE_V1_SUBPROTOCOL_ID);
+            prop_assert_eq!(tag.subproto_id(), BRIDGE_SUBPROTOCOL_V1_ID);
             prop_assert_eq!(tag.tx_type(), BridgeTxType::Unstake as u8);
         }
     }

@@ -15,7 +15,7 @@ pub mod slash;
 pub mod unstake;
 pub mod withdrawal_fulfillment;
 
-pub use constants::BRIDGE_V1_SUBPROTOCOL_ID;
+pub use constants::BRIDGE_SUBPROTOCOL_V1_ID;
 
 #[cfg(any(test, feature = "test-utils"))]
 pub mod test_utils;

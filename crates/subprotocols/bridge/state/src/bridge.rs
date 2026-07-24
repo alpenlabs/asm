@@ -1,6 +1,6 @@
 use ssz_derive::{Decode, Encode};
 use strata_asm_common::logging::warn;
-use strata_asm_params::BridgeV1InitConfig;
+use strata_asm_params::BridgeInitConfig;
 use strata_asm_proto_bridge_txs::{deposit::DepositInfo, errors::Mismatch};
 use strata_asm_proto_bridge_types::{
     OperatorIdx, SafeHarbour, SafeHarbourAddress, WithdrawalIntent,
@@ -20,7 +20,7 @@ use crate::{
 /// This structure holds all the persistent state for the bridge, including
 /// operator registrations, deposit tracking, and assignment management.
 #[derive(Debug, Clone, Encode, Decode)]
-pub struct BridgeV1State {
+pub struct BridgeStateV1 {
     /// Table of registered bridge operators.
     operators: OperatorTable,
 
@@ -44,7 +44,7 @@ pub struct BridgeV1State {
     safe_harbour: SafeHarbour,
 }
 
-impl BridgeV1State {
+impl BridgeStateV1 {
     /// Creates a new bridge state with the specified configuration.
     ///
     /// Initializes all component tables as empty, creates an operator table from the provided
@@ -58,8 +58,8 @@ impl BridgeV1State {
     ///
     /// # Returns
     ///
-    /// A new [`BridgeV1State`] instance.
-    pub fn new(config: &BridgeV1InitConfig) -> Self {
+    /// A new [`BridgeStateV1`] instance.
+    pub fn new(config: &BridgeInitConfig) -> Self {
         let operators = OperatorTable::from_operator_list(&config.operators);
         Self {
             operators,

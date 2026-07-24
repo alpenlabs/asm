@@ -3,9 +3,9 @@ use strata_asm_common::{
     logging::{error, info},
 };
 use strata_asm_logs::{DepositLog, NewExportEntry};
-use strata_asm_proto_bridge_state::{BridgeV1State, OperatorClaimUnlock};
+use strata_asm_proto_bridge_state::{BridgeStateV1, OperatorClaimUnlock};
 use strata_asm_proto_bridge_txs::{
-    BRIDGE_V1_SUBPROTOCOL_ID, deposit_request::parse_drt, parser::ParsedTx,
+    BRIDGE_SUBPROTOCOL_V1_ID, deposit_request::parse_drt, parser::ParsedTx,
 };
 use strata_asm_proto_checkpoint_msgs::CheckpointIncomingMsg;
 
@@ -37,7 +37,7 @@ use crate::{
 /// bridge transactions to be treated as invalid, enabling anyone to create a false ASM proof by
 /// simply not providing the required aux data.
 pub(crate) fn handle_parsed_tx(
-    state: &mut BridgeV1State,
+    state: &mut BridgeStateV1,
     parsed_tx: ParsedTx,
     verified_aux_data: &VerifiedAuxData,
     relayer: &mut impl MsgRelayer,
@@ -88,7 +88,7 @@ pub(crate) fn handle_parsed_tx(
 
             // Use SubprotocolId as the containerId.
             let withdrawal_processed_log =
-                NewExportEntry::new(BRIDGE_V1_SUBPROTOCOL_ID, unlock.compute_hash());
+                NewExportEntry::new(BRIDGE_SUBPROTOCOL_V1_ID, unlock.compute_hash());
             relayer.emit_log(
                 AsmLogEntry::from_log(&withdrawal_processed_log)
                     .expect("withdrawal processed log must not fail"),
@@ -146,7 +146,7 @@ pub(crate) fn handle_parsed_tx(
 /// for the main processing phase.
 pub(crate) fn preprocess_parsed_tx(
     parsed_tx: ParsedTx,
-    _state: &BridgeV1State,
+    _state: &BridgeStateV1,
     collector: &mut AuxRequestCollector,
 ) {
     match parsed_tx {

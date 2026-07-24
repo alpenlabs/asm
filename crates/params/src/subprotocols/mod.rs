@@ -5,7 +5,7 @@ mod bridge;
 mod checkpoint;
 
 pub use admin::{AdminTxType, AdministrationInitConfig, ConfirmationDepths, Role, UpdateTxType};
-pub use bridge::BridgeV1InitConfig;
+pub use bridge::BridgeInitConfig;
 pub use checkpoint::CheckpointInitConfig;
 
 /// A configured subprotocol that can be registered in [`AsmParams`](crate::AsmParams).
@@ -19,7 +19,7 @@ pub enum SubprotocolInstance {
     Admin(AdministrationInitConfig),
 
     /// Bridge V1 subprotocol for deposit/withdrawal management.
-    Bridge(BridgeV1InitConfig),
+    Bridge(BridgeInitConfig),
 
     /// Checkpoint subprotocol for OL checkpoint verification.
     Checkpoint(CheckpointInitConfig),

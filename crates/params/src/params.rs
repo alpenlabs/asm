@@ -5,7 +5,7 @@ use strata_btc_verification::L1Anchor;
 use strata_l1_txfmt::MagicBytes;
 
 use crate::subprotocols::{
-    AdministrationInitConfig, BridgeV1InitConfig, CheckpointInitConfig, SubprotocolInstance,
+    AdministrationInitConfig, BridgeInitConfig, CheckpointInitConfig, SubprotocolInstance,
 };
 
 /// Top-level parameters for an ASM instance.
@@ -37,7 +37,7 @@ impl AsmParams {
         })
     }
 
-    pub fn bridge_config(&self) -> Option<&BridgeV1InitConfig> {
+    pub fn bridge_config(&self) -> Option<&BridgeInitConfig> {
         self.subprotocols.iter().find_map(|s| match s {
             SubprotocolInstance::Bridge(cfg) => Some(cfg),
             _ => None,
@@ -59,7 +59,7 @@ impl<'a> Arbitrary<'a> for AsmParams {
         use strata_identifiers::L1BlockCommitment;
 
         use crate::subprotocols::{
-            AdministrationInitConfig, BridgeV1InitConfig, CheckpointInitConfig,
+            AdministrationInitConfig, BridgeInitConfig, CheckpointInitConfig,
         };
 
         let networks = [
@@ -84,7 +84,7 @@ impl<'a> Arbitrary<'a> for AsmParams {
             subprotocols: vec![
                 SubprotocolInstance::Admin(AdministrationInitConfig::arbitrary(u)?),
                 SubprotocolInstance::Checkpoint(CheckpointInitConfig::arbitrary(u)?),
-                SubprotocolInstance::Bridge(BridgeV1InitConfig::arbitrary(u)?),
+                SubprotocolInstance::Bridge(BridgeInitConfig::arbitrary(u)?),
             ],
         })
     }

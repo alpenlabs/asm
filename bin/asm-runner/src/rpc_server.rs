@@ -16,8 +16,8 @@ use ssz::{Decode, Encode};
 use strata_asm_common::{AnchorState, AsmManifest};
 use strata_asm_moho_storage::{SledExportEntriesDb, SledMohoStateDb};
 use strata_asm_params::AsmParams;
-use strata_asm_proto_bridge::{AssignmentEntry, BridgeV1State, DepositEntry};
-use strata_asm_proto_bridge_txs::BRIDGE_V1_SUBPROTOCOL_ID;
+use strata_asm_proto_bridge::{AssignmentEntry, BridgeStateV1, DepositEntry};
+use strata_asm_proto_bridge_txs::BRIDGE_SUBPROTOCOL_V1_ID;
 use strata_asm_proto_bridge_types::SafeHarbour;
 use strata_asm_proto_checkpoint::CheckpointState;
 use strata_asm_proto_checkpoint_txs::CHECKPOINT_SUBPROTOCOL_ID;
@@ -75,7 +75,7 @@ impl AsmRpcServer {
         }
     }
 
-    async fn get_bridge_state(&self, block_hash: BlockHash) -> RpcResult<Option<BridgeV1State>> {
+    async fn get_bridge_state(&self, block_hash: BlockHash) -> RpcResult<Option<BridgeStateV1>> {
         let commitment = to_block_commitment(&self.bitcoin_client, block_hash)
             .await
             .map_err(to_rpc_error)?;
@@ -83,10 +83,10 @@ impl AsmRpcServer {
         match state {
             Some(state) => {
                 let bridge_state = state
-                    .find_section(BRIDGE_V1_SUBPROTOCOL_ID)
+                    .find_section(BRIDGE_SUBPROTOCOL_V1_ID)
                     .expect("bridge subprotocol should be enabled");
 
-                let bridge_state = BridgeV1State::from_ssz_bytes(&bridge_state.data)
+                let bridge_state = BridgeStateV1::from_ssz_bytes(&bridge_state.data)
                     .expect("bridge state deserialization should be infallible");
 
                 Ok(Some(bridge_state))

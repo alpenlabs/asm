@@ -10,7 +10,7 @@
 //! - **Assignments**: Task assignments linking deposits to specific operators
 //! - **Withdrawals**: Commands for operators to release funds from the multisig.
 //!
-//! The main entry point is [`BridgeV1State`], the state container the
+//! The main entry point is [`BridgeStateV1`], the state container the
 //! subprotocol crate operates on.
 
 pub mod assignment;
@@ -24,7 +24,7 @@ pub mod withdrawal;
 pub mod test_utils;
 
 pub use assignment::AssignmentEntry;
-pub use bridge::BridgeV1State;
+pub use bridge::BridgeStateV1;
 pub use deposit::DepositEntry;
 pub use errors::*;
 pub use operator::NnScriptIdx;

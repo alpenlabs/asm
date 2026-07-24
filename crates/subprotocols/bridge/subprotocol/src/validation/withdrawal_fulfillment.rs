@@ -2,7 +2,7 @@ use strata_asm_proto_bridge_txs::{
     errors::Mismatch, withdrawal_fulfillment::WithdrawalFulfillmentInfo,
 };
 
-use crate::{BridgeV1State, WithdrawalValidationError};
+use crate::{BridgeStateV1, WithdrawalValidationError};
 
 /// Validates the parsed withdrawal fulfillment information against assignment information.
 ///
@@ -26,7 +26,7 @@ use crate::{BridgeV1State, WithdrawalValidationError};
 /// - No assignment exists for the referenced deposit
 /// - The withdrawal specifications don't match the assignment
 pub(crate) fn validate_withdrawal_fulfillment_info(
-    state: &BridgeV1State,
+    state: &BridgeStateV1,
     withdrawal_info: &WithdrawalFulfillmentInfo,
 ) -> Result<(), WithdrawalValidationError> {
     let deposit_idx = withdrawal_info.header_aux().deposit_idx();

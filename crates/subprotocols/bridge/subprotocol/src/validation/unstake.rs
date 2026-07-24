@@ -1,5 +1,5 @@
 use bitcoin::ScriptBuf;
-use strata_asm_proto_bridge_state::{BridgeV1State, operator::build_nn_script};
+use strata_asm_proto_bridge_state::{BridgeStateV1, operator::build_nn_script};
 use strata_asm_proto_bridge_txs::unstake::{UnstakeInfo, expected_stake_connector_script_pubkey};
 use strata_btc_types::BitcoinXOnlyPublicKey;
 
@@ -23,7 +23,7 @@ use crate::errors::UnstakeValidationError;
 ///    witness-layout bypass lets an attacker present a real N/N key at `witness[2]` while actually
 ///    spending a trivially-spendable UTXO.
 pub(crate) fn validate_unstake_info(
-    state: &BridgeV1State,
+    state: &BridgeStateV1,
     info: &UnstakeInfo,
     stake_connector_script_pubkey: &ScriptBuf,
 ) -> Result<(), UnstakeValidationError> {

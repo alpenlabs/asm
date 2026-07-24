@@ -3,9 +3,9 @@ use strata_asm_proto_bridge_types::SafeHarbourAddress;
 use strata_btc_types::BitcoinAmount;
 use strata_crypto::EvenPublicKey;
 
-/// Initialization configuration for the BridgeV1 subprotocol.
+/// Initialization configuration for the bridge subprotocol.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct BridgeV1InitConfig {
+pub struct BridgeInitConfig {
     /// Initial operator MuSig2 public keys for the bridge
     pub operators: Vec<EvenPublicKey>,
     /// The amount of bitcoin expected to be locked in the N/N multisig.
@@ -26,7 +26,7 @@ pub struct BridgeV1InitConfig {
 }
 
 #[cfg(feature = "arbitrary")]
-impl<'a> arbitrary::Arbitrary<'a> for BridgeV1InitConfig {
+impl<'a> arbitrary::Arbitrary<'a> for BridgeInitConfig {
     fn arbitrary(u: &mut arbitrary::Unstructured<'a>) -> arbitrary::Result<Self> {
         // Generate at least one operator.
         let len = u.int_in_range(1..=5)?;

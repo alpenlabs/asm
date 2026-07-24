@@ -16,7 +16,7 @@
 //!
 //! # Usage
 //!
-//! The main entry point is [`subprotocol::BridgeV1Subproto`] which implements the `Subprotocol`
+//! The main entry point is [`subprotocol::BridgeSubprotoV1`] which implements the `Subprotocol`
 //! trait for integration with the Anchor State Machine.
 
 mod errors;
@@ -31,6 +31,6 @@ pub use errors::*;
 pub use strata_asm_proto_bridge_msgs::BridgeIncomingMsg;
 // Re-exported so downstream users keep finding the state types here.
 pub use strata_asm_proto_bridge_state::{
-    AssignmentEntry, BridgeV1State, DepositEntry, NnScriptIdx, OperatorClaimUnlock,
+    AssignmentEntry, BridgeStateV1, DepositEntry, NnScriptIdx, OperatorClaimUnlock,
 };
-pub use subprotocol::BridgeV1Subproto;
+pub use subprotocol::BridgeSubprotoV1;

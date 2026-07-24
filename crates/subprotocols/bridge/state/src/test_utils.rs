@@ -1,7 +1,7 @@
 //! Test utilities for constructing and populating bridge state.
 
 use rand::Rng;
-use strata_asm_params::BridgeV1InitConfig;
+use strata_asm_params::BridgeInitConfig;
 use strata_asm_proto_bridge_txs::{deposit::DepositInfo, test_utils::create_test_operators};
 use strata_asm_proto_bridge_types::WithdrawalIntent;
 use strata_btc_types::BitcoinAmount;
@@ -9,25 +9,25 @@ use strata_crypto::EvenSecretKey;
 use strata_identifiers::L1BlockCommitment;
 use strata_test_utils_arb::ArbitraryGenerator;
 
-use crate::bridge::BridgeV1State;
+use crate::bridge::BridgeStateV1;
 
 /// Helper function to create a test bridge state and associated operator keys.
 ///
-/// This function initializes a `BridgeV1State` with a randomly generated number of operators
+/// This function initializes a `BridgeStateV1` with a randomly generated number of operators
 /// (between 2 and 5), a fixed denomination, and an assignment duration. It returns the
 /// initialized state along with the private keys of the operators, which can be used for
 /// signing test transactions.
 ///
 /// # Returns
 ///
-/// - `(BridgeV1State, Vec<EvenSecretKey>)` - A tuple containing the initialized bridge state and a
+/// - `(BridgeStateV1, Vec<EvenSecretKey>)` - A tuple containing the initialized bridge state and a
 ///   vector of `EvenSecretKey` for the operators.
-pub fn create_test_state() -> (BridgeV1State, Vec<EvenSecretKey>) {
+pub fn create_test_state() -> (BridgeStateV1, Vec<EvenSecretKey>) {
     let mut rng = rand::thread_rng();
     let num_operators = rng.gen_range(2..=5);
     let (privkeys, operators) = create_test_operators(num_operators);
     let denomination = BitcoinAmount::from_sat(1_000_000);
-    let config = BridgeV1InitConfig {
+    let config = BridgeInitConfig {
         denomination,
         operators,
         assignment_duration: 144, // ~24 hours
@@ -35,7 +35,7 @@ pub fn create_test_state() -> (BridgeV1State, Vec<EvenSecretKey>) {
         recovery_delay: 1008,
         safe_harbour_address: ArbitraryGenerator::new().generate(),
     };
-    let bridge_state = BridgeV1State::new(&config);
+    let bridge_state = BridgeStateV1::new(&config);
     (bridge_state, privkeys)
 }
 
@@ -49,7 +49,7 @@ pub fn create_test_state() -> (BridgeV1State, Vec<EvenSecretKey>) {
 ///
 /// - `state` - Mutable reference to the bridge state to add deposits to
 /// - `count` - Number of deposits to create and add
-pub fn add_deposits(state: &mut BridgeV1State, count: usize) -> Vec<DepositInfo> {
+pub fn add_deposits(state: &mut BridgeStateV1, count: usize) -> Vec<DepositInfo> {
     let mut arb = ArbitraryGenerator::new();
     let mut infos = Vec::new();
     for _ in 0..count {
@@ -71,7 +71,7 @@ pub fn add_deposits(state: &mut BridgeV1State, count: usize) -> Vec<DepositInfo>
 ///
 /// - `state` - Mutable reference to the bridge state
 /// - `count` - Number of deposit-assignment pairs to create
-pub fn add_deposits_and_assignments(state: &mut BridgeV1State, count: usize) {
+pub fn add_deposits_and_assignments(state: &mut BridgeStateV1, count: usize) {
     add_deposits(state, count);
     let mut arb = ArbitraryGenerator::new();
     for _ in 0..count {

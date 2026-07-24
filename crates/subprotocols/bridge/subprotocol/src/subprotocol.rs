@@ -9,10 +9,10 @@ use strata_asm_common::{
     logging::{debug, error, info},
 };
 use strata_asm_logs::ExportExtraDataUpdate;
-use strata_asm_params::BridgeV1InitConfig;
+use strata_asm_params::BridgeInitConfig;
 use strata_asm_proto_bridge_msgs::BridgeIncomingMsg;
-use strata_asm_proto_bridge_state::BridgeV1State;
-use strata_asm_proto_bridge_txs::{BRIDGE_V1_SUBPROTOCOL_ID, errors::Mismatch, parser::parse_tx};
+use strata_asm_proto_bridge_state::BridgeStateV1;
+use strata_asm_proto_bridge_txs::{BRIDGE_SUBPROTOCOL_V1_ID, errors::Mismatch, parser::parse_tx};
 use strata_identifiers::L1BlockCommitment;
 
 use crate::{
@@ -26,19 +26,19 @@ use crate::{
 /// with the ASM. It handles Bitcoin deposit processing, operator management, and withdrawal
 /// coordination.
 #[derive(Copy, Clone, Debug)]
-pub struct BridgeV1Subproto;
+pub struct BridgeSubprotoV1;
 
-impl Subprotocol for BridgeV1Subproto {
-    const ID: SubprotocolId = BRIDGE_V1_SUBPROTOCOL_ID;
+impl Subprotocol for BridgeSubprotoV1 {
+    const ID: SubprotocolId = BRIDGE_SUBPROTOCOL_V1_ID;
 
-    type State = BridgeV1State;
+    type State = BridgeStateV1;
 
-    type InitConfig = BridgeV1InitConfig;
+    type InitConfig = BridgeInitConfig;
 
     type Msg = BridgeIncomingMsg;
 
     fn init(config: &Self::InitConfig) -> Self::State {
-        BridgeV1State::new(config)
+        BridgeStateV1::new(config)
     }
 
     /// Pre-processes transactions to collect auxiliary data requests.
@@ -140,7 +140,7 @@ impl Subprotocol for BridgeV1Subproto {
         // Publish the accumulated proof of work as the bridge container's export `extra_data`,
         // so downstream consumers can read the verified L1 work directly from the export state.
         let accumulated_pow = header_vs.total_accumulated_pow().to_le_bytes();
-        let extra_data_log = ExportExtraDataUpdate::new(BRIDGE_V1_SUBPROTOCOL_ID, accumulated_pow);
+        let extra_data_log = ExportExtraDataUpdate::new(BRIDGE_SUBPROTOCOL_V1_ID, accumulated_pow);
         relayer.emit_log(
             AsmLogEntry::from_log(&extra_data_log)
                 .expect("export extra data log encoding is infallible for fixed-size SSZ"),
@@ -251,7 +251,7 @@ mod tests {
     use strata_identifiers::L1BlockCommitment;
     use strata_test_utils_arb::ArbitraryGenerator;
 
-    use super::BridgeV1Subproto;
+    use super::BridgeSubprotoV1;
     use crate::test_utils::{
         MockMsgRelayer, add_deposits, create_test_state, create_verified_aux_data,
     };
@@ -274,7 +274,7 @@ mod tests {
         let msgs = vec![BridgeIncomingMsg::UpdateSafeHarbourAddress(
             new_address.clone(),
         )];
-        BridgeV1Subproto::process_msgs(&mut state, &msgs, &l1ref);
+        BridgeSubprotoV1::process_msgs(&mut state, &msgs, &l1ref);
 
         assert_eq!(state.safe_harbour().address(), &new_address);
         // Address updates alone must not activate the safe harbour.
@@ -294,7 +294,7 @@ mod tests {
         intent.amt = BitcoinAmount::from_sat(state.denomination().to_sat() * 3);
 
         let msgs = vec![BridgeIncomingMsg::DispatchWithdrawal(intent)];
-        BridgeV1Subproto::process_msgs(&mut state, &msgs, &l1ref);
+        BridgeSubprotoV1::process_msgs(&mut state, &msgs, &l1ref);
 
         assert_eq!(state.assignments().len(), 3);
         assert_eq!(state.deposits().len(), 2);
@@ -312,7 +312,7 @@ mod tests {
         intent.amt = BitcoinAmount::from_sat(state.denomination().to_sat() + 1);
 
         let msgs = vec![BridgeIncomingMsg::DispatchWithdrawal(intent)];
-        BridgeV1Subproto::process_msgs(&mut state, &msgs, &l1ref);
+        BridgeSubprotoV1::process_msgs(&mut state, &msgs, &l1ref);
     }
 
     /// After processing transactions, `process_txs` reassigns every assignment whose deadline has
@@ -342,7 +342,7 @@ mod tests {
 
         let aux_data = create_verified_aux_data(vec![]);
         let mut relayer = MockMsgRelayer;
-        BridgeV1Subproto::process_txs(&mut state, &[], &header_vs, &aux_data, &mut relayer);
+        BridgeSubprotoV1::process_txs(&mut state, &[], &header_vs, &aux_data, &mut relayer);
 
         // Reassignment refreshes each deadline to `current_height + assignment_duration`.
         let expected_deadline = current_height + 144;
@@ -358,7 +358,7 @@ mod tests {
         let l1ref: L1BlockCommitment = ArbitraryGenerator::new().generate();
 
         let msgs = vec![BridgeIncomingMsg::Defcon(DefconPayload::default())];
-        BridgeV1Subproto::process_msgs(&mut state, &msgs, &l1ref);
+        BridgeSubprotoV1::process_msgs(&mut state, &msgs, &l1ref);
 
         assert!(state.safe_harbour().is_activated());
         assert_eq!(
@@ -383,7 +383,7 @@ mod tests {
             BridgeIncomingMsg::Defcon(DefconPayload::default()),
             BridgeIncomingMsg::UpdateSafeHarbourAddress(rejected_address),
         ];
-        BridgeV1Subproto::process_msgs(&mut state, &msgs, &l1ref);
+        BridgeSubprotoV1::process_msgs(&mut state, &msgs, &l1ref);
 
         assert!(state.safe_harbour().is_activated());
         // Address must be unchanged from before the rejected update.

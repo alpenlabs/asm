@@ -1,4 +1,4 @@
-use strata_asm_proto_bridge_state::{BridgeV1State, DepositValidationError};
+use strata_asm_proto_bridge_state::{BridgeStateV1, DepositValidationError};
 use strata_asm_proto_bridge_txs::{
     deposit::DepositInfo,
     deposit_request::{DepositRequestInfo, create_deposit_request_locking_script},
@@ -13,7 +13,7 @@ use strata_asm_proto_bridge_txs::{
 ///    script derived from the bridge configuration.
 /// 3. The deposit amount equals the bridge’s configured denomination.
 pub(crate) fn validate_deposit_info(
-    state: &BridgeV1State,
+    state: &BridgeStateV1,
     info: &DepositInfo,
     drt_info: &DepositRequestInfo,
 ) -> Result<(), DepositValidationError> {

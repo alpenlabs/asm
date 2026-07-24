@@ -32,8 +32,8 @@ use bitcoin::{
 use bitcoind_async_client::traits::Wallet;
 use rand::RngCore;
 use strata_asm_common::{AnchorState, SectionStateExt, Subprotocol};
-use strata_asm_params::BridgeV1InitConfig;
-use strata_asm_proto_bridge::{BridgeV1State, BridgeV1Subproto};
+use strata_asm_params::BridgeInitConfig;
+use strata_asm_proto_bridge::{BridgeStateV1, BridgeSubprotoV1};
 use strata_asm_proto_bridge_txs::{
     deposit::DepositTxHeaderAux,
     deposit_request::{
@@ -128,7 +128,7 @@ impl DepositRequest {
 /// Extension trait for bridge subprotocol operations on the test harness.
 pub trait BridgeExt {
     /// Get bridge V1 subprotocol state.
-    fn bridge_state(&self) -> anyhow::Result<BridgeV1State>;
+    fn bridge_state(&self) -> anyhow::Result<BridgeStateV1>;
 
     /// Submit a deposit: build DRT + DT for `request`, submit both, mine, and wait.
     fn submit_deposit(
@@ -149,7 +149,7 @@ pub trait BridgeExt {
 }
 
 impl BridgeExt for AsmTestHarness {
-    fn bridge_state(&self) -> anyhow::Result<BridgeV1State> {
+    fn bridge_state(&self) -> anyhow::Result<BridgeStateV1> {
         let (_, asm_state) = self
             .get_latest_asm_state()?
             .ok_or_else(|| anyhow::anyhow!("No ASM state available"))?;
@@ -202,11 +202,11 @@ impl BridgeExt for AsmTestHarness {
 // ============================================================================
 
 /// Extract bridge V1 subprotocol state from AnchorState.
-pub fn extract_bridge_state(anchor_state: &AnchorState) -> anyhow::Result<BridgeV1State> {
+pub fn extract_bridge_state(anchor_state: &AnchorState) -> anyhow::Result<BridgeStateV1> {
     let section = anchor_state
-        .find_section(BridgeV1Subproto::ID)
+        .find_section(BridgeSubprotoV1::ID)
         .ok_or_else(|| anyhow::anyhow!("Bridge V1 section not found"))?;
-    let bridge_state = section.try_to_state::<BridgeV1Subproto>()?;
+    let bridge_state = section.try_to_state::<BridgeSubprotoV1>()?;
     Ok(bridge_state)
 }
 
@@ -685,9 +685,9 @@ pub async fn submit_withdrawal_fulfillment_tx(
 
 /// Creates matching bridge config and context for integration tests.
 ///
-/// Generates operator keys and returns a [`BridgeV1InitConfig`] (for the harness builder)
+/// Generates operator keys and returns a [`BridgeInitConfig`] (for the harness builder)
 /// and a [`BridgeContext`] (for submitting deposits).
-pub fn create_test_bridge_setup(num_operators: usize) -> (BridgeV1InitConfig, BridgeContext) {
+pub fn create_test_bridge_setup(num_operators: usize) -> (BridgeInitConfig, BridgeContext) {
     let (privkeys, pubkeys) = create_test_operators(num_operators);
 
     let denomination = BitcoinAmount::from_sat(1_000_000);
@@ -695,7 +695,7 @@ pub fn create_test_bridge_setup(num_operators: usize) -> (BridgeV1InitConfig, Br
     let operator_fee = BitcoinAmount::from_sat(100_000);
     let safe_harbour_address: SafeHarbourAddress = ArbitraryGenerator::new().generate();
 
-    let config = BridgeV1InitConfig {
+    let config = BridgeInitConfig {
         operators: pubkeys.clone(),
         denomination,
         assignment_duration: 144,

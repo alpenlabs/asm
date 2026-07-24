@@ -6,7 +6,7 @@ use strata_asm_common::{
 };
 use strata_asm_params::AsmParams;
 use strata_asm_proto_admin::{AdministrationSubprotoState, AdministrationSubprotocol};
-use strata_asm_proto_bridge::{BridgeV1State, BridgeV1Subproto};
+use strata_asm_proto_bridge::{BridgeStateV1, BridgeSubprotoV1};
 use strata_asm_proto_checkpoint::{CheckpointState, CheckpointSubprotocol};
 
 /// Builds the genesis [`AnchorState`] from the given [`AsmParams`].
@@ -33,13 +33,13 @@ pub fn construct_genesis_state(params: &AsmParams) -> AnchorState {
         SectionState::from_state::<CheckpointSubprotocol>(&genesis_checkpoint_subprotocol_state)
             .expect("asm: Checkpoint subprotocol genesis state fits section data capacity");
 
-    let genesis_bridge_subprotocol_state = BridgeV1State::new(
+    let genesis_bridge_subprotocol_state = BridgeStateV1::new(
         params
             .bridge_config()
             .expect("asm: missing Bridge subprotocol config in params"),
     );
     let bridge_subprotocol_section =
-        SectionState::from_state::<BridgeV1Subproto>(&genesis_bridge_subprotocol_state)
+        SectionState::from_state::<BridgeSubprotoV1>(&genesis_bridge_subprotocol_state)
             .expect("asm: Bridge subprotocol genesis state fits section data capacity");
 
     let history_accumulator = AsmHistoryAccumulatorState::new(params.anchor.block.height() as u64);
