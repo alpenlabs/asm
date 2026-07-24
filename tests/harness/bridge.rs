@@ -234,7 +234,7 @@ impl AsmTestHarness {
 
         // Build the SPS-50 OP_RETURN tag
         let tag_data = drt_aux.build_tag_data();
-        let parse_config = ParseConfig::new(self.asm_params.magic);
+        let parse_config = ParseConfig::new(self.asm_params.genesis.magic);
         let op_return_script = parse_config.encode_script_buf(&tag_data.as_ref())?;
 
         // Build the P2TR deposit request locking script
@@ -314,7 +314,7 @@ impl AsmTestHarness {
         // Build the SPS-50 OP_RETURN tag for deposit
         let dt_aux = DepositTxHeaderAux::new(deposit_idx);
         let tag_data = dt_aux.build_tag_data();
-        let parse_config = ParseConfig::new(self.asm_params.magic);
+        let parse_config = ParseConfig::new(self.asm_params.genesis.magic);
         let op_return_script = parse_config.encode_script_buf(&tag_data.as_ref())?;
 
         // Build the P2TR deposit output (key-path only with operator multisig)
@@ -467,7 +467,7 @@ pub async fn submit_forged_unstake_tx(
     let aux = UnstakeTxHeaderAux::new(victim_idx);
     let tag_data = aux.build_tag_data();
     let op_return_script =
-        ParseConfig::new(harness.asm_params.magic).encode_script_buf(&tag_data.as_ref())?;
+        ParseConfig::new(harness.asm_params.genesis.magic).encode_script_buf(&tag_data.as_ref())?;
 
     // 6. Send the leftover sats back to a wallet address so the tx pays a fee without producing a
     //    dust violation.
@@ -549,7 +549,7 @@ pub async fn submit_attacker_keyed_unstake_tx(
     let aux = UnstakeTxHeaderAux::new(victim_idx);
     let tag_data = aux.build_tag_data();
     let op_return_script =
-        ParseConfig::new(harness.asm_params.magic).encode_script_buf(&tag_data.as_ref())?;
+        ParseConfig::new(harness.asm_params.genesis.magic).encode_script_buf(&tag_data.as_ref())?;
     let fee = AsmTestHarness::DEFAULT_FEE;
     let change_address = harness.client.get_new_address().await?;
 
@@ -650,7 +650,7 @@ pub async fn submit_withdrawal_fulfillment_tx(
     let aux = WithdrawalFulfillmentTxHeaderAux::new(deposit_idx);
     let tag_data = aux.build_tag_data();
     let op_return_script =
-        ParseConfig::new(harness.asm_params.magic).encode_script_buf(&tag_data.as_ref())?;
+        ParseConfig::new(harness.asm_params.genesis.magic).encode_script_buf(&tag_data.as_ref())?;
 
     let mut witness = Witness::new();
     witness.push(witness_script.as_bytes());

@@ -257,7 +257,7 @@ mod tests {
     /// Builds a genesis anchor state and its commitment from arbitrary params.
     fn genesis_anchor() -> (L1BlockCommitment, AnchorState) {
         let params: AsmParams = ArbitraryGenerator::new().generate();
-        let anchor = construct_genesis_state(&params);
+        let anchor = construct_genesis_state(&params.genesis);
         let commitment = anchor.chain_view.pow_state.last_verified_block;
         (commitment, anchor)
     }
