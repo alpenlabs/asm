@@ -1,15 +1,16 @@
 //! Traits for the chain worker to interface with the underlying system.
 //!
-//! The worker's dependencies split into four concerns, each backed by a
+//! The worker's dependencies split into five concerns, each backed by a
 //! distinct subsystem in production:
 //!
 //! - [`L1DataProvider`] — reads L1 data from the Bitcoin node (blocks, txs, network).
 //! - [`AnchorStateStore`] — persists and loads the [`AnchorState`].
 //! - [`ManifestMmrStore`] — manifest persistence and the manifest-hash MMR.
 //! - [`AuxDataStore`] — per-block [`AuxData`] for prover consumption.
+//! - [`SpecActivationStore`] — spec activations discovered from ASM VK upgrade logs.
 //!
-//! [`WorkerContext`] is the umbrella that combines all four. It has a blanket
-//! impl, so an implementor just implements the four concern traits and gets
+//! [`WorkerContext`] is the umbrella that combines all five. It has a blanket
+//! impl, so an implementor just implements the five concern traits and gets
 //! `WorkerContext` for free; consumers that only need one concern can depend on
 //! the narrower trait instead of the whole context.
 
@@ -17,11 +18,61 @@ use bitcoin::{Block, Network, block::Header};
 use strata_asm_common::{
     AnchorState, AsmManifest, AsmManifestHash, AuxData, MMR_SENTINEL_DUMMY_LEAF,
 };
+use strata_asm_params::SpecId;
 use strata_btc_types::{BitcoinTxid, RawBitcoinTx};
-use strata_identifiers::{L1BlockCommitment, L1BlockId};
+use strata_identifiers::{L1BlockCommitment, L1BlockId, L1Height};
 use strata_merkle::MerkleProofB32;
+use strata_predicate::PredicateKey;
 
 use crate::WorkerResult;
+
+/// A discovered spec activation.
+///
+/// Records that the block at `enacting_height` enacted an ASM VK upgrade
+/// whose new artifact implements `version`, activating it from the next block
+/// onward and switching the ASM STF predicate to `new_predicate`.
+///
+/// Worker bookkeeping, not protocol surface: the chain only carries the raw
+/// version id in the enacted update's log, and the store persists it that
+/// way; this is the act-time form, with the id mapped through [`SpecId`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SpecActivationRecord {
+    /// Height of the L1 block whose ASM VK upgrade enactment triggered the
+    /// activation.
+    pub enacting_height: L1Height,
+
+    /// The activated spec version.
+    pub version: SpecId,
+
+    /// The ASM STF predicate the upgrade enacted. Enactment removes the
+    /// update from the admin queue and only surfaces it in the emitted log,
+    /// so this record is the worker's durable copy of the VK the boundary
+    /// switched to.
+    pub new_predicate: PredicateKey,
+}
+
+impl SpecActivationRecord {
+    /// Reassembles a record from its raw stored parts, mapping the raw
+    /// version id through [`SpecId`]. Errs with the raw id when this binary
+    /// has no variant for it.
+    pub fn from_raw(
+        enacting_height: L1Height,
+        version: u16,
+        new_predicate: PredicateKey,
+    ) -> Result<Self, u16> {
+        Ok(Self {
+            enacting_height,
+            version: SpecId::try_from(version)?,
+            new_predicate,
+        })
+    }
+
+    /// Height from which the version's rules apply: the block after the
+    /// enacting one.
+    pub fn activation_height(&self) -> L1Height {
+        self.enacting_height.saturating_add(1)
+    }
+}
 
 /// Reads L1 data from the backing Bitcoin source.
 pub trait L1DataProvider {
@@ -187,18 +238,71 @@ pub trait AuxDataStore {
     fn get_aux_data(&self, blockid: &L1BlockCommitment) -> WorkerResult<AuxData>;
 }
 
+/// Persists spec activations discovered from ASM VK upgrade logs.
+pub trait SpecActivationStore {
+    /// Records a discovered spec activation.
+    ///
+    /// Called *before* the enacting block's anchor state is committed, so an
+    /// activation can never lag a committed anchor. Idempotent: crash-replay
+    /// of the enacting block rewrites the same record.
+    fn record_spec_activation(&self, activation: SpecActivationRecord) -> WorkerResult<()>;
+
+    /// Returns every recorded activation, ascending by enacting height.
+    fn list_spec_activations(&self) -> WorkerResult<Vec<SpecActivationRecord>>;
+
+    /// Removes activations whose enacting height is strictly above
+    /// `after_height` (which is kept). Called on reorgs so activations enacted
+    /// on the abandoned branch are dropped; re-processing the new branch
+    /// re-discovers any that survive.
+    fn prune_spec_activations_after(&self, after_height: L1Height) -> WorkerResult<()>;
+}
+
 /// Context trait for a worker to interact with the database and Bitcoin Client.
 ///
-/// Umbrella over the four concern traits ([`L1DataProvider`],
-/// [`AnchorStateStore`], [`ManifestMmrStore`], [`AuxDataStore`]). The blanket
-/// impl means any type that implements all four automatically implements
-/// `WorkerContext`, so implementors never name it directly.
+/// Umbrella over the five concern traits ([`L1DataProvider`],
+/// [`AnchorStateStore`], [`ManifestMmrStore`], [`AuxDataStore`],
+/// [`SpecActivationStore`]). The blanket impl means any type that implements
+/// all five automatically implements `WorkerContext`, so implementors never
+/// name it directly.
 pub trait WorkerContext:
-    L1DataProvider + AnchorStateStore + ManifestMmrStore + AuxDataStore
+    L1DataProvider + AnchorStateStore + ManifestMmrStore + AuxDataStore + SpecActivationStore
 {
 }
 
 impl<T> WorkerContext for T where
-    T: L1DataProvider + AnchorStateStore + ManifestMmrStore + AuxDataStore
+    T: L1DataProvider + AnchorStateStore + ManifestMmrStore + AuxDataStore + SpecActivationStore
 {
+}
+
+#[cfg(test)]
+mod tests {
+    use strata_predicate::PredicateTypeId;
+
+    use super::*;
+
+    fn predicate() -> PredicateKey {
+        PredicateKey::new(PredicateTypeId::AlwaysAccept, vec![])
+    }
+
+    #[test]
+    fn activation_is_block_after_enactment() {
+        let record = SpecActivationRecord {
+            enacting_height: 41,
+            version: SpecId::V1,
+            new_predicate: predicate(),
+        };
+        assert_eq!(record.activation_height(), 42);
+    }
+
+    /// Raw stored parts round-trip through the typed record; an id this
+    /// binary has no variant for surfaces as an error instead of misparsing.
+    #[test]
+    fn from_raw_maps_known_versions_only() {
+        let record = SpecActivationRecord::from_raw(41, SpecId::V1.into(), predicate()).unwrap();
+        assert_eq!(record.version, SpecId::V1);
+        assert_eq!(
+            SpecActivationRecord::from_raw(41, 0xBEEF, predicate()),
+            Err(0xBEEF)
+        );
+    }
 }

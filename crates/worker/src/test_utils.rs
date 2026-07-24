@@ -11,19 +11,23 @@
 
 use std::sync::Arc;
 
-use asm_storage::{SledAsmAuxDataDb, SledAsmManifestDb, SledAsmManifestMmrDb, SledAsmStateDb};
+use anyhow::anyhow;
+use asm_storage::{
+    SledAsmAuxDataDb, SledAsmManifestDb, SledAsmManifestMmrDb, SledAsmStateDb, SledSpecActivationDb,
+};
 use bitcoin::{Block, BlockHash, Network, Txid, block::Header, params::Params};
 use bitcoind_async_client::{Client, traits::Reader};
 use strata_asm_common::{AnchorState, AsmManifest, AsmManifestHash};
 use strata_btc_types::{BitcoinTxid, BlockHashExt, L1BlockIdBitcoinExt, RawBitcoinTx};
 use strata_btc_verification::{L1Anchor, get_relative_difficulty_adjustment_height};
-use strata_identifiers::{L1BlockCommitment, L1BlockId};
+use strata_identifiers::{L1BlockCommitment, L1BlockId, L1Height};
 use strata_merkle::MerkleProofB32;
 use tempfile::TempDir;
 use tokio::{runtime::Handle, task::block_in_place};
 
 use crate::{
-    AnchorStateStore, AuxDataStore, L1DataProvider, ManifestMmrStore, WorkerError, WorkerResult,
+    AnchorStateStore, AuxDataStore, L1DataProvider, ManifestMmrStore, SpecActivationRecord,
+    SpecActivationStore, WorkerError, WorkerResult,
 };
 
 /// Sled-backed state stores for the test worker context.
@@ -39,6 +43,7 @@ pub struct AsmWorkerState {
     aux_db: SledAsmAuxDataDb,
     manifest_db: SledAsmManifestDb,
     mmr_db: SledAsmManifestMmrDb,
+    spec_activation_db: SledSpecActivationDb,
     /// Temp dir the sled database lives in; deleted when this is dropped.
     _tempdir: TempDir,
 }
@@ -75,6 +80,7 @@ impl TestAsmWorkerContext {
         let aux_db = SledAsmAuxDataDb::open(&db).expect("open aux db");
         let manifest_db = SledAsmManifestDb::open(&db).expect("open manifest db");
         let mmr_db = SledAsmManifestMmrDb::open(&db).expect("open manifest mmr db");
+        let spec_activation_db = SledSpecActivationDb::open(&db).expect("open spec activation db");
 
         Self {
             client: Arc::new(client),
@@ -84,6 +90,7 @@ impl TestAsmWorkerContext {
                 aux_db,
                 manifest_db,
                 mmr_db,
+                spec_activation_db,
                 _tempdir: tempdir,
             }),
         }
@@ -251,6 +258,44 @@ impl ManifestMmrStore for TestAsmWorkerContext {
             .get_leaf(index)
             .map_err(WorkerError::DbError)?
             .ok_or(WorkerError::ManifestHashNotFound { index })
+    }
+}
+
+impl SpecActivationStore for TestAsmWorkerContext {
+    fn record_spec_activation(&self, activation: SpecActivationRecord) -> WorkerResult<()> {
+        self.state
+            .spec_activation_db
+            .put(
+                activation.enacting_height,
+                activation.version.into(),
+                &activation.new_predicate,
+            )
+            .map_err(WorkerError::DbError)
+    }
+
+    fn list_spec_activations(&self) -> WorkerResult<Vec<SpecActivationRecord>> {
+        self.state
+            .spec_activation_db
+            .list()
+            .map_err(WorkerError::DbError)?
+            .into_iter()
+            .map(|(enacting_height, version, new_predicate)| {
+                SpecActivationRecord::from_raw(enacting_height, version, new_predicate).map_err(
+                    |id| {
+                        WorkerError::DbError(anyhow!(
+                            "unknown spec version {id} in spec activation store"
+                        ))
+                    },
+                )
+            })
+            .collect()
+    }
+
+    fn prune_spec_activations_after(&self, after_height: L1Height) -> WorkerResult<()> {
+        self.state
+            .spec_activation_db
+            .prune_after(after_height)
+            .map_err(WorkerError::DbError)
     }
 }
 

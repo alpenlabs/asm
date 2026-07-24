@@ -33,6 +33,7 @@ pub(crate) async fn bootstrap(
         aux_db,
         manifest_db,
         mmr_db,
+        spec_activation_db,
     } = create_asm_storage(&config.database.asm_path)?;
     let MohoStorage {
         state_db: moho_state_db,
@@ -67,6 +68,7 @@ pub(crate) async fn bootstrap(
         aux_db.clone(),
         manifest_db.clone(),
         mmr_db.clone(),
+        spec_activation_db,
     );
 
     // 5. Launch ASM worker.
