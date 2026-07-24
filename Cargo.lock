@@ -804,6 +804,7 @@ dependencies = [
  "strata-identifiers",
  "strata-merkle",
  "strata-merkle-node-store",
+ "strata-predicate",
  "tempfile",
 ]
 
@@ -8490,6 +8491,7 @@ version = "0.1.0"
 source = "git+https://github.com/alpenlabs/strata-common?tag=v0.3.0-rc.2#c3698c0f26d8d3d16e56a478eb375e077d813775"
 dependencies = [
  "arbitrary",
+ "borsh",
  "hex",
  "k256",
  "serde",
