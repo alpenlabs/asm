@@ -21,7 +21,6 @@
 
 mod errors;
 mod handler;
-mod state;
 mod subprotocol;
 mod validation;
 
@@ -29,6 +28,9 @@ mod validation;
 mod test_utils;
 
 pub use errors::*;
-pub use state::{AssignmentEntry, BridgeV1State, DepositEntry, NnScriptIdx, OperatorClaimUnlock};
 pub use strata_asm_proto_bridge_v1_msgs::BridgeIncomingMsg;
+// Re-exported so downstream users keep finding the state types here.
+pub use strata_asm_proto_bridge_v1_state::{
+    AssignmentEntry, BridgeV1State, DepositEntry, NnScriptIdx, OperatorClaimUnlock,
+};
 pub use subprotocol::BridgeV1Subproto;

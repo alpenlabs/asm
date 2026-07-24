@@ -1,7 +1,8 @@
 use bitcoin::ScriptBuf;
+use strata_asm_proto_bridge_v1_state::BridgeV1State;
 use strata_asm_proto_bridge_v1_types::OperatorIdx;
 
-use crate::{errors::SlashValidationError, state::BridgeV1State};
+use crate::errors::SlashValidationError;
 
 /// Validates the stake connector script for a slash transaction locked to one of the historical N/N
 /// multisig configurations, and that the operator being slashed belonged to that configuration.

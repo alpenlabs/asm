@@ -1,13 +1,11 @@
 use bitcoin::ScriptBuf;
+use strata_asm_proto_bridge_v1_state::{BridgeV1State, operator::build_nn_script};
 use strata_asm_proto_bridge_v1_txs::unstake::{
     UnstakeInfo, expected_stake_connector_script_pubkey,
 };
 use strata_btc_types::BitcoinXOnlyPublicKey;
 
-use crate::{
-    errors::UnstakeValidationError,
-    state::{BridgeV1State, operator::build_nn_script},
-};
+use crate::errors::UnstakeValidationError;
 
 /// Validates a parsed unstake transaction against the prevout it claims to spend.
 ///

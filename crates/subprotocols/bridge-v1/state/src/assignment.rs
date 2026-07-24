@@ -22,11 +22,9 @@ use strata_btc_types::BitcoinAmount;
 use strata_identifiers::{Buf32, L1BlockCommitment, L1BlockId, L1Height};
 
 use crate::{
+    deposit::DepositEntry,
     errors::WithdrawalAssignmentError,
-    state::{
-        deposit::DepositEntry,
-        operator::{NnScriptHistory, NnScriptIdx},
-    },
+    operator::{NnScriptHistory, NnScriptIdx},
 };
 
 /// Links a deposit UTXO to the operator responsible for fulfilling its withdrawal.

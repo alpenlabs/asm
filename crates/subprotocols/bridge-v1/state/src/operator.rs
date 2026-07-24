@@ -74,7 +74,7 @@ impl OperatorEntry {
 }
 
 /// Builds a key-path-only P2TR script for the provided aggregated operator key.
-pub(crate) fn build_nn_script(agg_key: &BitcoinXOnlyPublicKey) -> BitcoinScriptBuf {
+pub fn build_nn_script(agg_key: &BitcoinXOnlyPublicKey) -> BitcoinScriptBuf {
     // A key-path-only P2TR script is a fixed 34 bytes, always within `MAX_SCRIPT_SIZE`.
     BitcoinScriptBuf::try_from(ScriptBuf::new_p2tr(
         SECP256K1,

@@ -3,6 +3,7 @@ use strata_asm_common::{
     logging::{error, info},
 };
 use strata_asm_logs::{DepositLog, NewExportEntry};
+use strata_asm_proto_bridge_v1_state::{BridgeV1State, OperatorClaimUnlock};
 use strata_asm_proto_bridge_v1_txs::{
     BRIDGE_V1_SUBPROTOCOL_ID, deposit_request::parse_drt, parser::ParsedTx,
 };
@@ -10,7 +11,6 @@ use strata_asm_proto_checkpoint_msgs::CheckpointIncomingMsg;
 
 use crate::{
     errors::{BridgeSubprotocolError, DepositValidationError},
-    state::{BridgeV1State, OperatorClaimUnlock},
     validation::{
         validate_deposit_info, validate_slash_stake_connector, validate_unstake_info,
         validate_withdrawal_fulfillment_info,

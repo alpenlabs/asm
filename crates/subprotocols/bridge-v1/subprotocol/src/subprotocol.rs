@@ -11,6 +11,7 @@ use strata_asm_common::{
 use strata_asm_logs::ExportExtraDataUpdate;
 use strata_asm_params::BridgeV1InitConfig;
 use strata_asm_proto_bridge_v1_msgs::BridgeIncomingMsg;
+use strata_asm_proto_bridge_v1_state::BridgeV1State;
 use strata_asm_proto_bridge_v1_txs::{
     BRIDGE_V1_SUBPROTOCOL_ID, errors::Mismatch, parser::parse_tx,
 };
@@ -19,7 +20,6 @@ use strata_identifiers::L1BlockCommitment;
 use crate::{
     errors::WithdrawalAssignmentError,
     handler::{handle_parsed_tx, preprocess_parsed_tx},
-    state::BridgeV1State,
 };
 
 /// Bridge V1 subprotocol implementation.

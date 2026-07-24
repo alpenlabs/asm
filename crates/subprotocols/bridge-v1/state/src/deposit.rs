@@ -14,7 +14,7 @@ use ssz_derive::{Decode, Encode};
 use strata_asm_common::sorted_vec::SortedVec;
 use strata_btc_types::BitcoinAmount;
 
-use crate::{errors::DepositValidationError, state::operator::NnScriptIdx};
+use crate::{errors::DepositValidationError, operator::NnScriptIdx};
 
 /// Bitcoin deposit entry containing UTXO reference and historical multisig operators.
 ///

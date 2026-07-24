@@ -9,12 +9,10 @@ use strata_btc_types::BitcoinAmount;
 use strata_identifiers::L1BlockCommitment;
 
 use crate::{
+    assignment::{AssignmentEntry, AssignmentTable},
+    deposit::{DepositEntry, DepositsTable},
     errors::{DepositValidationError, WithdrawalAssignmentError},
-    state::{
-        assignment::{AssignmentEntry, AssignmentTable},
-        deposit::{DepositEntry, DepositsTable},
-        operator::OperatorTable,
-    },
+    operator::OperatorTable,
 };
 
 /// Main state container for the Bridge V1 subprotocol.

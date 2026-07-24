@@ -1,10 +1,9 @@
+use strata_asm_proto_bridge_v1_state::{BridgeV1State, DepositValidationError};
 use strata_asm_proto_bridge_v1_txs::{
     deposit::DepositInfo,
     deposit_request::{DepositRequestInfo, create_deposit_request_locking_script},
     errors::Mismatch,
 };
-
-use crate::{errors::DepositValidationError, state::BridgeV1State};
 
 /// Validates the parsed [`DepositInfo`].
 ///
