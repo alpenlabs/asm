@@ -7627,6 +7627,8 @@ version = "0.1.0"
 dependencies = [
  "bitcoin",
  "borsh",
+ "serde",
+ "serde_json",
  "ssz",
  "ssz_derive",
  "ssz_types",
@@ -7732,6 +7734,7 @@ dependencies = [
  "serde_json",
  "ssz",
  "ssz_derive",
+ "strata-asm-common",
  "strata-asm-proto-bridge-types",
  "strata-btc-types",
  "strata-btc-verification",

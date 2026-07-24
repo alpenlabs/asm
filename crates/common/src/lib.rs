@@ -9,6 +9,7 @@ mod msg;
 mod section;
 pub mod sorted_vec;
 mod spec;
+mod spec_id;
 mod subprotocol;
 mod tx;
 
@@ -19,6 +20,7 @@ pub use manifest::*;
 pub use msg::*;
 pub use section::*;
 pub use spec::*;
+pub use spec_id::*;
 // Re-export the anchor state types so downstream crates keep a single import path.
 pub use strata_asm_state::*;
 pub use subprotocol::*;
