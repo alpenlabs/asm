@@ -82,6 +82,7 @@ pub(crate) async fn bootstrap(
             .with_context(worker_context)
             .with_asm_spec(StrataAsmSpec)
             .with_params(params.genesis.clone())
+            .with_spec_schedule(params.runtime.spec_schedule.clone())
             .launch(&executor)
     })?;
 

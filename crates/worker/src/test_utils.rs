@@ -371,6 +371,7 @@ pub(crate) mod fixtures {
         AnchorState, AsmHistoryAccumulatorState, AsmSpec, ChainViewState, HeaderVerificationState,
         Stage,
     };
+    use strata_asm_params::SpecSchedule;
     use strata_btc_types::BlockHashExt;
     use strata_btc_verification::L1Anchor;
     use strata_identifiers::L1BlockCommitment;
@@ -443,9 +444,14 @@ pub(crate) mod fixtures {
 
         let params = genesis_params(&client, genesis_height).await;
         let context = TestAsmWorkerContext::new((*client).clone());
-        let state =
-            AsmWorkerServiceState::new(context, TestAsmSpec, params, Subscribers::default())
-                .expect("create service state");
+        let state = AsmWorkerServiceState::new(
+            context,
+            TestAsmSpec,
+            params,
+            SpecSchedule::genesis(),
+            Subscribers::default(),
+        )
+        .expect("create service state");
 
         StateFixture {
             node,

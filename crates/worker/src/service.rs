@@ -178,6 +178,13 @@ where
 
     state.update_anchor_state(base_state, base_block);
 
+    // Spec activations enacted above the base belong to the branch being
+    // rewritten (or to blocks about to be deterministically re-applied);
+    // drop them before re-processing so the effective schedule cannot leak
+    // a rolled-back activation into the first re-processed block. A linear
+    // extension has nothing above the base, making this a no-op.
+    state.rollback_spec_activations(base_block.height())?;
+
     // Phase 2: process the pending blocks oldest first. Collect them in applied
     // order so the caller can drive per-block follow-up work (e.g. proof
     // requests) over exactly the blocks the worker processed for this submit.
@@ -239,19 +246,24 @@ fn plan_block_processing<W: WorkerContext>(
     })
 }
 
-/// Runs the STF for `block_id`, then persists the results in a deliberate
-/// order — the manifest (into the height-indexed MMR) and the prover aux data
-/// first, the anchor state last — before advancing the in-memory anchor.
+/// Runs the STF for `block_id`, discovers any spec activations from its logs,
+/// then persists the results in a deliberate order — the manifest (into the
+/// height-indexed MMR) and the prover aux data first, the anchor state last —
+/// before advancing the in-memory anchor.
 ///
-/// The order is the crash-safety contract. The anchor state is this block's
-/// commit point: [`plan_block_processing`] treats a block as processed only
-/// once its anchor state is stored, so it is written after everything derived
-/// from the block. If an error aborts after the manifest or aux data write but
-/// before the anchor state, the block stays uncommitted and the next sync
-/// re-runs its STF. That re-run is safe: every write on this path is an
-/// idempotent, block-keyed overwrite (the MMR leaf is replaced by height, aux
-/// data and anchor state are keyed by block id, and the STF is deterministic,
-/// so it reproduces identical values.
+/// Spec activation discovery happens before any per-block persistence. If a
+/// block's ASM VK upgrade does not map to a valid new activation — the
+/// successor of the newest scheduled version is unknown to this binary — the
+/// worker returns a specific error and leaves the block entirely uncommitted:
+/// no manifest leaf, aux data, or anchor state is written. Otherwise, the anchor
+/// state remains the block's commit point: [`plan_block_processing`] treats a
+/// block as processed only once its anchor state is stored, so it is written
+/// after everything derived from the block. If an error aborts after the
+/// manifest or aux data write but before the anchor state, the block stays
+/// uncommitted and the next sync re-runs its STF. That re-run is safe: every
+/// write on this path is an idempotent, block-keyed overwrite (the MMR leaf is
+/// replaced by height, aux data and anchor state are keyed by block id, and
+/// the STF is deterministic, so it reproduces identical values).
 fn apply_block<W, S>(
     state: &mut AsmWorkerServiceState<W, S>,
     block_id: &L1BlockCommitment,
@@ -265,6 +277,14 @@ where
     // resident at any point during the forward pass.
     let block = state.context.get_l1_block(block_id.blkid())?;
     let (asm_stf_out, aux_data) = state.transition(&block)?;
+
+    // Spec discovery before any per-block persistence: if this block enacted
+    // an ASM VK upgrade the worker cannot accept (the activating version is
+    // unknown to this binary), the block is not committed at all. For valid
+    // upgrades, persist the activation now so a committed anchor can never
+    // lack the activation it enacted.
+    let activations = state.discover_spec_activations(block_id, asm_stf_out.manifest.logs())?;
+    state.apply_spec_activations(activations)?;
 
     // Persist the manifest and record its hash in the height-indexed MMR.
     state
@@ -301,9 +321,16 @@ mod tests {
     use std::thread;
 
     use bitcoind_async_client::traits::Reader;
-    use strata_asm_common::AuxRequestCollector;
+    use strata_asm_common::{
+        AsmLogEntry, AuxRequestCollector, HeaderVerificationState, MsgRelayer, NullMsg,
+        SectionState, SectionStateExt, Stage, Subprotocol, SubprotocolId, TxInputRef,
+        VerifiedAuxData,
+    };
+    use strata_asm_logs::AsmStfUpdate;
+    use strata_asm_params::{SpecId, SpecSchedule};
     use strata_btc_types::L1BlockIdBitcoinExt;
     use strata_identifiers::{Buf32, L1BlockId};
+    use strata_predicate::PredicateKey;
     use strata_service::CommandCompletionSender;
     use tokio::{sync::oneshot, task::block_in_place};
 
@@ -527,9 +554,14 @@ mod tests {
         // ...so a restart over the same store resumes at the tip.
         let context = fx.state.context.clone();
         let params = fixtures::genesis_params(&fx.client, 101).await;
-        let reloaded =
-            AsmWorkerServiceState::new(context, TestAsmSpec, params, Subscribers::default())
-                .unwrap();
+        let reloaded = AsmWorkerServiceState::new(
+            context,
+            TestAsmSpec,
+            params,
+            SpecSchedule::genesis(),
+            Subscribers::default(),
+        )
+        .unwrap();
         assert_eq!(
             reloaded.blkid, tip,
             "restart resumes from the tip, not the stale notification",
@@ -584,6 +616,134 @@ mod tests {
                 .expect("leaf 102 on B"),
             leaf_a_102,
             "the fork point is untouched",
+        );
+    }
+
+    const EMIT_UPDATE_SUBPROTO_ID: SubprotocolId = 253;
+
+    /// Emits an [`AsmStfUpdate`] on every processed block. Whether the
+    /// activation it triggers is supported depends on the schedule the worker
+    /// starts from.
+    #[derive(Debug)]
+    struct UnsupportedSpecLogSubproto;
+
+    impl Subprotocol for UnsupportedSpecLogSubproto {
+        const ID: SubprotocolId = EMIT_UPDATE_SUBPROTO_ID;
+        const STATE_VERSION: u8 = 1;
+
+        type InitConfig = ();
+        type State = u8;
+        type Msg = NullMsg<EMIT_UPDATE_SUBPROTO_ID>;
+
+        fn init(_config: &Self::InitConfig) -> Self::State {
+            0
+        }
+
+        fn process_txs(
+            _state: &mut Self::State,
+            _txs: &[TxInputRef<'_>],
+            _header_vs: &HeaderVerificationState,
+            _verified_aux_data: &VerifiedAuxData,
+            relayer: &mut impl MsgRelayer,
+        ) {
+            let log = AsmLogEntry::from_log(&AsmStfUpdate::new(PredicateKey::always_accept()))
+                .expect("AsmStfUpdate encoding is infallible");
+            relayer.emit_log(log);
+        }
+
+        fn process_msgs(_state: &mut Self::State, _msgs: &[Self::Msg], _l1ref: &L1BlockCommitment) {
+        }
+    }
+
+    /// [`TestAsmSpec`] plus the one subprotocol emitting the unsupported
+    /// update.
+    #[derive(Debug)]
+    struct UnsupportedSpecLogSpec;
+
+    impl AsmSpec for UnsupportedSpecLogSpec {
+        type Params = fixtures::TestAsmParams;
+
+        fn call_subprotocols(&self, stage: &mut impl Stage) {
+            stage.invoke_subprotocol::<UnsupportedSpecLogSubproto>();
+        }
+
+        fn construct_genesis_state(&self, params: &Self::Params) -> AnchorState {
+            let mut state = TestAsmSpec.construct_genesis_state(params);
+            state.sections = vec![
+                SectionState::from_state::<UnsupportedSpecLogSubproto>(&0)
+                    .expect("test section fits"),
+            ]
+            .try_into()
+            .expect("single test section fits");
+            state
+        }
+
+        fn genesis_l1_height(&self, params: &Self::Params) -> u64 {
+            TestAsmSpec.genesis_l1_height(params)
+        }
+    }
+
+    /// A block that enacts an ASM VK update whose activating version is
+    /// unknown to this binary is not committed. Retrying after a restart will
+    /// target the same block again, so no unsupported marker has to be
+    /// persisted.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn sync_rejects_block_with_unsupported_spec_update() {
+        let fx = fixtures::setup_context(101).await;
+        let params = fixtures::genesis_params(&fx.client, 101).await;
+        // Every known version is already scheduled, so the enacted upgrade's
+        // successor (2) falls past the known set.
+        let mut state = AsmWorkerServiceState::<_, UnsupportedSpecLogSpec>::new(
+            fx.context.clone(),
+            UnsupportedSpecLogSpec,
+            params,
+            {
+                let mut schedule = SpecSchedule::genesis();
+                schedule.schedule(SpecId::V1, 0).expect("schedule V1");
+                schedule
+            },
+            Subscribers::default(),
+        )
+        .expect("create service state");
+        let stuck = state.blkid;
+        let target = fixtures::mine(&fx._node, &fx.client, 1).await[0]; // 102
+
+        let err = sync_to_block(&mut state, target.blkid())
+            .expect_err("sync should reject the unsupported spec update block");
+
+        assert!(
+            matches!(
+                &err,
+                WorkerError::UnsupportedSpecActivation {
+                    version: 2,
+                    block_height: 102,
+                    stuck_height: 101,
+                }
+            ),
+            "expected unsupported spec activation error, got {err:?}",
+        );
+        assert!(
+            err.to_string()
+                .contains("worker remains stuck at height 101"),
+            "error should name the stuck height: {err}",
+        );
+        assert!(
+            err.to_string()
+                .contains("load an image that supports the version"),
+            "error should tell operators how to proceed: {err}",
+        );
+        assert_eq!(state.blkid, stuck, "in-memory anchor stays stuck");
+        assert!(
+            matches!(
+                state.context.get_anchor_state(&target),
+                Err(WorkerError::MissingAsmState(_))
+            ),
+            "rejected block must not get an anchor state",
+        );
+        assert_eq!(
+            state.context.mmr_leaf_count(),
+            102,
+            "no manifest leaf is written for the rejected block",
         );
     }
 

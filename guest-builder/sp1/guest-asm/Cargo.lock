@@ -1842,7 +1842,6 @@ dependencies = [
  "serde",
  "ssz",
  "ssz_derive",
- "strata-asm-common",
  "strata-asm-proto-bridge-types",
  "strata-btc-types",
  "strata-btc-verification",

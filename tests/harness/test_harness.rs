@@ -54,7 +54,7 @@ use rand::RngCore;
 use strata_asm_common::{AnchorState, AsmLogEntry};
 use strata_asm_manifest_types::AsmLog;
 use strata_asm_moho_worker::{MohoStateStore, MohoWorkerBuilder, MohoWorkerHandle};
-use strata_asm_params::{AdministrationInitConfig, AsmParams, SubprotocolInstance};
+use strata_asm_params::{AdministrationInitConfig, AsmParams, SpecSchedule, SubprotocolInstance};
 use strata_asm_spec::StrataAsmSpec;
 use strata_asm_worker::{
     test_utils::{get_l1_anchor, TestAsmWorkerContext},
@@ -834,6 +834,9 @@ impl AsmTestHarnessBuilder {
                 SubprotocolInstance::Checkpoint(cfg) => *cfg = checkpoint_config.clone(),
             }
         }
+        // Production base schedule: the genesis spec version active since
+        // genesis, later versions activated only by enacted ASM VK upgrades.
+        asm_params.runtime.spec_schedule = SpecSchedule::genesis();
         let asm_params = Arc::new(asm_params);
 
         // 5. Create worker context. The worker prefills the height-indexed MMR
@@ -854,6 +857,7 @@ impl AsmTestHarnessBuilder {
             .with_context(context.clone())
             .with_asm_spec(StrataAsmSpec)
             .with_params(asm_params.genesis.clone())
+            .with_spec_schedule(asm_params.runtime.spec_schedule.clone())
             .launch(&executor)?;
 
         // 8. Launch the Moho worker, driven by the ASM worker's per-block commit

@@ -1,6 +1,7 @@
 use bitcoin::Network;
+use strata_asm_params::SpecScheduleError;
 use strata_btc_types::BitcoinTxid;
-use strata_identifiers::{L1BlockCommitment, L1BlockId};
+use strata_identifiers::{L1BlockCommitment, L1BlockId, L1Height};
 use strata_service::ServiceError;
 use thiserror::Error;
 
@@ -66,6 +67,29 @@ pub enum WorkerError {
 
     #[error("missing aux data for the block {0:?}")]
     MissingAuxData(L1BlockCommitment),
+
+    /// An enacted ASM VK upgrade activates a spec version this binary has no
+    /// [`SpecId`](strata_asm_params::SpecId) variant for — the successor of
+    /// the newest scheduled version falls past the known set. The worker is
+    /// running old software past an upgrade it cannot execute, so it refuses
+    /// to commit the enacting block rather than silently limp along on stale
+    /// rules.
+    #[error(
+        "cannot process L1 block at height {block_height}: ASM VK upgrade activates unsupported spec version {version}; worker remains stuck at height {stuck_height}; load an image that supports the version"
+    )]
+    UnsupportedSpecActivation {
+        version: u16,
+        block_height: L1Height,
+        stuck_height: L1Height,
+    },
+
+    /// A spec activation record does not fit the schedule it is applied to —
+    /// the store and the configured base schedule disagree (e.g. the params'
+    /// schedule was downgraded below activations already persisted). Surfaced
+    /// when replaying persisted activations rather than silently producing a
+    /// gapped schedule.
+    #[error("persisted spec activation does not fit the configured schedule: {0}")]
+    InconsistentSpecSchedule(#[from] SpecScheduleError),
 
     /// A Bitcoin RPC call failed after exhausting its retry budget.
     ///

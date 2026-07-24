@@ -8232,6 +8232,7 @@ dependencies = [
  "serde",
  "sled",
  "strata-asm-common",
+ "strata-asm-logs",
  "strata-asm-params",
  "strata-asm-stf",
  "strata-btc-types",
