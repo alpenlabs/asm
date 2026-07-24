@@ -75,9 +75,10 @@ mod tests {
     use super::*;
 
     /// Byte position of the pow state's network id within an encoded
-    /// [`AnchorState`]: magic (4) + two offsets (8) put `chain_view` at 12,
-    /// and the network id is the first byte of its fixed-size `pow_state`.
-    const NETWORK_ID_POS: usize = 12;
+    /// [`AnchorState`]: version (1) + magic (4) + two offsets (8) put
+    /// `chain_view` at 13, and the network id is the first byte of its
+    /// fixed-size `pow_state`.
+    const NETWORK_ID_POS: usize = 13;
 
     fn sample_anchor_state() -> AnchorState {
         let anchor = L1Anchor {
@@ -87,6 +88,7 @@ mod tests {
             network: Network::Signet,
         };
         AnchorState {
+            version: 1,
             magic: AnchorState::magic_ssz(MagicBytes::from(*b"alpn")),
             chain_view: crate::ChainViewState {
                 pow_state: HeaderVerificationState::init(anchor),

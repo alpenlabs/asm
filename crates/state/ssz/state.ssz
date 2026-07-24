@@ -31,6 +31,8 @@ class ChainViewState(Container):
 
 ### Top-level ASM state.
 class AnchorState(Container):
+    ### Schema version of this container's layout.
+    version: uint8
     magic: Bytes4
     chain_view: ChainViewState
     sections: List[SectionState, MAX_SECTIONS]
