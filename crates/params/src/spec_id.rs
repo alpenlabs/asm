@@ -4,69 +4,63 @@
 //! activation heights, so a single binary can execute both sides of an upgrade
 //! boundary. This module names the versions; the activation schedule that
 //! gates them lives with the runtime params as
-//! [`SpecActivation`](crate::SpecActivation).
+//! [`SpecSchedule`](crate::SpecSchedule).
 
+use core::convert::identity;
+
+use num_enum::{IntoPrimitive, TryFromPrimitive};
 use serde::{Deserialize, Serialize};
 
 /// Identifies a spec version.
 ///
-/// One variant per protocol upgrade, in activation order. The numeric
-/// discriminant is the stable identity: it keys persisted spec-activation
-/// records (stored as the raw discriminant byte) and is the raw id carried in
-/// ASM VK upgrade actions. The variant name is the human-readable form: it is
-/// this type's serde representation (snake_case) and is mirrored by the
-/// [`SpecActivation`](crate::SpecActivation) params field.
+/// One variant per protocol revision, in activation order, starting with the
+/// genesis rules as [`SpecId::V0`]. The numeric discriminant is the stable
+/// identity: it keys persisted spec-activation records and orders versions,
+/// making "the successor of a version" well-defined. Discriminants MUST stay
+/// contiguous from 0 — [`SpecSchedule`](crate::SpecSchedule) indexes its
+/// activation heights by discriminant, so adding a variant is only this one
+/// line, but a gap would desynchronize the schedule. The variant name is the
+/// human-readable form: it is this type's serde representation (snake_case)
+/// and keys the schedule's serialized form.
 ///
-/// The id crosses two boundaries with opposite tolerances:
+/// Nothing on the wire carries the id: an ASM VK upgrade action knows only
+/// the new verifying key, so an artifact predating a spec version can still
+/// parse and enact the upgrade that activates it. The consumer that must
+/// *apply* the version's rules (the worker) instead derives each upgrade's
+/// activating version via
+/// [`SpecSchedule::schedule_successor`](crate::SpecSchedule::schedule_successor).
+/// A successor it cannot map is not skipped: it means the worker is running
+/// old software past an upgrade it cannot execute, so it MUST halt rather
+/// than silently limp along on stale rules.
 ///
-/// - Parse-time: ASM VK upgrade actions carry the raw id, not this enum, so an artifact predating a
-///   spec version can still parse and enact the upgrade that activates it — the wire format never
-///   requires knowing the version.
-/// - Act-time: a consumer that must *apply* the version's rules (the worker) maps the id via
-///   [`TryFrom`]. An id it does not know is not skipped: it means the worker is running old
-///   software past an upgrade it cannot execute, so it MUST halt rather than silently limp along on
-///   stale rules.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+/// The primitive conversions are derived so they cannot go stale when a
+/// variant is added; [`TryFrom<u16>`] errs with the raw id it has no variant
+/// for.
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+    Serialize,
+    Deserialize,
+    IntoPrimitive,
+    TryFromPrimitive,
+)]
 #[serde(rename_all = "snake_case")]
-#[repr(u8)]
+#[num_enum(error_type(name = u16, constructor = identity))]
+#[repr(u16)]
 pub enum SpecId {
-    /// First spec revision after genesis. Genesis rules are simply "no spec
-    /// version active".
-    V1 = 0,
-}
+    /// Genesis spec version: the rules in force from the genesis anchor
+    /// onward, active since genesis in every schedule.
+    V0 = 0,
 
-impl From<SpecId> for u8 {
-    fn from(spec: SpecId) -> Self {
-        spec as u8
-    }
-}
-
-impl From<SpecId> for u16 {
-    fn from(spec: SpecId) -> Self {
-        spec as u16
-    }
-}
-
-impl TryFrom<u8> for SpecId {
-    type Error = u8;
-
-    fn try_from(value: u8) -> Result<Self, Self::Error> {
-        match value {
-            0 => Ok(SpecId::V1),
-            invalid => Err(invalid),
-        }
-    }
-}
-
-impl TryFrom<u16> for SpecId {
-    type Error = u16;
-
-    fn try_from(value: u16) -> Result<Self, Self::Error> {
-        u8::try_from(value)
-            .ok()
-            .and_then(|v| SpecId::try_from(v).ok())
-            .ok_or(value)
-    }
+    /// First protocol upgrade; placeholder name until that upgrade is
+    /// defined.
+    V1 = 1,
 }
 
 #[cfg(test)]
@@ -78,7 +72,7 @@ mod tests {
     /// [`spec_id_u16_roundtrip`] instead.
     #[test]
     fn spec_id_serde_is_the_variant_name() {
-        assert_eq!(serde_json::to_string(&SpecId::V1).unwrap(), r#""v1""#);
+        assert_eq!(serde_json::to_string(&SpecId::V0).unwrap(), r#""v0""#);
         assert_eq!(
             serde_json::from_str::<SpecId>(r#""v1""#).unwrap(),
             SpecId::V1
@@ -87,11 +81,16 @@ mod tests {
     }
 
     /// Raw spec ids on the wire round-trip through the enum; unknown ids
-    /// surface as errors instead of misparsing.
+    /// surface as errors instead of misparsing. Pinning the *first* unknown
+    /// discriminant also guards contiguity: when a new variant lands, this
+    /// assertion fails and must be bumped alongside it.
     #[test]
     fn spec_id_u16_roundtrip() {
-        assert_eq!(u16::from(SpecId::V1), 0);
-        assert_eq!(SpecId::try_from(0u16).unwrap(), SpecId::V1);
+        assert_eq!(u16::from(SpecId::V0), 0);
+        assert_eq!(u16::from(SpecId::V1), 1);
+        assert_eq!(SpecId::try_from(0u16).unwrap(), SpecId::V0);
+        assert_eq!(SpecId::try_from(1u16).unwrap(), SpecId::V1);
+        assert_eq!(SpecId::try_from(2u16), Err(2));
         assert_eq!(SpecId::try_from(0xFFFFu16), Err(0xFFFF));
     }
 }

@@ -84,17 +84,20 @@ class AsmParams:
     magic: str
     anchor: L1Anchor
     subprotocols: list[dict[str, Any]]
-    # STF config: base spec activation schedule. `None` disables the spec
-    # version. Dynamic activations come from enacted ASM VK upgrades, which
-    # name the spec version they activate.
-    v1_height: int | None = 0
+    # STF config: base spec schedule. V0 is the genesis spec, always active
+    # since genesis — the loader rejects any other v0 value. `None` leaves a
+    # later version unscheduled; versions only activate in succession (a
+    # gapped schedule is rejected). Dynamic activations of later versions
+    # come from enacted ASM VK upgrades.
+    v0_height: int = 0
+    v1_height: int | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "magic": self.magic,
             "anchor": asdict(self.anchor),
             "subprotocols": self.subprotocols,
-            "spec_activation": {"v1": self.v1_height},
+            "spec_activation": {"v0": self.v0_height, "v1": self.v1_height},
         }
 
 

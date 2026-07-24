@@ -13,7 +13,7 @@ mod subprotocols;
 #[cfg(feature = "arbitrary")]
 use arbitrary::{Arbitrary, Unstructured};
 pub use genesis::AsmGenesisParams;
-pub use runtime::{AsmRuntimeParams, AsmStfParams, SpecActivation};
+pub use runtime::{AsmRuntimeParams, AsmStfParams, SpecSchedule, SpecScheduleError};
 use serde::{Deserialize, Serialize};
 pub use spec_id::SpecId;
 pub use subprotocols::{
@@ -44,7 +44,7 @@ impl<'a> Arbitrary<'a> for AsmParams {
         Ok(Self {
             genesis: AsmGenesisParams::arbitrary(u)?,
             runtime: AsmRuntimeParams {
-                spec_activation: SpecActivation::all_disabled(),
+                spec_schedule: SpecSchedule::genesis(),
             },
         })
     }
@@ -135,14 +135,15 @@ mod tests {
     }
   ],
   "spec_activation": {
-    "v1": 0
+    "v0": 0,
+    "v1": null
   }
 }
 "#;
 
         let params: AsmParams =
             serde_json::from_str(raw_json).expect("deserialization from raw JSON should succeed");
-        assert_eq!(params.runtime.spec_activation.v1, Some(0));
+        assert_eq!(params.runtime.spec_schedule, SpecSchedule::genesis());
     }
 
     #[cfg(feature = "arbitrary")]
