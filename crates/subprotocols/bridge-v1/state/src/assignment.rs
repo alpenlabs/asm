@@ -370,7 +370,8 @@ impl AssignmentTable {
     /// # Errors
     ///
     /// Returns [`WithdrawalAssignmentError`] on the first expired assignment with no eligible
-    /// operator to take it, and does not attempt the remaining ones. Since [`reassign`] mutates in
+    /// operator to take it, and does not attempt the remaining ones. Since
+    /// [`AssignmentEntry::reassign`] mutates in
     /// place, entries processed before the failure are already reassigned — this is not rolled
     /// back.
     pub fn reassign_expired_assignments(
