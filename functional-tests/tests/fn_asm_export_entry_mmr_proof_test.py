@@ -2,15 +2,12 @@ import logging
 
 import flexitest
 
+from constants import BRIDGE_SUBPROTOCOL_V1_ID
 from utils.utils import (
     wait_until_asm_reaches_height,
     wait_until_asm_ready,
     wait_until_bitcoind_ready,
 )
-
-# Bridge V1 container ID. Matches `BRIDGE_V1_SUBPROTOCOL_ID` in the Rust codebase
-# (crates/txs/bridge-v1/src/constants.rs)
-BRIDGE_SUBPROTOCOL_V1_ID = 2
 
 # Sentinel 32-byte leaf unlikely to collide with any real export entry.
 UNKNOWN_LEAF_HASH = [0xAB] * 32

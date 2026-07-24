@@ -2,6 +2,7 @@ import logging
 
 import flexitest
 
+from constants import BRIDGE_SUBPROTOCOL_V1_ID
 from envs import ProverEnv
 from utils.dbtool import (
     run_dbtool,
@@ -15,10 +16,6 @@ from utils.utils import (
     wait_until_bitcoind_ready,
     wait_until_moho_proof_exists,
 )
-
-# Bridge V1 container ID. Matches `BRIDGE_V1_SUBPROTOCOL_ID` in the Rust codebase
-# (crates/txs/bridge-v1/src/constants.rs).
-BRIDGE_SUBPROTOCOL_V1_ID = 2
 
 
 @flexitest.register
