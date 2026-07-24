@@ -1,6 +1,6 @@
 use strata_asm_manifest_types::AsmManifestRangeHash;
 use strata_asm_params::CheckpointInitConfig;
-use strata_asm_proto_bridge_v1_types::WithdrawalIntent;
+use strata_asm_proto_bridge_types::WithdrawalIntent;
 use strata_asm_proto_checkpoint_types::{CheckpointPayload, CheckpointTip};
 use strata_btc_types::BitcoinAmount;
 use strata_identifiers::L2BlockCommitment;

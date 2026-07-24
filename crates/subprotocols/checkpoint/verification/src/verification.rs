@@ -1,7 +1,7 @@
 use bitcoin_bosd::Descriptor;
 use ssz::Encode;
 use strata_asm_manifest_types::AsmManifestRangeHash;
-use strata_asm_proto_bridge_v1_types::{
+use strata_asm_proto_bridge_types::{
     BRIDGE_GATEWAY_ACCT_SERIAL, OperatorSelection, WithdrawalIntent,
 };
 use strata_asm_proto_checkpoint_types::{
@@ -265,7 +265,7 @@ mod tests {
     use bitcoin_bosd::Descriptor;
     use ssz_types::VariableList;
     use strata_asm_manifest_types::AsmManifestRangeHash;
-    use strata_asm_proto_bridge_v1_types::{BRIDGE_GATEWAY_ACCT_SERIAL, WithdrawalIntent};
+    use strata_asm_proto_bridge_types::{BRIDGE_GATEWAY_ACCT_SERIAL, WithdrawalIntent};
     use strata_asm_proto_checkpoint_types::{
         CheckpointPayload, OLLog, SimpleWithdrawalIntentLogData, TerminalHeaderComplement,
     };

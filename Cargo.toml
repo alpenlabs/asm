@@ -17,10 +17,11 @@ members = [
   "crates/stf",
   "crates/subprotocols/admin/subprotocol",
   "crates/subprotocols/admin/txs",
-  "crates/subprotocols/bridge-v1/subprotocol",
-  "crates/subprotocols/bridge-v1/txs",
-  "crates/subprotocols/bridge-v1/msgs",
-  "crates/subprotocols/bridge-v1/types",
+  "crates/subprotocols/bridge/subprotocol",
+  "crates/subprotocols/bridge/state",
+  "crates/subprotocols/bridge/txs",
+  "crates/subprotocols/bridge/msgs",
+  "crates/subprotocols/bridge/types",
   "crates/subprotocols/checkpoint/subprotocol",
   "crates/subprotocols/checkpoint/txs",
   "crates/subprotocols/checkpoint/msgs",
@@ -72,10 +73,11 @@ strata-asm-params = { path = "crates/params" }
 strata-asm-proof-impl = { path = "crates/proof/statements" }
 strata-asm-proto-admin = { path = "crates/subprotocols/admin/subprotocol" }
 strata-asm-proto-admin-txs = { path = "crates/subprotocols/admin/txs" }
-strata-asm-proto-bridge-v1 = { path = "crates/subprotocols/bridge-v1/subprotocol" }
-strata-asm-proto-bridge-v1-msgs = { path = "crates/subprotocols/bridge-v1/msgs" }
-strata-asm-proto-bridge-v1-txs = { path = "crates/subprotocols/bridge-v1/txs" }
-strata-asm-proto-bridge-v1-types = { path = "crates/subprotocols/bridge-v1/types" }
+strata-asm-proto-bridge = { path = "crates/subprotocols/bridge/subprotocol" }
+strata-asm-proto-bridge-msgs = { path = "crates/subprotocols/bridge/msgs" }
+strata-asm-proto-bridge-state = { path = "crates/subprotocols/bridge/state" }
+strata-asm-proto-bridge-txs = { path = "crates/subprotocols/bridge/txs" }
+strata-asm-proto-bridge-types = { path = "crates/subprotocols/bridge/types" }
 strata-asm-proto-checkpoint = { path = "crates/subprotocols/checkpoint/subprotocol" }
 strata-asm-proto-checkpoint-msgs = { path = "crates/subprotocols/checkpoint/msgs" }
 strata-asm-proto-checkpoint-txs = { path = "crates/subprotocols/checkpoint/txs" }

@@ -38,7 +38,7 @@ use strata_asm_proto_admin_txs::{
     constants::ADMINISTRATION_SUBPROTOCOL_ID, parser::SignedPayload,
     test_utils::create_signature_set,
 };
-use strata_asm_proto_bridge_v1_txs::test_utils::create_test_operators;
+use strata_asm_proto_bridge_txs::test_utils::create_test_operators;
 use strata_crypto::{
     keys::compressed::CompressedPublicKey,
     threshold_signature::{IndexedSignature, SignatureSet, ThresholdConfig},

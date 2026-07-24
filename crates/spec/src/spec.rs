@@ -3,7 +3,7 @@
 use strata_asm_common::{AnchorState, AsmSpec, Stage};
 use strata_asm_params::AsmParams;
 use strata_asm_proto_admin::AdministrationSubprotocol;
-use strata_asm_proto_bridge_v1::BridgeV1Subproto;
+use strata_asm_proto_bridge::BridgeSubprotoV1;
 use strata_asm_proto_checkpoint::CheckpointSubprotocol;
 
 /// Strata ASM specification.
@@ -20,7 +20,7 @@ impl AsmSpec for StrataAsmSpec {
     fn call_subprotocols(&self, stage: &mut impl Stage) {
         stage.invoke_subprotocol::<AdministrationSubprotocol>();
         stage.invoke_subprotocol::<CheckpointSubprotocol>();
-        stage.invoke_subprotocol::<BridgeV1Subproto>();
+        stage.invoke_subprotocol::<BridgeSubprotoV1>();
     }
 
     fn construct_genesis_state(&self, params: &Self::Params) -> AnchorState {

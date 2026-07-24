@@ -2,6 +2,7 @@ import logging
 
 import flexitest
 
+from constants import BRIDGE_SUBPROTOCOL_ID
 from envs import ProverEnv
 from utils.dbtool import (
     run_dbtool,
@@ -15,10 +16,6 @@ from utils.utils import (
     wait_until_bitcoind_ready,
     wait_until_moho_proof_exists,
 )
-
-# Bridge V1 container ID. Matches `BRIDGE_V1_SUBPROTOCOL_ID` in the Rust codebase
-# (crates/txs/bridge-v1/src/constants.rs).
-BRIDGE_V1_CONTAINER_ID = 2
 
 
 @flexitest.register
@@ -110,12 +107,12 @@ class AsmDbtoolMohoTest(flexitest.Test):
         # moho export-entries: no entry can be driven from here, so
         # cover the empty/negative paths — count works, and unknown leaves and
         # heights resolve to `found: false` rather than erroring.
-        container = str(BRIDGE_V1_CONTAINER_ID)
+        container = str(BRIDGE_SUBPROTOCOL_ID)
         count = run_dbtool_json(moho_db, "moho", "export-entries", "count", container)
         assert count["count"] >= 0, count
         logging.info(
             "export-entries container %d holds %d leaves",
-            BRIDGE_V1_CONTAINER_ID,
+            BRIDGE_SUBPROTOCOL_ID,
             count["count"],
         )
 

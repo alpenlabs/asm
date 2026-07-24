@@ -16,9 +16,9 @@ use harness::{
 use integration_tests::harness;
 use strata_asm_common::Subprotocol;
 use strata_asm_logs::ExportExtraDataUpdate;
-use strata_asm_proto_bridge_v1::{BridgeV1Subproto, OperatorClaimUnlock};
-use strata_asm_proto_bridge_v1_txs::BRIDGE_V1_SUBPROTOCOL_ID;
-use strata_asm_proto_bridge_v1_types::OperatorSelection;
+use strata_asm_proto_bridge::{BridgeSubprotoV1, OperatorClaimUnlock};
+use strata_asm_proto_bridge_txs::BRIDGE_SUBPROTOCOL_ID;
+use strata_asm_proto_bridge_types::OperatorSelection;
 
 /// Regression: a forged unstake transaction must NOT remove an operator.
 ///
@@ -129,7 +129,7 @@ async fn test_bridge_publishes_increasing_accumulated_pow() {
             .expect("the emitted log must be an ExportExtraDataUpdate");
         assert_eq!(
             update.container_id(),
-            BridgeV1Subproto::ID,
+            BridgeSubprotoV1::ID,
             "accumulated pow must be published under the bridge container id"
         );
 
@@ -223,7 +223,7 @@ async fn test_withdrawal_fulfillment_creates_moho_export_entry() {
     assert!(
         harness
             .moho_context
-            .find_export_entry(BRIDGE_V1_SUBPROTOCOL_ID, &expected_leaf)
+            .find_export_entry(BRIDGE_SUBPROTOCOL_ID, &expected_leaf)
             .is_some(),
         "Moho export-entry store should resolve the OperatorClaimUnlock leaf",
     );
@@ -239,7 +239,7 @@ async fn test_withdrawal_fulfillment_creates_moho_export_entry() {
         .export_state()
         .containers()
         .iter()
-        .find(|c| c.container_id() == BRIDGE_V1_SUBPROTOCOL_ID)
+        .find(|c| c.container_id() == BRIDGE_SUBPROTOCOL_ID)
         .expect("bridge export container should be present in the Moho state");
     assert_eq!(
         bridge_container.entries_mmr().num_entries(),
@@ -306,7 +306,7 @@ async fn test_reorg_drops_moho_export_entry_when_fulfillment_excluded() {
     assert!(
         harness
             .moho_context
-            .find_export_entry(BRIDGE_V1_SUBPROTOCOL_ID, &leaf)
+            .find_export_entry(BRIDGE_SUBPROTOCOL_ID, &leaf)
             .is_some(),
         "fulfillment should have mirrored the OperatorClaimUnlock leaf before the reorg",
     );
@@ -334,7 +334,7 @@ async fn test_reorg_drops_moho_export_entry_when_fulfillment_excluded() {
     assert!(
         harness
             .moho_context
-            .find_export_entry(BRIDGE_V1_SUBPROTOCOL_ID, &leaf)
+            .find_export_entry(BRIDGE_SUBPROTOCOL_ID, &leaf)
             .is_none(),
         "reorg dropping the fulfillment must prune the OperatorClaimUnlock leaf",
     );
@@ -350,7 +350,7 @@ async fn test_reorg_drops_moho_export_entry_when_fulfillment_excluded() {
         .export_state()
         .containers()
         .iter()
-        .find(|c| c.container_id() == BRIDGE_V1_SUBPROTOCOL_ID)
+        .find(|c| c.container_id() == BRIDGE_SUBPROTOCOL_ID)
         .expect("bridge export container should be present in the Moho state");
     assert_eq!(
         bridge_container.entries_mmr().num_entries(),

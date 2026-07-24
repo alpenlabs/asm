@@ -9,7 +9,7 @@ workspace = true
 [dependencies]
 strata-asm-manifest-types.workspace = true
 strata-asm-params.workspace = true
-strata-asm-proto-bridge-v1-types.workspace = true
+strata-asm-proto-bridge-types.workspace = true
 strata-asm-proto-checkpoint-types.workspace = true
 
 bitcoin-bosd.workspace = true

@@ -2,15 +2,12 @@ import logging
 
 import flexitest
 
+from constants import BRIDGE_SUBPROTOCOL_ID
 from utils.utils import (
     wait_until_asm_reaches_height,
     wait_until_asm_ready,
     wait_until_bitcoind_ready,
 )
-
-# Bridge V1 container ID. Matches `BRIDGE_V1_SUBPROTOCOL_ID` in the Rust codebase
-# (crates/txs/bridge-v1/src/constants.rs)
-BRIDGE_V1_CONTAINER_ID = 2
 
 # Sentinel 32-byte leaf unlikely to collide with any real export entry.
 UNKNOWN_LEAF_HASH = [0xAB] * 32
@@ -57,7 +54,7 @@ class AsmExportEntryMmrProofTest(flexitest.Test):
         # rather than erroring, since the chain may simply not have produced
         # that entry yet.
         result = asm_rpc.strata_asm_getExportEntryMMRProof(
-            block_hash, BRIDGE_V1_CONTAINER_ID, UNKNOWN_LEAF_HASH
+            block_hash, BRIDGE_SUBPROTOCOL_ID, UNKNOWN_LEAF_HASH
         )
         assert result is None, f"unknown leaf at tip should return None, got {result!r}"
         logging.info("unknown leaf at tip returned None as expected")
@@ -67,7 +64,7 @@ class AsmExportEntryMmrProofTest(flexitest.Test):
         earlier_height = initial_btc_height + 1
         earlier_block_hash = bitcoin_rpc.proxy.getblockhash(earlier_height)
         result = asm_rpc.strata_asm_getExportEntryMMRProof(
-            earlier_block_hash, BRIDGE_V1_CONTAINER_ID, UNKNOWN_LEAF_HASH
+            earlier_block_hash, BRIDGE_SUBPROTOCOL_ID, UNKNOWN_LEAF_HASH
         )
         assert result is None, (
             f"unknown leaf at height {earlier_height} should return None, got {result!r}"
