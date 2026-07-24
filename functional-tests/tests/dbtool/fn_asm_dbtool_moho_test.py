@@ -2,7 +2,7 @@ import logging
 
 import flexitest
 
-from constants import BRIDGE_SUBPROTOCOL_V1_ID
+from constants import BRIDGE_SUBPROTOCOL_ID
 from envs import ProverEnv
 from utils.dbtool import (
     run_dbtool,
@@ -107,12 +107,12 @@ class AsmDbtoolMohoTest(flexitest.Test):
         # moho export-entries: no entry can be driven from here, so
         # cover the empty/negative paths — count works, and unknown leaves and
         # heights resolve to `found: false` rather than erroring.
-        container = str(BRIDGE_SUBPROTOCOL_V1_ID)
+        container = str(BRIDGE_SUBPROTOCOL_ID)
         count = run_dbtool_json(moho_db, "moho", "export-entries", "count", container)
         assert count["count"] >= 0, count
         logging.info(
             "export-entries container %d holds %d leaves",
-            BRIDGE_SUBPROTOCOL_V1_ID,
+            BRIDGE_SUBPROTOCOL_ID,
             count["count"],
         )
 

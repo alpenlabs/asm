@@ -6,7 +6,7 @@ use strata_l1_txfmt::SubprotocolId;
 ///
 /// This constant is used to tag `SectionState` entries belonging to the Bridge V1 logic
 /// and must match the `subprotocol_id` checked in `SectionState::subprotocol()`.
-pub const BRIDGE_SUBPROTOCOL_V1_ID: SubprotocolId = 2;
+pub const BRIDGE_SUBPROTOCOL_ID: SubprotocolId = 2;
 
 /// Bridge V1 transaction types.
 ///

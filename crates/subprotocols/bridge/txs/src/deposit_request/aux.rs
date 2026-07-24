@@ -5,7 +5,7 @@ use strata_codec::VarVec;
 use strata_l1_txfmt::TagData;
 use thiserror::Error;
 
-use crate::constants::{BRIDGE_SUBPROTOCOL_V1_ID, BridgeTxType};
+use crate::constants::{BRIDGE_SUBPROTOCOL_ID, BridgeTxType};
 
 /// Maximum destination size in bytes.
 ///
@@ -116,7 +116,7 @@ impl DrtHeaderAux {
         aux_data.extend_from_slice(&self.destination);
 
         TagData::new(
-            BRIDGE_SUBPROTOCOL_V1_ID,
+            BRIDGE_SUBPROTOCOL_ID,
             BridgeTxType::DepositRequest as u8,
             aux_data,
         )

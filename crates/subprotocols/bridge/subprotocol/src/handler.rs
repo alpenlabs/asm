@@ -5,7 +5,7 @@ use strata_asm_common::{
 use strata_asm_logs::{DepositLog, NewExportEntry};
 use strata_asm_proto_bridge_state::{BridgeStateV1, OperatorClaimUnlock};
 use strata_asm_proto_bridge_txs::{
-    BRIDGE_SUBPROTOCOL_V1_ID, deposit_request::parse_drt, parser::ParsedTx,
+    BRIDGE_SUBPROTOCOL_ID, deposit_request::parse_drt, parser::ParsedTx,
 };
 use strata_asm_proto_checkpoint_msgs::CheckpointIncomingMsg;
 
@@ -88,7 +88,7 @@ pub(crate) fn handle_parsed_tx(
 
             // Use SubprotocolId as the containerId.
             let withdrawal_processed_log =
-                NewExportEntry::new(BRIDGE_SUBPROTOCOL_V1_ID, unlock.compute_hash());
+                NewExportEntry::new(BRIDGE_SUBPROTOCOL_ID, unlock.compute_hash());
             relayer.emit_log(
                 AsmLogEntry::from_log(&withdrawal_processed_log)
                     .expect("withdrawal processed log must not fail"),

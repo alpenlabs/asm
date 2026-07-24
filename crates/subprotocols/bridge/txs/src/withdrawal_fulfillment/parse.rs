@@ -64,7 +64,7 @@ mod tests {
 
     use super::*;
     use crate::{
-        BRIDGE_SUBPROTOCOL_V1_ID,
+        BRIDGE_SUBPROTOCOL_ID,
         errors::TxStructureErrorKind,
         test_utils::{
             TEST_MAGIC_BYTES, create_test_withdrawal_fulfillment_tx, overwrite_aux_data,
@@ -133,7 +133,7 @@ mod tests {
         let short_aux_data = vec![0u8; WITHDRAWAL_FULFILLMENT_TX_AUX_DATA_LEN - 1];
         overwrite_aux_data(
             &mut tx,
-            BRIDGE_SUBPROTOCOL_V1_ID,
+            BRIDGE_SUBPROTOCOL_ID,
             BridgeTxType::WithdrawalFulfillment as u8,
             short_aux_data,
         );
@@ -151,7 +151,7 @@ mod tests {
         let long_aux_data = vec![0u8; WITHDRAWAL_FULFILLMENT_TX_AUX_DATA_LEN + 1];
         overwrite_aux_data(
             &mut tx,
-            BRIDGE_SUBPROTOCOL_V1_ID,
+            BRIDGE_SUBPROTOCOL_ID,
             BridgeTxType::WithdrawalFulfillment as u8,
             long_aux_data,
         );

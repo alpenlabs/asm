@@ -17,7 +17,7 @@ use strata_asm_common::{AnchorState, AsmManifest};
 use strata_asm_moho_storage::{SledExportEntriesDb, SledMohoStateDb};
 use strata_asm_params::AsmParams;
 use strata_asm_proto_bridge::{AssignmentEntry, BridgeStateV1, DepositEntry};
-use strata_asm_proto_bridge_txs::BRIDGE_SUBPROTOCOL_V1_ID;
+use strata_asm_proto_bridge_txs::BRIDGE_SUBPROTOCOL_ID;
 use strata_asm_proto_bridge_types::SafeHarbour;
 use strata_asm_proto_checkpoint::CheckpointState;
 use strata_asm_proto_checkpoint_txs::CHECKPOINT_SUBPROTOCOL_ID;
@@ -83,7 +83,7 @@ impl AsmRpcServer {
         match state {
             Some(state) => {
                 let bridge_state = state
-                    .find_section(BRIDGE_SUBPROTOCOL_V1_ID)
+                    .find_section(BRIDGE_SUBPROTOCOL_ID)
                     .expect("bridge subprotocol should be enabled");
 
                 let bridge_state = BridgeStateV1::from_ssz_bytes(&bridge_state.data)
@@ -445,7 +445,7 @@ mod tests {
     fn returns_proof_that_verifies_against_historical_mmr() {
         let (_db, moho, idx, _tmp) = temp_dbs();
 
-        // Two blocks each add two entries to container BRIDGE_SUBPROTOCOL_V1_ID. Total 4 entries.
+        // Two blocks each add two entries to container BRIDGE_SUBPROTOCOL_ID. Total 4 entries.
         let b1 = commitment(100, 1);
         let state_at_b1 = apply_block(
             &moho,
@@ -453,8 +453,8 @@ mod tests {
             genesis_moho(),
             b1,
             &[
-                (BRIDGE_SUBPROTOCOL_V1_ID, entry_hash(0xa0)),
-                (BRIDGE_SUBPROTOCOL_V1_ID, entry_hash(0xa1)),
+                (BRIDGE_SUBPROTOCOL_ID, entry_hash(0xa0)),
+                (BRIDGE_SUBPROTOCOL_ID, entry_hash(0xa1)),
             ],
         );
         let b2 = commitment(101, 2);
@@ -464,13 +464,13 @@ mod tests {
             state_at_b1,
             b2,
             &[
-                (BRIDGE_SUBPROTOCOL_V1_ID, entry_hash(0xa2)),
-                (BRIDGE_SUBPROTOCOL_V1_ID, entry_hash(0xa3)),
+                (BRIDGE_SUBPROTOCOL_ID, entry_hash(0xa2)),
+                (BRIDGE_SUBPROTOCOL_ID, entry_hash(0xa3)),
             ],
         );
 
         let leaf = entry_hash(0xa2);
-        let bytes = build_export_entry_mmr_proof(&moho, &idx, b2, BRIDGE_SUBPROTOCOL_V1_ID, &leaf)
+        let bytes = build_export_entry_mmr_proof(&moho, &idx, b2, BRIDGE_SUBPROTOCOL_ID, &leaf)
             .unwrap()
             .expect("proof should be present");
 
@@ -480,7 +480,7 @@ mod tests {
             .export_state()
             .containers()
             .iter()
-            .find(|c| c.container_id() == BRIDGE_SUBPROTOCOL_V1_ID)
+            .find(|c| c.container_id() == BRIDGE_SUBPROTOCOL_ID)
             .unwrap();
         assert_eq!(container.entries_mmr().num_entries(), 4);
         assert!(
@@ -493,14 +493,14 @@ mod tests {
     fn proof_at_earlier_block_uses_that_blocks_mmr_size() {
         let (_db, moho, idx, _tmp) = temp_dbs();
 
-        // b1 has one entry for BRIDGE_SUBPROTOCOL_V1_ID.
+        // b1 has one entry for BRIDGE_SUBPROTOCOL_ID.
         let b1 = commitment(100, 1);
         let state_at_b1 = apply_block(
             &moho,
             &idx,
             genesis_moho(),
             b1,
-            &[(BRIDGE_SUBPROTOCOL_V1_ID, entry_hash(0xa0))],
+            &[(BRIDGE_SUBPROTOCOL_ID, entry_hash(0xa0))],
         );
         // b2 adds two more.
         let b2 = commitment(101, 2);
@@ -510,15 +510,15 @@ mod tests {
             state_at_b1.clone(),
             b2,
             &[
-                (BRIDGE_SUBPROTOCOL_V1_ID, entry_hash(0xa1)),
-                (BRIDGE_SUBPROTOCOL_V1_ID, entry_hash(0xa2)),
+                (BRIDGE_SUBPROTOCOL_ID, entry_hash(0xa1)),
+                (BRIDGE_SUBPROTOCOL_ID, entry_hash(0xa2)),
             ],
         );
 
         // Querying with leaf 0xa0 at block b1 must produce a proof valid
         // against the size-1 MMR, not the size-3 MMR at b2.
         let leaf = entry_hash(0xa0);
-        let bytes = build_export_entry_mmr_proof(&moho, &idx, b1, BRIDGE_SUBPROTOCOL_V1_ID, &leaf)
+        let bytes = build_export_entry_mmr_proof(&moho, &idx, b1, BRIDGE_SUBPROTOCOL_ID, &leaf)
             .unwrap()
             .unwrap();
         let proof = MerkleProofB32::from_ssz_bytes(&bytes).unwrap();
@@ -526,7 +526,7 @@ mod tests {
             .export_state()
             .containers()
             .iter()
-            .find(|c| c.container_id() == BRIDGE_SUBPROTOCOL_V1_ID)
+            .find(|c| c.container_id() == BRIDGE_SUBPROTOCOL_ID)
             .unwrap();
         assert_eq!(container_at_b1.entries_mmr().num_entries(), 1);
         assert!(container_at_b1.entries_mmr().verify(&proof, &leaf));
@@ -543,7 +543,7 @@ mod tests {
             &idx,
             genesis_moho(),
             b1,
-            &[(BRIDGE_SUBPROTOCOL_V1_ID, entry_hash(0xa0))],
+            &[(BRIDGE_SUBPROTOCOL_ID, entry_hash(0xa0))],
         );
         // A later entry at b2.
         let b2 = commitment(101, 2);
@@ -552,18 +552,13 @@ mod tests {
             &idx,
             state_at_b1,
             b2,
-            &[(BRIDGE_SUBPROTOCOL_V1_ID, entry_hash(0xa1))],
+            &[(BRIDGE_SUBPROTOCOL_ID, entry_hash(0xa1))],
         );
 
         // Querying 0xa1 at b1 must return None — it was inserted later.
-        let out = build_export_entry_mmr_proof(
-            &moho,
-            &idx,
-            b1,
-            BRIDGE_SUBPROTOCOL_V1_ID,
-            &entry_hash(0xa1),
-        )
-        .unwrap();
+        let out =
+            build_export_entry_mmr_proof(&moho, &idx, b1, BRIDGE_SUBPROTOCOL_ID, &entry_hash(0xa1))
+                .unwrap();
         assert!(out.is_none());
     }
 
@@ -576,17 +571,12 @@ mod tests {
             &idx,
             genesis_moho(),
             b1,
-            &[(BRIDGE_SUBPROTOCOL_V1_ID, entry_hash(0xa0))],
+            &[(BRIDGE_SUBPROTOCOL_ID, entry_hash(0xa0))],
         );
 
-        let out = build_export_entry_mmr_proof(
-            &moho,
-            &idx,
-            b1,
-            BRIDGE_SUBPROTOCOL_V1_ID,
-            &entry_hash(0xff),
-        )
-        .unwrap();
+        let out =
+            build_export_entry_mmr_proof(&moho, &idx, b1, BRIDGE_SUBPROTOCOL_ID, &entry_hash(0xff))
+                .unwrap();
         assert!(out.is_none());
     }
 
@@ -599,7 +589,7 @@ mod tests {
             &idx,
             genesis_moho(),
             b1,
-            &[(BRIDGE_SUBPROTOCOL_V1_ID, entry_hash(0xa0))],
+            &[(BRIDGE_SUBPROTOCOL_ID, entry_hash(0xa0))],
         );
 
         // Query a container_id that was never populated. Indistinguishable from
@@ -616,7 +606,7 @@ mod tests {
             &moho,
             &idx,
             commitment(999, 9),
-            BRIDGE_SUBPROTOCOL_V1_ID,
+            BRIDGE_SUBPROTOCOL_ID,
             &entry_hash(0xa0),
         )
         .unwrap();
@@ -632,16 +622,14 @@ mod tests {
             &idx,
             genesis_moho(),
             b1,
-            &[(BRIDGE_SUBPROTOCOL_V1_ID, entry_hash(0xa0))],
+            &[(BRIDGE_SUBPROTOCOL_ID, entry_hash(0xa0))],
         );
 
-        let err =
-            build_export_entry_mmr_proof(&moho, &idx, b1, BRIDGE_SUBPROTOCOL_V1_ID, &[0xa0; 31])
-                .unwrap_err();
+        let err = build_export_entry_mmr_proof(&moho, &idx, b1, BRIDGE_SUBPROTOCOL_ID, &[0xa0; 31])
+            .unwrap_err();
         assert!(matches!(err, MmrProofError::InvalidLeafLength(31)));
-        let err =
-            build_export_entry_mmr_proof(&moho, &idx, b1, BRIDGE_SUBPROTOCOL_V1_ID, &[0xa0; 33])
-                .unwrap_err();
+        let err = build_export_entry_mmr_proof(&moho, &idx, b1, BRIDGE_SUBPROTOCOL_ID, &[0xa0; 33])
+            .unwrap_err();
         assert!(matches!(err, MmrProofError::InvalidLeafLength(33)));
     }
 

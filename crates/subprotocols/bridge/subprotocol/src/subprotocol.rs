@@ -12,7 +12,7 @@ use strata_asm_logs::ExportExtraDataUpdate;
 use strata_asm_params::BridgeInitConfig;
 use strata_asm_proto_bridge_msgs::BridgeIncomingMsg;
 use strata_asm_proto_bridge_state::BridgeStateV1;
-use strata_asm_proto_bridge_txs::{BRIDGE_SUBPROTOCOL_V1_ID, errors::Mismatch, parser::parse_tx};
+use strata_asm_proto_bridge_txs::{BRIDGE_SUBPROTOCOL_ID, errors::Mismatch, parser::parse_tx};
 use strata_identifiers::L1BlockCommitment;
 
 use crate::{
@@ -29,7 +29,7 @@ use crate::{
 pub struct BridgeSubprotoV1;
 
 impl Subprotocol for BridgeSubprotoV1 {
-    const ID: SubprotocolId = BRIDGE_SUBPROTOCOL_V1_ID;
+    const ID: SubprotocolId = BRIDGE_SUBPROTOCOL_ID;
 
     type State = BridgeStateV1;
 
@@ -140,7 +140,7 @@ impl Subprotocol for BridgeSubprotoV1 {
         // Publish the accumulated proof of work as the bridge container's export `extra_data`,
         // so downstream consumers can read the verified L1 work directly from the export state.
         let accumulated_pow = header_vs.total_accumulated_pow().to_le_bytes();
-        let extra_data_log = ExportExtraDataUpdate::new(BRIDGE_SUBPROTOCOL_V1_ID, accumulated_pow);
+        let extra_data_log = ExportExtraDataUpdate::new(BRIDGE_SUBPROTOCOL_ID, accumulated_pow);
         relayer.emit_log(
             AsmLogEntry::from_log(&extra_data_log)
                 .expect("export extra data log encoding is infallible for fixed-size SSZ"),

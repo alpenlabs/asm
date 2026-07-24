@@ -95,7 +95,7 @@ mod tests {
 
     use super::*;
     use crate::{
-        BRIDGE_SUBPROTOCOL_V1_ID,
+        BRIDGE_SUBPROTOCOL_ID,
         errors::TxStructureErrorKind,
         test_utils::{
             create_connected_stake_and_unstake_txs, create_test_operators, overwrite_aux_data,
@@ -152,7 +152,7 @@ mod tests {
         let larger_aux = [0u8; AUX_LEN + 1].to_vec();
         overwrite_aux_data(
             &mut tx,
-            BRIDGE_SUBPROTOCOL_V1_ID,
+            BRIDGE_SUBPROTOCOL_ID,
             BridgeTxType::Unstake as u8,
             larger_aux,
         );
@@ -168,7 +168,7 @@ mod tests {
         let smaller_aux = [0u8; AUX_LEN - 1].to_vec();
         overwrite_aux_data(
             &mut tx,
-            BRIDGE_SUBPROTOCOL_V1_ID,
+            BRIDGE_SUBPROTOCOL_ID,
             BridgeTxType::Unstake as u8,
             smaller_aux,
         );
