@@ -60,9 +60,9 @@ impl SectionState {
     ///
     /// Errors if `data` exceeds the SSZ capacity for the section data field
     /// (`MAX_SECTION_STATE_BYTES`).
-    pub fn new(id: SubprotocolId, data: Vec<u8>) -> Result<Self, ssz_types::Error> {
+    pub fn new(id: SubprotocolId, version: u8, data: Vec<u8>) -> Result<Self, ssz_types::Error> {
         let data = VariableList::new(data)?;
-        Ok(Self { id, data })
+        Ok(Self { id, version, data })
     }
 }
 
@@ -94,7 +94,7 @@ mod tests {
                 pow_state: HeaderVerificationState::init(anchor),
                 history_accumulator: AsmHistoryAccumulatorState::new(0),
             },
-            sections: vec![SectionState::new(1, vec![1, 2, 3]).expect("fits capacity")]
+            sections: vec![SectionState::new(1, 1, vec![1, 2, 3]).expect("fits capacity")]
                 .try_into()
                 .expect("fits capacity"),
         }
