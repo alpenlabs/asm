@@ -1,6 +1,6 @@
 use strata_asm_common::{AsmLogEntry, MsgRelayer, TxInputRef, VerifiedAuxData, logging};
 use strata_asm_logs::CheckpointTipUpdate;
-use strata_asm_proto_bridge_v1_msgs::BridgeIncomingMsg;
+use strata_asm_proto_bridge_msgs::BridgeIncomingMsg;
 use strata_asm_proto_checkpoint_txs::extract_checkpoint_from_envelope;
 use strata_asm_proto_checkpoint_types::{
     AsmManifestRangeHash, compute_asm_manifests_hash_from_leaves,

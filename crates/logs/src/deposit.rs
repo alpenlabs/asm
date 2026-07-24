@@ -35,9 +35,9 @@ mod tests {
     use super::*;
 
     // Upstream the deposit-request parser caps `destination` at this size — see
-    // `MAX_DESTINATION_LEN` in crates/subprotocols/bridge-v1/txs/src/deposit_request/aux.rs
+    // `MAX_DESTINATION_LEN` in crates/subprotocols/bridge/txs/src/deposit_request/aux.rs
     // (SPS-50 OP_RETURN budget). Hardcoded rather than imported to avoid a circular
-    // dep on bridge-v1 from this crate.
+    // dep on the bridge crates from this crate.
     const MAX_DESTINATION_LEN: usize = 42;
 
     fn deposit_log_strategy() -> impl Strategy<Value = DepositLog> {

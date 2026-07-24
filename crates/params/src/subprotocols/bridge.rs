@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use strata_asm_proto_bridge_v1_types::SafeHarbourAddress;
+use strata_asm_proto_bridge_types::SafeHarbourAddress;
 use strata_btc_types::BitcoinAmount;
 use strata_crypto::EvenPublicKey;
 

@@ -23,7 +23,7 @@ use strata_asm_manifest_types as _;
 use strata_asm_proof_impl as _;
 use strata_asm_proto_admin as _;
 use strata_asm_proto_admin_txs as _;
-use strata_asm_proto_bridge_v1_types as _;
+use strata_asm_proto_bridge_types as _;
 use strata_asm_proto_checkpoint_types as _;
 use strata_asm_spec as _;
 use strata_asm_stf as _;

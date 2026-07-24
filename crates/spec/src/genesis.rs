@@ -6,7 +6,7 @@ use strata_asm_common::{
 };
 use strata_asm_params::AsmParams;
 use strata_asm_proto_admin::{AdministrationSubprotoState, AdministrationSubprotocol};
-use strata_asm_proto_bridge_v1::{BridgeV1State, BridgeV1Subproto};
+use strata_asm_proto_bridge::{BridgeV1State, BridgeV1Subproto};
 use strata_asm_proto_checkpoint::{CheckpointState, CheckpointSubprotocol};
 
 /// Builds the genesis [`AnchorState`] from the given [`AsmParams`].

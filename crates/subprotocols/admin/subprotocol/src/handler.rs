@@ -8,8 +8,8 @@ use strata_asm_proto_admin_txs::{
     actions::{MultisigAction, UpdateAction},
     parser::SignedPayload,
 };
-use strata_asm_proto_bridge_v1_msgs::{BridgeIncomingMsg, DefconPayload, UpdateOperatorSetPayload};
-use strata_asm_proto_bridge_v1_types::SafeHarbourAddress;
+use strata_asm_proto_bridge_msgs::{BridgeIncomingMsg, DefconPayload, UpdateOperatorSetPayload};
+use strata_asm_proto_bridge_types::SafeHarbourAddress;
 use strata_asm_proto_checkpoint_msgs::CheckpointIncomingMsg;
 use strata_identifiers::{AccountSerial, Buf32, L1Height, SYSTEM_RESERVED_ACCTS};
 use strata_predicate::{PredicateKey, PredicateTypeId};
@@ -282,8 +282,8 @@ mod tests {
         parser::SignedPayload,
         test_utils::create_signature_set,
     };
-    use strata_asm_proto_bridge_v1_msgs::BridgeIncomingMsg;
-    use strata_asm_proto_bridge_v1_types::SafeHarbourAddress;
+    use strata_asm_proto_bridge_msgs::BridgeIncomingMsg;
+    use strata_asm_proto_bridge_types::SafeHarbourAddress;
     use strata_asm_proto_checkpoint_msgs::CheckpointIncomingMsg;
     use strata_crypto::{
         keys::compressed::CompressedPublicKey, threshold_signature::ThresholdConfig,

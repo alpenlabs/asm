@@ -35,7 +35,7 @@ use strata_asm_proto_admin_txs::{
     parser::SignedPayload,
     test_utils::create_signature_set,
 };
-use strata_asm_proto_bridge_v1_types::SafeHarbourAddress;
+use strata_asm_proto_bridge_types::SafeHarbourAddress;
 use strata_crypto::{
     keys::compressed::CompressedPublicKey,
     threshold_signature::{ThresholdConfig, ThresholdConfigUpdate},

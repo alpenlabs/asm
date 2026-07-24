@@ -1819,7 +1819,7 @@ dependencies = [
  "serde",
  "ssz",
  "ssz_derive",
- "strata-asm-proto-bridge-v1-types",
+ "strata-asm-proto-bridge-types",
  "strata-btc-types",
  "strata-btc-verification",
  "strata-crypto",
@@ -1860,8 +1860,8 @@ dependencies = [
  "strata-asm-logs",
  "strata-asm-params",
  "strata-asm-proto-admin-txs",
- "strata-asm-proto-bridge-v1-msgs",
- "strata-asm-proto-bridge-v1-types",
+ "strata-asm-proto-bridge-msgs",
+ "strata-asm-proto-bridge-types",
  "strata-asm-proto-checkpoint-msgs",
  "strata-crypto",
  "strata-identifiers",
@@ -1880,7 +1880,7 @@ dependencies = [
  "ssz_derive",
  "strata-asm-common",
  "strata-asm-params",
- "strata-asm-proto-bridge-v1-types",
+ "strata-asm-proto-bridge-types",
  "strata-crypto",
  "strata-identifiers",
  "strata-l1-envelope-fmt",
@@ -1890,17 +1890,17 @@ dependencies = [
 ]
 
 [[package]]
-name = "strata-asm-proto-bridge-v1"
+name = "strata-asm-proto-bridge"
 version = "0.1.0"
 dependencies = [
  "bitcoin",
  "strata-asm-common",
  "strata-asm-logs",
  "strata-asm-params",
- "strata-asm-proto-bridge-v1-msgs",
- "strata-asm-proto-bridge-v1-state",
- "strata-asm-proto-bridge-v1-txs",
- "strata-asm-proto-bridge-v1-types",
+ "strata-asm-proto-bridge-msgs",
+ "strata-asm-proto-bridge-state",
+ "strata-asm-proto-bridge-txs",
+ "strata-asm-proto-bridge-types",
  "strata-asm-proto-checkpoint-msgs",
  "strata-btc-types",
  "strata-identifiers",
@@ -1908,19 +1908,19 @@ dependencies = [
 ]
 
 [[package]]
-name = "strata-asm-proto-bridge-v1-msgs"
+name = "strata-asm-proto-bridge-msgs"
 version = "0.1.0"
 dependencies = [
  "ssz",
  "ssz_derive",
  "strata-asm-common",
- "strata-asm-proto-bridge-v1-txs",
- "strata-asm-proto-bridge-v1-types",
+ "strata-asm-proto-bridge-txs",
+ "strata-asm-proto-bridge-types",
  "strata-crypto",
 ]
 
 [[package]]
-name = "strata-asm-proto-bridge-v1-state"
+name = "strata-asm-proto-bridge-state"
 version = "0.1.0"
 dependencies = [
  "arbitrary",
@@ -1931,8 +1931,8 @@ dependencies = [
  "ssz_derive",
  "strata-asm-common",
  "strata-asm-params",
- "strata-asm-proto-bridge-v1-txs",
- "strata-asm-proto-bridge-v1-types",
+ "strata-asm-proto-bridge-txs",
+ "strata-asm-proto-bridge-types",
  "strata-btc-types",
  "strata-codec",
  "strata-crypto",
@@ -1941,14 +1941,14 @@ dependencies = [
 ]
 
 [[package]]
-name = "strata-asm-proto-bridge-v1-txs"
+name = "strata-asm-proto-bridge-txs"
 version = "0.1.0"
 dependencies = [
  "arbitrary",
  "bitcoin",
  "bitcoin-bosd 0.11.0",
  "strata-asm-common",
- "strata-asm-proto-bridge-v1-types",
+ "strata-asm-proto-bridge-types",
  "strata-btc-types",
  "strata-codec",
  "strata-crypto",
@@ -1957,7 +1957,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "strata-asm-proto-bridge-v1-types"
+name = "strata-asm-proto-bridge-types"
 version = "0.1.0"
 dependencies = [
  "arbitrary",
@@ -1980,7 +1980,7 @@ dependencies = [
  "strata-asm-common",
  "strata-asm-logs",
  "strata-asm-params",
- "strata-asm-proto-bridge-v1-msgs",
+ "strata-asm-proto-bridge-msgs",
  "strata-asm-proto-checkpoint-msgs",
  "strata-asm-proto-checkpoint-txs",
  "strata-asm-proto-checkpoint-types",
@@ -2040,7 +2040,7 @@ dependencies = [
  "strata-asm-common",
  "strata-asm-params",
  "strata-asm-proto-admin",
- "strata-asm-proto-bridge-v1",
+ "strata-asm-proto-bridge",
  "strata-asm-proto-checkpoint",
 ]
 
@@ -2130,7 +2130,7 @@ dependencies = [
  "ssz_types",
  "strata-asm-manifest-types",
  "strata-asm-params",
- "strata-asm-proto-bridge-v1-types",
+ "strata-asm-proto-bridge-types",
  "strata-asm-proto-checkpoint-types",
  "strata-btc-types",
  "strata-crypto",

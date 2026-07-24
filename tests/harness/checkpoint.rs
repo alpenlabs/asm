@@ -20,7 +20,7 @@ use strata_asm_common::{AnchorState, SectionStateExt, Subprotocol};
 use strata_asm_logs::CheckpointTipUpdate;
 use strata_asm_manifest_types::{AsmLog, AsmManifestHash};
 use strata_asm_params::CheckpointInitConfig;
-use strata_asm_proto_bridge_v1_types::{OperatorSelection, BRIDGE_GATEWAY_ACCT_SERIAL};
+use strata_asm_proto_bridge_types::{OperatorSelection, BRIDGE_GATEWAY_ACCT_SERIAL};
 use strata_asm_proto_checkpoint::{CheckpointState, CheckpointSubprotocol};
 use strata_asm_proto_checkpoint_types::{CheckpointTip, OLLog, SimpleWithdrawalIntentLogData};
 use strata_codec::encode_to_vec;
