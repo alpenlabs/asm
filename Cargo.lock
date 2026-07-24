@@ -7627,6 +7627,8 @@ version = "0.1.0"
 dependencies = [
  "bitcoin",
  "borsh",
+ "serde",
+ "serde_json",
  "ssz",
  "ssz_derive",
  "ssz_types",
