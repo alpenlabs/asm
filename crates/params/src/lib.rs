@@ -7,15 +7,15 @@
 
 mod genesis;
 mod runtime;
+mod spec_id;
 mod subprotocols;
 
 #[cfg(feature = "arbitrary")]
 use arbitrary::{Arbitrary, Unstructured};
 pub use genesis::AsmGenesisParams;
-pub use runtime::AsmRuntimeParams;
+pub use runtime::{AsmRuntimeParams, AsmStfParams, SpecActivation};
 use serde::{Deserialize, Serialize};
-#[cfg(feature = "arbitrary")]
-use strata_asm_common::SpecActivation;
+pub use spec_id::SpecId;
 pub use subprotocols::{
     AdminTxType, AdministrationInitConfig, BridgeInitConfig, CheckpointInitConfig,
     ConfirmationDepths, Role, SubprotocolInstance, UpdateTxType,
