@@ -1,7 +1,7 @@
 use bitcoin::{Block, CompactTarget, params::Params};
 use strata_asm_common::{AnchorState, AsmLogEntry, AsmSpec, AuxData, HeaderVerificationState};
 use strata_asm_logs::AsmStfUpdate;
-use strata_asm_params::SpecSchedule;
+use strata_asm_params::{SpecSchedule, SpecScheduleError};
 use strata_asm_stf::AsmStfOutput;
 use strata_btc_types::BlockHashExt;
 use strata_btc_verification::{
@@ -198,11 +198,13 @@ where
     /// ([`SpecSchedule::schedule_successor`]), chaining through upgrades
     /// earlier in the same block.
     ///
-    /// An error means the block must not be committed: the successor id has
-    /// no [`SpecId`](strata_asm_params::SpecId) variant
+    /// An error means the block must not be committed: either the successor
+    /// id has no [`SpecId`](strata_asm_params::SpecId) variant
     /// ([`WorkerError::UnsupportedSpecActivation`]), so the worker is running
     /// old software past an upgrade it cannot execute and must halt until
-    /// restarted with an image that supports the version.
+    /// restarted with an image that supports the version — or the upgrade
+    /// would activate below a height the configured schedule already put its
+    /// predecessor at ([`WorkerError::InconsistentSpecSchedule`]).
     ///
     /// Collects into a `Vec` deliberately: every update must validate before
     /// [`Self::apply_spec_activations`] persists anything, so a flawed update
@@ -222,14 +224,18 @@ where
         logs.iter()
             .filter_map(|l| l.try_into_log::<AsmStfUpdate>().ok())
             .map(|update| {
-                let version =
-                    schedule
-                        .schedule_successor(activation_height)
-                        .map_err(|version| WorkerError::UnsupportedSpecActivation {
-                            version,
-                            block_height: enacting_height,
-                            stuck_height,
-                        })?;
+                let version = schedule
+                    .schedule_successor(activation_height)
+                    .map_err(|err| match err {
+                        SpecScheduleError::UnknownSuccessor(version) => {
+                            WorkerError::UnsupportedSpecActivation {
+                                version,
+                                block_height: enacting_height,
+                                stuck_height,
+                            }
+                        }
+                        err => WorkerError::InconsistentSpecSchedule(err),
+                    })?;
                 Ok(SpecActivationRecord {
                     enacting_height,
                     version,

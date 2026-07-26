@@ -83,11 +83,12 @@ pub enum WorkerError {
         stuck_height: L1Height,
     },
 
-    /// A spec activation record does not fit the schedule it is applied to —
-    /// the store and the configured base schedule disagree (e.g. the params'
-    /// schedule was downgraded below activations already persisted). Surfaced
-    /// when replaying persisted activations rather than silently producing a
-    /// gapped schedule.
+    /// A spec activation does not fit the schedule it is applied to — the
+    /// store or chain and the configured base schedule disagree (e.g. the
+    /// params' schedule was downgraded below activations already persisted,
+    /// or an enacted upgrade activates below a height the schedule already
+    /// holds). Surfaced when replaying persisted activations or discovering
+    /// new ones rather than silently producing a gapped or inverted schedule.
     #[error("persisted spec activation does not fit the configured schedule: {0}")]
     InconsistentSpecSchedule(#[from] SpecScheduleError),
 

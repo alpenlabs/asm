@@ -135,8 +135,7 @@ mod tests {
     }
   ],
   "spec_activation": {
-    "v0": 0,
-    "v1": null
+    "v0": 0
   }
 }
 "#;

@@ -19,8 +19,9 @@ use crate::spec_id::SpecId;
 /// [`SpecId::V0`] is the genesis version, always active from height 0; the
 /// schedule only tracks the upgrades after it, as the activation heights of a
 /// contiguous run of successors (`upgrades[i]` belongs to the version with
-/// discriminant `i + 1`). Versions activate strictly in succession, so a
-/// gapped schedule ("v2 scheduled, v1 disabled") is unrepresentable, and a
+/// discriminant `i + 1`). Versions activate strictly in succession at
+/// nondecreasing heights, so a gapped schedule ("v2 scheduled, v1 disabled")
+/// or an inverted one ("v2 active while v1 is not") is unrepresentable, and a
 /// new [`SpecId`] variant needs no change here — every method derives its
 /// answer from the discriminant.
 ///
@@ -58,6 +59,24 @@ pub enum SpecScheduleError {
         /// The newest scheduled version at the time of the attempt.
         latest: SpecId,
     },
+
+    /// Scheduling at `height` would order the version's activation the wrong
+    /// way around an adjacent version's; activation heights must be
+    /// nondecreasing in version order.
+    #[error(
+        "activation heights must be nondecreasing: {height} is out of order with the adjacent activation at {adjacent}"
+    )]
+    OutOfOrder {
+        /// The rejected activation height.
+        height: L1Height,
+        /// The adjacent version's activation height it conflicts with.
+        adjacent: L1Height,
+    },
+
+    /// The version to schedule has no [`SpecId`] variant in this binary —
+    /// old software has hit an upgrade it cannot execute.
+    #[error("no spec version with id {0} in this binary")]
+    UnknownSuccessor(u16),
 }
 
 impl SpecSchedule {
@@ -96,11 +115,23 @@ impl SpecSchedule {
     ///
     /// This is the discovery-side entry point: an enacted ASM VK upgrade does
     /// not name the version it activates (the wire only carries the new VK),
-    /// so the activating version is *defined* as the successor. Errs with the
-    /// successor's raw id when this binary has no [`SpecId`] variant for it —
-    /// the caller is running old software past an upgrade it cannot execute.
-    pub fn schedule_successor(&mut self, height: L1Height) -> Result<SpecId, u16> {
-        let successor = SpecId::try_from(self.upgrades.len() as u16 + 1)?;
+    /// so the activating version is *defined* as the successor. Errs when
+    /// `height` precedes the newest scheduled activation
+    /// ([`SpecScheduleError::OutOfOrder`]) or when this binary has no
+    /// [`SpecId`] variant for the successor
+    /// ([`SpecScheduleError::UnknownSuccessor`] — the caller is running old
+    /// software past an upgrade it cannot execute).
+    pub fn schedule_successor(&mut self, height: L1Height) -> Result<SpecId, SpecScheduleError> {
+        if let Some(&prev) = self.upgrades.last()
+            && height < prev
+        {
+            return Err(SpecScheduleError::OutOfOrder {
+                height,
+                adjacent: prev,
+            });
+        }
+        let successor = SpecId::try_from(self.upgrades.len() as u16 + 1)
+            .map_err(SpecScheduleError::UnknownSuccessor)?;
         self.upgrades.push(height);
         Ok(successor)
     }
@@ -113,7 +144,8 @@ impl SpecSchedule {
     /// schedule. Unlike [`Self::schedule_successor`] it accepts already-
     /// scheduled versions — the discovered height overrides the base — but
     /// still rejects anything that would break the invariants: rescheduling
-    /// [`SpecId::V0`] or skipping past an unscheduled predecessor.
+    /// [`SpecId::V0`], skipping past an unscheduled predecessor, or moving
+    /// an activation out of order with a neighbor's.
     pub fn schedule(&mut self, spec: SpecId, height: L1Height) -> Result<(), SpecScheduleError> {
         let idx = match usize::from(u16::from(spec)).checked_sub(1) {
             None => return Err(SpecScheduleError::GenesisFixed),
@@ -123,6 +155,22 @@ impl SpecSchedule {
             return Err(SpecScheduleError::Gap {
                 spec,
                 latest: self.latest_scheduled(),
+            });
+        }
+        if let Some(&prev) = idx.checked_sub(1).and_then(|i| self.upgrades.get(i))
+            && height < prev
+        {
+            return Err(SpecScheduleError::OutOfOrder {
+                height,
+                adjacent: prev,
+            });
+        }
+        if let Some(&next) = self.upgrades.get(idx + 1)
+            && next < height
+        {
+            return Err(SpecScheduleError::OutOfOrder {
+                height,
+                adjacent: next,
             });
         }
         match self.upgrades.get_mut(idx) {
@@ -139,14 +187,13 @@ impl Default for SpecSchedule {
     }
 }
 
-/// Serialized form of [`SpecSchedule`]: one entry per known version, `null`
-/// when unscheduled (e.g. `{"v0": 0, "v1": null}`). Kept for params-file
-/// compatibility with the former per-version struct; conversion back
-/// re-validates the invariants, so a hand-edited gapped or v0-disabled
+/// Serialized form of [`SpecSchedule`]: one entry per *scheduled* version
+/// (e.g. `{"v0": 0, "v1": 7}`); an absent version is unscheduled. Conversion
+/// back re-validates the invariants, so a gapped, inverted, or v0-disabled
 /// schedule is rejected at load.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(transparent)]
-struct SpecScheduleRepr(BTreeMap<SpecId, Option<L1Height>>);
+struct SpecScheduleRepr(BTreeMap<SpecId, L1Height>);
 
 /// Every known version, in discriminant order.
 fn known_versions() -> impl Iterator<Item = SpecId> {
@@ -157,7 +204,7 @@ impl From<SpecSchedule> for SpecScheduleRepr {
     fn from(schedule: SpecSchedule) -> Self {
         Self(
             known_versions()
-                .map(|spec| (spec, schedule.activation_height_of(spec)))
+                .filter_map(|spec| Some((spec, schedule.activation_height_of(spec)?)))
                 .collect(),
         )
     }
@@ -167,7 +214,7 @@ impl TryFrom<SpecScheduleRepr> for SpecSchedule {
     type Error = SpecScheduleError;
 
     fn try_from(repr: SpecScheduleRepr) -> Result<Self, Self::Error> {
-        let height_of = |spec| repr.0.get(&spec).copied().flatten();
+        let height_of = |spec| repr.0.get(&spec).copied();
         if height_of(SpecId::V0) != Some(0) {
             return Err(SpecScheduleError::GenesisFixed);
         }
@@ -275,8 +322,26 @@ mod tests {
         assert_eq!(schedule.activation_height_of(SpecId::V1), Some(42));
         // Every known version is scheduled, so the next successor's raw id
         // has no variant.
-        assert_eq!(schedule.schedule_successor(43), Err(2));
+        assert_eq!(
+            schedule.schedule_successor(43),
+            Err(SpecScheduleError::UnknownSuccessor(2))
+        );
         assert_eq!(schedule, v1_at(42), "failed call must not mutate");
+    }
+
+    /// A height behind the newest scheduled activation would activate the
+    /// successor before its predecessor.
+    #[test]
+    fn schedule_successor_rejects_regressing_heights() {
+        let mut schedule = v1_at(100);
+        assert_eq!(
+            schedule.schedule_successor(50),
+            Err(SpecScheduleError::OutOfOrder {
+                height: 50,
+                adjacent: 100
+            })
+        );
+        assert_eq!(schedule, v1_at(100), "failed call must not mutate");
     }
 
     #[test]
@@ -291,7 +356,7 @@ mod tests {
     }
 
     #[test]
-    fn serde_keeps_the_per_version_map_format() {
+    fn serde_is_the_scheduled_version_map_format() {
         let params = AsmStfParams {
             spec_schedule: v1_at(7),
         };
@@ -300,20 +365,25 @@ mod tests {
         let back: AsmStfParams = serde_json::from_str(&json).unwrap();
         assert_eq!(back, params);
 
+        // Unscheduled versions are absent, not null.
         let genesis = AsmStfParams::default();
         let json = serde_json::to_string(&genesis).unwrap();
-        assert_eq!(json, r#"{"spec_activation":{"v0":0,"v1":null}}"#);
+        assert_eq!(json, r#"{"spec_activation":{"v0":0}}"#);
         let back: AsmStfParams = serde_json::from_str(&json).unwrap();
         assert_eq!(back, genesis);
     }
 
     #[test]
     fn deserialize_rejects_invalid_schedules() {
-        // V0 disabled, missing, or moved off genesis.
+        // V0 missing entirely, missing while v1 is scheduled, moved off
+        // genesis, or a null height (absence is the only spelling of
+        // "unscheduled").
         for json in [
-            r#"{"v0":null,"v1":null}"#,
+            r#"{}"#,
             r#"{"v1":7}"#,
-            r#"{"v0":5,"v1":null}"#,
+            r#"{"v0":5}"#,
+            r#"{"v0":null}"#,
+            r#"{"v0":0,"v1":null}"#,
         ] {
             assert!(
                 serde_json::from_str::<SpecSchedule>(json).is_err(),
