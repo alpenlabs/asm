@@ -40,6 +40,7 @@ use crate::{
 ///
 /// impl Subprotocol for MySubprotocol {
 ///     const ID: SubprotocolId = 42;
+///     const STATE_VERSION: u8 = 1;
 ///     type State = MyState;
 ///     type InitConfig = MyInitConfig;
 ///     type Msg = MyMessage;
@@ -74,6 +75,10 @@ use crate::{
 pub trait Subprotocol: 'static {
     /// The subprotocol ID used when searching for relevant transactions.
     const ID: SubprotocolId;
+
+    /// Schema version of [`Self::State`]'s encoding, stamped into the
+    /// subprotocol's [`SectionState`].
+    const STATE_VERSION: u8;
 
     /// Configuration used to initialize the subprotocol's state.
     type InitConfig;

@@ -362,6 +362,7 @@ pub(crate) mod fixtures {
                 pow_state: HeaderVerificationState::init(params.anchor.clone()),
             };
             AnchorState {
+                version: 1,
                 magic: AnchorState::magic_ssz(params.magic),
                 chain_view,
                 sections: Vec::new()

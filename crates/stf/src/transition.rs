@@ -97,6 +97,7 @@ pub fn compute_asm_transition<S: AsmSpec>(
         history_accumulator,
     };
     let state = AnchorState {
+        version: pre_state.version,
         magic: pre_state.magic,
         chain_view,
         sections: VariableList::new(sections).map_err(AsmError::TooManySections)?,

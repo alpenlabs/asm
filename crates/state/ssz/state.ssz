@@ -19,6 +19,8 @@ class AsmHistoryAccumulatorState(Container):
 ### Serialized state for a subprotocol section.
 class SectionState(Container):
     id: uint8
+    ### Schema version of `data` (`Subprotocol::STATE_VERSION`).
+    version: uint8
     data: List[uint8, MAX_SECTION_STATE_BYTES]
 
 ### Chain view state required by the ASM transition.
@@ -31,6 +33,8 @@ class ChainViewState(Container):
 
 ### Top-level ASM state.
 class AnchorState(Container):
+    ### Schema version of this container's layout.
+    version: uint8
     magic: Bytes4
     chain_view: ChainViewState
     sections: List[SectionState, MAX_SECTIONS]

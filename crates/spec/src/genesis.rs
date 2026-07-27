@@ -9,6 +9,9 @@ use strata_asm_proto_admin::{AdministrationSubprotoState, AdministrationSubproto
 use strata_asm_proto_bridge::{BridgeStateV1, BridgeSubprotoV1};
 use strata_asm_proto_checkpoint::{CheckpointState, CheckpointSubprotocol};
 
+/// Anchor state layout version stamped at genesis.
+const GENESIS_STATE_VERSION: u8 = 1;
+
 /// Builds the genesis [`AnchorState`] from the given [`AsmGenesisParams`].
 ///
 /// Initialises every subprotocol's state from its config in `params` and
@@ -49,6 +52,7 @@ pub fn construct_genesis_state(params: &AsmGenesisParams) -> AnchorState {
     };
 
     AnchorState {
+        version: GENESIS_STATE_VERSION,
         magic: AnchorState::magic_ssz(params.magic),
         chain_view,
         sections: vec![

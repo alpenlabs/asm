@@ -26,6 +26,7 @@ pub struct AdministrationSubprotocol;
 
 impl Subprotocol for AdministrationSubprotocol {
     const ID: SubprotocolId = ADMINISTRATION_SUBPROTOCOL_ID;
+    const STATE_VERSION: u8 = 1;
 
     type InitConfig = AdministrationInitConfig;
 

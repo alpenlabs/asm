@@ -18,6 +18,14 @@ pub enum AsmError {
     #[error(transparent)]
     SubprotoIdMismatch(#[from] Mismatched<SubprotocolId>),
 
+    /// Section state version did not match the version the subprotocol expects.
+    #[error("subprotocol {id} state version mismatch: {source}")]
+    SectionVersionMismatch {
+        id: SubprotocolId,
+        #[source]
+        source: Mismatched<u8>,
+    },
+
     /// The requested subprotocol ID was not found.
     #[error("subproto {0:?} does not exist")]
     InvalidSubprotocol(SubprotocolId),
