@@ -118,6 +118,30 @@ impl RenderSigningMessage for UpdateAction {
     }
 }
 
+impl From<StrataAdminMultisigUpdate> for UpdateAction {
+    fn from(update: StrataAdminMultisigUpdate) -> Self {
+        UpdateAction::StrataAdminMultisig(update)
+    }
+}
+
+impl From<StrataSeqManagerMultisigUpdate> for UpdateAction {
+    fn from(update: StrataSeqManagerMultisigUpdate) -> Self {
+        UpdateAction::StrataSeqManagerMultisig(update)
+    }
+}
+
+impl From<AlpenAdminMultisigUpdate> for UpdateAction {
+    fn from(update: AlpenAdminMultisigUpdate) -> Self {
+        UpdateAction::AlpenAdminMultisig(update)
+    }
+}
+
+impl From<StrataSecurityCouncilMultisigUpdate> for UpdateAction {
+    fn from(update: StrataSecurityCouncilMultisigUpdate) -> Self {
+        UpdateAction::StrataSecurityCouncilMultisig(update)
+    }
+}
+
 impl From<OperatorSetUpdate> for UpdateAction {
     fn from(update: OperatorSetUpdate) -> Self {
         UpdateAction::OperatorSet(update)
@@ -127,5 +151,41 @@ impl From<OperatorSetUpdate> for UpdateAction {
 impl From<SequencerUpdate> for UpdateAction {
     fn from(update: SequencerUpdate) -> Self {
         UpdateAction::Sequencer(update)
+    }
+}
+
+impl From<OlStfVkUpdate> for UpdateAction {
+    fn from(update: OlStfVkUpdate) -> Self {
+        UpdateAction::OlStfVk(update)
+    }
+}
+
+impl From<AsmStfVkUpdate> for UpdateAction {
+    fn from(update: AsmStfVkUpdate) -> Self {
+        UpdateAction::AsmStfVk(update)
+    }
+}
+
+impl From<EeStfVkUpdate> for UpdateAction {
+    fn from(update: EeStfVkUpdate) -> Self {
+        UpdateAction::EeStfVk(update)
+    }
+}
+
+impl From<Defcon1Update> for UpdateAction {
+    fn from(update: Defcon1Update) -> Self {
+        UpdateAction::Defcon1(update)
+    }
+}
+
+impl From<Defcon3Update> for UpdateAction {
+    fn from(update: Defcon3Update) -> Self {
+        UpdateAction::Defcon3(update)
+    }
+}
+
+impl From<SafeHarbourAddressUpdate> for UpdateAction {
+    fn from(update: SafeHarbourAddressUpdate) -> Self {
+        UpdateAction::SafeHarbourAddress(update)
     }
 }
