@@ -1,7 +1,8 @@
 use serde::{Deserialize, Serialize};
-use strata_asm_proto_bridge_types::SafeHarbourAddress;
 use strata_btc_types::BitcoinAmount;
 use strata_crypto::EvenPublicKey;
+
+use crate::SafeHarbourAddress;
 
 /// Initialization configuration for the bridge subprotocol.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

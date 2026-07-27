@@ -1,13 +1,12 @@
 use serde::{Deserialize, Serialize};
 
-mod bridge;
 mod checkpoint;
 
-pub use bridge::BridgeInitConfig;
 pub use checkpoint::CheckpointInitConfig;
 pub use strata_asm_admin_types::{
     AdminTxType, AdministrationInitConfig, ConfirmationDepths, Role, UpdateTxType,
 };
+pub use strata_asm_proto_bridge_types::BridgeInitConfig;
 
 /// A configured subprotocol that can be registered in [`AsmParams`](crate::AsmParams).
 ///

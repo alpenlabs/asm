@@ -9,10 +9,10 @@ use strata_asm_common::{
     logging::{debug, error, info},
 };
 use strata_asm_logs::ExportExtraDataUpdate;
-use strata_asm_params::BridgeInitConfig;
 use strata_asm_proto_bridge_msgs::BridgeIncomingMsg;
 use strata_asm_proto_bridge_state::BridgeStateV1;
 use strata_asm_proto_bridge_txs::{BRIDGE_SUBPROTOCOL_ID, errors::Mismatch, parser::parse_tx};
+use strata_asm_proto_bridge_types::BridgeInitConfig;
 use strata_identifiers::L1BlockCommitment;
 
 use crate::{
