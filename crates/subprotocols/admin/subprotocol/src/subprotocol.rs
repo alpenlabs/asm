@@ -55,20 +55,14 @@ impl Subprotocol for AdministrationSubprotocol {
         // Phase 1: Execute any pending updates that have reached their activation height
         handle_pending_updates(state, relayer, current_height);
 
-        // Phase 2: Process incoming administration transactions
+        // Phase 2: Process incoming administration transactions. Unparseable txs are
+        // logged and skipped inside `parse_tx` to maintain system resilience.
         for tx in txs {
-            match parse_tx(tx) {
-                Ok(signed_payload) => {
-                    if let Err(e) = handle_action(state, signed_payload, current_height, relayer) {
-                        warn!(tx_id = %tx.tx().compute_txid(), error = %e, "Failed to handle admin action");
-                    }
-                }
-                // Parsing failures are skipped to maintain system resilience, but warned so a
-                // malformed governance tx isn't completely invisible. Admin txs are rare and
-                // security-sensitive, so a malformed one is worth surfacing.
-                Err(e) => {
-                    warn!(tx_id = %tx.tx().compute_txid(), error = %e, "Skipping unparseable admin tx");
-                }
+            let Some(signed_payload) = parse_tx(tx) else {
+                continue;
+            };
+            if let Err(e) = handle_action(state, signed_payload, current_height, relayer) {
+                warn!(tx_id = %tx.tx().compute_txid(), error = %e, "Failed to handle admin action");
             }
         }
     }

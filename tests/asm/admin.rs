@@ -32,7 +32,6 @@ use harness::{
 };
 use integration_tests::harness;
 use rand::rngs::OsRng;
-use ssz::Encode;
 use strata_asm_admin_types::Role;
 use strata_asm_proto_admin_txs::{
     constants::ADMINISTRATION_SUBPROTOCOL_ID, parser::SignedPayload,
@@ -329,7 +328,7 @@ async fn test_wrong_key_rejected() {
     let seqno = 1;
     let sig_set = create_signature_set(&[wrong_privkey], &[0u8], &action, seqno);
     let signed = SignedPayload::new(seqno, action.clone(), sig_set);
-    let payload = signed.as_ssz_bytes();
+    let payload = signed.into_envelope_bytes();
 
     let tx = harness
         .build_envelope_tx(action.tag(), payload)
@@ -380,7 +379,7 @@ async fn test_corrupted_signature_rejected() {
 
     let corrupted_sig_set = SignatureSet::new(indexed_sigs).unwrap();
     let signed = SignedPayload::new(seqno, action.clone(), corrupted_sig_set);
-    let payload = signed.as_ssz_bytes();
+    let payload = signed.into_envelope_bytes();
 
     let tx = harness
         .build_envelope_tx(action.tag(), payload)

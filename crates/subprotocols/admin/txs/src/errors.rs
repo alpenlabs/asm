@@ -16,8 +16,4 @@ pub enum AdministrationTxParseError {
     /// Failed to parse the transaction envelope.
     #[error("failed to parse transaction envelope: {0}")]
     MalformedEnvelope(#[from] EnvelopeParseError),
-
-    /// Failed to deserialize the transaction payload for the given transaction type.
-    #[error("tx type is not defined")]
-    UnknownTxType,
 }
