@@ -31,8 +31,8 @@ use bitcoin::{
 };
 use bitcoind_async_client::traits::Wallet;
 use rand::RngCore;
+use strata_asm_bridge_types::{BridgeInitConfig, OperatorIdx, SafeHarbourAddress};
 use strata_asm_common::{AnchorState, SectionStateExt, Subprotocol};
-use strata_asm_params::BridgeInitConfig;
 use strata_asm_proto_bridge::{BridgeStateV1, BridgeSubprotoV1};
 use strata_asm_proto_bridge_txs::{
     deposit::DepositTxHeaderAux,
@@ -43,7 +43,6 @@ use strata_asm_proto_bridge_txs::{
     unstake::{stake_connector_script, UnstakeTxHeaderAux},
     withdrawal_fulfillment::WithdrawalFulfillmentTxHeaderAux,
 };
-use strata_asm_proto_bridge_types::{OperatorIdx, SafeHarbourAddress};
 use strata_btc_types::BitcoinAmount;
 use strata_codec::VarVec;
 use strata_crypto::{

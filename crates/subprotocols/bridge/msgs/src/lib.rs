@@ -7,9 +7,9 @@
 use std::any::Any;
 
 use ssz_derive::{Decode, Encode};
+use strata_asm_bridge_types::{OperatorIdx, SafeHarbourAddress, WithdrawalIntent};
 use strata_asm_common::{InterprotoMsg, SubprotocolId};
 use strata_asm_proto_bridge_txs::BRIDGE_SUBPROTOCOL_ID;
-use strata_asm_proto_bridge_types::{OperatorIdx, SafeHarbourAddress, WithdrawalIntent};
 use strata_crypto::EvenPublicKey;
 
 /// Incoming message types received from other subprotocols.

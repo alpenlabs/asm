@@ -1,6 +1,6 @@
 use bitcoin::ScriptBuf;
+use strata_asm_bridge_types::OperatorBitmapError;
 use strata_asm_proto_bridge_txs::errors::{Mismatch, TxStructureError};
-use strata_asm_proto_bridge_types::OperatorBitmapError;
 use thiserror::Error;
 
 /// Errors that can occur when validating deposit transactions at the subprotocol level.

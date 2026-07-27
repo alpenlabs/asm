@@ -1,6 +1,6 @@
 use bitcoin::ScriptBuf;
+use strata_asm_bridge_types::OperatorIdx;
 use strata_asm_proto_bridge_state::BridgeStateV1;
-use strata_asm_proto_bridge_types::OperatorIdx;
 
 use crate::errors::SlashValidationError;
 

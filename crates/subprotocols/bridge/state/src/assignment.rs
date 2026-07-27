@@ -14,10 +14,10 @@ use rand_chacha::{
 use serde::{Deserialize, Serialize};
 use ssz::{Decode as SszDecode, DecodeError, Encode as SszEncode};
 use ssz_derive::{Decode, Encode};
-use strata_asm_common::sorted_vec::SortedVec;
-use strata_asm_proto_bridge_types::{
+use strata_asm_bridge_types::{
     OperatorBitmap, OperatorIdx, WithdrawalIntent, WithdrawalOutput, filter_eligible_operators,
 };
+use strata_asm_common::sorted_vec::SortedVec;
 use strata_btc_types::BitcoinAmount;
 use strata_identifiers::{Buf32, L1BlockCommitment, L1BlockId, L1Height};
 
@@ -437,7 +437,7 @@ impl AssignmentTable {
 
 #[cfg(test)]
 mod tests {
-    use strata_asm_proto_bridge_types::{OperatorBitmapError, OperatorSelection};
+    use strata_asm_bridge_types::{OperatorBitmapError, OperatorSelection};
     use strata_identifiers::{L1BlockId, L1Height};
     use strata_test_utils_arb::ArbitraryGenerator;
 

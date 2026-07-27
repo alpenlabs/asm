@@ -19,8 +19,8 @@ use harness::{
     test_harness::{AsmTestHarnessBuilder, Setup},
 };
 use integration_tests::harness;
-use strata_asm_proto_bridge_types::OperatorSelection;
-use strata_asm_proto_checkpoint_types::CheckpointTip;
+use strata_asm_bridge_types::OperatorSelection;
+use strata_asm_checkpoint_types::CheckpointTip;
 use strata_identifiers::{OLBlockCommitment, OLBlockId};
 use strata_test_utils_arb::ArbitraryGenerator;
 

@@ -1,4 +1,4 @@
-use strata_asm_params::AdminTxType;
+use strata_asm_admin_types::AdminTxType;
 
 /// A buffer for the indented sub-fields under the `Action Details:` header line.
 ///

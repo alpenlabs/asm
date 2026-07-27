@@ -1,13 +1,11 @@
 use bitcoin_bosd::Descriptor;
 use ssz::Encode;
-use strata_asm_manifest_types::AsmManifestRangeHash;
-use strata_asm_proto_bridge_types::{
-    BRIDGE_GATEWAY_ACCT_SERIAL, OperatorSelection, WithdrawalIntent,
-};
-use strata_asm_proto_checkpoint_types::{
+use strata_asm_bridge_types::{BRIDGE_GATEWAY_ACCT_SERIAL, OperatorSelection, WithdrawalIntent};
+use strata_asm_checkpoint_types::{
     CheckpointClaim, CheckpointPayload, CheckpointSidecar, CheckpointTip, L2BlockRange, OLLog,
     SimpleWithdrawalIntentLogData,
 };
+use strata_asm_manifest_types::AsmManifestRangeHash;
 use strata_crypto::hash;
 use strata_identifiers::L1Height;
 use strata_predicate::{PredicateKey, PredicateTypeId};
@@ -264,11 +262,11 @@ pub(crate) fn extract_withdrawal_intents(
 mod tests {
     use bitcoin_bosd::Descriptor;
     use ssz_types::VariableList;
-    use strata_asm_manifest_types::AsmManifestRangeHash;
-    use strata_asm_proto_bridge_types::{BRIDGE_GATEWAY_ACCT_SERIAL, WithdrawalIntent};
-    use strata_asm_proto_checkpoint_types::{
+    use strata_asm_bridge_types::{BRIDGE_GATEWAY_ACCT_SERIAL, WithdrawalIntent};
+    use strata_asm_checkpoint_types::{
         CheckpointPayload, OLLog, SimpleWithdrawalIntentLogData, TerminalHeaderComplement,
     };
+    use strata_asm_manifest_types::AsmManifestRangeHash;
     use strata_identifiers::AccountSerial;
     use strata_msg_fmt::{Msg, OwnedMsg};
     use strata_predicate::PredicateKey;

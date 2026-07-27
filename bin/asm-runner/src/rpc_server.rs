@@ -13,15 +13,15 @@ use jsonrpsee::{
     types::{ErrorObject, ErrorObjectOwned},
 };
 use ssz::{Decode, Encode};
+use strata_asm_bridge_types::SafeHarbour;
+use strata_asm_checkpoint_types::CheckpointTip;
 use strata_asm_common::{AnchorState, AsmManifest};
 use strata_asm_moho_storage::{SledExportEntriesDb, SledMohoStateDb};
 use strata_asm_params::AsmParams;
 use strata_asm_proto_bridge::{AssignmentEntry, BridgeStateV1, DepositEntry};
 use strata_asm_proto_bridge_txs::BRIDGE_SUBPROTOCOL_ID;
-use strata_asm_proto_bridge_types::SafeHarbour;
 use strata_asm_proto_checkpoint::CheckpointState;
 use strata_asm_proto_checkpoint_txs::CHECKPOINT_SUBPROTOCOL_ID;
-use strata_asm_proto_checkpoint_types::CheckpointTip;
 use strata_asm_prover_storage::{ProofDb, SledProofDb};
 use strata_asm_prover_types::{AsmProof, L1Range, MohoProof};
 use strata_asm_rpc::traits::{AsmControlApiServer, AsmProofApiServer, AsmStateApiServer};

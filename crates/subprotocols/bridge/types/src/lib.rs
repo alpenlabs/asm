@@ -20,6 +20,10 @@
 //!   a preferred operator.
 //! - [`WithdrawalOutput`] — the destination and amount an assignment must pay out.
 //!
+//! # Configuration
+//!
+//! - [`BridgeInitConfig`] — genesis configuration for the bridge subprotocol.
+//!
 //! # Bridge Gateway
 //!
 //! The crate also defines the [`BRIDGE_GATEWAY_ACCT_ID`] and [`BRIDGE_GATEWAY_ACCT_SERIAL`]
@@ -27,10 +31,12 @@
 
 use strata_identifiers::{AccountId, AccountSerial};
 
+mod config;
 mod operator;
 mod safe_harbour;
 mod withdrawal;
 
+pub use config::BridgeInitConfig;
 pub use operator::{
     OperatorBitmap, OperatorBitmapError, OperatorIdx, OperatorSelection, filter_eligible_operators,
 };

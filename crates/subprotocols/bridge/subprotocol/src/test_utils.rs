@@ -1,5 +1,6 @@
 use std::any::Any;
 
+use strata_asm_bridge_types::OperatorIdx;
 use strata_asm_common::{
     AsmHistoryAccumulatorState, AsmLogEntry, AuxData, InterprotoMsg, MsgRelayer, VerifiedAuxData,
 };
@@ -19,7 +20,6 @@ use strata_asm_proto_bridge_txs::{
     unstake::{UnstakeInfo, UnstakeTxHeaderAux, parse_unstake_tx},
     withdrawal_fulfillment::{WithdrawalFulfillmentInfo, WithdrawalFulfillmentTxHeaderAux},
 };
-use strata_asm_proto_bridge_types::OperatorIdx;
 use strata_btc_types::{BitcoinAmount, RawBitcoinTx};
 use strata_crypto::EvenSecretKey;
 use strata_test_utils_arb::ArbitraryGenerator;

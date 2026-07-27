@@ -1756,6 +1756,54 @@ dependencies = [
 ]
 
 [[package]]
+name = "strata-asm-admin-types"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "ssz",
+ "ssz_derive",
+ "strata-crypto",
+]
+
+[[package]]
+name = "strata-asm-bridge-types"
+version = "0.1.0"
+dependencies = [
+ "arbitrary",
+ "bitcoin",
+ "bitcoin-bosd 0.11.0",
+ "bitvec",
+ "borsh",
+ "serde",
+ "ssz",
+ "ssz_derive",
+ "strata-btc-types",
+ "strata-crypto",
+ "strata-identifiers",
+ "thiserror",
+]
+
+[[package]]
+name = "strata-asm-checkpoint-types"
+version = "0.1.0"
+dependencies = [
+ "borsh",
+ "serde",
+ "ssz",
+ "ssz_codegen",
+ "ssz_derive",
+ "ssz_primitives",
+ "ssz_types",
+ "strata-asm-manifest-types",
+ "strata-identifiers",
+ "strata-ol-logs",
+ "strata-predicate",
+ "thiserror",
+ "tree_hash",
+ "tree_hash_derive",
+]
+
+[[package]]
 name = "strata-asm-common"
 version = "0.1.0"
 dependencies = [
@@ -1781,8 +1829,8 @@ dependencies = [
 name = "strata-asm-logs"
 version = "0.1.0"
 dependencies = [
+ "strata-asm-checkpoint-types",
  "strata-asm-common",
- "strata-asm-proto-checkpoint-types",
  "strata-codec",
  "strata-codec-utils",
  "strata-identifiers",
@@ -1814,18 +1862,12 @@ dependencies = [
 name = "strata-asm-params"
 version = "0.1.0"
 dependencies = [
- "arbitrary",
- "bitcoin",
  "serde",
- "ssz",
- "ssz_derive",
- "strata-asm-proto-bridge-types",
- "strata-btc-types",
+ "strata-asm-admin-types",
+ "strata-asm-bridge-types",
+ "strata-asm-checkpoint-types",
  "strata-btc-verification",
- "strata-crypto",
- "strata-identifiers",
  "strata-l1-txfmt",
- "strata-predicate",
 ]
 
 [[package]]
@@ -1856,12 +1898,12 @@ dependencies = [
  "arbitrary",
  "ssz",
  "ssz_derive",
+ "strata-asm-admin-types",
+ "strata-asm-bridge-types",
  "strata-asm-common",
  "strata-asm-logs",
- "strata-asm-params",
  "strata-asm-proto-admin-txs",
  "strata-asm-proto-bridge-msgs",
- "strata-asm-proto-bridge-types",
  "strata-asm-proto-checkpoint-msgs",
  "strata-crypto",
  "strata-identifiers",
@@ -1878,9 +1920,9 @@ dependencies = [
  "hex",
  "ssz",
  "ssz_derive",
+ "strata-asm-admin-types",
+ "strata-asm-bridge-types",
  "strata-asm-common",
- "strata-asm-params",
- "strata-asm-proto-bridge-types",
  "strata-crypto",
  "strata-identifiers",
  "strata-l1-envelope-fmt",
@@ -1894,13 +1936,12 @@ name = "strata-asm-proto-bridge"
 version = "0.1.0"
 dependencies = [
  "bitcoin",
+ "strata-asm-bridge-types",
  "strata-asm-common",
  "strata-asm-logs",
- "strata-asm-params",
  "strata-asm-proto-bridge-msgs",
  "strata-asm-proto-bridge-state",
  "strata-asm-proto-bridge-txs",
- "strata-asm-proto-bridge-types",
  "strata-asm-proto-checkpoint-msgs",
  "strata-btc-types",
  "strata-identifiers",
@@ -1913,9 +1954,9 @@ version = "0.1.0"
 dependencies = [
  "ssz",
  "ssz_derive",
+ "strata-asm-bridge-types",
  "strata-asm-common",
  "strata-asm-proto-bridge-txs",
- "strata-asm-proto-bridge-types",
  "strata-crypto",
 ]
 
@@ -1929,10 +1970,9 @@ dependencies = [
  "serde",
  "ssz",
  "ssz_derive",
+ "strata-asm-bridge-types",
  "strata-asm-common",
- "strata-asm-params",
  "strata-asm-proto-bridge-txs",
- "strata-asm-proto-bridge-types",
  "strata-btc-types",
  "strata-codec",
  "strata-crypto",
@@ -1947,8 +1987,8 @@ dependencies = [
  "arbitrary",
  "bitcoin",
  "bitcoin-bosd 0.11.0",
+ "strata-asm-bridge-types",
  "strata-asm-common",
- "strata-asm-proto-bridge-types",
  "strata-btc-types",
  "strata-codec",
  "strata-crypto",
@@ -1957,33 +1997,15 @@ dependencies = [
 ]
 
 [[package]]
-name = "strata-asm-proto-bridge-types"
-version = "0.1.0"
-dependencies = [
- "arbitrary",
- "bitcoin",
- "bitcoin-bosd 0.11.0",
- "bitvec",
- "borsh",
- "serde",
- "ssz",
- "ssz_derive",
- "strata-btc-types",
- "strata-identifiers",
- "thiserror",
-]
-
-[[package]]
 name = "strata-asm-proto-checkpoint"
 version = "0.1.0"
 dependencies = [
+ "strata-asm-checkpoint-types",
  "strata-asm-common",
  "strata-asm-logs",
- "strata-asm-params",
  "strata-asm-proto-bridge-msgs",
  "strata-asm-proto-checkpoint-msgs",
  "strata-asm-proto-checkpoint-txs",
- "strata-asm-proto-checkpoint-types",
  "strata-checkpoint-verification",
  "strata-identifiers",
 ]
@@ -2005,32 +2027,13 @@ name = "strata-asm-proto-checkpoint-txs"
 version = "0.1.0"
 dependencies = [
  "bitcoin",
+ "strata-asm-checkpoint-types",
  "strata-asm-common",
- "strata-asm-proto-checkpoint-types",
  "strata-codec",
  "strata-codec-utils",
  "strata-l1-envelope-fmt",
  "strata-l1-txfmt",
  "thiserror",
-]
-
-[[package]]
-name = "strata-asm-proto-checkpoint-types"
-version = "0.1.0"
-dependencies = [
- "borsh",
- "serde",
- "ssz",
- "ssz_codegen",
- "ssz_derive",
- "ssz_primitives",
- "ssz_types",
- "strata-asm-manifest-types",
- "strata-identifiers",
- "strata-ol-logs",
- "thiserror",
- "tree_hash",
- "tree_hash_derive",
 ]
 
 [[package]]
@@ -2128,10 +2131,9 @@ dependencies = [
  "ssz_derive",
  "ssz_primitives",
  "ssz_types",
+ "strata-asm-bridge-types",
+ "strata-asm-checkpoint-types",
  "strata-asm-manifest-types",
- "strata-asm-params",
- "strata-asm-proto-bridge-types",
- "strata-asm-proto-checkpoint-types",
  "strata-btc-types",
  "strata-crypto",
  "strata-identifiers",

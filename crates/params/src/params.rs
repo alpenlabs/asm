@@ -1,12 +1,28 @@
 #[cfg(feature = "arbitrary")]
 use arbitrary::{Arbitrary, Unstructured};
 use serde::{Deserialize, Serialize};
+use strata_asm_admin_types::AdministrationInitConfig;
+use strata_asm_bridge_types::BridgeInitConfig;
+use strata_asm_checkpoint_types::CheckpointInitConfig;
 use strata_btc_verification::L1Anchor;
 use strata_l1_txfmt::MagicBytes;
 
-use crate::subprotocols::{
-    AdministrationInitConfig, BridgeInitConfig, CheckpointInitConfig, SubprotocolInstance,
-};
+/// A configured subprotocol that can be registered in [`AsmParams`].
+///
+/// Each variant carries the configuration for a single ASM subprotocol.
+/// The list of instances stored in `AsmParams` determines which subprotocols
+/// are active for a given network.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum SubprotocolInstance {
+    /// Administration subprotocol for system upgrades.
+    Admin(AdministrationInitConfig),
+
+    /// Bridge V1 subprotocol for deposit/withdrawal management.
+    Bridge(BridgeInitConfig),
+
+    /// Checkpoint subprotocol for OL checkpoint verification.
+    Checkpoint(CheckpointInitConfig),
+}
 
 /// Top-level parameters for an ASM instance.
 ///
@@ -55,12 +71,7 @@ impl AsmParams {
 #[cfg(feature = "arbitrary")]
 impl<'a> Arbitrary<'a> for AsmParams {
     fn arbitrary(u: &mut Unstructured<'a>) -> arbitrary::Result<Self> {
-        use strata_btc_verification::L1Anchor;
         use strata_identifiers::L1BlockCommitment;
-
-        use crate::subprotocols::{
-            AdministrationInitConfig, BridgeInitConfig, CheckpointInitConfig,
-        };
 
         let networks = [
             bitcoin::Network::Bitcoin,

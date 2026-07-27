@@ -39,6 +39,7 @@ test-utils = [
   "dep:strata-test-utils-arb",
   "dep:strata-identifiers",
   "dep:strata-asm-params",
+  "strata-asm-params/arbitrary",
   "dep:arbitrary",
 ]
 
@@ -48,4 +49,4 @@ strata-btc-types.workspace = true
 strata-identifiers.workspace = true
 strata-test-utils-btc.workspace = true
 strata-test-utils-arb.workspace = true
-strata-asm-params.workspace = true
+strata-asm-params = { workspace = true, features = ["arbitrary"] }

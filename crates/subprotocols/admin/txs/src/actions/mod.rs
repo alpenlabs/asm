@@ -1,6 +1,6 @@
 use arbitrary::Arbitrary;
 use ssz_derive::{Decode, Encode};
-use strata_asm_params::{AdminTxType, Role};
+use strata_asm_admin_types::{AdminTxType, Role};
 use strata_l1_txfmt::TagData;
 
 mod cancel;

@@ -7,19 +7,16 @@ edition = "2024"
 workspace = true
 
 [dependencies]
-strata-asm-proto-bridge-types.workspace = true
-strata-btc-types.workspace = true
+strata-asm-admin-types.workspace = true
+strata-asm-bridge-types.workspace = true
+strata-asm-checkpoint-types.workspace = true
 strata-btc-verification.workspace = true
-strata-crypto.workspace = true
-strata-identifiers.workspace = true
+strata-identifiers = { workspace = true, optional = true }
 strata-l1-txfmt.workspace = true
-strata-predicate = { workspace = true, features = ["serde"] }
 
 arbitrary = { workspace = true, optional = true }
 bitcoin = { workspace = true, optional = true }
 serde.workspace = true
-ssz.workspace = true
-ssz_derive.workspace = true
 
 [dev-dependencies]
 proptest.workspace = true
@@ -29,6 +26,8 @@ serde_json.workspace = true
 arbitrary = [
   "dep:arbitrary",
   "dep:bitcoin",
-  "strata-asm-proto-bridge-types/arbitrary",
-  "strata-predicate/arbitrary",
+  "dep:strata-identifiers",
+  "strata-asm-admin-types/arbitrary",
+  "strata-asm-bridge-types/arbitrary",
+  "strata-asm-checkpoint-types/arbitrary",
 ]

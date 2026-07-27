@@ -14,11 +14,11 @@ use harness::{
     test_harness::{AsmTestHarnessBuilder, Setup},
 };
 use integration_tests::harness;
+use strata_asm_bridge_types::OperatorSelection;
 use strata_asm_common::Subprotocol;
 use strata_asm_logs::ExportExtraDataUpdate;
 use strata_asm_proto_bridge::{BridgeSubprotoV1, OperatorClaimUnlock};
 use strata_asm_proto_bridge_txs::BRIDGE_SUBPROTOCOL_ID;
-use strata_asm_proto_bridge_types::OperatorSelection;
 
 /// Regression: a forged unstake transaction must NOT remove an operator.
 ///

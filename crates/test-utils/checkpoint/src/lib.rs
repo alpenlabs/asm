@@ -7,15 +7,15 @@ use k256::{
 };
 use rand::{thread_rng, Rng};
 use ssz::Encode;
+use strata_asm_checkpoint_types::{
+    compute_asm_manifests_hash_from_leaves, CheckpointClaim, CheckpointPayload, CheckpointSidecar,
+    CheckpointTip, L2BlockRange, OLLog, TerminalHeaderComplement,
+};
 use strata_asm_common::{
     AsmHistoryAccumulatorState, AuxData, VerifiableManifestHash, VerifiedAuxData,
 };
 use strata_asm_manifest_types::{AsmManifestHash, AsmManifestRangeHash};
 use strata_asm_proto_checkpoint_txs::EnvelopeCheckpoint;
-use strata_asm_proto_checkpoint_types::{
-    compute_asm_manifests_hash_from_leaves, CheckpointClaim, CheckpointPayload, CheckpointSidecar,
-    CheckpointTip, L2BlockRange, OLLog, TerminalHeaderComplement,
-};
 use strata_crypto::hash;
 use strata_identifiers::{OLBlockCommitment, OLBlockId};
 use strata_merkle::{Mmr, Mmr64B32, Sha256Hasher};

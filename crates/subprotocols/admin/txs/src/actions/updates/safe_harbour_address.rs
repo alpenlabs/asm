@@ -1,14 +1,14 @@
 use arbitrary::Arbitrary;
 use ssz_derive::{Decode, Encode};
-use strata_asm_params::{AdminTxType, UpdateTxType};
-use strata_asm_proto_bridge_types::SafeHarbourAddress;
+use strata_asm_admin_types::{AdminTxType, UpdateTxType};
+use strata_asm_bridge_types::SafeHarbourAddress;
 
 use crate::actions::{IndentedDetails, RenderSigningMessage};
 
 /// Rotate the bridge's safe harbour destination address.
 ///
 /// Authorized by the
-/// [`Role::StrataAdministrator`](strata_asm_params::Role::StrataAdministrator) — the
+/// [`Role::StrataAdministrator`](strata_asm_admin_types::Role::StrataAdministrator) — the
 /// security council can sweep funds to the safe harbour via Defcon signals but must not
 /// also choose where they land, otherwise the same authority could both trigger a sweep
 /// and pick its destination. Carries the new P2TR destination that the bridge will adopt;

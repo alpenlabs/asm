@@ -1,6 +1,6 @@
 import strata_predicate
 import strata_btc_types
-import strata_asm_proto_checkpoint_types
+import strata_asm_checkpoint_types
 
 ### Pool of bridge UTXOs available to honor withdrawals.
 ###
@@ -29,7 +29,7 @@ class CheckpointState(Container):
     ### Last verified checkpoint tip position.
     ### Tracks the OL state that has been proven and verified by ASM.
     #~# external_kind: container
-    verified_tip: strata_asm_proto_checkpoint_types.CheckpointTip
+    verified_tip: strata_asm_checkpoint_types.CheckpointTip
 
     ### Bridge UTXOs available to honor withdrawals.
     deposits: DepositPool

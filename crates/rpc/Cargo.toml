@@ -7,11 +7,11 @@ version = "0.1.0"
 workspace = true
 
 [dependencies]
+strata-asm-bridge-types.workspace = true
+strata-asm-checkpoint-types.workspace = true
 strata-asm-common.workspace = true
 strata-asm-params.workspace = true
 strata-asm-proto-bridge.workspace = true
-strata-asm-proto-bridge-types.workspace = true
-strata-asm-proto-checkpoint-types.workspace = true
 strata-asm-prover-types.workspace = true
 strata-asm-worker.workspace = true
 

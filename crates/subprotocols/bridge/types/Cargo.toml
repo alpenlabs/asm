@@ -1,5 +1,5 @@
 [package]
-name = "strata-asm-proto-bridge-types"
+name = "strata-asm-bridge-types"
 version = "0.1.0"
 edition = "2024"
 
@@ -11,6 +11,7 @@ bitcoin-bosd = { workspace = true, features = ["arbitrary", "serde"] }
 ssz.workspace = true
 ssz_derive.workspace = true
 strata-btc-types.workspace = true
+strata-crypto.workspace = true
 strata-identifiers.workspace = true
 
 arbitrary.workspace = true

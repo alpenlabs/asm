@@ -1,6 +1,6 @@
 use std::fmt;
 
-use crate::subprotocols::admin::updates::UpdateTxType;
+use crate::UpdateTxType;
 
 /// Administration subprotocol transaction types.
 /// by [`UpdateTxType`].

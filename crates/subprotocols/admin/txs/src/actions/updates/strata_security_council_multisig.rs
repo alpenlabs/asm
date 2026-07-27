@@ -1,6 +1,6 @@
 use arbitrary::Arbitrary;
 use ssz_derive::{Decode, Encode};
-use strata_asm_params::{AdminTxType, UpdateTxType};
+use strata_asm_admin_types::{AdminTxType, UpdateTxType};
 use strata_crypto::threshold_signature::ThresholdConfigUpdate;
 
 use crate::actions::{IndentedDetails, RenderSigningMessage};
@@ -8,7 +8,7 @@ use crate::actions::{IndentedDetails, RenderSigningMessage};
 /// An update to the Strata security council multisig configuration.
 ///
 /// Rotating the security council's own membership is authorized by the
-/// [`Role::StrataAdministrator`](strata_asm_params::Role::StrataAdministrator), not the
+/// [`Role::StrataAdministrator`](strata_asm_admin_types::Role::StrataAdministrator), not the
 /// council itself, so the council cannot lock itself out via self-rotation.
 #[derive(Clone, Debug, Eq, PartialEq, Arbitrary, Encode, Decode)]
 pub struct StrataSecurityCouncilMultisigUpdate(ThresholdConfigUpdate);

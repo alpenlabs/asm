@@ -33,7 +33,7 @@ use harness::{
 use integration_tests::harness;
 use rand::rngs::OsRng;
 use ssz::Encode;
-use strata_asm_params::Role;
+use strata_asm_admin_types::Role;
 use strata_asm_proto_admin_txs::{
     constants::ADMINISTRATION_SUBPROTOCOL_ID, parser::SignedPayload,
     test_utils::create_signature_set,

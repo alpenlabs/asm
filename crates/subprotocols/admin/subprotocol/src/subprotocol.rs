@@ -3,11 +3,11 @@
 //! This module contains the core administration subprotocol implementation that integrates
 //! with the Strata Anchor State Machine (ASM) for managing protocol governance and updates.
 
+use strata_asm_admin_types::AdministrationInitConfig;
 use strata_asm_common::{
     HeaderVerificationState, MsgRelayer, NullMsg, Subprotocol, SubprotocolId, TxInputRef,
     VerifiedAuxData, logging::warn,
 };
-use strata_asm_params::AdministrationInitConfig;
 use strata_asm_proto_admin_txs::{constants::ADMINISTRATION_SUBPROTOCOL_ID, parser::parse_tx};
 use strata_identifiers::L1BlockCommitment;
 

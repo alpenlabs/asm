@@ -1,17 +1,18 @@
 use arbitrary::Arbitrary;
 use ssz_derive::{Decode, Encode};
-use strata_asm_params::{AdminTxType, UpdateTxType};
+use strata_asm_admin_types::{AdminTxType, UpdateTxType};
 
 use crate::actions::{IndentedDetails, RenderSigningMessage};
 
 /// Defcon 1 immediate sweep authorization.
 ///
 /// Authorized by the
-/// [`Role::StrataSecurityCouncil`](strata_asm_params::Role::StrataSecurityCouncil) to signal the
-/// bridge to immediately activate its safe harbour. Carries no payload: the action's identity is
-/// the signal. Defcon 1 is enacted immediately on receipt — by definition the emergency lever
-/// bypasses the confirmation queue, so it has no entry in
-/// [`ConfirmationDepths`](strata_asm_params::ConfirmationDepths) and cannot be cancelled.
+/// [`Role::StrataSecurityCouncil`](strata_asm_admin_types::Role::StrataSecurityCouncil) to
+/// signal the bridge to immediately activate its safe harbour. Carries no payload: the action's
+/// identity is the signal. Defcon 1 is enacted immediately on receipt — by definition the emergency
+/// lever bypasses the confirmation queue, so it has no entry in
+/// [`ConfirmationDepths`](strata_asm_admin_types::ConfirmationDepths) and cannot be
+/// cancelled.
 #[derive(Clone, Debug, Eq, PartialEq, Arbitrary, Encode, Decode)]
 pub struct Defcon1Update;
 

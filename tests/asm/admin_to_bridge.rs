@@ -28,8 +28,8 @@ use harness::{
     test_harness::{AsmTestHarnessBuilder, Setup},
 };
 use integration_tests::harness;
+use strata_asm_bridge_types::SafeHarbourAddress;
 use strata_asm_proto_bridge_txs::test_utils::create_test_operators;
-use strata_asm_proto_bridge_types::SafeHarbourAddress;
 use strata_test_utils_arb::ArbitraryGenerator;
 
 // ============================================================================

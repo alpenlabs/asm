@@ -36,12 +36,14 @@
 //! This minimizes L1 data costs while maintaining full verifiability.
 
 mod claim;
+mod config;
 mod error;
 mod payload;
 
 #[cfg(any(test, feature = "test-utils"))]
 pub mod test_utils;
 
+pub use config::CheckpointInitConfig;
 pub use error::CheckpointPayloadError;
 
 /// SSZ-generated types for serialization and merkleization.

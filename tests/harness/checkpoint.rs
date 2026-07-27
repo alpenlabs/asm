@@ -16,13 +16,14 @@ use std::future::Future;
 
 use bitcoin::{key::UntweakedKeypair, secp256k1::Secp256k1, BlockHash, Transaction};
 use bitcoin_bosd::Descriptor;
+use strata_asm_bridge_types::{OperatorSelection, BRIDGE_GATEWAY_ACCT_SERIAL};
+use strata_asm_checkpoint_types::{
+    CheckpointInitConfig, CheckpointTip, OLLog, SimpleWithdrawalIntentLogData,
+};
 use strata_asm_common::{AnchorState, SectionStateExt, Subprotocol};
 use strata_asm_logs::CheckpointTipUpdate;
 use strata_asm_manifest_types::{AsmLog, AsmManifestHash};
-use strata_asm_params::CheckpointInitConfig;
-use strata_asm_proto_bridge_types::{OperatorSelection, BRIDGE_GATEWAY_ACCT_SERIAL};
 use strata_asm_proto_checkpoint::{CheckpointState, CheckpointSubprotocol};
-use strata_asm_proto_checkpoint_types::{CheckpointTip, OLLog, SimpleWithdrawalIntentLogData};
 use strata_codec::encode_to_vec;
 use strata_codec_utils::CodecSsz;
 use strata_identifiers::{OLBlockCommitment, OLBlockId};

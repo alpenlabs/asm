@@ -6,7 +6,7 @@
 //! consumes that many UTXOs from the pool. The bridge enforces these invariants on its
 //! side; the pool re-asserts them for intents arriving via OL logs.
 
-use strata_asm_proto_bridge_types::WithdrawalIntent;
+use strata_asm_bridge_types::WithdrawalIntent;
 use strata_btc_types::BitcoinAmount;
 use zkaleido_logging as logging;
 
@@ -135,7 +135,7 @@ impl DepositPool {
 #[cfg(test)]
 mod tests {
     use bitcoin_bosd::Descriptor;
-    use strata_asm_proto_bridge_types::{OperatorSelection, WithdrawalIntent};
+    use strata_asm_bridge_types::{OperatorSelection, WithdrawalIntent};
     use strata_btc_types::BitcoinAmount;
 
     use super::DepositPool;

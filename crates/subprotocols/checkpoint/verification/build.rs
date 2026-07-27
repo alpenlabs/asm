@@ -11,7 +11,7 @@ fn main() {
     let crates = [
         "strata_predicate",
         "strata_btc_types",
-        "strata_asm_proto_checkpoint_types",
+        "strata_asm_checkpoint_types",
     ];
 
     build_ssz_files(

@@ -1,6 +1,6 @@
 use arbitrary::Arbitrary;
 use ssz_derive::{Decode, Encode};
-use strata_asm_params::{AdminTxType, UpdateTxType};
+use strata_asm_admin_types::{AdminTxType, UpdateTxType};
 use strata_crypto::EvenPublicKey;
 use strata_identifiers::Buf32;
 
