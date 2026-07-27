@@ -1827,10 +1827,10 @@ dependencies = [
  "serde",
  "strata-asm-admin-types",
  "strata-asm-proto-bridge-types",
+ "strata-asm-proto-checkpoint-types",
  "strata-btc-verification",
  "strata-identifiers",
  "strata-l1-txfmt",
- "strata-predicate",
 ]
 
 [[package]]
@@ -1983,7 +1983,6 @@ version = "0.1.0"
 dependencies = [
  "strata-asm-common",
  "strata-asm-logs",
- "strata-asm-params",
  "strata-asm-proto-bridge-msgs",
  "strata-asm-proto-checkpoint-msgs",
  "strata-asm-proto-checkpoint-txs",
@@ -2032,6 +2031,7 @@ dependencies = [
  "strata-asm-manifest-types",
  "strata-identifiers",
  "strata-ol-logs",
+ "strata-predicate",
  "thiserror",
  "tree_hash",
  "tree_hash_derive",
@@ -2133,7 +2133,6 @@ dependencies = [
  "ssz_primitives",
  "ssz_types",
  "strata-asm-manifest-types",
- "strata-asm-params",
  "strata-asm-proto-bridge-types",
  "strata-asm-proto-checkpoint-types",
  "strata-btc-types",

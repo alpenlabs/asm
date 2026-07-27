@@ -9,7 +9,6 @@ workspace = true
 [dependencies]
 strata-asm-common.workspace = true
 strata-asm-logs.workspace = true
-strata-asm-params.workspace = true
 strata-asm-proto-bridge-msgs.workspace = true
 strata-asm-proto-checkpoint-msgs.workspace = true
 strata-asm-proto-checkpoint-txs.workspace = true
