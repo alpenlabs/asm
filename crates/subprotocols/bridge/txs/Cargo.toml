@@ -8,8 +8,8 @@ workspace = true
 
 [dependencies]
 bitcoin-bosd.workspace = true
+strata-asm-bridge-types.workspace = true
 strata-asm-common.workspace = true
-strata-asm-proto-bridge-types.workspace = true
 strata-btc-types.workspace = true
 strata-codec.workspace = true
 strata-l1-txfmt.workspace = true

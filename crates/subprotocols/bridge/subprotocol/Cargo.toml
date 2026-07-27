@@ -10,12 +10,12 @@ workspace = true
 bitcoin.workspace = true
 thiserror.workspace = true
 
+strata-asm-bridge-types.workspace = true
 strata-asm-common.workspace = true
 strata-asm-logs.workspace = true
 strata-asm-proto-bridge-msgs.workspace = true
 strata-asm-proto-bridge-state.workspace = true
 strata-asm-proto-bridge-txs.workspace = true
-strata-asm-proto-bridge-types.workspace = true
 strata-asm-proto-checkpoint-msgs.workspace = true
 strata-btc-types.workspace = true
 strata-identifiers.workspace = true
@@ -25,9 +25,7 @@ bitcoin-bosd.workspace = true
 strata-asm-proto-bridge-state = { workspace = true, features = [
   "test-utils",
 ] }
-strata-asm-proto-bridge-types = { workspace = true, features = [
-  "arbitrary",
-] }
+strata-asm-bridge-types = { workspace = true, features = ["arbitrary"] }
 strata-test-utils-arb.workspace = true
 strata-asm-proto-bridge-txs = { workspace = true, features = ["test-utils"] }
 strata-crypto.workspace = true

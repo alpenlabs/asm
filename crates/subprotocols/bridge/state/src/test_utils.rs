@@ -1,8 +1,8 @@
 //! Test utilities for constructing and populating bridge state.
 
 use rand::Rng;
+use strata_asm_bridge_types::{BridgeInitConfig, WithdrawalIntent};
 use strata_asm_proto_bridge_txs::{deposit::DepositInfo, test_utils::create_test_operators};
-use strata_asm_proto_bridge_types::{BridgeInitConfig, WithdrawalIntent};
 use strata_btc_types::BitcoinAmount;
 use strata_crypto::EvenSecretKey;
 use strata_identifiers::L1BlockCommitment;

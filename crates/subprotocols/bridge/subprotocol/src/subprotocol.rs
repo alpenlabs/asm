@@ -3,6 +3,7 @@
 //! This module contains the core subprotocol implementation that integrates
 //! with the Strata Anchor State Machine (ASM).
 
+use strata_asm_bridge_types::BridgeInitConfig;
 use strata_asm_common::{
     AsmLogEntry, AuxRequestCollector, HeaderVerificationState, MsgRelayer, Subprotocol,
     SubprotocolId, TxInputRef, VerifiedAuxData,
@@ -12,7 +13,6 @@ use strata_asm_logs::ExportExtraDataUpdate;
 use strata_asm_proto_bridge_msgs::BridgeIncomingMsg;
 use strata_asm_proto_bridge_state::BridgeStateV1;
 use strata_asm_proto_bridge_txs::{BRIDGE_SUBPROTOCOL_ID, errors::Mismatch, parser::parse_tx};
-use strata_asm_proto_bridge_types::BridgeInitConfig;
 use strata_identifiers::L1BlockCommitment;
 
 use crate::{
@@ -244,9 +244,9 @@ impl Subprotocol for BridgeSubprotoV1 {
 
 #[cfg(test)]
 mod tests {
+    use strata_asm_bridge_types::{SafeHarbourAddress, WithdrawalIntent};
     use strata_asm_common::{HeaderVerificationState, Subprotocol};
     use strata_asm_proto_bridge_msgs::{BridgeIncomingMsg, DefconPayload};
-    use strata_asm_proto_bridge_types::{SafeHarbourAddress, WithdrawalIntent};
     use strata_btc_types::BitcoinAmount;
     use strata_identifiers::L1BlockCommitment;
     use strata_test_utils_arb::ArbitraryGenerator;

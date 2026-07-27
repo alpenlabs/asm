@@ -7,9 +7,9 @@ edition = "2024"
 workspace = true
 
 [dependencies]
+strata-asm-bridge-types.workspace = true
+strata-asm-checkpoint-types.workspace = true
 strata-asm-manifest-types.workspace = true
-strata-asm-proto-bridge-types.workspace = true
-strata-asm-proto-checkpoint-types.workspace = true
 
 bitcoin-bosd.workspace = true
 strata-btc-types.workspace = true

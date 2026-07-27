@@ -1,5 +1,5 @@
 [package]
-name = "strata-asm-proto-bridge-types"
+name = "strata-asm-bridge-types"
 version = "0.1.0"
 edition = "2024"
 

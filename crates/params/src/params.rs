@@ -2,8 +2,8 @@
 use arbitrary::{Arbitrary, Unstructured};
 use serde::{Deserialize, Serialize};
 use strata_asm_admin_types::AdministrationInitConfig;
-use strata_asm_proto_bridge_types::BridgeInitConfig;
-use strata_asm_proto_checkpoint_types::CheckpointInitConfig;
+use strata_asm_bridge_types::BridgeInitConfig;
+use strata_asm_checkpoint_types::CheckpointInitConfig;
 use strata_btc_verification::L1Anchor;
 use strata_l1_txfmt::MagicBytes;
 

@@ -8,10 +8,8 @@ workspace = true
 
 [dependencies]
 strata-asm-admin-types.workspace = true
+strata-asm-bridge-types = { workspace = true, features = ["arbitrary"] }
 strata-asm-common.workspace = true
-strata-asm-proto-bridge-types = { workspace = true, features = [
-  "arbitrary",
-] }
 strata-asm-proto-txs-test-utils = { workspace = true, optional = true }
 strata-crypto.workspace = true
 strata-identifiers.workspace = true

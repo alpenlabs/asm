@@ -1,8 +1,8 @@
 use std::num::NonZero;
 
 use ssz_derive::{Decode, Encode};
-use strata_asm_proto_admin_txs::{parser::SignedPayload, signing_message::SigningMessage};
 use strata_asm_admin_types::Role;
+use strata_asm_proto_admin_txs::{parser::SignedPayload, signing_message::SigningMessage};
 use strata_crypto::threshold_signature::{ThresholdConfig, verify_threshold_signatures};
 
 use crate::error::AdministrationError;
@@ -112,12 +112,12 @@ mod tests {
 
     use bitcoin::secp256k1::{PublicKey, Secp256k1, SecretKey};
     use rand::rngs::OsRng;
+    use strata_asm_admin_types::Role;
     use strata_asm_proto_admin_txs::{
         actions::{MultisigAction, UpdateAction, updates::SequencerUpdate},
         parser::SignedPayload,
         test_utils::create_signature_set,
     };
-    use strata_asm_admin_types::Role;
     use strata_crypto::{
         keys::compressed::CompressedPublicKey, threshold_signature::ThresholdConfig,
     };

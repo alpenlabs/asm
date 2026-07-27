@@ -1,5 +1,6 @@
 //! Checkpoint Subprotocol Implementation
 
+use strata_asm_checkpoint_types::CheckpointInitConfig;
 use strata_asm_common::{
     AuxRequestCollector, HeaderVerificationState, MsgRelayer, Subprotocol, SubprotocolId,
     TxInputRef, VerifiedAuxData, logging,
@@ -8,7 +9,6 @@ use strata_asm_proto_checkpoint_msgs::CheckpointIncomingMsg;
 use strata_asm_proto_checkpoint_txs::{
     CHECKPOINT_SUBPROTOCOL_ID, OL_STF_CHECKPOINT_TX_TYPE, extract_checkpoint_from_envelope,
 };
-use strata_asm_proto_checkpoint_types::CheckpointInitConfig;
 use strata_checkpoint_verification::CheckpointState;
 use strata_identifiers::L1BlockCommitment;
 

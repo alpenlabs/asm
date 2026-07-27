@@ -1,7 +1,7 @@
 use arbitrary::Arbitrary;
 use ssz_derive::{Decode, Encode};
 use strata_asm_admin_types::{AdminTxType, UpdateTxType};
-use strata_asm_proto_bridge_types::SafeHarbourAddress;
+use strata_asm_bridge_types::SafeHarbourAddress;
 
 use crate::actions::{IndentedDetails, RenderSigningMessage};
 

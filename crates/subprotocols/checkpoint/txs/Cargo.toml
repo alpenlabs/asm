@@ -7,8 +7,8 @@ edition = "2024"
 workspace = true
 
 [dependencies]
+strata-asm-checkpoint-types.workspace = true
 strata-asm-common.workspace = true
-strata-asm-proto-checkpoint-types.workspace = true
 strata-codec.workspace = true
 strata-codec-utils.workspace = true
 strata-l1-envelope-fmt.workspace = true

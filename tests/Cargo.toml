@@ -11,6 +11,8 @@ moho-runtime-impl.workspace = true
 moho-runtime-interface.workspace = true
 moho-types.workspace = true
 strata-asm-admin-types.workspace = true
+strata-asm-bridge-types = { workspace = true, features = ["arbitrary"] }
+strata-asm-checkpoint-types.workspace = true
 strata-asm-common.workspace = true
 strata-asm-logs.workspace = true
 strata-asm-manifest-types.workspace = true
@@ -22,11 +24,7 @@ strata-asm-proto-admin.workspace = true
 strata-asm-proto-admin-txs = { workspace = true, features = ["test-utils"] }
 strata-asm-proto-bridge.workspace = true
 strata-asm-proto-bridge-txs = { workspace = true, features = ["test-utils"] }
-strata-asm-proto-bridge-types = { workspace = true, features = [
-  "arbitrary",
-] }
 strata-asm-proto-checkpoint.workspace = true
-strata-asm-proto-checkpoint-types.workspace = true
 strata-asm-spec.workspace = true
 strata-asm-stf.workspace = true
 strata-asm-worker = { workspace = true, features = ["test-utils"] }

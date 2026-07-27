@@ -1,10 +1,10 @@
 use bitcoin::ScriptBuf;
+use strata_asm_bridge_types::OperatorIdx;
 // Re-exported so downstream users keep finding the state-owned errors here.
 pub use strata_asm_proto_bridge_state::{
     DepositOutputError, DepositValidationError, WithdrawalAssignmentError,
 };
 use strata_asm_proto_bridge_txs::errors::Mismatch;
-use strata_asm_proto_bridge_types::OperatorIdx;
 use strata_btc_types::BitcoinAmount;
 use thiserror::Error;
 

@@ -15,9 +15,9 @@ ssz.workspace = true
 ssz_derive.workspace = true
 thiserror.workspace = true
 
+strata-asm-bridge-types.workspace = true
 strata-asm-common.workspace = true
 strata-asm-proto-bridge-txs.workspace = true
-strata-asm-proto-bridge-types.workspace = true
 strata-btc-types.workspace = true
 strata-codec.workspace = true
 strata-crypto.workspace = true
@@ -31,9 +31,7 @@ strata-test-utils-arb = { workspace = true, optional = true }
 proptest.workspace = true
 rand.workspace = true
 strata-asm-proto-bridge-txs = { workspace = true, features = ["test-utils"] }
-strata-asm-proto-bridge-types = { workspace = true, features = [
-  "arbitrary",
-] }
+strata-asm-bridge-types = { workspace = true, features = ["arbitrary"] }
 strata-test-utils-arb.workspace = true
 
 [features]
@@ -41,5 +39,5 @@ test-utils = [
   "dep:rand",
   "dep:strata-test-utils-arb",
   "strata-asm-proto-bridge-txs/test-utils",
-  "strata-asm-proto-bridge-types/arbitrary",
+  "strata-asm-bridge-types/arbitrary",
 ]

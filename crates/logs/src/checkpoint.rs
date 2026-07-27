@@ -1,5 +1,5 @@
+use strata_asm_checkpoint_types::CheckpointTip;
 use strata_asm_common::AsmLog;
-use strata_asm_proto_checkpoint_types::CheckpointTip;
 use strata_codec::Codec;
 use strata_codec_utils::CodecSsz;
 use strata_msg_fmt::TypeId;
@@ -34,8 +34,8 @@ impl AsmLog for CheckpointTipUpdate {
 #[cfg(test)]
 mod tests {
     use proptest::prelude::*;
+    use strata_asm_checkpoint_types::{test_utils::checkpoint_tip_strategy, CheckpointTip};
     use strata_asm_common::AsmLogEntry;
-    use strata_asm_proto_checkpoint_types::{test_utils::checkpoint_tip_strategy, CheckpointTip};
     use strata_codec::{decode_buf_exact, encode_to_vec};
     use strata_identifiers::{Buf32, OLBlockCommitment, OLBlockId};
 

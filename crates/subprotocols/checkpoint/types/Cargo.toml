@@ -1,5 +1,5 @@
 [package]
-name = "strata-asm-proto-checkpoint-types"
+name = "strata-asm-checkpoint-types"
 version = "0.1.0"
 edition = "2024"
 

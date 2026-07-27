@@ -9,5 +9,5 @@ mod params;
 
 pub use params::{AsmParams, SubprotocolInstance};
 pub use strata_asm_admin_types::AdministrationInitConfig;
-pub use strata_asm_proto_bridge_types::BridgeInitConfig;
-pub use strata_asm_proto_checkpoint_types::CheckpointInitConfig;
+pub use strata_asm_bridge_types::BridgeInitConfig;
+pub use strata_asm_checkpoint_types::CheckpointInitConfig;

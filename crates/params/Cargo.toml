@@ -8,8 +8,8 @@ workspace = true
 
 [dependencies]
 strata-asm-admin-types.workspace = true
-strata-asm-proto-bridge-types.workspace = true
-strata-asm-proto-checkpoint-types.workspace = true
+strata-asm-bridge-types.workspace = true
+strata-asm-checkpoint-types.workspace = true
 strata-btc-verification.workspace = true
 strata-identifiers = { workspace = true, optional = true }
 strata-l1-txfmt.workspace = true
@@ -28,6 +28,6 @@ arbitrary = [
   "dep:bitcoin",
   "dep:strata-identifiers",
   "strata-asm-admin-types/arbitrary",
-  "strata-asm-proto-bridge-types/arbitrary",
-  "strata-asm-proto-checkpoint-types/arbitrary",
+  "strata-asm-bridge-types/arbitrary",
+  "strata-asm-checkpoint-types/arbitrary",
 ]

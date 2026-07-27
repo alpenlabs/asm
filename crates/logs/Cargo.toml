@@ -7,8 +7,8 @@ edition = "2021"
 workspace = true
 
 [dependencies]
+strata-asm-checkpoint-types.workspace = true
 strata-asm-common.workspace = true
-strata-asm-proto-checkpoint-types.workspace = true
 strata-codec.workspace = true
 strata-codec-utils.workspace = true
 strata-identifiers.workspace = true
@@ -17,7 +17,5 @@ strata-predicate.workspace = true
 
 [dev-dependencies]
 proptest.workspace = true
-strata-asm-proto-checkpoint-types = { workspace = true, features = [
-  "test-utils",
-] }
+strata-asm-checkpoint-types = { workspace = true, features = ["test-utils"] }
 strata-identifiers = { workspace = true, features = ["test-utils"] }
