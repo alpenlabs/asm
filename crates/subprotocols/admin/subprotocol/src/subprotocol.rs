@@ -7,8 +7,8 @@ use strata_asm_common::{
     HeaderVerificationState, MsgRelayer, NullMsg, Subprotocol, SubprotocolId, TxInputRef,
     VerifiedAuxData, logging::warn,
 };
-use strata_asm_params::AdministrationInitConfig;
 use strata_asm_proto_admin_txs::{constants::ADMINISTRATION_SUBPROTOCOL_ID, parser::parse_tx};
+use strata_asm_admin_types::AdministrationInitConfig;
 use strata_identifiers::L1BlockCommitment;
 
 use crate::{

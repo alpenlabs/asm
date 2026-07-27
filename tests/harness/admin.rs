@@ -20,7 +20,6 @@ use bitcoin::{
 };
 use ssz::Encode;
 use strata_asm_common::{AnchorState, SectionStateExt, Subprotocol};
-use strata_asm_params::{AdministrationInitConfig, ConfirmationDepths, Role};
 use strata_asm_proto_admin::{AdministrationSubprotoState, AdministrationSubprotocol};
 use strata_asm_proto_admin_txs::{
     actions::{
@@ -35,6 +34,7 @@ use strata_asm_proto_admin_txs::{
     parser::SignedPayload,
     test_utils::create_signature_set,
 };
+use strata_asm_admin_types::{AdministrationInitConfig, ConfirmationDepths, Role};
 use strata_asm_proto_bridge_types::SafeHarbourAddress;
 use strata_crypto::{
     keys::compressed::CompressedPublicKey,

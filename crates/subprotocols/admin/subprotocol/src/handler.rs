@@ -3,11 +3,11 @@ use strata_asm_common::{
     logging::{debug, error, info},
 };
 use strata_asm_logs::{AsmStfUpdate, EePredicateKeyUpdate};
-use strata_asm_params::Role;
 use strata_asm_proto_admin_txs::{
     actions::{MultisigAction, UpdateAction},
     parser::SignedPayload,
 };
+use strata_asm_admin_types::Role;
 use strata_asm_proto_bridge_msgs::{BridgeIncomingMsg, DefconPayload, UpdateOperatorSetPayload};
 use strata_asm_proto_bridge_types::SafeHarbourAddress;
 use strata_asm_proto_checkpoint_msgs::CheckpointIncomingMsg;
@@ -270,7 +270,6 @@ mod tests {
     use rand::{rngs::OsRng, seq::SliceRandom, thread_rng};
     use strata_asm_common::{AsmLogEntry, InterprotoMsg, MsgRelayer};
     use strata_asm_logs::AsmStfUpdate;
-    use strata_asm_params::{AdministrationInitConfig, ConfirmationDepths, Role};
     use strata_asm_proto_admin_txs::{
         actions::{
             CancelAction, MultisigAction, UpdateAction,
@@ -282,6 +281,7 @@ mod tests {
         parser::SignedPayload,
         test_utils::create_signature_set,
     };
+    use strata_asm_admin_types::{AdministrationInitConfig, ConfirmationDepths, Role};
     use strata_asm_proto_bridge_msgs::BridgeIncomingMsg;
     use strata_asm_proto_bridge_types::SafeHarbourAddress;
     use strata_asm_proto_checkpoint_msgs::CheckpointIncomingMsg;

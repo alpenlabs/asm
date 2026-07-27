@@ -1,15 +1,16 @@
 use arbitrary::Arbitrary;
 use ssz_derive::{Decode, Encode};
-use strata_asm_params::{AdminTxType, UpdateTxType};
+use strata_asm_admin_types::{AdminTxType, UpdateTxType};
 
 use crate::actions::{IndentedDetails, RenderSigningMessage};
 
 /// Defcon 3 delayed sweep authorization.
 ///
 /// Authorized by the
-/// [`Role::StrataSecurityCouncil`](strata_asm_params::Role::StrataSecurityCouncil) to signal the
-/// bridge to activate its safe harbour after the timelock configured in
-/// [`ConfirmationDepths::defcon3`](strata_asm_params::ConfirmationDepths). Carries no payload.
+/// [`Role::StrataSecurityCouncil`](strata_asm_admin_types::Role::StrataSecurityCouncil) to
+/// signal the bridge to activate its safe harbour after the timelock configured in
+/// [`ConfirmationDepths::defcon3`](strata_asm_admin_types::ConfirmationDepths). Carries no
+/// payload.
 #[derive(Clone, Debug, Eq, PartialEq, Arbitrary, Encode, Decode)]
 pub struct Defcon3Update;
 

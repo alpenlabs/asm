@@ -7,9 +7,9 @@ edition = "2024"
 workspace = true
 
 [dependencies]
+strata-asm-admin-types.workspace = true
 strata-asm-common.workspace = true
 strata-asm-logs.workspace = true
-strata-asm-params.workspace = true
 strata-asm-proto-admin-txs.workspace = true
 strata-asm-proto-bridge-msgs.workspace = true
 strata-asm-proto-bridge-types.workspace = true

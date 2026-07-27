@@ -24,7 +24,7 @@ pub use operator_set::OperatorSetUpdate;
 pub use safe_harbour_address::SafeHarbourAddressUpdate;
 use ssz_derive::{Decode, Encode};
 pub use strata_admin_multisig::StrataAdminMultisigUpdate;
-use strata_asm_params::{AdminTxType, Role, UpdateTxType};
+use strata_asm_admin_types::{AdminTxType, Role, UpdateTxType};
 pub use strata_security_council_multisig::StrataSecurityCouncilMultisigUpdate;
 pub use strata_seq_manager_multisig::StrataSeqManagerMultisigUpdate;
 pub use strata_sequencer::SequencerUpdate;

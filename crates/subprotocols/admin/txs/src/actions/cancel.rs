@@ -1,6 +1,6 @@
 use arbitrary::Arbitrary;
 use ssz_derive::{Decode, Encode};
-use strata_asm_params::AdminTxType;
+use strata_asm_admin_types::AdminTxType;
 
 use super::{IndentedDetails, RenderSigningMessage, UpdateAction};
 use crate::actions::UpdateId;
