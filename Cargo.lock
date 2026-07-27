@@ -7622,6 +7622,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f"
 
 [[package]]
+name = "strata-asm-admin-types"
+version = "0.1.0"
+dependencies = [
+ "arbitrary",
+ "proptest",
+ "serde",
+ "ssz",
+ "ssz_derive",
+ "strata-crypto",
+]
+
+[[package]]
 name = "strata-asm-common"
 version = "0.1.0"
 dependencies = [
@@ -7730,8 +7742,7 @@ dependencies = [
  "proptest",
  "serde",
  "serde_json",
- "ssz",
- "ssz_derive",
+ "strata-asm-admin-types",
  "strata-asm-proto-bridge-types",
  "strata-btc-types",
  "strata-btc-verification",

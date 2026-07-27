@@ -17,6 +17,7 @@ members = [
   "crates/stf",
   "crates/subprotocols/admin/subprotocol",
   "crates/subprotocols/admin/txs",
+  "crates/subprotocols/admin/types",
   "crates/subprotocols/bridge/subprotocol",
   "crates/subprotocols/bridge/state",
   "crates/subprotocols/bridge/txs",
@@ -64,6 +65,7 @@ rustdoc.all = "warn"
 # workspace crates
 asm-storage = { path = "crates/storage" }
 strata-ams-test-utils = { path = "crates/test-utils-btcio" }
+strata-asm-admin-types = { path = "crates/subprotocols/admin/types" }
 strata-asm-common = { path = "crates/common" }
 strata-asm-logs = { path = "crates/logs" }
 strata-asm-manifest-types = { path = "crates/manifest-types" }

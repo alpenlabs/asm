@@ -7,6 +7,7 @@ edition = "2024"
 workspace = true
 
 [dependencies]
+strata-asm-admin-types.workspace = true
 strata-asm-proto-bridge-types.workspace = true
 strata-btc-types.workspace = true
 strata-btc-verification.workspace = true
@@ -18,8 +19,6 @@ strata-predicate = { workspace = true, features = ["serde"] }
 arbitrary = { workspace = true, optional = true }
 bitcoin = { workspace = true, optional = true }
 serde.workspace = true
-ssz.workspace = true
-ssz_derive.workspace = true
 
 [dev-dependencies]
 proptest.workspace = true
@@ -29,6 +28,7 @@ serde_json.workspace = true
 arbitrary = [
   "dep:arbitrary",
   "dep:bitcoin",
+  "strata-asm-admin-types/arbitrary",
   "strata-asm-proto-bridge-types/arbitrary",
   "strata-predicate/arbitrary",
 ]

@@ -1,0 +1,21 @@
+[package]
+name = "strata-asm-admin-types"
+version = "0.1.0"
+edition = "2024"
+
+[lints]
+workspace = true
+
+[dependencies]
+strata-crypto.workspace = true
+
+arbitrary = { workspace = true, optional = true }
+serde.workspace = true
+ssz.workspace = true
+ssz_derive.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true
+
+[features]
+arbitrary = ["dep:arbitrary"]
