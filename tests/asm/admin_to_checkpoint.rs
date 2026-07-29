@@ -3,14 +3,18 @@
 //! Tests the propagation of admin updates to the checkpoint subprotocol via interprotocol
 //! messaging.
 //!
+//! Companion to `checkpoint_predicate_handover.rs`, which covers the other half of the
+//! predicate-rotation feature — which key verifies a checkpoint, given the L1 territory it
+//! covers. The split is by question, not by subprotocol: propagation here, selection there.
+//!
 //! Key interactions tested:
 //! - Sequencer key update (depth 0) → checkpoint sequencer_predicate adopts the new Bip340Schnorr
 //!   key
 //! - Multiple sequential sequencer updates → checkpoint ends up with the latest key
-//! - Predicate (OL STF VK) update → queued first, then checkpoint checkpoint_predicate adopts it
-//!   after activation
-//! - Combined depth-0 sequencer + queued predicate → sequencer applies immediately, predicate after
-//!   activation
+//! - Predicate (OL STF VK) update → queued by admin first, then checkpoint records a pending
+//!   boundary transition and emits an enactment log
+//! - Combined depth-0 sequencer + queued predicate → sequencer applies immediately while predicate
+//!   enactment queues a checkpoint transition
 //! - Sequencer update signed by any non-`StrataSequencerManager` role → rejected, checkpoint
 //!   sequencer_predicate unchanged
 //! - Predicate update signed by any non-`StrataAdministrator` role → rejected, checkpoint
@@ -20,9 +24,9 @@
 //! - Queued sequencer update activating in the same block as a checkpoint → checkpoint validates
 //!   against the old key, then the new key takes effect
 //! - Depth-0 predicate update in the same block as a checkpoint → checkpoint validates against the
-//!   old predicate, then the new predicate takes effect
+//!   old predicate, then queues the new predicate by that block's boundary
 //! - Queued predicate update activating in the same block as a checkpoint → checkpoint validates
-//!   against the old predicate, then the new predicate takes effect
+//!   against the old predicate, then queues the new predicate by that block's boundary
 //! - Checkpoint signed by the old sequencer key after the update fully takes effect → rejected, no
 //!   tip-update log emitted
 
@@ -40,6 +44,7 @@ use harness::{
     test_harness::{AsmTestHarnessBuilder, Setup},
 };
 use integration_tests::harness;
+use strata_asm_logs::CheckpointPredicateEnacted;
 use strata_predicate::{PredicateKey, PredicateTypeId};
 
 // ============================================================================
@@ -139,12 +144,12 @@ async fn test_multiple_sequencer_updates_checkpoint_has_latest() {
 // Predicate Update → Checkpoint Predicate
 // ============================================================================
 
-/// Verifies predicate (verifying key) updates propagate to checkpoint after activation.
+/// Verifies predicate enactment queues a checkpoint transition and emits its manifest log.
 ///
 /// Flow:
 /// 1. Submit predicate update (gets queued)
 /// 2. Mine blocks to trigger activation
-/// 3. Verify checkpoint's predicate field is updated
+/// 3. Verify checkpoint's active predicate is unchanged and the transition is queued
 #[tokio::test(flavor = "multi_thread")]
 async fn test_predicate_update_propagates_to_checkpoint() {
     let Setup {
@@ -179,17 +184,36 @@ async fn test_predicate_update_propagates_to_checkpoint() {
         "checkpoint predicate should not change while the update is queued"
     );
 
+    let activation_height =
+        harness.get_processed_height().unwrap() + DEFAULT_CONFIRMATION_DEPTH as u64;
+
     // Act: mine through the activation window.
-    harness
+    let activation_blocks = harness
         .mine_blocks(DEFAULT_CONFIRMATION_DEPTH as usize)
         .await
         .unwrap();
 
-    // Assert: checkpoint predicate updated, queue drained.
+    // Assert: checkpoint transition queued, active predicate unchanged, admin queue drained.
+    let checkpoint_state = harness.checkpoint_state().unwrap();
     assert_eq!(
-        harness.checkpoint_state().unwrap().checkpoint_predicate(),
-        &new_predicate,
-        "checkpoint predicate should be updated after activation"
+        checkpoint_state.checkpoint_predicate(),
+        &initial_predicate,
+        "enactment must not immediately replace the active checkpoint predicate"
+    );
+    let transition = checkpoint_state
+        .pending_transition()
+        .expect("enactment must record a pending transition");
+    assert_eq!(transition.predicate(), &new_predicate);
+    let enactment = harness
+        .find_log_in_blocks::<CheckpointPredicateEnacted>(&activation_blocks)
+        .await
+        .unwrap()
+        .expect("expected CheckpointPredicateEnacted in the activation block");
+    assert_eq!(enactment.new_predicate(), &new_predicate);
+    assert_eq!(
+        u64::from(transition.boundary()),
+        activation_height,
+        "transition boundary should be the enactment-log height"
     );
     assert_eq!(
         harness.admin_state().unwrap().queued().len(),
@@ -254,13 +278,16 @@ async fn test_zero_and_nonzero_depth_updates_both_apply() {
         "predicate update should be queued"
     );
 
+    let activation_height =
+        harness.get_processed_height().unwrap() + DEFAULT_CONFIRMATION_DEPTH as u64;
+
     // Act: mine through the activation window.
-    harness
+    let activation_blocks = harness
         .mine_blocks(DEFAULT_CONFIRMATION_DEPTH as usize)
         .await
         .unwrap();
 
-    // Assert: both updates now reflected in the checkpoint; queue drained.
+    // Assert: sequencer update is active while predicate enactment remains queued.
     assert_eq!(
         harness.admin_state().unwrap().queued().len(),
         0,
@@ -274,9 +301,20 @@ async fn test_zero_and_nonzero_depth_updates_both_apply() {
     );
     assert_eq!(
         final_checkpoint_state.checkpoint_predicate(),
-        &new_predicate,
-        "checkpoint predicate should be updated after activation"
+        &initial_predicate,
+        "predicate enactment must not immediately replace the active predicate"
     );
+    let transition = final_checkpoint_state
+        .pending_transition()
+        .expect("enactment must record a pending transition");
+    assert_eq!(transition.predicate(), &new_predicate);
+    assert_eq!(u64::from(transition.boundary()), activation_height);
+    let enactment = harness
+        .find_log_in_blocks::<CheckpointPredicateEnacted>(&activation_blocks)
+        .await
+        .unwrap()
+        .expect("expected CheckpointPredicateEnacted in the activation block");
+    assert_eq!(enactment.new_predicate(), &new_predicate);
 }
 
 // ============================================================================
@@ -482,7 +520,7 @@ async fn test_queued_sequencer_update_activation_same_block_checkpoint_validates
 }
 
 /// A depth-0 checkpoint-predicate update in the same block as a checkpoint validates that
-/// checkpoint against the old predicate; the new predicate takes effect afterward.
+/// checkpoint against the active predicate and queues the transition afterward.
 #[tokio::test(flavor = "multi_thread")]
 async fn test_predicate_immediate_update_same_block_checkpoint_validates() {
     let Setup {
@@ -513,11 +551,12 @@ async fn test_predicate_immediate_update_same_block_checkpoint_validates() {
         .await
         .unwrap();
 
-    harness
+    let enactment_block = harness
         .mine_block_with_ordered_txs(&[cp_tx, admin_tx])
         .await
         .unwrap();
     checkpoint_harness.update_verified_tip(cp_tip);
+    let activation_height = harness.get_processed_height().unwrap();
 
     let cp_state = harness.checkpoint_state().unwrap();
     assert_eq!(
@@ -530,20 +569,26 @@ async fn test_predicate_immediate_update_same_block_checkpoint_validates() {
         1,
         "exactly one tip-update log should be emitted"
     );
-    assert_ne!(
-        cp_state.checkpoint_predicate(),
-        &initial_predicate,
-        "checkpoint predicate should change after the block"
-    );
     assert_eq!(
         cp_state.checkpoint_predicate(),
-        &new_predicate,
-        "checkpoint predicate should be the new value after the block"
+        &initial_predicate,
+        "enactment must not immediately replace the active checkpoint predicate"
     );
+    let transition = cp_state
+        .pending_transition()
+        .expect("enactment must record a pending transition");
+    assert_eq!(transition.predicate(), &new_predicate);
+    assert_eq!(u64::from(transition.boundary()), activation_height);
+    let enactment = harness
+        .find_log_in_blocks::<CheckpointPredicateEnacted>(&[enactment_block])
+        .await
+        .unwrap()
+        .expect("expected CheckpointPredicateEnacted in the enactment block");
+    assert_eq!(enactment.new_predicate(), &new_predicate);
 }
 
 /// A queued checkpoint-predicate update that activates in the same block as a checkpoint still
-/// validates that checkpoint against the old predicate; the new predicate takes effect after.
+/// validates that checkpoint against the active predicate and queues the transition afterward.
 #[tokio::test(flavor = "multi_thread")]
 async fn test_queued_predicate_update_activation_same_block_checkpoint_validates() {
     const DEPTH: u64 = DEFAULT_CONFIRMATION_DEPTH as u64;
@@ -556,6 +601,11 @@ async fn test_queued_predicate_update_activation_same_block_checkpoint_validates
 
     harness.mine_blocks(2).await.unwrap();
 
+    let initial_predicate = harness
+        .checkpoint_state()
+        .unwrap()
+        .checkpoint_predicate()
+        .clone();
     let new_predicate = PredicateKey::always_accept();
 
     harness
@@ -574,7 +624,7 @@ async fn test_queued_predicate_update_activation_same_block_checkpoint_validates
         .await
         .unwrap();
     harness.mine_until_processed(activation - 1).await.unwrap();
-    harness.submit_and_mine_tx(&cp_tx).await.unwrap();
+    let activation_block = harness.submit_and_mine_tx(&cp_tx).await.unwrap();
     checkpoint_harness.update_verified_tip(cp_tip);
 
     let cp_state = harness.checkpoint_state().unwrap();
@@ -590,9 +640,20 @@ async fn test_queued_predicate_update_activation_same_block_checkpoint_validates
     );
     assert_eq!(
         cp_state.checkpoint_predicate(),
-        &new_predicate,
-        "checkpoint predicate should be updated after the activation block"
+        &initial_predicate,
+        "enactment must not immediately replace the active checkpoint predicate"
     );
+    let transition = cp_state
+        .pending_transition()
+        .expect("enactment must record a pending transition");
+    assert_eq!(transition.predicate(), &new_predicate);
+    assert_eq!(u64::from(transition.boundary()), activation);
+    let enactment = harness
+        .find_log_in_blocks::<CheckpointPredicateEnacted>(&[activation_block])
+        .await
+        .unwrap()
+        .expect("expected CheckpointPredicateEnacted in the activation block");
+    assert_eq!(enactment.new_predicate(), &new_predicate);
     assert_eq!(
         harness.admin_state().unwrap().queued().len(),
         0,

@@ -5,9 +5,10 @@
 
 use strata_asm_admin_types::AdministrationInitConfig;
 use strata_asm_common::{
-    HeaderVerificationState, MsgRelayer, NullMsg, Subprotocol, SubprotocolId, TxInputRef,
-    VerifiedAuxData, logging::warn,
+    HeaderVerificationState, MsgRelayer, Subprotocol, SubprotocolId, TxInputRef, VerifiedAuxData,
+    logging::{info, warn},
 };
+use strata_asm_proto_admin_msgs::AdministrationIncomingMsg;
 use strata_asm_proto_admin_txs::{constants::ADMINISTRATION_SUBPROTOCOL_ID, parser::parse_tx};
 use strata_identifiers::L1BlockCommitment;
 
@@ -31,7 +32,7 @@ impl Subprotocol for AdministrationSubprotocol {
 
     type State = AdministrationSubprotoState;
 
-    type Msg = NullMsg<ADMINISTRATION_SUBPROTOCOL_ID>;
+    type Msg = AdministrationIncomingMsg;
 
     fn init(config: &Self::InitConfig) -> AdministrationSubprotoState {
         AdministrationSubprotoState::new(config)
@@ -73,14 +74,18 @@ impl Subprotocol for AdministrationSubprotocol {
     }
 
     /// Processes incoming administration messages.
-    ///
-    /// Currently, the Administration subprotocol uses `NullMsg` and does not process
-    /// any incoming messages. All administration actions are handled through transactions
-    /// in the `process_txs` method.
     fn process_msgs(
-        _state: &mut AdministrationSubprotoState,
-        _msgs: &[Self::Msg],
+        state: &mut AdministrationSubprotoState,
+        msgs: &[Self::Msg],
         _l1ref: &L1BlockCommitment,
     ) {
+        for msg in msgs {
+            match msg {
+                AdministrationIncomingMsg::OlTransitionPromoted => {
+                    state.acknowledge_ol_transition_promoted();
+                    info!("accounted for promoted checkpoint predicate transition");
+                }
+            }
+        }
     }
 }

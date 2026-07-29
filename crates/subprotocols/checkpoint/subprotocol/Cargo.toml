@@ -10,6 +10,7 @@ workspace = true
 strata-asm-checkpoint-types.workspace = true
 strata-asm-common.workspace = true
 strata-asm-logs.workspace = true
+strata-asm-proto-admin-msgs.workspace = true
 strata-asm-proto-bridge-msgs.workspace = true
 strata-asm-proto-checkpoint-msgs.workspace = true
 strata-asm-proto-checkpoint-txs.workspace = true

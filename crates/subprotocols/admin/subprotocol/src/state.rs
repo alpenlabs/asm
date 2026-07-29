@@ -2,7 +2,7 @@ use std::{mem::take, num::NonZero};
 
 use ssz_derive::{Decode, Encode};
 use strata_asm_admin_types::{AdministrationInitConfig, ConfirmationDepths, Role, UpdateTxType};
-use strata_asm_proto_admin_txs::actions::{MultisigAction, UpdateId};
+use strata_asm_proto_admin_txs::actions::{MultisigAction, UpdateAction, UpdateId};
 use strata_crypto::threshold_signature::ThresholdConfigUpdate;
 use strata_identifiers::L1Height;
 
@@ -35,6 +35,14 @@ pub struct AdministrationSubprotoState {
     /// A payload with `seqno > last_seqno + max_seqno_gap` is rejected.
     #[ssz(with = "non_zero_u8")]
     max_seqno_gap: NonZero<u8>,
+
+    /// Whether an enacted OL predicate rotation is still awaiting activation by the
+    /// checkpoint subprotocol.
+    ///
+    /// Set when the rotation is relayed and announced, cleared when checkpoint reports it
+    /// promoted. Together with a queue scan this enforces the one-rotation-at-a-time rule
+    /// entirely from administration state.
+    ol_transition_pending: bool,
 }
 
 impl AdministrationSubprotoState {
@@ -52,6 +60,7 @@ impl AdministrationSubprotoState {
             next_update_id: 0,
             confirmation_depths: config.confirmation_depths.clone(),
             max_seqno_gap: config.max_seqno_gap,
+            ol_transition_pending: false,
         }
     }
 
@@ -64,6 +73,34 @@ impl AdministrationSubprotoState {
 
     pub fn max_seqno_gap(&self) -> NonZero<u8> {
         self.max_seqno_gap
+    }
+
+    /// Returns whether an enacted OL predicate rotation is still awaiting activation.
+    pub fn ol_transition_pending(&self) -> bool {
+        self.ol_transition_pending
+    }
+
+    /// Records that an OL predicate rotation has been relayed and announced.
+    pub(crate) fn set_ol_transition_pending(&mut self) {
+        self.ol_transition_pending = true;
+    }
+
+    /// Accounts for the checkpoint subprotocol promoting the pending predicate transition.
+    pub(crate) fn acknowledge_ol_transition_promoted(&mut self) {
+        self.ol_transition_pending = false;
+    }
+
+    /// Returns whether an OL STF verifying-key rotation is queued or awaiting activation.
+    ///
+    /// At most one rotation may be outstanding at a time: the checkpoint subprotocol holds a
+    /// single pending-transition slot, so authorizing a second rotation could announce an
+    /// enactment that checkpoint state cannot record.
+    pub(crate) fn has_outstanding_ol_stf_vk_update(&self) -> bool {
+        self.ol_transition_pending
+            || self
+                .queued
+                .iter()
+                .any(|queued| matches!(queued.action(), UpdateAction::OlStfVk(_)))
     }
 
     /// Resolves which role must authorize the provided action.
@@ -116,10 +153,14 @@ impl AdministrationSubprotoState {
         self.queued.push(update);
     }
 
-    /// Remove a queued update by swapping it out.
+    /// Remove a queued update, preserving the order of the ones that remain.
+    ///
+    /// Order is consensus-critical: [`Self::process_queued`] drains in queue order, and
+    /// enactment side effects are not commutative. A swap-remove would make a single cancel
+    /// permanently reorder the drain relative to `UpdateId`.
     pub fn remove_queued(&mut self, id: &UpdateId) {
         if let Some(i) = self.queued.iter().position(|u| u.id() == id) {
-            self.queued.swap_remove(i);
+            self.queued.remove(i);
         }
     }
 
@@ -278,6 +319,7 @@ mod tests {
 
         assert_eq!(state.next_update_id(), 0);
         assert_eq!(state.queued().len(), 0);
+        assert!(!state.ol_transition_pending());
     }
 
     #[test]

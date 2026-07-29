@@ -3,6 +3,7 @@ use std::num::NonZero;
 use strata_asm_admin_types::Role;
 use strata_asm_proto_admin_txs::actions::UpdateId;
 use strata_crypto::threshold_signature::ThresholdSignatureError;
+use strata_identifiers::L1Height;
 use thiserror::Error;
 
 /// Top-level error type for the administration subprotocol, composed of smaller error categories.
@@ -19,6 +20,25 @@ pub enum AdministrationError {
     /// The cancel's embedded update does not match the queued action at the target id.
     #[error("cancel target_id {target_id} update payload does not match queued action")]
     CancelUpdateMismatch { target_id: UpdateId },
+
+    /// An OL STF verifying-key rotation is already queued or awaiting activation.
+    ///
+    /// Only one rotation may be outstanding at a time: the checkpoint subprotocol holds a
+    /// single pending-transition slot, and a second rotation would either overwrite a
+    /// boundary the OL has already been told about or announce an enactment that checkpoint
+    /// state cannot record.
+    #[error("an OL STF verifying key update is already queued or awaiting activation")]
+    OlStfVkUpdateAlreadyOutstanding,
+
+    /// The activation height cannot be represented in the L1 height domain.
+    #[error(
+        "activation height overflow: current height {current_height} plus confirmation delay \
+         {delay} exceeds the maximum L1 height"
+    )]
+    ActivationHeightOverflow {
+        current_height: L1Height,
+        delay: u16,
+    },
 
     /// The payload's sequence number is not greater than the last executed sequence number.
     #[error(
