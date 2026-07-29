@@ -23,7 +23,7 @@ use strata_predicate::{PredicateKey, PredicateTypeId};
 use strata_test_utils_arb::ArbitraryGenerator;
 use strata_test_utils_btc as _;
 
-/// Additional checkpoint proof signer for synthetic-manifest tests.
+/// Additional checkpoint proof signer for predicate-handover tests.
 #[expect(
     missing_debug_implementations,
     reason = "contains a private signing key"
@@ -129,7 +129,7 @@ impl CheckpointTestHarness {
         )
     }
 
-    /// Mints an additional checkpoint proof signer for synthetic-manifest tests.
+    /// Mints an additional checkpoint proof signer.
     pub fn mint_checkpoint_signer() -> CheckpointTestSigner {
         CheckpointTestSigner {
             signing_key: SigningKey::random(&mut thread_rng()),
@@ -267,7 +267,13 @@ impl CheckpointTestHarness {
     /// - Properly constructed checkpoint claim with manifest hashes
     /// - Valid checkpoint proof signature
     pub fn build_payload_with_tip(&self, new_tip: CheckpointTip) -> CheckpointPayload {
-        self.build_payload_with_tip_and_signing_key(new_tip, &self.checkpoint_predicate)
+        let manifest_hashes = self.gen_manifest_leaves(&new_tip);
+        self.build_payload_with_tip_and_logs_and_signing_key(
+            new_tip,
+            Vec::new(),
+            &manifest_hashes,
+            &self.checkpoint_predicate,
+        )
     }
 
     /// Generates a valid synthetic-manifest payload signed by an additional signer.
@@ -276,50 +282,13 @@ impl CheckpointTestHarness {
         new_tip: CheckpointTip,
         signer: &CheckpointTestSigner,
     ) -> CheckpointPayload {
-        self.build_payload_with_tip_and_signing_key(new_tip, &signer.signing_key)
-    }
-
-    fn build_payload_with_tip_and_signing_key(
-        &self,
-        new_tip: CheckpointTip,
-        signing_key: &SigningKey,
-    ) -> CheckpointPayload {
-        let state_diff: Vec<u8> = ArbitraryGenerator::new().generate();
-        let ol_logs = Vec::new();
-        let mut arb = ArbitraryGenerator::new();
-        let terminal_header_complement = TerminalHeaderComplement::new(
-            thread_rng().gen(),
-            arb.generate(),
-            arb.generate(),
-            arb.generate(),
-        );
-        let terminal_header_complement_hash = terminal_header_complement.compute_hash();
-        let sidecar = CheckpointSidecar::new(
-            state_diff.clone(),
-            ol_logs.clone(),
-            terminal_header_complement,
-        )
-        .unwrap();
-
-        let state_diff_hash = hash::raw(&state_diff).into();
-        let ol_logs_hash = hash::raw(&ol_logs.as_ssz_bytes()).into();
-
         let manifest_hashes = self.gen_manifest_leaves(&new_tip);
-        let asm_manifests_hash = compute_asm_manifests_hash_from_leaves(&manifest_hashes);
-
-        let l2_range = L2BlockRange::new(self.verified_tip.l2_commitment, new_tip.l2_commitment);
-        let claim = CheckpointClaim::new(
-            new_tip.epoch,
-            l2_range,
-            asm_manifests_hash,
-            state_diff_hash,
-            ol_logs_hash,
-            terminal_header_complement_hash,
-        );
-
-        let proof = signing_key.sign(&claim.as_ssz_bytes()).to_vec();
-
-        CheckpointPayload::new(new_tip, sidecar, proof).unwrap()
+        self.build_payload_with_tip_and_logs_and_signing_key(
+            new_tip,
+            Vec::new(),
+            &manifest_hashes,
+            &signer.signing_key,
+        )
     }
 
     /// Generates a valid checkpoint payload with custom OL logs and externally provided
@@ -333,6 +302,37 @@ impl CheckpointTestHarness {
         new_tip: CheckpointTip,
         ol_logs: Vec<OLLog>,
         manifest_hashes: &[AsmManifestHash],
+    ) -> CheckpointPayload {
+        self.build_payload_with_tip_and_logs_and_signing_key(
+            new_tip,
+            ol_logs,
+            manifest_hashes,
+            &self.checkpoint_predicate,
+        )
+    }
+
+    /// Generates a live-manifest payload signed by an additional checkpoint signer.
+    pub fn build_payload_with_tip_and_logs_and_signer(
+        &self,
+        new_tip: CheckpointTip,
+        ol_logs: Vec<OLLog>,
+        manifest_hashes: &[AsmManifestHash],
+        signer: &CheckpointTestSigner,
+    ) -> CheckpointPayload {
+        self.build_payload_with_tip_and_logs_and_signing_key(
+            new_tip,
+            ol_logs,
+            manifest_hashes,
+            &signer.signing_key,
+        )
+    }
+
+    fn build_payload_with_tip_and_logs_and_signing_key(
+        &self,
+        new_tip: CheckpointTip,
+        ol_logs: Vec<OLLog>,
+        manifest_hashes: &[AsmManifestHash],
+        signing_key: &SigningKey,
     ) -> CheckpointPayload {
         let state_diff: Vec<u8> = ArbitraryGenerator::new().generate();
         let mut arb = ArbitraryGenerator::new();
@@ -365,10 +365,7 @@ impl CheckpointTestHarness {
             terminal_header_complement_hash,
         );
 
-        let proof = self
-            .checkpoint_predicate
-            .sign(&claim.as_ssz_bytes())
-            .to_vec();
+        let proof = signing_key.sign(&claim.as_ssz_bytes()).to_vec();
 
         CheckpointPayload::new(new_tip, sidecar, proof).unwrap()
     }

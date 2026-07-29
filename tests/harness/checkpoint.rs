@@ -18,7 +18,8 @@ use bitcoin::{key::UntweakedKeypair, secp256k1::Secp256k1, BlockHash, Transactio
 use bitcoin_bosd::Descriptor;
 use strata_asm_bridge_types::{OperatorSelection, BRIDGE_GATEWAY_ACCT_SERIAL};
 use strata_asm_checkpoint_types::{
-    CheckpointInitConfig, CheckpointTip, OLLog, SimpleWithdrawalIntentLogData,
+    CheckpointInitConfig, CheckpointTip, OLLog, PendingPredicateTransition,
+    SimpleWithdrawalIntentLogData,
 };
 use strata_asm_common::{AnchorState, SectionStateExt, Subprotocol};
 use strata_asm_logs::CheckpointTipUpdate;
@@ -29,7 +30,7 @@ use strata_codec_utils::CodecSsz;
 use strata_identifiers::{OLBlockCommitment, OLBlockId};
 use strata_l1_txfmt::TagData;
 use strata_test_utils_arb::ArbitraryGenerator;
-use strata_test_utils_checkpoint::CheckpointTestHarness;
+use strata_test_utils_checkpoint::{CheckpointTestHarness, CheckpointTestSigner};
 
 use super::test_harness::AsmTestHarness;
 
@@ -56,6 +57,9 @@ pub fn extract_checkpoint_state(anchor_state: &AnchorState) -> anyhow::Result<Ch
 pub trait CheckpointExt {
     /// Get checkpoint subprotocol state.
     fn checkpoint_state(&self) -> anyhow::Result<CheckpointState>;
+
+    /// Get the enacted predicate transition awaiting checkpoint-sequence activation, if any.
+    fn pending_predicate_transition(&self) -> anyhow::Result<Option<PendingPredicateTransition>>;
 
     /// Get the `CheckpointTipUpdate` log tips emitted while processing the latest block.
     ///
@@ -92,6 +96,10 @@ impl CheckpointExt for AsmTestHarness {
             .get_latest_asm_state()?
             .ok_or_else(|| anyhow::anyhow!("No ASM state available"))?;
         extract_checkpoint_state(&asm_state)
+    }
+
+    fn pending_predicate_transition(&self) -> anyhow::Result<Option<PendingPredicateTransition>> {
+        Ok(self.checkpoint_state()?.pending_transition().cloned())
     }
 
     fn checkpoint_tip_update_logs(&self) -> anyhow::Result<Vec<CheckpointTip>> {
@@ -213,11 +221,53 @@ impl AsmTestHarness {
         new_tip: CheckpointTip,
         ol_logs: Vec<OLLog>,
     ) -> anyhow::Result<Transaction> {
+        self.build_checkpoint_tx_for_tip_with_payload(checkpoint_harness, new_tip, ol_logs, None)
+            .await
+    }
+
+    /// Build a checkpoint envelope transaction for a chosen tip and proof signer.
+    ///
+    /// Uses the live ASM MMR manifest range, like [`Self::build_checkpoint_tx_for_tip`], while
+    /// signing the checkpoint claim with `signer`.
+    pub async fn build_checkpoint_tx_for_tip_signed_by(
+        &self,
+        checkpoint_harness: &CheckpointTestHarness,
+        new_tip: CheckpointTip,
+        ol_logs: Vec<OLLog>,
+        signer: &CheckpointTestSigner,
+    ) -> anyhow::Result<Transaction> {
+        self.build_checkpoint_tx_for_tip_with_payload(
+            checkpoint_harness,
+            new_tip,
+            ol_logs,
+            Some(signer),
+        )
+        .await
+    }
+
+    async fn build_checkpoint_tx_for_tip_with_payload(
+        &self,
+        checkpoint_harness: &CheckpointTestHarness,
+        new_tip: CheckpointTip,
+        ol_logs: Vec<OLLog>,
+        signer: Option<&CheckpointTestSigner>,
+    ) -> anyhow::Result<Transaction> {
         let verified_l1 = checkpoint_harness.verified_tip().l1_height();
         let manifest_hashes = self.checkpoint_manifest_leaves(verified_l1, new_tip.l1_height());
 
-        let payload =
-            checkpoint_harness.build_payload_with_tip_and_logs(new_tip, ol_logs, &manifest_hashes);
+        let payload = match signer {
+            Some(signer) => checkpoint_harness.build_payload_with_tip_and_logs_and_signer(
+                new_tip,
+                ol_logs,
+                &manifest_hashes,
+                signer,
+            ),
+            None => checkpoint_harness.build_payload_with_tip_and_logs(
+                new_tip,
+                ol_logs,
+                &manifest_hashes,
+            ),
+        };
 
         let codec_payload = CodecSsz::new(payload);
         let payload_bytes = encode_to_vec(&codec_payload).expect("codec encoding should not fail");
