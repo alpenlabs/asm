@@ -1,0 +1,13 @@
+import strata_predicate
+import strata_identifiers
+
+### A checkpoint predicate rotation that has been enacted on L1 but has not yet
+### taken effect, because the territory it governs has not been checkpointed.
+class PendingPredicateTransition(Container):
+    ### Predicate governing every L1 height strictly after `boundary`.
+    #~# external_kind: container
+    predicate: strata_predicate.PredicateKey
+
+    ### Enactment height `B`: the last L1 height governed by the *preceding*
+    ### predicate. Its manifest carries the `CheckpointPredicateEnacted` log.
+    boundary: strata_identifiers.L1Height
