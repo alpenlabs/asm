@@ -234,9 +234,9 @@ impl SpecActivationStore for AsmWorkerContext {
     fn record_spec_activation(&self, activation: SpecActivationRecord) -> WorkerResult<()> {
         self.spec_activation_db
             .put(
-                activation.enacting_height,
-                activation.version.into(),
-                &activation.new_predicate,
+                activation.enacting_height(),
+                activation.version().into(),
+                activation.new_predicate(),
             )
             .map_err(WorkerError::DbError)
     }

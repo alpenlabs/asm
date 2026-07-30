@@ -266,9 +266,9 @@ impl SpecActivationStore for TestAsmWorkerContext {
         self.state
             .spec_activation_db
             .put(
-                activation.enacting_height,
-                activation.version.into(),
-                &activation.new_predicate,
+                activation.enacting_height(),
+                activation.version().into(),
+                activation.new_predicate(),
             )
             .map_err(WorkerError::DbError)
     }

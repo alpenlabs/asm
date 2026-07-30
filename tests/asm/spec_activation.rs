@@ -55,15 +55,15 @@ async fn test_spec_upgrade_activation_lifecycle() {
 
     let activations = harness.context.list_spec_activations().unwrap();
     assert_eq!(activations.len(), 1, "exactly one activation expected");
-    assert_eq!(activations[0].version, SpecId::V1);
+    assert_eq!(activations[0].version(), SpecId::V1);
     assert_eq!(
         activations[0].activation_height(),
-        activations[0].enacting_height + 1,
+        activations[0].enacting_height() + 1,
         "the version's rules apply from the block after the enacting one",
     );
     assert_eq!(
-        activations[0].new_predicate,
-        post_upgrade_predicate(),
+        activations[0].new_predicate(),
+        &post_upgrade_predicate(),
         "the record must carry the VK the upgrade enacted",
     );
 
@@ -71,7 +71,7 @@ async fn test_spec_upgrade_activation_lifecycle() {
     // discovered the activation from.
     let enacting_hash = harness
         .client
-        .get_block_hash(activations[0].enacting_height as u64)
+        .get_block_hash(activations[0].enacting_height() as u64)
         .await
         .unwrap();
     let enacting_block = harness.commitment_of(enacting_hash).await.unwrap();
@@ -108,7 +108,7 @@ async fn test_reorg_rolls_back_and_rediscovers_activation() {
 
     let activations = harness.context.list_spec_activations().unwrap();
     assert_eq!(activations.len(), 1, "activation recorded at enactment");
-    let enacting_height = activations[0].enacting_height;
+    let enacting_height = activations[0].enacting_height();
     let submission_height = enacting_height as u64 - DEFAULT_CONFIRMATION_DEPTH as u64;
 
     // Reorg out the submission block and everything above it, replacing it
@@ -139,11 +139,11 @@ async fn test_reorg_rolls_back_and_rediscovers_activation() {
         1,
         "the re-mined update must re-enact on the new branch",
     );
-    assert_eq!(activations[0].version, SpecId::V1);
+    assert_eq!(activations[0].version(), SpecId::V1);
     assert_eq!(
-        activations[0].enacting_height,
+        activations[0].enacting_height(),
         enacting_height + 1,
         "re-submission lands one block later, shifting enactment by one",
     );
-    assert_eq!(activations[0].new_predicate, post_upgrade_predicate());
+    assert_eq!(activations[0].new_predicate(), &post_upgrade_predicate());
 }

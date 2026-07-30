@@ -37,21 +37,21 @@ use crate::WorkerResult;
 /// way; this is the act-time form, with the id mapped through [`SpecId`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SpecActivationRecord {
-    /// Height of the L1 block whose ASM VK upgrade enactment triggered the
-    /// activation.
-    pub enacting_height: L1Height,
-
-    /// The activated spec version.
-    pub version: SpecId,
-
-    /// The ASM STF predicate the upgrade enacted. Enactment removes the
-    /// update from the admin queue and only surfaces it in the emitted log,
-    /// so this record is the worker's durable copy of the VK the boundary
-    /// switched to.
-    pub new_predicate: PredicateKey,
+    enacting_height: L1Height,
+    version: SpecId,
+    new_predicate: PredicateKey,
 }
 
 impl SpecActivationRecord {
+    /// Builds a record from its already-typed parts.
+    pub fn new(enacting_height: L1Height, version: SpecId, new_predicate: PredicateKey) -> Self {
+        Self {
+            enacting_height,
+            version,
+            new_predicate,
+        }
+    }
+
     /// Reassembles a record from its raw stored parts, mapping the raw
     /// version id through [`SpecId`]. Errs with the raw id when this binary
     /// has no variant for it.
@@ -60,11 +60,30 @@ impl SpecActivationRecord {
         version: u16,
         new_predicate: PredicateKey,
     ) -> Result<Self, u16> {
-        Ok(Self {
+        Ok(Self::new(
             enacting_height,
-            version: SpecId::try_from(version)?,
+            SpecId::try_from(version)?,
             new_predicate,
-        })
+        ))
+    }
+
+    /// Height of the L1 block whose ASM VK upgrade enactment triggered the
+    /// activation.
+    pub fn enacting_height(&self) -> L1Height {
+        self.enacting_height
+    }
+
+    /// The activated spec version.
+    pub fn version(&self) -> SpecId {
+        self.version
+    }
+
+    /// The ASM STF predicate the upgrade enacted. Enactment removes the
+    /// update from the admin queue and only surfaces it in the emitted log,
+    /// so this record is the worker's durable copy of the VK the boundary
+    /// switched to.
+    pub fn new_predicate(&self) -> &PredicateKey {
+        &self.new_predicate
     }
 
     /// Height from which the version's rules apply: the block after the
@@ -286,11 +305,7 @@ mod tests {
 
     #[test]
     fn activation_is_block_after_enactment() {
-        let record = SpecActivationRecord {
-            enacting_height: 41,
-            version: SpecId::V1,
-            new_predicate: predicate(),
-        };
+        let record = SpecActivationRecord::new(41, SpecId::V1, predicate());
         assert_eq!(record.activation_height(), 42);
     }
 
@@ -299,7 +314,7 @@ mod tests {
     #[test]
     fn from_raw_maps_known_versions_only() {
         let record = SpecActivationRecord::from_raw(41, SpecId::V1.into(), predicate()).unwrap();
-        assert_eq!(record.version, SpecId::V1);
+        assert_eq!(record.version(), SpecId::V1);
         assert_eq!(
             SpecActivationRecord::from_raw(41, 0xBEEF, predicate()),
             Err(0xBEEF)

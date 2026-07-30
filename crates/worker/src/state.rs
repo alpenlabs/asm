@@ -236,11 +236,11 @@ where
                         }
                         err => WorkerError::InconsistentSpecSchedule(err),
                     })?;
-                Ok(SpecActivationRecord {
+                Ok(SpecActivationRecord::new(
                     enacting_height,
                     version,
-                    new_predicate: update.into_new_predicate(),
-                })
+                    update.into_new_predicate(),
+                ))
             })
             .collect()
     }
@@ -257,8 +257,8 @@ where
         activations: Vec<SpecActivationRecord>,
     ) -> WorkerResult<()> {
         for activation in activations {
-            let version = activation.version;
-            let enacting_height = activation.enacting_height;
+            let version = activation.version();
+            let enacting_height = activation.enacting_height();
             let activation_height = activation.activation_height();
             self.context.record_spec_activation(activation)?;
             self.spec_schedule.schedule(version, activation_height)?;
@@ -298,7 +298,7 @@ fn effective_schedule(
 ) -> WorkerResult<SpecSchedule> {
     let mut schedule = base.clone();
     for activation in activations {
-        schedule.schedule(activation.version, activation.activation_height())?;
+        schedule.schedule(activation.version(), activation.activation_height())?;
     }
     Ok(schedule)
 }
@@ -655,11 +655,11 @@ mod tests {
                 .discover_spec_activations(&block_at(150), &[upgrade_log()])
                 .unwrap();
 
-            let expected = vec![SpecActivationRecord {
-                enacting_height: 150,
-                version: SpecId::V1,
-                new_predicate: upgrade_predicate(),
-            }];
+            let expected = vec![SpecActivationRecord::new(
+                150,
+                SpecId::V1,
+                upgrade_predicate(),
+            )];
             assert_eq!(discovered, expected);
             assert_eq!(fx.state.spec_schedule, SpecSchedule::genesis());
             assert!(fx.state.context.list_spec_activations().unwrap().is_empty());
@@ -737,11 +737,11 @@ mod tests {
             let fx = fixtures::setup_state(101).await;
             let context = fx.state.context.clone(); // shares the sled store
             context
-                .record_spec_activation(SpecActivationRecord {
-                    enacting_height: 120,
-                    version: SpecId::V1,
-                    new_predicate: upgrade_predicate(),
-                })
+                .record_spec_activation(SpecActivationRecord::new(
+                    120,
+                    SpecId::V1,
+                    upgrade_predicate(),
+                ))
                 .unwrap();
 
             let params = fixtures::genesis_params(&fx.client, 101).await;
