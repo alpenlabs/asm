@@ -210,7 +210,8 @@ mod tests {
         ] {
             let state = sample_state_on(network);
             let bytes = state.as_ssz_bytes();
-            let decoded = HeaderVerificationState::from_ssz_bytes(&bytes).expect("decode");
+            let decoded =
+                <HeaderVerificationState as ssz::Decode>::from_ssz_bytes(&bytes).expect("decode");
             assert_eq!(state, decoded);
         }
     }
@@ -254,7 +255,7 @@ mod tests {
         let mut bytes = sample_state().as_ssz_bytes();
         // The network id is the first byte of the fixed-size container.
         bytes[0] = 42;
-        assert!(HeaderVerificationState::from_ssz_bytes(&bytes).is_err());
+        assert!(<HeaderVerificationState as ssz::Decode>::from_ssz_bytes(&bytes).is_err());
     }
 
     #[test]
@@ -263,6 +264,6 @@ mod tests {
         let mut delegate = state.into_delegate();
         delegate.block_timestamp_history.head = TIMESTAMPS_FOR_MEDIAN as u8;
         let bytes = delegate.as_ssz_bytes();
-        assert!(HeaderVerificationState::from_ssz_bytes(&bytes).is_err());
+        assert!(<HeaderVerificationState as ssz::Decode>::from_ssz_bytes(&bytes).is_err());
     }
 }
