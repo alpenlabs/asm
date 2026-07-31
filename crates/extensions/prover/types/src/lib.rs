@@ -7,6 +7,27 @@ use serde::{Deserialize, Serialize};
 use strata_identifiers::L1BlockCommitment;
 use zkaleido::ProofReceiptWithMetadata;
 
+/// Status snapshot of a prover worker.
+///
+/// Produced by the prover worker's service monitor and served over RPC, so
+/// operators — and follower nodes deciding whether to fetch or fall back to
+/// local proving — can judge how far a prover has progressed.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ProverStatus {
+    /// Number of proofs queued but not yet submitted or fetched.
+    pub pending: usize,
+
+    /// Most recent block the Moho worker committed, if any — from the
+    /// current session's commit subscription, or persisted state after a
+    /// restart.
+    pub last_committed: Option<L1BlockCommitment>,
+
+    /// Highest block with a completed Moho recursive proof, if any. The gap
+    /// between this and `last_committed` is the work still in flight or
+    /// pending.
+    pub last_proven: Option<L1BlockCommitment>,
+}
+
 /// ASM step proof for a range of L1 blocks.
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, Serialize, Deserialize)]
 pub struct AsmProof(pub ProofReceiptWithMetadata);
@@ -39,10 +60,11 @@ impl fmt::Display for ProofId {
 }
 
 impl ProofId {
-    /// Returns the height used for ordering.
+    /// Returns the proof's L1 height.
     ///
-    /// For ASM proofs this is the start height; for Moho proofs the anchor height.
-    fn ordering_height(&self) -> u32 {
+    /// For ASM proofs this is the start height; for Moho proofs the anchor
+    /// height. Also used for ordering.
+    pub fn height(&self) -> u32 {
         match self {
             ProofId::Asm(range) => range.start().height(),
             ProofId::Moho(commitment) => commitment.height(),
@@ -62,8 +84,8 @@ impl ProofId {
 
 impl Ord for ProofId {
     fn cmp(&self, other: &Self) -> Ordering {
-        self.ordering_height()
-            .cmp(&other.ordering_height())
+        self.height()
+            .cmp(&other.height())
             .then_with(|| self.variant_rank().cmp(&other.variant_rank()))
             .then_with(|| {
                 // Within the same variant and height, break ties by full key.

@@ -37,7 +37,9 @@ class BasicEnv(flexitest.EnvConfig):
 
         return flexitest.LiveEnv(svcs)
 
-    def _orchestrator_config(self, ectx: flexitest.EnvContext) -> OrchestratorConfig | None:
+    def _orchestrator_config(
+        self, ectx: flexitest.EnvContext, service_name: str = "asm_rpc"
+    ) -> OrchestratorConfig | None:
         """Return orchestrator config. Override in subclasses to enable proving."""
         return None
 

@@ -20,6 +20,7 @@ mod builder;
 mod config;
 mod constants;
 mod errors;
+mod follow;
 mod handle;
 mod input;
 mod message;
@@ -33,12 +34,12 @@ mod traits;
 
 pub use backend::{ProofBackend, ProofHost};
 pub use builder::ProverWorkerBuilder;
-pub use config::{BackendConfig, OrchestratorConfig};
+pub use config::{BackendConfig, FollowerConfig, OrchestratorConfig, ProverMode};
 pub use errors::{ProverError, ProverResult};
 pub use handle::ProverWorkerHandle;
 pub use input::{InputBuilder, MohoInput};
 pub use message::ProverMessage;
-pub use service::{ProverService, ProverStatus};
+pub use service::ProverService;
 pub use state::ProverServiceState;
 pub use traits::{AnchorStateReader, AuxDataReader, L1BlockProvider, ProverContext};
 // In `sp1` builds the native host path is compiled out, leaving the

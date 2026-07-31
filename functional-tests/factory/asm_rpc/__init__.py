@@ -38,8 +38,8 @@ class AsmRpcFactory(flexitest.Factory):
         params_file_path: str,
         ctx: flexitest.EnvContext,
         orchestrator: OrchestratorConfig | None = None,
+        service_name: str = "asm_rpc",
     ) -> flexitest.Service:
-        service_name = "asm_rpc"
         datadir = ctx.make_service_dir(service_name)
         envdd_path = Path(ctx.envdd_path)
 

@@ -1,5 +1,6 @@
 //! Builder for assembling and launching a prover worker.
 
+use jsonrpsee::http_client::{HttpClient, HttpClientBuilder};
 use strata_asm_worker::Subscription;
 use strata_identifiers::L1BlockCommitment;
 use strata_service::{ServiceBuilder, StreamInput, TickingInput};
@@ -8,7 +9,7 @@ use zkaleido::ZkVmRemoteHost;
 
 use crate::{
     InputBuilder, ProverContext,
-    config::OrchestratorConfig,
+    config::{OrchestratorConfig, ProverMode},
     constants,
     errors::{ProverError, ProverResult},
     handle::ProverWorkerHandle,
@@ -119,13 +120,24 @@ where
             .subscription
             .ok_or(ProverError::MissingDependency("subscription"))?;
 
+        // A follower fetches proofs from the peer its config names; the RPC
+        // client is derived here so callers only ever supply the config.
+        let peer: Option<HttpClient> = match &config.mode {
+            ProverMode::Follower(follower) => Some(
+                HttpClientBuilder::default()
+                    .build(&follower.peer_url)
+                    .map_err(|e| ProverError::peer("failed to build peer RPC client", e))?,
+            ),
+            ProverMode::Generator => None,
+        };
+
         // Capture the tick interval before `config` is moved into the state.
         let tick_interval = config.tick_interval;
 
         // State construction seeds the pending queue from durable state; a
         // failure fails the launch, matching the ASM worker's startup reads.
         let state =
-            ProverServiceState::new(ctx, asm_host, moho_host, config, input_builder).await?;
+            ProverServiceState::new(ctx, asm_host, moho_host, config, input_builder, peer).await?;
 
         // The Moho worker's commit subscription is a `Stream`; wrap it as a
         // service input and overlay the periodic wakeup tick.

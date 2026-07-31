@@ -17,6 +17,7 @@ strata-asm-worker.workspace = true
 
 bitcoin.workspace = true
 jsonrpsee = { workspace = true, features = ["server", "macros"] }
+moho-types = { workspace = true, features = ["serde"] }
 
 [features]
 default = []

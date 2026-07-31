@@ -27,9 +27,9 @@ class AsmProofReorgRestartRecoveryTest(flexitest.Test):
     Recovery rebuilds the pending proof set from durable state on startup. If it
     derives its watermark from the global-maximum Moho proof, an orphaned proof
     from an abandoned reorg branch — which is never pruned — can outrank the
-    canonical proof frontier. Recovery then skips the genuinely-pending canonical
-    blocks below that orphan, and the recursive Moho chain stalls on the gap
-    forever.
+    latest canonical Moho proof. Recovery then skips the genuinely-pending
+    canonical blocks below that orphan, and the recursive Moho chain stalls on
+    the gap forever.
 
     Concretely: branch A is mined and fully proven (orphan proofs up to A's tip),
     then a reorg replaces it with a longer branch B whose proofs still lag near
@@ -89,10 +89,10 @@ class AsmProofReorgRestartRecoveryTest(flexitest.Test):
         assert asm_rpc.strata_asm_getMohoProof(canonical_at_orphan_height) is None, (
             f"canonical Moho proof at height {a_tip_height} already completed before "
             f"restart; the recursive chain outran the orphan. Increase BURST_A "
-            f"(currently {BURST_A}) so the orphan stays above the canonical frontier"
+            f"(currently {BURST_A}) so the orphan stays above the latest canonical proof"
         )
 
-        logging.info("stopping ASM runner with orphan proof above the canonical frontier")
+        logging.info("stopping ASM runner with orphan proof above the latest canonical proof")
         asm_service.stop()
 
         # Restart WITHOUT mining anything new: the startup tip-submit is a no-op

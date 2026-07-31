@@ -8,20 +8,20 @@
 //!
 //! - [`TickMsg::Msg`] — a newly committed block; expand it into its ASM step and Moho recursive
 //!   proofs and enqueue them.
-//! - [`TickMsg::Tick`] — reconcile in-flight remote proofs ([`reconcile`]), then schedule pending
-//!   ones ([`schedule`]).
+//! - [`TickMsg::Tick`] — reconcile in-flight remote proofs ([`reconcile`]), then acquire pending
+//!   ones: schedule them on the proving backend ([`schedule`]) in generator mode, or fetch them
+//!   from the peer asm-runner ([`follow`]) in follower mode.
 
 use std::marker;
 
-use serde::{Deserialize, Serialize};
-use strata_identifiers::L1BlockCommitment;
+use strata_asm_prover_types::ProverStatus;
 use strata_service::{AsyncService, Response, Service, TickMsg};
 use tracing::{debug, error};
 use zkaleido::ZkVmRemoteHost;
 
 use crate::{
-    ProverContext, errors::ProverResult, message::ProverMessage, reconcile, schedule,
-    state::ProverServiceState,
+    ProverContext, config::ProverMode, errors::ProverResult, follow, message::ProverMessage,
+    reconcile, schedule, state::ProverServiceState,
 };
 
 /// Prover service implementation using the service framework.
@@ -75,8 +75,11 @@ where
     }
 }
 
-/// Executes one orchestration cycle: reconcile in-flight proofs, then schedule
-/// pending ones.
+/// Executes one orchestration cycle: reconcile in-flight proofs, then acquire
+/// pending ones per the configured [`ProverMode`].
+///
+/// Reconciliation runs in both modes: a follower may have local jobs in
+/// flight from an earlier fallback, and it is a no-op when nothing is.
 async fn tick<C, H>(state: &mut ProverServiceState<C, H>) -> ProverResult<()>
 where
     C: ProverContext + Send + Sync,
@@ -87,24 +90,9 @@ where
     }
 
     reconcile::reconcile_active_proofs(state).await?;
-    schedule::schedule_proofs(state).await?;
+    match state.config.mode {
+        ProverMode::Generator => schedule::schedule_proofs(state).await?,
+        ProverMode::Follower(_) => follow::follow_proofs(state).await?,
+    }
     Ok(())
-}
-
-/// Status snapshot for the prover service, surfaced through the
-/// [`ServiceMonitor`](strata_service::ServiceMonitor) on
-/// [`ProverWorkerHandle`](crate::ProverWorkerHandle).
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct ProverStatus {
-    /// Number of proofs queued but not yet submitted to the remote prover.
-    pub pending: usize,
-
-    /// Most recent block the Moho worker committed, if any — from the current
-    /// session's commit subscription, or persisted state after a restart.
-    pub last_committed: Option<L1BlockCommitment>,
-
-    /// Highest block with a completed Moho recursive proof, if any. The gap
-    /// between this and `last_committed` is the work still in flight or
-    /// pending.
-    pub last_proven: Option<L1BlockCommitment>,
 }

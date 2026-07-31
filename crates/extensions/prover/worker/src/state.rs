@@ -1,5 +1,6 @@
 //! Service state for the prover worker.
 
+use jsonrpsee::http_client::HttpClient;
 use strata_asm_prover_types::{L1Range, ProofId};
 use strata_identifiers::L1BlockCommitment;
 use strata_service::ServiceState;
@@ -46,14 +47,29 @@ pub struct ProverServiceState<C, H> {
     /// Most recent block the Moho worker committed. Initialized from the
     /// latest persisted Moho state at construction and advanced by the commit
     /// subscription. Surfaced through
-    /// [`ProverStatus`](crate::service::ProverStatus) for observability.
+    /// [`ProverStatus`](strata_asm_prover_types::ProverStatus) for observability.
     pub(crate) last_committed: Option<L1BlockCommitment>,
 
     /// Highest block with a completed Moho recursive proof. Initialized from
     /// the proof store at construction and advanced as reconciliation stores
     /// newly completed proofs. Surfaced through
-    /// [`ProverStatus`](crate::service::ProverStatus) for observability.
+    /// [`ProverStatus`](strata_asm_prover_types::ProverStatus) for observability.
     pub(crate) last_proven: Option<L1BlockCommitment>,
+
+    /// Peer asm-runner proofs are fetched from; present iff the worker runs
+    /// in [`ProverMode::Follower`](crate::config::ProverMode::Follower).
+    pub(crate) peer: Option<Peer>,
+}
+
+/// The peer a follower fetches proofs from, with its probe health.
+#[derive(Debug)]
+pub(crate) struct Peer {
+    /// RPC client for the peer asm-runner, used through the
+    /// `AsmProofApiClient` trait `strata-asm-rpc` generates.
+    pub(crate) client: HttpClient,
+
+    /// Consecutive failed status probes. Reset on the first success.
+    pub(crate) failures: u32,
 }
 
 impl<C, H> ProverServiceState<C, H>
@@ -85,6 +101,7 @@ where
         moho: H,
         config: OrchestratorConfig,
         input_builder: InputBuilder,
+        peer: Option<HttpClient>,
     ) -> ProverResult<Self> {
         let last_committed = ctx
             .get_latest_moho_state()
@@ -123,6 +140,10 @@ where
             queue,
             last_committed,
             last_proven,
+            peer: peer.map(|client| Peer {
+                client,
+                failures: 0,
+            }),
         })
     }
 
@@ -136,6 +157,20 @@ where
         self.queue.enqueue(ProofId::Asm(L1Range::single(block)));
         self.queue.enqueue(ProofId::Moho(block));
         self.last_committed = Some(block);
+    }
+
+    /// Advances the proven frontier if `proof_id` is a Moho proof above it.
+    ///
+    /// Called whenever a completed Moho proof lands in the proof store —
+    /// whether reconciled from the remote prover or fetched from a peer.
+    pub(crate) fn advance_proven(&mut self, proof_id: &ProofId) {
+        if let ProofId::Moho(block) = proof_id
+            && self
+                .last_proven
+                .is_none_or(|cur| block.height() > cur.height())
+        {
+            self.last_proven = Some(*block);
+        }
     }
 }
 
