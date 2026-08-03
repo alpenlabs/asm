@@ -6,12 +6,13 @@ fn main() {
     let out_dir = var("OUT_DIR").expect("OUT_DIR not set by cargo");
     let output_path = Path::new(&out_dir).join("generated.rs");
 
-    let entry_points = ["claim.ssz", "payload.ssz"];
+    let entry_points = ["claim.ssz", "payload.ssz", "transition.ssz"];
     let base_dir = "ssz";
     let crates = [
         "strata_identifiers",
         "strata_asm_manifest_types",
         "strata_ol_logs",
+        "strata_predicate",
     ];
 
     build_ssz_files(
@@ -25,4 +26,5 @@ fn main() {
 
     println!("cargo:rerun-if-changed=ssz/payload.ssz");
     println!("cargo:rerun-if-changed=ssz/claim.ssz");
+    println!("cargo:rerun-if-changed=ssz/transition.ssz");
 }

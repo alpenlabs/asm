@@ -39,6 +39,7 @@ mod claim;
 mod config;
 mod error;
 mod payload;
+mod transition;
 
 #[cfg(any(test, feature = "test-utils"))]
 pub mod test_utils;
@@ -73,6 +74,10 @@ pub use ssz_generated::ssz::payload::{
 // Re-export constants from payload.ssz
 pub use ssz_generated::ssz::payload::{
     MAX_OL_LOGS_PER_CHECKPOINT, MAX_PROOF_LEN, OL_DA_DIFF_MAX_SIZE,
+};
+// Re-export types from transition.ssz
+pub use ssz_generated::ssz::transition::{
+    PendingPredicateTransition, PendingPredicateTransitionRef,
 };
 // Re-export manifest hash functions and the range-hash type from the canonical source.
 pub use strata_asm_manifest_types::{

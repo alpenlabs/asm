@@ -7,6 +7,7 @@
 use std::any::Any;
 
 use ssz_derive::{Decode, Encode};
+use strata_asm_checkpoint_types::PendingPredicateTransition;
 use strata_asm_common::{InterprotoMsg, SubprotocolId};
 use strata_asm_proto_checkpoint_txs::CHECKPOINT_SUBPROTOCOL_ID;
 use strata_btc_types::BitcoinAmount;
@@ -25,8 +26,8 @@ pub enum CheckpointIncomingMsg {
     /// subprotocols consume the same SSZ-native type.
     UpdateSequencerKey(PredicateKey),
 
-    /// Update the rollup proving system verifying key used for Groth16 proof verification.
-    UpdateCheckpointPredicate(PredicateKey),
+    /// Queue an enacted rollup proving-system predicate transition.
+    QueueCheckpointPredicateTransition(PendingPredicateTransition),
 
     /// Notification that a deposit has been processed by the bridge subprotocol.
     DepositProcessed(BitcoinAmount),

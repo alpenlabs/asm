@@ -22,6 +22,8 @@ pub enum AsmLogTypeId {
     CheckpointTipUpdate = 3,
     /// Admin-driven rotation of a snark account's `update_vk`
     EePredicateKeyUpdate = 4,
+    /// Enacted OL STF verifying-key rotation queued for activation
+    CheckpointPredicateEnacted = 5,
     /// Admin-driven rotation of the ASM STF verification predicate
     AsmStfUpdate = 11,
     /// Subprotocol-published entry into the MohoState export MMR
@@ -53,6 +55,7 @@ impl TryFrom<TypeId> for AsmLogTypeId {
             2 => Ok(Self::ForcedInclusion),
             3 => Ok(Self::CheckpointTipUpdate),
             4 => Ok(Self::EePredicateKeyUpdate),
+            5 => Ok(Self::CheckpointPredicateEnacted),
             11 => Ok(Self::AsmStfUpdate),
             12 => Ok(Self::NewExportEntry),
             13 => Ok(Self::ExportExtraDataUpdate),
@@ -86,6 +89,7 @@ mod tests {
             AsmLogTypeId::ForcedInclusion,
             AsmLogTypeId::CheckpointTipUpdate,
             AsmLogTypeId::EePredicateKeyUpdate,
+            AsmLogTypeId::CheckpointPredicateEnacted,
             AsmLogTypeId::AsmStfUpdate,
             AsmLogTypeId::NewExportEntry,
             AsmLogTypeId::ExportExtraDataUpdate,
@@ -98,9 +102,9 @@ mod tests {
 
     #[test]
     fn unknown_type_id_is_rejected() {
-        // Gaps inside the OL range (5..=10), inside the Moho range (14..=20),
+        // Gaps inside the OL range (6..=10), inside the Moho range (14..=20),
         // and outside both ranges should all reject.
-        for raw in [0u16, 5, 9, 10, 14, 20, 999] {
+        for raw in [0u16, 6, 9, 10, 14, 20, 999] {
             assert_eq!(AsmLogTypeId::try_from(raw), Err(UnknownLogTypeId(raw)));
         }
     }

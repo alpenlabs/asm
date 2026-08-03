@@ -115,13 +115,13 @@ impl Subprotocol for CheckpointSubprotocol {
                     );
                     state.update_sequencer_predicate(new_predicate.clone());
                 }
-                CheckpointIncomingMsg::UpdateCheckpointPredicate(new_predicate) => {
+                CheckpointIncomingMsg::QueueCheckpointPredicateTransition(transition) => {
                     logging::info!(
-                        old = state.checkpoint_predicate().id(),
-                        new = new_predicate.id(),
-                        "updating checkpoint predicate"
+                        boundary = transition.boundary(),
+                        new = transition.predicate().id(),
+                        "recording checkpoint predicate transition"
                     );
-                    state.update_checkpoint_predicate(new_predicate.clone());
+                    state.queue_predicate_transition(transition.clone());
                 }
             }
         }

@@ -1,0 +1,11 @@
+[package]
+name = "strata-asm-proto-admin-msgs"
+version = "0.1.0"
+edition = "2024"
+
+[lints]
+workspace = true
+
+[dependencies]
+strata-asm-common.workspace = true
+strata-asm-proto-admin-txs.workspace = true

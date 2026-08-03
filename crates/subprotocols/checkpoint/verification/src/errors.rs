@@ -82,6 +82,9 @@ pub enum InvalidCheckpointPayload {
     )]
     L2SlotDoesNotAdvance { prev_slot: u64, new_slot: u64 },
 
+    #[error("checkpoint L1 range {start}..={end} straddles predicate boundary {boundary}")]
+    RangeStraddlesPredicateBoundary { start: u32, end: u32, boundary: u32 },
+
     /// Malformed withdrawal destination descriptor
     ///
     /// This error occurs when a withdrawal intent log contains a malformed
