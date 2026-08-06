@@ -11,8 +11,8 @@ strata-merkle-node-store.workspace = true
 
 anyhow.workspace = true
 sled.workspace = true
-thiserror.workspace = true
 ssz.workspace = true
+thiserror.workspace = true
 
 [dev-dependencies]
 proptest.workspace = true

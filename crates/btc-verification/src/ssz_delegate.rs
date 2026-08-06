@@ -1,23 +1,15 @@
 //! SSZ encoding for [`HeaderVerificationState`] via the delegate pattern.
 //!
 //! The wire layout is defined entirely by the generated
-//! [`HeaderVerificationStateSsz`] container (see `ssz/header_verification.ssz`); this
-//! module
-//! only supplies the value-level conversions, so the encoding is correct by
-//! construction and decoding validates invariants (known network id,
-//! in-bounds ring-buffer head) instead of panicking downstream.
-
-use std::marker::PhantomData;
+//! [`HeaderVerificationStateSsz`] container (see `ssz/header_verification.ssz`).
+//! This module supplies value-level conversions. Owned decoding and view
+//! materialization validate the network id and ring-buffer head.
 
 use bitcoin::{Network, params::Params};
-use ssz::{
-    Decode, DecodeError,
-    view::{DecodeView, SszTypeInfo},
-};
+use ssz::DecodeError;
 use ssz_primitives::U256;
-use ssz_types::view::ToOwnedSsz;
 use strata_btc_types::BtcParams;
-use strata_identifiers::{SszDelegate, impl_ssz_via_delegate};
+use strata_identifiers::{SszDelegate, SszDelegateRef, impl_ssz_via_delegate};
 
 use crate::{
     BtcWork, HeaderVerificationState, TIMESTAMPS_FOR_MEDIAN, TimestampStore,
@@ -113,73 +105,16 @@ impl SszDelegate for HeaderVerificationState {
 
 impl_ssz_via_delegate!(HeaderVerificationState);
 
-impl SszTypeInfo for HeaderVerificationState {
-    fn is_ssz_fixed_len() -> bool {
-        <HeaderVerificationStateSsz as ssz::Encode>::is_ssz_fixed_len()
-    }
-
-    fn ssz_fixed_len() -> usize {
-        <HeaderVerificationStateSsz as ssz::Encode>::ssz_fixed_len()
-    }
-}
-
-/// Decoded view over the SSZ bytes of a [`HeaderVerificationState`].
-///
-/// ssz-gen requires external container types to expose a `{Type}Ref` view.
-/// The delegate encoding has no zero-copy representation, so this view
-/// decodes eagerly and hands out the owned value.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct HeaderVerificationStateRef<'a> {
-    inner: HeaderVerificationState,
-    _phantom: PhantomData<&'a ()>,
-}
-
-impl<'a> DecodeView<'a> for HeaderVerificationStateRef<'a> {
-    fn from_ssz_bytes(bytes: &'a [u8]) -> Result<Self, DecodeError> {
-        Ok(Self {
-            inner: <HeaderVerificationState as Decode>::from_ssz_bytes(bytes)?,
-            _phantom: PhantomData,
-        })
-    }
-}
-
-impl SszTypeInfo for HeaderVerificationStateRef<'_> {
-    fn is_ssz_fixed_len() -> bool {
-        <HeaderVerificationState as SszTypeInfo>::is_ssz_fixed_len()
-    }
-
-    fn ssz_fixed_len() -> usize {
-        <HeaderVerificationState as SszTypeInfo>::ssz_fixed_len()
-    }
-}
-
-impl tree_hash::TreeHash for HeaderVerificationStateRef<'_> {
-    fn tree_hash_type() -> tree_hash::TreeHashType {
-        <HeaderVerificationState as tree_hash::TreeHash>::tree_hash_type()
-    }
-
-    fn tree_hash_packed_encoding(&self) -> tree_hash::PackedEncoding {
-        self.inner.tree_hash_packed_encoding()
-    }
-
-    fn tree_hash_packing_factor() -> usize {
-        <HeaderVerificationState as tree_hash::TreeHash>::tree_hash_packing_factor()
-    }
-
-    fn tree_hash_root<H: tree_hash::TreeHashDigest>(&self) -> H::Output {
-        self.inner.tree_hash_root::<H>()
-    }
-}
-
-impl ToOwnedSsz<HeaderVerificationState> for HeaderVerificationStateRef<'_> {
-    fn to_owned(&self) -> HeaderVerificationState {
-        self.inner.clone()
-    }
-}
+/// SSZ view naming [`HeaderVerificationState`] for an `external_kind: container` field.
+pub type HeaderVerificationStateRef<'a> = SszDelegateRef<'a, HeaderVerificationState>;
 
 #[cfg(test)]
 mod tests {
-    use ssz::Encode;
+    use ssz::{
+        Encode,
+        view::{DecodeView, SszTypeInfo},
+    };
+    use ssz_types::view::ToOwnedSsz;
     use strata_identifiers::L1BlockCommitment;
     use tree_hash::TreeHash;
 
@@ -221,8 +156,8 @@ mod tests {
         let bytes = sample_state().as_ssz_bytes();
         for (fixed, len) in [
             (
-                <HeaderVerificationState as SszTypeInfo>::is_ssz_fixed_len(),
-                <HeaderVerificationState as SszTypeInfo>::ssz_fixed_len(),
+                <HeaderVerificationState as Encode>::is_ssz_fixed_len(),
+                <HeaderVerificationState as Encode>::ssz_fixed_len(),
             ),
             (
                 <HeaderVerificationStateRef<'_> as SszTypeInfo>::is_ssz_fixed_len(),
@@ -243,7 +178,10 @@ mod tests {
         let state = sample_state();
         let bytes = state.as_ssz_bytes();
         let view = HeaderVerificationStateRef::from_ssz_bytes(&bytes).expect("view decode");
-        assert_eq!(ToOwnedSsz::to_owned(&view), state);
+        assert_eq!(
+            ToOwnedSsz::try_to_owned(&view).expect("materializes"),
+            state
+        );
         assert_eq!(
             view.tree_hash_root::<tree_hash::Sha256Hasher>(),
             state.tree_hash_root::<tree_hash::Sha256Hasher>()
@@ -255,7 +193,14 @@ mod tests {
         let mut bytes = sample_state().as_ssz_bytes();
         // The network id is the first byte of the fixed-size container.
         bytes[0] = 42;
-        assert!(<HeaderVerificationState as ssz::Decode>::from_ssz_bytes(&bytes).is_err());
+        let error = <HeaderVerificationState as ssz::Decode>::from_ssz_bytes(&bytes)
+            .expect_err("unknown network must be rejected");
+        let view =
+            HeaderVerificationStateRef::from_ssz_bytes(&bytes).expect("delegate encoding is valid");
+        assert_eq!(
+            ToOwnedSsz::<HeaderVerificationState>::try_to_owned(&view),
+            Err(error)
+        );
     }
 
     #[test]
@@ -264,6 +209,13 @@ mod tests {
         let mut delegate = state.into_delegate();
         delegate.block_timestamp_history.head = TIMESTAMPS_FOR_MEDIAN as u8;
         let bytes = delegate.as_ssz_bytes();
-        assert!(<HeaderVerificationState as ssz::Decode>::from_ssz_bytes(&bytes).is_err());
+        let error = <HeaderVerificationState as ssz::Decode>::from_ssz_bytes(&bytes)
+            .expect_err("out-of-bounds head must be rejected");
+        let view =
+            HeaderVerificationStateRef::from_ssz_bytes(&bytes).expect("delegate encoding is valid");
+        assert_eq!(
+            ToOwnedSsz::<HeaderVerificationState>::try_to_owned(&view),
+            Err(error)
+        );
     }
 }

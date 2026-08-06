@@ -353,7 +353,7 @@ mod tests {
     use super::*;
 
     fn key(seed: u8) -> SigningKey {
-        SigningKey::from_bytes(&[seed; 32]).expect("valid signing key")
+        SigningKey::from_slice(&[seed; 32]).expect("valid signing key")
     }
 
     /// The predicate a native host built on `key` resolves to — see
