@@ -75,11 +75,13 @@ impl SectionState {
 #[cfg(test)]
 mod tests {
     use bitcoin::Network;
+    use ssz::view::DecodeView;
     use strata_btc_verification::L1Anchor;
     use strata_identifiers::L1BlockCommitment;
     use tree_hash::{Sha256Hasher, TreeHash};
 
     use super::*;
+    use crate::AnchorStateRef;
 
     /// Byte position of the pow state's network id within an encoded
     /// [`AnchorState`]: spec ID (2) + magic (4) + two offsets (8)
@@ -127,6 +129,10 @@ mod tests {
         );
         let decoded = AnchorState::from_ssz_bytes(&bytes).expect("decode");
         assert_eq!(state, decoded);
+        let view = <AnchorStateRef<'_> as DecodeView>::from_ssz_bytes(&bytes)
+            .expect("container view decodes");
+        assert_eq!(view.try_to_owned().expect("materializes"), state);
+        assert_eq!(view.tree_hash_root::<Sha256Hasher>().0, root);
 
         // Each identity is committed even when all other state is unchanged.
         let mut changed = state.clone();
@@ -161,7 +167,10 @@ mod tests {
         let mut bytes = sample_anchor_state().as_ssz_bytes();
         assert_eq!(bytes[NETWORK_ID_POS], 2, "expected Signet network id");
         bytes[NETWORK_ID_POS] = 42;
-        // Must surface as a decode error, not a panic further down the line.
-        assert!(AnchorState::from_ssz_bytes(&bytes).is_err());
+        let error =
+            AnchorState::from_ssz_bytes(&bytes).expect_err("unknown network must be rejected");
+        let view = <AnchorStateRef<'_> as DecodeView>::from_ssz_bytes(&bytes)
+            .expect("container layout is valid");
+        assert_eq!(view.try_to_owned(), Err(error));
     }
 }
