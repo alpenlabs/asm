@@ -21,14 +21,9 @@ pub enum AdministrationError {
     #[error("cancel target_id {target_id} update payload does not match queued action")]
     CancelUpdateMismatch { target_id: UpdateId },
 
-    /// An OL STF verifying-key rotation is already queued or awaiting activation.
-    ///
-    /// Only one rotation may be outstanding at a time: the checkpoint subprotocol holds a
-    /// single pending-transition slot, and a second rotation would either overwrite a
-    /// boundary the OL has already been told about or announce an enactment that checkpoint
-    /// state cannot record.
-    #[error("an OL STF verifying key update is already queued or awaiting activation")]
-    OlStfVkUpdateAlreadyOutstanding,
+    /// The combined pre- and post-enactment OL STF verifying-key capacity is full.
+    #[error("the outstanding OL STF verifying key update capacity is full (capacity {capacity})")]
+    OlStfVkUpdateCapacityFull { capacity: usize },
 
     /// The activation height cannot be represented in the L1 height domain.
     #[error(

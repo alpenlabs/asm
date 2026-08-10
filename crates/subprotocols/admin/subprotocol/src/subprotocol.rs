@@ -76,11 +76,7 @@ impl Subprotocol for AdministrationSubprotocol {
         for msg in msgs {
             match msg {
                 AdministrationIncomingMsg::OlTransitionsPruned(pruned) => {
-                    debug_assert_eq!(
-                        *pruned, 1,
-                        "single-slot state can only prune one transition"
-                    );
-                    state.acknowledge_ol_transition_promoted();
+                    state.acknowledge_ol_transitions_pruned(*pruned);
                     info!(%pruned, "accounted for pruned checkpoint predicate transitions");
                 }
             }
