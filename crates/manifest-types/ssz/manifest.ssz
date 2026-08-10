@@ -1,7 +1,35 @@
 import strata_identifiers
 import log
 
-MAX_LOGS_PER_MANIFEST = 1 << 10
+### Maximum number of log entries a single manifest can hold.
+###
+### Most logs are emitted while handling a transaction, roughly one each, so
+### their count tracks how many protocol transactions land in one L1 block. A
+### Bitcoin block holds at most ~16.6k transactions of any kind, so the cap
+### covers a block made up entirely of protocol transactions with about 2x to
+### spare.
+###
+### That ~16.6k is the block weight limit divided by the smallest a transaction
+### can serialize to and still have one input and one output:
+###
+### - version: 4 bytes
+### - input count: 1
+### - input: 41 (32 txid + 4 index + 1 empty scriptSig + 4 sequence)
+### - output count: 1
+### - output: 9 (8 value + 1 empty scriptPubKey)
+### - locktime: 4
+###
+### That is 60 bytes. Non-witness bytes count 4x, so 240 WU, and the block
+### limit of 4M WU divided by 240 gives ~16.6k.
+###
+### The margin on top covers logs that are not tied to this block's own
+### transactions. Some are emitted later than the transaction that caused them,
+### once a deferred action reaches the height it takes effect at, so they land
+### in a block whose weight says nothing about how many of them there are.
+###
+### Overflowing the cap fails the whole state transition, so the bound is
+### deliberately loose: it is a sanity limit, not a tight one.
+MAX_LOGS_PER_MANIFEST = 1 << 15
 
 ### The manifest output produced after processing an L1 block.
 ###
