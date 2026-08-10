@@ -58,8 +58,8 @@ pub trait CheckpointExt {
     /// Get checkpoint subprotocol state.
     fn checkpoint_state(&self) -> anyhow::Result<CheckpointState>;
 
-    /// Get the enacted predicate transition awaiting checkpoint-sequence activation, if any.
-    fn pending_predicate_transition(&self) -> anyhow::Result<Option<PendingPredicateTransition>>;
+    /// Get the ordered enacted predicate transitions awaiting checkpoint promotion.
+    fn pending_predicate_transitions(&self) -> anyhow::Result<Vec<PendingPredicateTransition>>;
 
     /// Get the `CheckpointTipUpdate` log tips emitted while processing the latest block.
     ///
@@ -98,8 +98,8 @@ impl CheckpointExt for AsmTestHarness {
         extract_checkpoint_state(&asm_state)
     }
 
-    fn pending_predicate_transition(&self) -> anyhow::Result<Option<PendingPredicateTransition>> {
-        Ok(self.checkpoint_state()?.pending_transition().cloned())
+    fn pending_predicate_transitions(&self) -> anyhow::Result<Vec<PendingPredicateTransition>> {
+        Ok(self.checkpoint_state()?.pending_transitions().to_vec())
     }
 
     fn checkpoint_tip_update_logs(&self) -> anyhow::Result<Vec<CheckpointTip>> {
