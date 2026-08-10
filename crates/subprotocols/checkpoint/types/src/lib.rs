@@ -47,6 +47,16 @@ pub mod test_utils;
 pub use config::CheckpointInitConfig;
 pub use error::CheckpointPayloadError;
 
+/// Maximum number of enacted OL predicate transitions awaiting checkpoint promotion.
+///
+/// Must match the `MAX_PENDING_PREDICATE_TRANSITIONS` schema constant in the checkpoint
+/// verification crate's `ssz/state.ssz`, which sizes the persisted transition list; that crate
+/// asserts the two agree at compile time.
+pub const MAX_PENDING_PREDICATE_TRANSITIONS: usize = 32;
+
+/// Number of pending OL predicate transitions pruned by a checkpoint promotion.
+pub type PendingTransitionCount = u16;
+
 /// SSZ-generated types for serialization and merkleization.
 #[allow(
     clippy::all,

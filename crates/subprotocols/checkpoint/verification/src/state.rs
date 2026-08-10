@@ -1,6 +1,7 @@
 use strata_asm_bridge_types::WithdrawalIntent;
 use strata_asm_checkpoint_types::{
-    CheckpointInitConfig, CheckpointPayload, CheckpointTip, PendingPredicateTransition,
+    CheckpointInitConfig, CheckpointPayload, CheckpointTip, MAX_PENDING_PREDICATE_TRANSITIONS,
+    PendingPredicateTransition, PendingTransitionCount,
 };
 use strata_asm_manifest_types::AsmManifestRangeHash;
 use strata_btc_types::BitcoinAmount;
@@ -18,8 +19,8 @@ use crate::{
 pub enum PredicateSelection {
     /// The currently active predicate.
     Active,
-    /// The enacted transition awaiting activation.
-    Pending,
+    /// The enacted transition at the selected pending-queue index.
+    Pending(usize),
 }
 
 impl CheckpointState {
@@ -50,7 +51,7 @@ impl CheckpointState {
         Self {
             sequencer_predicate,
             checkpoint_predicate,
-            pending_transition: Default::default(),
+            pending_transitions: Default::default(),
             verified_tip,
             deposits: DepositPool::default(),
         }
@@ -66,9 +67,9 @@ impl CheckpointState {
         &self.checkpoint_predicate
     }
 
-    /// Returns the enacted predicate transition awaiting checkpoint-sequence activation.
-    pub fn pending_transition(&self) -> Option<&PendingPredicateTransition> {
-        self.pending_transition.first()
+    /// Returns the ordered enacted predicate transitions awaiting checkpoint promotion.
+    pub fn pending_transitions(&self) -> &[PendingPredicateTransition] {
+        &self.pending_transitions
     }
 
     /// Returns the last verified checkpoint tip.
@@ -89,12 +90,16 @@ impl CheckpointState {
     /// Selects the predicate governing `territory`, an L1 height whose inputs the
     /// checkpoint claims to have processed.
     ///
-    /// A transition's `boundary` is the last height governed by the preceding predicate,
-    /// so the pending key governs exactly `boundary + 1` and up.
+    /// A transition's `boundary` is the last height governed by the preceding predicate.
+    /// The transition at index `i` therefore governs after its boundary through the next
+    /// transition's boundary, if any.
     fn governing(&self, territory: u32) -> PredicateSelection {
-        match self.pending_transition() {
-            Some(transition) if transition.boundary() < territory => PredicateSelection::Pending,
-            _ => PredicateSelection::Active,
+        let successor_count = self
+            .pending_transitions()
+            .partition_point(|transition| transition.boundary() < territory);
+        match successor_count.checked_sub(1) {
+            Some(index) => PredicateSelection::Pending(index),
+            None => PredicateSelection::Active,
         }
     }
 
@@ -111,7 +116,9 @@ impl CheckpointState {
                     Some(first_uncovered) => self.governing(first_uncovered),
                     // The tip sits at the top of the L1 height domain, so there is no
                     // uncovered height left and every boundary is behind it.
-                    None if self.pending_transition().is_some() => PredicateSelection::Pending,
+                    None if !self.pending_transitions().is_empty() => {
+                        PredicateSelection::Pending(self.pending_transitions().len() - 1)
+                    }
                     None => PredicateSelection::Active,
                 });
             }
@@ -124,7 +131,11 @@ impl CheckpointState {
         let start_selection = self.governing(start_height);
         if start_selection != self.governing(end_height) {
             let boundary = self
-                .pending_transition()
+                .pending_transitions()
+                .iter()
+                .find(|transition| {
+                    start_height <= transition.boundary() && transition.boundary() < end_height
+                })
                 .map(PendingPredicateTransition::boundary)
                 .expect("differing selections imply a pending transition inside the range");
             return Err(InvalidCheckpointPayload::RangeStraddlesPredicateBoundary {
@@ -142,37 +153,53 @@ impl CheckpointState {
     pub fn predicate_for(&self, selection: PredicateSelection) -> &PredicateKey {
         match selection {
             PredicateSelection::Active => &self.checkpoint_predicate,
-            PredicateSelection::Pending => self
-                .pending_transition()
-                .expect("pending selection implies a pending transition")
-                .predicate(),
+            PredicateSelection::Pending(index) => self.pending_transitions[index].predicate(),
         }
     }
 
     /// Records an enacted checkpoint predicate transition.
     ///
-    /// Administration refuses to authorize a rotation while another is queued or awaiting
-    /// activation, so the slot is always free when an enactment arrives.
+    /// Boundaries arrive in nondecreasing enactment order. A later update enacted at the same
+    /// boundary replaces the prior entry, so the latest `UpdateId` governs the following
+    /// territory without growing the queue.
     pub fn queue_predicate_transition(&mut self, transition: PendingPredicateTransition) {
-        self.pending_transition
-            .push(transition)
-            .expect("at most one OL predicate rotation is outstanding at a time");
-    }
-
-    /// Promotes the pending transition if it verified this checkpoint.
-    ///
-    /// Returns whether a transition was promoted.
-    pub fn promote(&mut self, selection: PredicateSelection) -> bool {
-        if selection != PredicateSelection::Pending {
-            return false;
+        if let Some(last) = self.pending_transitions.last_mut() {
+            assert!(
+                transition.boundary() >= last.boundary(),
+                "checkpoint predicate transitions must arrive in boundary order"
+            );
+            if transition.boundary() == last.boundary() {
+                *last = transition;
+                return;
+            }
         }
 
-        let transition = self
-            .pending_transition()
-            .expect("pending selection implies a pending transition");
-        self.checkpoint_predicate = transition.predicate().clone();
-        self.pending_transition = Default::default();
-        true
+        self.pending_transitions
+            .push(transition)
+            .unwrap_or_else(|_| {
+                panic!(
+                    "administration must cap distinct pending transitions at \
+                 {MAX_PENDING_PREDICATE_TRANSITIONS}"
+                )
+            });
+    }
+
+    /// Promotes the selected pending transition if it verified this checkpoint.
+    ///
+    /// Returns the number of transitions pruned through the promoted entry.
+    pub fn promote(&mut self, selection: PredicateSelection) -> PendingTransitionCount {
+        let PredicateSelection::Pending(index) = selection else {
+            return 0;
+        };
+
+        self.checkpoint_predicate = self.pending_transitions[index].predicate().clone();
+        let pruned = PendingTransitionCount::try_from(index + 1)
+            .expect("pending transition capacity fits the acknowledgement count type");
+        self.pending_transitions = self.pending_transitions[index + 1..]
+            .to_vec()
+            .try_into()
+            .expect("pruning cannot exceed the pending transition capacity");
+        pruned
     }
 
     /// Updates the verified checkpoint tip after successful verification.
@@ -188,7 +215,7 @@ impl CheckpointState {
     /// Advances the verified tip to `payload.new_tip` after verifying the ZK proof against
     /// the precomputed ASM manifests hash and extracting withdrawal intents. On success,
     /// deducts the withdrawn funds, promotes the selected predicate, and returns the extracted
-    /// withdrawal intents plus whether a pending transition was promoted.
+    /// withdrawal intents plus the number of pending transitions pruned by promotion.
     ///
     /// `selection` comes from [`Self::select_predicate`], which the caller runs against the
     /// coverage before resolving ASM manifests: a range that straddles the boundary is
@@ -198,7 +225,7 @@ impl CheckpointState {
         payload: &CheckpointPayload,
         asm_manifests_hash: AsmManifestRangeHash,
         selection: PredicateSelection,
-    ) -> CheckpointValidationResult<(Vec<WithdrawalIntent>, bool)> {
+    ) -> CheckpointValidationResult<(Vec<WithdrawalIntent>, PendingTransitionCount)> {
         let withdrawal_intents = extract_withdrawal_intents(payload.sidecar().ol_logs())?;
 
         let token = self.deposits.verify_withdrawals(&withdrawal_intents)?;
@@ -211,8 +238,8 @@ impl CheckpointState {
 
         self.deposits.apply_withdrawals(token);
         self.update_verified_tip(payload.new_tip);
-        let promoted = self.promote(selection);
+        let pruned = self.promote(selection);
 
-        Ok((withdrawal_intents, promoted))
+        Ok((withdrawal_intents, pruned))
     }
 }

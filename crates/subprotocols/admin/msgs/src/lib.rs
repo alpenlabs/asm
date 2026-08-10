@@ -6,17 +6,18 @@
 
 use std::any::Any;
 
+use strata_asm_checkpoint_types::PendingTransitionCount;
 use strata_asm_common::{InterprotoMsg, SubprotocolId};
 use strata_asm_proto_admin_txs::constants::ADMINISTRATION_SUBPROTOCOL_ID;
 
 /// Incoming messages for the administration subprotocol.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum AdministrationIncomingMsg {
-    /// Reports that a checkpoint acceptance promoted the pending predicate transition.
+    /// Reports how many pending predicate transitions a checkpoint promotion pruned.
     ///
-    /// This is what frees administration to authorize the next rotation: the pending slot
-    /// is not observable from administration state, so checkpoint must say when it empties.
-    OlTransitionPromoted,
+    /// Checkpoint state is not observable from administration state, so this acknowledgement
+    /// keeps administration's post-enactment occupancy accounting synchronized.
+    OlTransitionsPruned(PendingTransitionCount),
 }
 
 impl InterprotoMsg for AdministrationIncomingMsg {

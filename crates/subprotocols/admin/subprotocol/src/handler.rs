@@ -843,7 +843,7 @@ mod tests {
 
         AdministrationSubprotocol::process_msgs(
             &mut state,
-            &[AdministrationIncomingMsg::OlTransitionPromoted],
+            &[AdministrationIncomingMsg::OlTransitionsPruned(1)],
             &L1BlockCommitment::default(),
         );
 
