@@ -2,7 +2,7 @@ use arbitrary::Arbitrary;
 use bitcoin::{OutPoint, ScriptBuf};
 use strata_btc_types::{BitcoinAmount, BitcoinOutPoint, BitcoinTxOut};
 
-use crate::deposit::aux::DepositTxHeaderAux;
+use crate::deposit::aux_input::DepositTxHeaderAux;
 
 /// Information extracted from a deposit transaction.
 #[derive(Debug, Clone, PartialEq, Eq, Arbitrary)]

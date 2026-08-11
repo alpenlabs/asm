@@ -29,12 +29,12 @@
 //!     - Auxiliary data (4 bytes):
 //!         - Operator index (4 bytes, encoded using [`strata_codec::Codec`] which uses big-endian)
 
-mod aux;
+mod aux_input;
 mod info;
 mod parse;
 mod script;
 
-pub use aux::UnstakeTxHeaderAux;
+pub use aux_input::UnstakeTxHeaderAux;
 pub use info::UnstakeInfo;
 pub use parse::{STAKE_INPUT_INDEX, parse_unstake_tx};
 pub use script::{

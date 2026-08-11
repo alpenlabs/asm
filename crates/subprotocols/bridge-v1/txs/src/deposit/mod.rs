@@ -19,7 +19,7 @@
 //!    - Magic number (4 bytes): Protocol instance identifier
 //!    - Subprotocol ID (1 byte): Bridge v1 subprotocol identifier
 //!    - Transaction type (1 byte): Deposit transaction type
-//!    - Auxiliary data encoded as [`aux::DepositTxHeaderAux`] via [`strata_codec::Codec`]
+//!    - Auxiliary data encoded as [`aux_input::DepositTxHeaderAux`] via [`strata_codec::Codec`]
 //!      containing:
 //!      - Deposit index (u32)
 //!      - Tapscript root hash (32 bytes) from the spent DRT
@@ -37,12 +37,12 @@
 //! The tapscript root hash from the DRT is critical for maintaining the bridge's security
 //! guarantees. It ensures that only properly authorized deposits (with presigned withdrawal
 //! transactions) can mint tokens, preserving the 1-of-N trust assumption for withdrawals.
-mod aux;
+mod aux_input;
 mod info;
 mod parse;
 
 pub const DEPOSIT_OUTPUT_INDEX: usize = 1;
 
-pub use aux::DepositTxHeaderAux;
+pub use aux_input::DepositTxHeaderAux;
 pub use info::DepositInfo;
 pub use parse::parse_deposit_tx;
