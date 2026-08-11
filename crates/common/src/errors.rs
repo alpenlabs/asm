@@ -6,7 +6,7 @@ use strata_l1_txfmt::SubprotocolId;
 use strata_merkle::MerkleError;
 use thiserror::Error;
 
-use crate::aux::AuxError;
+use crate::aux_input::AuxError;
 
 /// Convenience result wrapper.
 pub type AsmResult<T> = Result<T, AsmError>;

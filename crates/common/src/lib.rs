@@ -1,7 +1,7 @@
 //! The crate provides common types and traits for building blocks for defining
 //! and interacting with subprotocols in an ASM (Anchor State Machine) framework.
 
-mod aux;
+mod aux_input;
 mod constants;
 mod errors;
 mod log;
@@ -25,7 +25,7 @@ mod ssz_generated {
     include!(concat!(env!("OUT_DIR"), "/generated.rs"));
 }
 
-pub use aux::*;
+pub use aux_input::*;
 pub use constants::*;
 pub use errors::*;
 pub use log::*;

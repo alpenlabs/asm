@@ -9,13 +9,13 @@
 
 use strata_identifiers::{Buf32, L1BlockCommitment, L1BlockId};
 
-mod aux;
+mod aux_input;
 mod manifest;
 mod manifest_mmr;
 mod state;
 
 pub use self::{
-    aux::SledAsmAuxDataDb, manifest::SledAsmManifestDb, manifest_mmr::SledAsmManifestMmrDb,
+    aux_input::SledAsmAuxDataDb, manifest::SledAsmManifestDb, manifest_mmr::SledAsmManifestMmrDb,
     state::SledAsmStateDb,
 };
 

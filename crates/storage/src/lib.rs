@@ -25,14 +25,14 @@
 //!
 //! [`L1BlockCommitment`]: strata_identifiers::L1BlockCommitment
 
-mod aux;
+mod aux_input;
 mod export_entries;
 mod manifest;
 mod manifest_mmr;
 mod sled;
 mod state;
 
-pub use aux::AsmAuxDataDb;
+pub use aux_input::AsmAuxDataDb;
 pub use export_entries::ExportEntriesDb;
 pub use manifest::AsmManifestDb;
 pub use manifest_mmr::AsmManifestMmrDb;
