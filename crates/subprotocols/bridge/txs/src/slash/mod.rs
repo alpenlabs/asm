@@ -32,10 +32,10 @@
 //! correctness is assumed to be enforced during presigning as they spend from the same N/N
 //! multisig.
 
-mod aux;
+mod aux_input;
 mod info;
 mod parse;
 
-pub use aux::SlashTxHeaderAux;
+pub use aux_input::SlashTxHeaderAux;
 pub use info::SlashInfo;
 pub use parse::{STAKE_INPUT_INDEX, parse_slash_tx};

@@ -7,7 +7,7 @@ use crate::{
     errors::TxStructureError,
     withdrawal_fulfillment::{
         USER_WITHDRAWAL_FULFILLMENT_OUTPUT_INDEX, WithdrawalFulfillmentInfo,
-        aux::WithdrawalFulfillmentTxHeaderAux,
+        aux_input::WithdrawalFulfillmentTxHeaderAux,
     },
 };
 

@@ -4,7 +4,7 @@ use strata_codec::decode_buf_exact;
 use crate::{
     constants::BridgeTxType,
     errors::TxStructureError,
-    slash::{aux::SlashTxHeaderAux, info::SlashInfo},
+    slash::{aux_input::SlashTxHeaderAux, info::SlashInfo},
 };
 
 /// Index of the stake connector input.
