@@ -3,7 +3,7 @@ use strata_codec::decode_buf_exact;
 
 use crate::{
     constants::BridgeTxType,
-    deposit::{DEPOSIT_OUTPUT_INDEX, DepositInfo, aux::DepositTxHeaderAux},
+    deposit::{DEPOSIT_OUTPUT_INDEX, DepositInfo, aux_input::DepositTxHeaderAux},
     errors::TxStructureError,
 };
 

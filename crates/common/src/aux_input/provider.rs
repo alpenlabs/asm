@@ -9,7 +9,7 @@ use strata_asm_manifest_types::AsmManifestHash;
 
 use crate::{
     AsmHistoryAccumulatorState, AuxError, AuxResult, RawBitcoinTx,
-    aux::data::{AuxData, VerifiableManifestHash},
+    aux_input::data::{AuxData, VerifiableManifestHash},
 };
 
 /// Contains verified auxiliary data for subprotocols during transaction processing.

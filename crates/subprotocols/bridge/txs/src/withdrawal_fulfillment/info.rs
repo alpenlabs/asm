@@ -3,7 +3,7 @@ use bitcoin::ScriptBuf;
 use bitcoin_bosd::Descriptor;
 use strata_btc_types::BitcoinAmount;
 
-use crate::withdrawal_fulfillment::aux::WithdrawalFulfillmentTxHeaderAux;
+use crate::withdrawal_fulfillment::aux_input::WithdrawalFulfillmentTxHeaderAux;
 
 /// Information extracted from a Bitcoin withdrawal fulfillment transaction.
 #[derive(Debug, Clone, PartialEq, Eq)]

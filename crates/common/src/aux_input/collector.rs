@@ -5,7 +5,7 @@
 use bitcoin::Txid;
 
 use crate::{
-    aux::data::{AuxRequests, ManifestHashRange},
+    aux_input::data::{AuxRequests, ManifestHashRange},
     logging,
 };
 

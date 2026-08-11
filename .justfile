@@ -54,8 +54,12 @@ functional-test:
 check-todos:
   bash contrib/check_ticketless_todos.sh
 
+# Check that all tracked paths can be checked out on Windows
+check-windows-paths:
+  bash contrib/check_windows_paths.sh
+
 # Run all lints and formatting checks
-lints: toml-check-fmt toml-lint check-fmt clippy functional-check-fmt functional-lint check-todos
+lints: toml-check-fmt toml-lint check-fmt clippy functional-check-fmt functional-lint check-todos check-windows-paths
 
 # Rust all tests
 test: unit-test doctest

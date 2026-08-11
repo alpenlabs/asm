@@ -6,7 +6,8 @@ use crate::{
     constants::BridgeTxType,
     errors::{TxStructureError, WitnessError},
     unstake::{
-        aux::UnstakeTxHeaderAux, info::UnstakeInfo, script::validate_and_extract_script_params,
+        aux_input::UnstakeTxHeaderAux, info::UnstakeInfo,
+        script::validate_and_extract_script_params,
     },
 };
 
