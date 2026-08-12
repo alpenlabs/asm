@@ -109,33 +109,33 @@ moho-runtime-interface = { git = "https://github.com/alpenlabs/moho", tag = "v0.
 moho-types = { git = "https://github.com/alpenlabs/moho", tag = "v0.3.0" }
 
 # Dependencies from alpenlabs/strata-common
-strata-btc-types = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.3.0" }
+strata-btc-types = { git = "https://github.com/alpenlabs/strata-common", branch = "STR-3948" }
 strata-codec = { git = "https://github.com/alpenlabs/strata-common", features = [
   "derive",
 ], tag = "v0.3.0" }
-strata-codec-utils = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.3.0" }
-strata-crypto = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.3.0" }
-strata-identifiers = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.3.0" }
-strata-l1-envelope-fmt = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.3.0" }
-strata-l1-txfmt = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.3.0" }
-strata-logging = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.3.0" }
-strata-merkle = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.3.0" }
-strata-merkle-node-store = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.3.0" }
-strata-msg-fmt = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.3.0" }
-strata-ol-logs = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.3.0" }
-strata-predicate = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.3.0" }
-strata-service = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.3.0" }
-strata-ssz-tests = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.3.0" }
-strata-tasks = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.3.0" }
+strata-codec-utils = { git = "https://github.com/alpenlabs/strata-common", branch = "STR-3948" }
+strata-crypto = { git = "https://github.com/alpenlabs/strata-common", branch = "STR-3948" }
+strata-identifiers = { git = "https://github.com/alpenlabs/strata-common", branch = "STR-3948" }
+strata-l1-envelope-fmt = { git = "https://github.com/alpenlabs/strata-common", branch = "STR-3948" }
+strata-l1-txfmt = { git = "https://github.com/alpenlabs/strata-common", branch = "STR-3948" }
+strata-logging = { git = "https://github.com/alpenlabs/strata-common", branch = "STR-3948" }
+strata-merkle = { git = "https://github.com/alpenlabs/strata-common", branch = "STR-3948" }
+strata-merkle-node-store = { git = "https://github.com/alpenlabs/strata-common", branch = "STR-3948" }
+strata-msg-fmt = { git = "https://github.com/alpenlabs/strata-common", branch = "STR-3948" }
+strata-ol-logs = { git = "https://github.com/alpenlabs/strata-common", branch = "STR-3948" }
+strata-predicate = { git = "https://github.com/alpenlabs/strata-common", branch = "STR-3948" }
+strata-service = { git = "https://github.com/alpenlabs/strata-common", branch = "STR-3948" }
+strata-ssz-tests = { git = "https://github.com/alpenlabs/strata-common", branch = "STR-3948" }
+strata-tasks = { git = "https://github.com/alpenlabs/strata-common", branch = "STR-3948" }
 
 # dependencies from alpenlabs/ssz-gen
-ssz = { git = "https://github.com/alpenlabs/ssz-gen", tag = "v0.17.0" }
-ssz_codegen = { git = "https://github.com/alpenlabs/ssz-gen", tag = "v0.17.0" }
-ssz_derive = { git = "https://github.com/alpenlabs/ssz-gen", tag = "v0.17.0" }
-ssz_primitives = { git = "https://github.com/alpenlabs/ssz-gen", tag = "v0.17.0" }
-ssz_types = { git = "https://github.com/alpenlabs/ssz-gen", tag = "v0.17.0" }
-tree_hash = { git = "https://github.com/alpenlabs/ssz-gen", tag = "v0.17.0" }
-tree_hash_derive = { git = "https://github.com/alpenlabs/ssz-gen", tag = "v0.17.0" }
+ssz = { git = "https://github.com/alpenlabs/ssz-gen", branch = "feat/support-delegates" }
+ssz_codegen = { git = "https://github.com/alpenlabs/ssz-gen", branch = "feat/support-delegates" }
+ssz_derive = { git = "https://github.com/alpenlabs/ssz-gen", branch = "feat/support-delegates" }
+ssz_primitives = { git = "https://github.com/alpenlabs/ssz-gen", branch = "feat/support-delegates" }
+ssz_types = { git = "https://github.com/alpenlabs/ssz-gen", branch = "feat/support-delegates" }
+tree_hash = { git = "https://github.com/alpenlabs/ssz-gen", branch = "feat/support-delegates" }
+tree_hash_derive = { git = "https://github.com/alpenlabs/ssz-gen", branch = "feat/support-delegates" }
 
 # dependencies from alpenlabs/zkaleido
 zkaleido = { git = "https://github.com/alpenlabs/zkaleido", tag = "v0.3.0", features = [
