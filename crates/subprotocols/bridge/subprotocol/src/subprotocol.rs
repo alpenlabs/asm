@@ -341,7 +341,7 @@ mod tests {
             L1BlockCommitment::new(current_height, ArbitraryGenerator::new().generate());
 
         let aux_data = create_verified_aux_data(vec![]);
-        let mut relayer = MockMsgRelayer;
+        let mut relayer = MockMsgRelayer::default();
         BridgeSubprotoV1::process_txs(&mut state, &[], &header_vs, &aux_data, &mut relayer);
 
         // Reassignment refreshes each deadline to `current_height + assignment_duration`.

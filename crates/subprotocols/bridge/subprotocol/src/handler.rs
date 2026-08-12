@@ -211,7 +211,7 @@ mod tests {
         );
 
         // 4. Handle the transaction
-        let mut relayer = MockMsgRelayer;
+        let mut relayer = MockMsgRelayer::default();
         handle_parsed_tx(&mut state, parsed_tx, &verified_aux_data, &mut relayer)
             .expect("handling valid deposit tx should succeed");
 
@@ -252,7 +252,7 @@ mod tests {
             );
 
             // 3. Handle the transaction
-            let mut relayer = MockMsgRelayer;
+            let mut relayer = MockMsgRelayer::default();
             handle_parsed_tx(&mut state, parsed_tx, &aux, &mut relayer)
                 .expect("handling deposit tx should success");
 
@@ -279,7 +279,7 @@ mod tests {
 
         // 5. Handle the transaction
         let parsed_tx = ParsedTx::Slash(info);
-        let mut relayer = MockMsgRelayer;
+        let mut relayer = MockMsgRelayer::default();
         let result = handle_parsed_tx(&mut state, parsed_tx, &aux, &mut relayer);
 
         assert!(result.is_ok(), "Handle parsed tx should succeed");
@@ -304,7 +304,7 @@ mod tests {
 
         // Handle the transaction
         let parsed_tx = ParsedTx::Unstake(info);
-        let mut relayer = MockMsgRelayer;
+        let mut relayer = MockMsgRelayer::default();
         let result = handle_parsed_tx(&mut state, parsed_tx, &aux, &mut relayer);
 
         assert!(result.is_ok(), "Handle parsed tx should succeed");
@@ -331,7 +331,7 @@ mod tests {
         // Provide empty aux data instead of the required DRT
         let empty_aux = create_verified_aux_data(vec![]);
         let parsed_tx = ParsedTx::Deposit(info);
-        let mut relayer = MockMsgRelayer;
+        let mut relayer = MockMsgRelayer::default();
         let _ = handle_parsed_tx(&mut state, parsed_tx, &empty_aux, &mut relayer);
     }
 
@@ -345,7 +345,7 @@ mod tests {
         // Provide empty aux data instead of the required stake connector tx
         let empty_aux = create_verified_aux_data(vec![]);
         let parsed_tx = ParsedTx::Slash(info);
-        let mut relayer = MockMsgRelayer;
+        let mut relayer = MockMsgRelayer::default();
         let _ = handle_parsed_tx(&mut state, parsed_tx, &empty_aux, &mut relayer);
     }
 }
