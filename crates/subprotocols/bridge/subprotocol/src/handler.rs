@@ -8,6 +8,7 @@ use strata_asm_proto_bridge_txs::{
     BRIDGE_SUBPROTOCOL_ID, deposit_request::parse_drt, parser::ParsedTx,
 };
 use strata_asm_proto_checkpoint_msgs::CheckpointIncomingMsg;
+use strata_identifiers::Buf32;
 
 use crate::{
     errors::{BridgeSubprotocolError, DepositValidationError},
@@ -83,8 +84,16 @@ pub(crate) fn handle_parsed_tx(
                 .remove_assignment(deposit_idx)
                 .expect("validation checks that the assignment exists");
             let assignee = fulfilled_assignment.current_assignee();
+            // Operator entries are never removed from the table, so an assignee always resolves.
+            let operator_pubkey = Buf32::from(
+                *state
+                    .operators()
+                    .get_operator(assignee)
+                    .expect("assignee is registered in the operator table")
+                    .musig2_pk(),
+            );
 
-            let unlock = OperatorClaimUnlock::new(deposit_idx, assignee);
+            let unlock = OperatorClaimUnlock::new(deposit_idx, operator_pubkey);
 
             // Use SubprotocolId as the containerId.
             let withdrawal_processed_log =
@@ -181,7 +190,9 @@ mod tests {
     };
     use strata_test_utils_arb::ArbitraryGenerator;
 
-    use super::handle_parsed_tx;
+    use super::{
+        BRIDGE_SUBPROTOCOL_ID, Buf32, NewExportEntry, OperatorClaimUnlock, handle_parsed_tx,
+    };
     use crate::test_utils::{
         MockMsgRelayer, add_deposits_and_assignments, create_test_state, create_verified_aux_data,
         create_withdrawal_info_from_assignment, setup_deposit_test, setup_slash_test,
@@ -263,6 +274,25 @@ mod tests {
                     .is_none(),
                 "assignment should be removed after fulfillment"
             );
+
+            // 4. The exported leaf commits to the assignee's public key.
+            let operator_pubkey = Buf32::from(
+                *state
+                    .operators()
+                    .get_operator(assignment.current_assignee())
+                    .expect("assignee should be registered")
+                    .musig2_pk(),
+            );
+            let expected_leaf =
+                OperatorClaimUnlock::new(assignment.deposit_idx(), operator_pubkey).compute_hash();
+            let export = relayer
+                .logs()
+                .iter()
+                .find_map(|log| log.try_into_log::<NewExportEntry>().ok())
+                .expect("fulfillment should emit a NewExportEntry log");
+
+            assert_eq!(export.container_id(), BRIDGE_SUBPROTOCOL_ID);
+            assert_eq!(export.entry_data(), &expected_leaf);
         }
     }
 

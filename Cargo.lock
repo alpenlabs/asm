@@ -7989,6 +7989,7 @@ version = "0.1.0"
 dependencies = [
  "arbitrary",
  "bitcoin",
+ "hex",
  "proptest",
  "rand 0.8.6",
  "rand_chacha 0.9.0",
