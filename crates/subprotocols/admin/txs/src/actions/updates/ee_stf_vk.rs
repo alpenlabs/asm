@@ -45,7 +45,8 @@ mod tests {
 
     #[test]
     fn renders_signing_message_small_predicate() {
-        let key = PredicateKey::new(PredicateTypeId::Sp1Groth16, vec![0xca, 0xfe]);
+        let key = PredicateKey::try_new(PredicateTypeId::Sp1Groth16, vec![0xca, 0xfe])
+            .expect("test predicate is within the condition limit");
         let update = EeStfVkUpdate::new(key);
         let action = MultisigAction::Update(UpdateAction::EeStfVk(update));
 

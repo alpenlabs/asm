@@ -18,15 +18,12 @@ use std::{fs::read_to_string, path::PathBuf, time::Duration};
 use anyhow::Result;
 use clap::Parser;
 use strata_asm_params::AsmParams;
-use strata_logging::{LoggingInitConfig, finalize, init_logging_from_config};
+use strata_logging::{LoggingInitConfig, finalize};
 use strata_tasks::TaskManager;
 use tokio::runtime::{Builder, Handle};
 use tracing::{error, info};
 
-use crate::{
-    bootstrap::bootstrap,
-    config::{AsmRpcConfig, LoggingConfig},
-};
+use crate::{bootstrap::bootstrap, config::AsmRpcConfig};
 
 /// Timeout for graceful shutdown.
 const SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(30);
@@ -109,21 +106,7 @@ fn load_config(path: &PathBuf) -> Result<AsmRpcConfig> {
 // The OTLP exporter is built via the Tokio reactor, so init must happen inside
 // a runtime context — entering the handle for the duration of this call is
 // enough; the guard does not need to live past initialization.
-fn init_logging(rt: &Handle, config: &LoggingConfig) {
+fn init_logging(rt: &Handle, config: &LoggingInitConfig) {
     let _guard = rt.enter();
-    let extra_filter_directives: Vec<&str> = config
-        .extra_filter_directives
-        .iter()
-        .map(String::as_str)
-        .collect();
-    init_logging_from_config(LoggingInitConfig {
-        service_base_name: "asm-runner",
-        service_label: config.service_label.as_deref(),
-        otlp_url: config.otlp_url.as_deref(),
-        log_dir: config.log_dir.as_ref(),
-        log_file_prefix: config.log_file_prefix.as_deref(),
-        json_format: config.json_format,
-        default_log_prefix: "asm-runner",
-        extra_filter_directives: &extra_filter_directives,
-    });
+    config.init("asm-runner", "asm-runner");
 }

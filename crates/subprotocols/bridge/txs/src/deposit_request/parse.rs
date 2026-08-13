@@ -79,7 +79,8 @@ mod tests {
         let mut arb = ArbitraryGenerator::new();
         let drt_aux: DrtHeaderAux = arb.generate();
         let dt_aux: DepositTxHeaderAux = arb.generate();
-        let amount = BitcoinAmount::from_sat(100_000);
+        let amount = BitcoinAmount::try_from(100_000)
+            .expect("test amount must be within the Bitcoin money supply");
         let recovery_delay = 1008;
         let (sks, _) = create_test_operators(3);
 

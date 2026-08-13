@@ -12,6 +12,23 @@ use zkaleido_logging as logging;
 
 use crate::{DepositPool, errors::InvalidCheckpointPayload};
 
+fn bitcoin_amount(sats: u64) -> BitcoinAmount {
+    BitcoinAmount::try_from(sats).expect("amount must not exceed the Bitcoin money supply")
+}
+
+fn total_withdrawal_amount(
+    intents: &[WithdrawalIntent],
+) -> Result<BitcoinAmount, InvalidCheckpointPayload> {
+    let sats = intents
+        .iter()
+        .map(|intent| u128::from(intent.amt().to_sat()))
+        .sum();
+    let sats_u64 = u64::try_from(sats)
+        .map_err(|_| InvalidCheckpointPayload::WithdrawalTotalTooLarge { sats })?;
+    BitcoinAmount::try_from(sats_u64)
+        .map_err(|_| InvalidCheckpointPayload::WithdrawalTotalTooLarge { sats })
+}
+
 /// Opaque proof token for a verified set of withdrawal intents.
 ///
 /// Produced by [`DepositPool::verify_withdrawals`] and consumed by
@@ -33,21 +50,26 @@ impl DepositPool {
     /// Creates an empty pool with no recorded deposits and an unset denomination.
     pub(crate) fn new_empty() -> Self {
         Self {
-            denomination: BitcoinAmount::ZERO,
+            denomination: BitcoinAmount::default(),
             count: 0,
         }
     }
 
     /// Total available value across all unspent bridge UTXOs.
     pub(crate) fn total(&self) -> BitcoinAmount {
-        BitcoinAmount::from_sat(self.denomination.to_sat() * self.count as u64)
+        let sats = self
+            .denomination
+            .to_sat()
+            .checked_mul(self.count as u64)
+            .expect("deposit pool total must fit in u64");
+        bitcoin_amount(sats)
     }
 
     /// Whether the pool is in its initial state — no deposits ever recorded and no
     /// denomination established. A pool that previously held UTXOs but was fully drained
     /// is NOT empty under this definition: its denomination remains locked in.
     pub(crate) fn is_empty(&self) -> bool {
-        self.count == 0 && self.denomination == BitcoinAmount::ZERO
+        self.count == 0 && self.denomination == BitcoinAmount::default()
     }
 
     /// Records a processed deposit, incrementing the available UTXO count.
@@ -95,8 +117,8 @@ impl DepositPool {
         // intent set is unsatisfiable, and computing multiples would divide by zero.
         if self.count == 0 {
             return Err(InvalidCheckpointPayload::InsufficientFunds {
-                available: BitcoinAmount::ZERO,
-                required: BitcoinAmount::from_sat(intents.iter().map(|w| w.amt().to_sat()).sum()),
+                available: BitcoinAmount::default(),
+                required: total_withdrawal_amount(intents)?,
             });
         }
 
@@ -117,7 +139,7 @@ impl DepositPool {
         if required > self.count {
             return Err(InvalidCheckpointPayload::InsufficientFunds {
                 available: self.total(),
-                required: BitcoinAmount::from_sat(intents.iter().map(|w| w.amt().to_sat()).sum()),
+                required: total_withdrawal_amount(intents)?,
             });
         }
 
@@ -138,7 +160,7 @@ mod tests {
     use strata_asm_bridge_types::{OperatorSelection, WithdrawalIntent};
     use strata_btc_types::BitcoinAmount;
 
-    use super::DepositPool;
+    use super::{DepositPool, bitcoin_amount};
     use crate::errors::InvalidCheckpointPayload;
 
     fn dummy_descriptor() -> Descriptor {
@@ -148,7 +170,7 @@ mod tests {
     fn withdrawal(sats: u64) -> WithdrawalIntent {
         WithdrawalIntent::new(
             dummy_descriptor(),
-            BitcoinAmount::from_sat(sats),
+            bitcoin_amount(sats),
             OperatorSelection::any(),
         )
     }
@@ -156,25 +178,25 @@ mod tests {
     #[test]
     fn empty_pool_total_is_zero() {
         let pool = DepositPool::default();
-        assert_eq!(pool.total(), BitcoinAmount::ZERO);
+        assert_eq!(pool.total(), BitcoinAmount::default());
     }
 
     #[test]
     fn record_sets_denomination_and_counts() {
         let mut pool = DepositPool::default();
-        let denom = BitcoinAmount::from_sat(500_000_000);
+        let denom = bitcoin_amount(500_000_000);
 
         pool.record(denom);
         pool.record(denom);
         pool.record(denom);
 
-        assert_eq!(pool.total(), BitcoinAmount::from_sat(1_500_000_000));
+        assert_eq!(pool.total(), bitcoin_amount(1_500_000_000));
     }
 
     #[test]
     fn deduct_exact_denomination_match() {
         let mut pool = DepositPool::default();
-        let denom = BitcoinAmount::from_sat(500_000_000);
+        let denom = bitcoin_amount(500_000_000);
 
         pool.record(denom);
         pool.record(denom);
@@ -182,13 +204,13 @@ mod tests {
         let intents = vec![withdrawal(500_000_000)];
         let token = pool.verify_withdrawals(&intents).unwrap();
         pool.apply_withdrawals(token);
-        assert_eq!(pool.total(), BitcoinAmount::from_sat(500_000_000));
+        assert_eq!(pool.total(), bitcoin_amount(500_000_000));
     }
 
     #[test]
     fn denomination_mismatch_fails() {
         let mut pool = DepositPool::default();
-        pool.record(BitcoinAmount::from_sat(1_000_000_000));
+        pool.record(bitcoin_amount(1_000_000_000));
 
         let intents = vec![withdrawal(500_000_000)];
         let err = pool.verify_withdrawals(&intents).unwrap_err();
@@ -196,17 +218,17 @@ mod tests {
         assert!(matches!(
             err,
             InvalidCheckpointPayload::DenominationMismatch { expected, actual }
-            if expected == BitcoinAmount::from_sat(1_000_000_000)
-                && actual == BitcoinAmount::from_sat(500_000_000)
+            if expected == bitcoin_amount(1_000_000_000)
+                && actual == bitcoin_amount(500_000_000)
         ));
 
-        assert_eq!(pool.total(), BitcoinAmount::from_sat(1_000_000_000));
+        assert_eq!(pool.total(), bitcoin_amount(1_000_000_000));
     }
 
     #[test]
     fn insufficient_count_fails() {
         let mut pool = DepositPool::default();
-        let denom = BitcoinAmount::from_sat(500_000_000);
+        let denom = bitcoin_amount(500_000_000);
         pool.record(denom);
 
         let intents = vec![withdrawal(500_000_000), withdrawal(500_000_000)];
@@ -215,11 +237,11 @@ mod tests {
         assert!(matches!(
             err,
             InvalidCheckpointPayload::InsufficientFunds { available, required }
-            if available == BitcoinAmount::from_sat(500_000_000)
-                && required == BitcoinAmount::from_sat(1_000_000_000)
+            if available == bitcoin_amount(500_000_000)
+                && required == bitcoin_amount(1_000_000_000)
         ));
 
-        assert_eq!(pool.total(), BitcoinAmount::from_sat(500_000_000));
+        assert_eq!(pool.total(), bitcoin_amount(500_000_000));
     }
 
     #[test]
@@ -231,15 +253,30 @@ mod tests {
         assert!(matches!(
             err,
             InvalidCheckpointPayload::InsufficientFunds { available, required }
-            if available == BitcoinAmount::ZERO
-                && required == BitcoinAmount::from_sat(500_000_000)
+            if available == BitcoinAmount::default()
+                && required == bitcoin_amount(500_000_000)
+        ));
+    }
+
+    #[test]
+    fn withdrawal_total_above_money_supply_is_rejected() {
+        const MAX_MONEY_SATS: u64 = 2_100_000_000_000_000;
+
+        let pool = DepositPool::default();
+        let intents = vec![withdrawal(MAX_MONEY_SATS), withdrawal(MAX_MONEY_SATS)];
+        let err = pool.verify_withdrawals(&intents).unwrap_err();
+
+        assert!(matches!(
+            err,
+            InvalidCheckpointPayload::WithdrawalTotalTooLarge { sats }
+                if sats == u128::from(MAX_MONEY_SATS) * 2
         ));
     }
 
     #[test]
     fn batch_withdrawal_same_denomination() {
         let mut pool = DepositPool::default();
-        let denom = BitcoinAmount::from_sat(100_000_000);
+        let denom = bitcoin_amount(100_000_000);
 
         for _ in 0..5 {
             pool.record(denom);
@@ -252,7 +289,7 @@ mod tests {
         ];
         let token = pool.verify_withdrawals(&intents).unwrap();
         pool.apply_withdrawals(token);
-        assert_eq!(pool.total(), BitcoinAmount::from_sat(200_000_000));
+        assert_eq!(pool.total(), bitcoin_amount(200_000_000));
     }
 
     #[test]
@@ -264,7 +301,7 @@ mod tests {
     #[test]
     fn multi_denomination_intent_consumes_multiple_utxos() {
         let mut pool = DepositPool::default();
-        let denom = BitcoinAmount::from_sat(100_000_000);
+        let denom = bitcoin_amount(100_000_000);
         for _ in 0..5 {
             pool.record(denom);
         }
@@ -273,13 +310,13 @@ mod tests {
         let token = pool.verify_withdrawals(&intents).unwrap();
         pool.apply_withdrawals(token);
 
-        assert_eq!(pool.total(), BitcoinAmount::from_sat(200_000_000));
+        assert_eq!(pool.total(), bitcoin_amount(200_000_000));
     }
 
     #[test]
     fn mixed_single_and_multi_denomination_intents() {
         let mut pool = DepositPool::default();
-        let denom = BitcoinAmount::from_sat(100_000_000);
+        let denom = bitcoin_amount(100_000_000);
         for _ in 0..6 {
             pool.record(denom);
         }
@@ -292,14 +329,14 @@ mod tests {
         let token = pool.verify_withdrawals(&intents).unwrap();
         pool.apply_withdrawals(token);
 
-        assert_eq!(pool.total(), BitcoinAmount::ZERO);
+        assert_eq!(pool.total(), BitcoinAmount::default());
     }
 
     #[test]
     fn multi_denomination_intent_exceeding_pool_fails() {
         let pool = {
             let mut p = DepositPool::default();
-            let denom = BitcoinAmount::from_sat(100_000_000);
+            let denom = bitcoin_amount(100_000_000);
             for _ in 0..2 {
                 p.record(denom);
             }
@@ -311,15 +348,15 @@ mod tests {
         assert!(matches!(
             err,
             InvalidCheckpointPayload::InsufficientFunds { available, required }
-            if available == BitcoinAmount::from_sat(200_000_000)
-                && required == BitcoinAmount::from_sat(300_000_000)
+            if available == bitcoin_amount(200_000_000)
+                && required == bitcoin_amount(300_000_000)
         ));
     }
 
     #[test]
     fn non_multiple_intent_fails() {
         let mut pool = DepositPool::default();
-        let denom = BitcoinAmount::from_sat(100_000_000);
+        let denom = bitcoin_amount(100_000_000);
         for _ in 0..3 {
             pool.record(denom);
         }
@@ -329,14 +366,14 @@ mod tests {
         assert!(matches!(
             err,
             InvalidCheckpointPayload::DenominationMismatch { expected, actual }
-            if expected == denom && actual == BitcoinAmount::from_sat(150_000_000)
+            if expected == denom && actual == bitcoin_amount(150_000_000)
         ));
     }
 
     #[test]
     fn zero_amount_intent_fails() {
         let mut pool = DepositPool::default();
-        let denom = BitcoinAmount::from_sat(100_000_000);
+        let denom = bitcoin_amount(100_000_000);
         pool.record(denom);
 
         let intents = vec![withdrawal(0)];
@@ -344,17 +381,17 @@ mod tests {
         assert!(matches!(
             err,
             InvalidCheckpointPayload::DenominationMismatch { expected, actual }
-            if expected == denom && actual == BitcoinAmount::ZERO
+            if expected == denom && actual == BitcoinAmount::default()
         ));
     }
 
     #[test]
     fn empty_intents_succeed_with_deposits() {
         let mut pool = DepositPool::default();
-        pool.record(BitcoinAmount::from_sat(500_000_000));
+        pool.record(bitcoin_amount(500_000_000));
 
         let token = pool.verify_withdrawals(&[]).unwrap();
         pool.apply_withdrawals(token);
-        assert_eq!(pool.total(), BitcoinAmount::from_sat(500_000_000));
+        assert_eq!(pool.total(), bitcoin_amount(500_000_000));
     }
 }

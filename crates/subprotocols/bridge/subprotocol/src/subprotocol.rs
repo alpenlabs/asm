@@ -291,7 +291,8 @@ mod tests {
         add_deposits(&mut state, 5);
 
         let mut intent: WithdrawalIntent = ArbitraryGenerator::new().generate();
-        intent.amt = BitcoinAmount::from_sat(state.denomination().to_sat() * 3);
+        intent.amt = BitcoinAmount::try_from(state.denomination().to_sat() * 3)
+            .expect("test amount must be within the Bitcoin money supply");
 
         let msgs = vec![BridgeIncomingMsg::DispatchWithdrawal(intent)];
         BridgeSubprotoV1::process_msgs(&mut state, &msgs, &l1ref);
@@ -309,7 +310,8 @@ mod tests {
         let l1ref: L1BlockCommitment = ArbitraryGenerator::new().generate();
 
         let mut intent: WithdrawalIntent = ArbitraryGenerator::new().generate();
-        intent.amt = BitcoinAmount::from_sat(state.denomination().to_sat() + 1);
+        intent.amt = BitcoinAmount::try_from(state.denomination().to_sat() + 1)
+            .expect("test amount must be within the Bitcoin money supply");
 
         let msgs = vec![BridgeIncomingMsg::DispatchWithdrawal(intent)];
         BridgeSubprotoV1::process_msgs(&mut state, &msgs, &l1ref);

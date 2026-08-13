@@ -55,8 +55,10 @@ mod tests {
     // build a local equivalent. Varying condition length up to `MAX_CONDITION_LEN`
     // exercises the SSZ-encoding boundary that matters for the `from_log` budget.
     fn predicate_key_strategy() -> impl Strategy<Value = PredicateKey> {
-        prop::collection::vec(any::<u8>(), 0..=MAX_CONDITION_LEN as usize)
-            .prop_map(|c| PredicateKey::new(PredicateTypeId::AlwaysAccept, c))
+        prop::collection::vec(any::<u8>(), 0..=MAX_CONDITION_LEN as usize).prop_map(|c| {
+            PredicateKey::try_new(PredicateTypeId::AlwaysAccept, c)
+                .expect("generated predicate is within the condition limit")
+        })
     }
 
     proptest! {
@@ -70,11 +72,17 @@ mod tests {
     #[test]
     fn from_log_boundary_cases() {
         let cases = [
-            AsmStfUpdate::new(PredicateKey::new(PredicateTypeId::AlwaysAccept, vec![])),
-            AsmStfUpdate::new(PredicateKey::new(
-                PredicateTypeId::AlwaysAccept,
-                vec![0u8; MAX_CONDITION_LEN as usize],
-            )),
+            AsmStfUpdate::new(
+                PredicateKey::try_new(PredicateTypeId::AlwaysAccept, vec![])
+                    .expect("empty predicate is within the condition limit"),
+            ),
+            AsmStfUpdate::new(
+                PredicateKey::try_new(
+                    PredicateTypeId::AlwaysAccept,
+                    vec![0u8; MAX_CONDITION_LEN as usize],
+                )
+                .expect("boundary predicate is within the condition limit"),
+            ),
         ];
         for log in cases {
             assert!(AsmLogEntry::from_log(&log).is_ok());

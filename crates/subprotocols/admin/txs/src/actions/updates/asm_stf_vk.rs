@@ -48,7 +48,8 @@ mod tests {
     fn renders_signing_message_large_predicate_uses_hash() {
         let condition = vec![0x42; 64];
         let expected_hash = format!("{:x}", hash::raw(&condition));
-        let key = PredicateKey::new(PredicateTypeId::Sp1Groth16, condition);
+        let key = PredicateKey::try_new(PredicateTypeId::Sp1Groth16, condition)
+            .expect("test predicate is within the condition limit");
         let update = AsmStfVkUpdate::new(key);
         let action = MultisigAction::Update(UpdateAction::AsmStfVk(update));
 

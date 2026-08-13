@@ -105,7 +105,8 @@ fn sp1_groth16_predicate_key(vkey_hash: [u8; 32]) -> PredicateKey {
     let verifier = SP1Groth16Verifier::load(&GROTH16_VK_BYTES, vkey_hash, *VK_ROOT_BYTES, true)
         .unwrap_or_else(|e| panic!("load SP1 Groth16 verifier: {e}"));
     let condition_bytes = verifier.to_uncompressed_bytes();
-    PredicateKey::new(PredicateTypeId::Sp1Groth16, condition_bytes)
+    PredicateKey::try_new(PredicateTypeId::Sp1Groth16, condition_bytes)
+        .expect("SP1 verifier key must be within the predicate condition limit")
 }
 
 #[cfg(target_os = "macos")]

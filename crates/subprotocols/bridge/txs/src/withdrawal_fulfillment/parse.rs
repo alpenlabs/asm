@@ -1,5 +1,4 @@
 use strata_asm_common::TxInputRef;
-use strata_btc_types::BitcoinAmount;
 use strata_codec::decode_buf_exact;
 
 use crate::{
@@ -43,7 +42,7 @@ pub fn parse_withdrawal_fulfillment_tx<'t>(
             )
         })?;
 
-    let withdrawal_amount = BitcoinAmount::from_sat(withdrawal_fulfillment_output.value.to_sat());
+    let withdrawal_amount = withdrawal_fulfillment_output.value.into();
     let withdrawal_destination = withdrawal_fulfillment_output.script_pubkey.clone();
 
     Ok(WithdrawalFulfillmentInfo::new(

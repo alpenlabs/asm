@@ -4,6 +4,7 @@ use std::{path::PathBuf, time::Duration};
 
 use serde::{Deserialize, Serialize};
 use strata_asm_prover_worker::OrchestratorConfig;
+use strata_logging::LoggingInitConfig;
 
 use crate::retry::RetryConfig;
 
@@ -21,29 +22,7 @@ pub(crate) struct AsmRpcConfig {
     /// Logging configuration. Omit the `[logging]` section to accept defaults
     /// (stdout, compact format, `RUST_LOG`-driven filter).
     #[serde(default)]
-    pub logging: LoggingConfig,
-}
-
-/// Logging configuration mirroring `strata_logging::LoggingInitConfig`.
-///
-/// All fields are optional; missing fields fall back to `strata-logging` defaults.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-#[serde(default)]
-pub(crate) struct LoggingConfig {
-    /// Optional service label appended to the service name (e.g. `"prod"`, `"dev"`).
-    pub service_label: Option<String>,
-    /// OpenTelemetry OTLP collector gRPC endpoint. When set, OTLP export is enabled
-    /// and the tracing-to-metrics bridge is turned on automatically.
-    pub otlp_url: Option<String>,
-    /// Directory to write rolling log files into. When unset, file logging is disabled.
-    pub log_dir: Option<PathBuf>,
-    /// Filename prefix for rolling log files. Falls back to the binary's default prefix.
-    pub log_file_prefix: Option<String>,
-    /// Use JSON output format instead of the compact text format.
-    pub json_format: Option<bool>,
-    /// Extra `EnvFilter` directives applied before `RUST_LOG` (e.g. to silence noisy
-    /// dependencies). Empty when omitted.
-    pub extra_filter_directives: Vec<String>,
+    pub logging: LoggingInitConfig,
 }
 
 /// RPC server configuration

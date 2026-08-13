@@ -177,7 +177,8 @@ mod tests {
     #[test]
     fn predicate_short_condition_uses_hex() {
         let condition = vec![0xab; 16];
-        let key = PredicateKey::new(PredicateTypeId::AlwaysAccept, condition.clone());
+        let key = PredicateKey::try_new(PredicateTypeId::AlwaysAccept, condition.clone())
+            .expect("test predicate is within the condition limit");
 
         let lines = render_lines(|details| predicate(&key, details));
 
@@ -193,7 +194,8 @@ mod tests {
     #[test]
     fn predicate_at_32_byte_boundary_uses_hex() {
         let condition = vec![0xcd; 32];
-        let key = PredicateKey::new(PredicateTypeId::Bip340Schnorr, condition.clone());
+        let key = PredicateKey::try_new(PredicateTypeId::Bip340Schnorr, condition.clone())
+            .expect("test predicate is within the condition limit");
 
         let lines = render_lines(|details| predicate(&key, details));
 
@@ -209,7 +211,8 @@ mod tests {
     #[test]
     fn predicate_long_condition_uses_hash() {
         let condition = vec![0x42; 33];
-        let key = PredicateKey::new(PredicateTypeId::Sp1Groth16, condition.clone());
+        let key = PredicateKey::try_new(PredicateTypeId::Sp1Groth16, condition.clone())
+            .expect("test predicate is within the condition limit");
 
         let lines = render_lines(|details| predicate(&key, details));
 

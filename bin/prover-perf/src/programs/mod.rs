@@ -88,5 +88,6 @@ pub(crate) fn compute_sp1_predicate_key(program_vk_hash: [u8; 32]) -> PredicateK
     let sp1_verifier: SP1Groth16Verifier =
         SP1Groth16Verifier::load(&GROTH16_VK_BYTES, program_vk_hash, *VK_ROOT_BYTES, true).unwrap();
     let condition_bytes = sp1_verifier.to_uncompressed_bytes();
-    PredicateKey::new(Sp1Groth16, condition_bytes)
+    PredicateKey::try_new(Sp1Groth16, condition_bytes)
+        .expect("SP1 verifier key must be within the predicate condition limit")
 }

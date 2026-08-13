@@ -35,10 +35,11 @@ pub struct CheckpointTestSigner {
 impl CheckpointTestSigner {
     /// Returns the predicate that verifies proofs signed by this signer.
     pub fn predicate(&self) -> PredicateKey {
-        PredicateKey::new(
+        PredicateKey::try_new(
             PredicateTypeId::Bip340Schnorr,
             self.signing_key.verifying_key().to_bytes().to_vec(),
         )
+        .expect("a 32-byte signing key is within the predicate condition limit")
     }
 }
 
@@ -113,20 +114,22 @@ impl CheckpointTestHarness {
     }
 
     pub fn sequencer_predicate(&self) -> PredicateKey {
-        PredicateKey::new(
+        PredicateKey::try_new(
             PredicateTypeId::Bip340Schnorr,
             self.sequencer_pubkey.clone(),
         )
+        .expect("a 32-byte sequencer key is within the predicate condition limit")
     }
 
     pub fn checkpoint_predicate(&self) -> PredicateKey {
-        PredicateKey::new(
+        PredicateKey::try_new(
             PredicateTypeId::Bip340Schnorr,
             self.checkpoint_predicate
                 .verifying_key()
                 .to_bytes()
                 .to_vec(),
         )
+        .expect("a 32-byte signing key is within the predicate condition limit")
     }
 
     /// Mints an additional checkpoint proof signer.

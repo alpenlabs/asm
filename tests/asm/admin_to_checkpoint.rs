@@ -87,7 +87,8 @@ async fn test_sequencer_update_propagates_to_checkpoint() {
         &initial_sequencer_predicate,
         "checkpoint sequencer_predicate should change after a sequencer key update"
     );
-    let expected = PredicateKey::new(PredicateTypeId::Bip340Schnorr, new_key.to_vec());
+    let expected = PredicateKey::try_new(PredicateTypeId::Bip340Schnorr, new_key.to_vec())
+        .expect("a 32-byte test key is within the predicate condition limit");
     assert_eq!(
         final_checkpoint_state.sequencer_predicate(),
         &expected,
@@ -127,7 +128,8 @@ async fn test_multiple_sequencer_updates_checkpoint_has_latest() {
         .unwrap();
 
     // Assert: checkpoint holds the latest key, and all three updates were processed.
-    let expected = PredicateKey::new(PredicateTypeId::Bip340Schnorr, key3.to_vec());
+    let expected = PredicateKey::try_new(PredicateTypeId::Bip340Schnorr, key3.to_vec())
+        .expect("a 32-byte test key is within the predicate condition limit");
     assert_eq!(
         harness.checkpoint_state().unwrap().sequencer_predicate(),
         &expected,
@@ -254,7 +256,8 @@ async fn test_zero_and_nonzero_depth_updates_both_apply() {
         .await
         .unwrap();
     let expected_seq_predicate =
-        PredicateKey::new(PredicateTypeId::Bip340Schnorr, new_sequencer_key.to_vec());
+        PredicateKey::try_new(PredicateTypeId::Bip340Schnorr, new_sequencer_key.to_vec())
+            .expect("a 32-byte test key is within the predicate condition limit");
     assert_eq!(
         harness.checkpoint_state().unwrap().sequencer_predicate(),
         &expected_seq_predicate,
@@ -438,7 +441,8 @@ async fn run_immediate_sequencer_same_block(admin_first: bool) {
         "exactly one tip-update log should be emitted"
     );
 
-    let expected = PredicateKey::new(PredicateTypeId::Bip340Schnorr, new_key.to_vec());
+    let expected = PredicateKey::try_new(PredicateTypeId::Bip340Schnorr, new_key.to_vec())
+        .expect("a 32-byte test key is within the predicate condition limit");
     assert_eq!(
         cp_state.sequencer_predicate(),
         &expected,
@@ -506,7 +510,8 @@ async fn test_queued_sequencer_update_activation_same_block_checkpoint_validates
         1,
         "exactly one tip-update log should be emitted"
     );
-    let expected = PredicateKey::new(PredicateTypeId::Bip340Schnorr, new_key.to_vec());
+    let expected = PredicateKey::try_new(PredicateTypeId::Bip340Schnorr, new_key.to_vec())
+        .expect("a 32-byte test key is within the predicate condition limit");
     assert_eq!(
         cp_state.sequencer_predicate(),
         &expected,

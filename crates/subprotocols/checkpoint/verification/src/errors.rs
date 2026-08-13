@@ -93,6 +93,14 @@ pub enum InvalidCheckpointPayload {
     #[error("malformed withdrawal destination descriptor")]
     MalformedWithdrawalDestDesc,
 
+    /// Withdrawal amount exceeds the maximum Bitcoin money supply.
+    #[error("withdrawal intent amount {sats} sat exceeds the Bitcoin money supply")]
+    InvalidWithdrawalAmount { sats: u64 },
+
+    /// Combined withdrawal amount exceeds the maximum Bitcoin money supply.
+    #[error("combined withdrawal intent amount {sats} sat exceeds the Bitcoin money supply")]
+    WithdrawalTotalTooLarge { sats: u128 },
+
     /// Epoch counter overflow.
     #[error("epoch overflow: verified tip epoch is at maximum value")]
     EpochOverflow,
@@ -103,7 +111,7 @@ pub enum InvalidCheckpointPayload {
     /// intents. The checkpoint is rejected to prevent the bridge from dispatching
     /// unassignable withdrawals.
     #[error(
-        "withdrawal intents cannot be honored: insufficient UTXOs (available {available} sat, withdrawals require {required} sat)"
+        "withdrawal intents cannot be honored: insufficient UTXOs (available {available}, withdrawals require {required})"
     )]
     InsufficientFunds {
         available: BitcoinAmount,
@@ -116,7 +124,7 @@ pub enum InvalidCheckpointPayload {
     /// positive integer multiple of that amount. Mismatches indicate either a malformed
     /// intent from OL or a bug upstream of the checkpoint subprotocol.
     #[error(
-        "withdrawal intent amount must be a positive multiple of denomination {expected} sat, got {actual} sat"
+        "withdrawal intent amount must be a positive multiple of denomination {expected}, got {actual}"
     )]
     DenominationMismatch {
         expected: BitcoinAmount,
