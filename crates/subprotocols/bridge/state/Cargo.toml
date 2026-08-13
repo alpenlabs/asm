@@ -19,7 +19,6 @@ strata-asm-bridge-types.workspace = true
 strata-asm-common.workspace = true
 strata-asm-proto-bridge-txs.workspace = true
 strata-btc-types.workspace = true
-strata-codec.workspace = true
 strata-crypto.workspace = true
 strata-identifiers.workspace = true
 
@@ -28,7 +27,6 @@ rand = { workspace = true, optional = true }
 strata-test-utils-arb = { workspace = true, optional = true }
 
 [dev-dependencies]
-hex.workspace = true
 proptest.workspace = true
 rand.workspace = true
 strata-asm-proto-bridge-txs = { workspace = true, features = ["test-utils"] }

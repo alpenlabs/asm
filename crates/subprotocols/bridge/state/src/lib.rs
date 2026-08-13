@@ -18,7 +18,6 @@ pub mod bridge;
 pub mod deposit;
 mod errors;
 pub mod operator;
-pub mod withdrawal;
 
 #[cfg(any(test, feature = "test-utils"))]
 pub mod test_utils;
@@ -28,4 +27,5 @@ pub use bridge::BridgeStateV1;
 pub use deposit::DepositEntry;
 pub use errors::*;
 pub use operator::NnScriptIdx;
-pub use withdrawal::OperatorClaimUnlock;
+// Defined in `strata-asm-bridge-types`; re-exported so downstream users keep finding it here.
+pub use strata_asm_bridge_types::OperatorClaimUnlock;
