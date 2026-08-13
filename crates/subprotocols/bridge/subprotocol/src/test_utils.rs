@@ -24,14 +24,24 @@ use strata_btc_types::{BitcoinAmount, RawBitcoinTx};
 use strata_crypto::EvenSecretKey;
 use strata_test_utils_arb::ArbitraryGenerator;
 
-/// A Mock MsgRelayer that does nothing.
-///
-/// This is used in tests where we don't care about the messages being emitted.
-pub(crate) struct MockMsgRelayer;
+/// A Mock MsgRelayer that captures emitted logs and discards relayed messages.
+#[derive(Default)]
+pub(crate) struct MockMsgRelayer {
+    logs: Vec<AsmLogEntry>,
+}
+
+impl MockMsgRelayer {
+    /// Emitted logs, in emission order.
+    pub(crate) fn logs(&self) -> &[AsmLogEntry] {
+        &self.logs
+    }
+}
 
 impl MsgRelayer for MockMsgRelayer {
     fn relay_msg(&mut self, _m: &dyn InterprotoMsg) {}
-    fn emit_log(&mut self, _log: AsmLogEntry) {}
+    fn emit_log(&mut self, log: AsmLogEntry) {
+        self.logs.push(log);
+    }
     fn as_mut_any(&mut self) -> &mut dyn Any {
         self
     }

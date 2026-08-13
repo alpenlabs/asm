@@ -14,11 +14,12 @@ use harness::{
     test_harness::{AsmTestHarnessBuilder, Setup},
 };
 use integration_tests::harness;
-use strata_asm_bridge_types::OperatorSelection;
+use strata_asm_bridge_types::{OperatorIdx, OperatorSelection};
 use strata_asm_common::Subprotocol;
 use strata_asm_logs::ExportExtraDataUpdate;
-use strata_asm_proto_bridge::{BridgeSubprotoV1, OperatorClaimUnlock};
+use strata_asm_proto_bridge::{BridgeStateV1, BridgeSubprotoV1, OperatorClaimUnlock};
 use strata_asm_proto_bridge_txs::BRIDGE_SUBPROTOCOL_ID;
+use strata_identifiers::Buf32;
 
 /// Regression: a forged unstake transaction must NOT remove an operator.
 ///
@@ -146,12 +147,34 @@ async fn test_bridge_publishes_increasing_accumulated_pow() {
     }
 }
 
+/// Resolves the key the fulfillment leaf will commit to: the MuSig2 public key of the operator
+/// assigned to `deposit_idx`, which must be `expected_assignee`.
+///
+/// Callers read this *before* fulfilling, since fulfillment removes the assignment.
+fn resolve_assignee_pubkey(
+    state: &BridgeStateV1,
+    deposit_idx: u32,
+    expected_assignee: OperatorIdx,
+) -> Buf32 {
+    let assignment = state
+        .assignments()
+        .get_assignment(deposit_idx)
+        .expect("assignment should exist");
+    assert_eq!(assignment.current_assignee(), expected_assignee);
+
+    let entry = state
+        .operators()
+        .get_operator(expected_assignee)
+        .expect("assignee should be registered");
+    (*entry.musig2_pk()).into()
+}
+
 /// End-to-end: fulfilling a withdrawal makes the Moho worker mirror an
 /// `OperatorClaimUnlock` export entry for the assigned operator and deposit.
 ///
-/// When the bridge processes a withdrawal fulfillment it emits a
-/// `NewExportEntry` log whose leaf is the hash of `OperatorClaimUnlock { deposit_idx, operator_idx
-/// }`, under the bridge container. The Moho worker folds that log into the bridge
+/// When the bridge processes a withdrawal fulfillment it emits a `NewExportEntry`
+/// log whose leaf is the hash of `OperatorClaimUnlock { deposit_idx, operator_pubkey }`,
+/// under the bridge container. The Moho worker folds that log into the bridge
 /// container's `ExportState` MMR and mirrors the leaf into its export-entry
 /// store (which the runner rebuilds inclusion proofs from). This drives the full
 /// deposit → assignment → fulfillment chain and asserts the derived Moho state
@@ -189,17 +212,12 @@ async fn test_withdrawal_fulfillment_creates_moho_export_entry() {
         .await
         .unwrap();
 
-    // Capture the assignment (removed once fulfilled) to build the expected leaf.
     let deposit_idx = 0u32;
-    let assignee = {
-        let bridge_state = harness.bridge_state().unwrap();
-        let assignment = bridge_state
-            .assignments()
-            .get_assignment(deposit_idx)
-            .expect("assignment for deposit 0 should exist");
-        assert_eq!(assignment.current_assignee(), pinned_operator);
-        assignment.current_assignee()
-    };
+    let assignee_pubkey = resolve_assignee_pubkey(
+        &harness.bridge_state().unwrap(),
+        deposit_idx,
+        pinned_operator,
+    );
 
     // 3. Fulfill the withdrawal.
     submit_withdrawal_fulfillment_tx(&harness, deposit_idx)
@@ -219,7 +237,7 @@ async fn test_withdrawal_fulfillment_creates_moho_export_entry() {
 
     // 4a. The Moho worker mirrored the export-entry leaf: the hash of the
     //     operator's claim on this deposit resolves in its export-entry store.
-    let expected_leaf = OperatorClaimUnlock::new(deposit_idx, assignee).compute_hash();
+    let expected_leaf = OperatorClaimUnlock::new(deposit_idx, assignee_pubkey).compute_hash();
     assert!(
         harness
             .moho_context
@@ -286,15 +304,11 @@ async fn test_reorg_drops_moho_export_entry_when_fulfillment_excluded() {
         .unwrap();
 
     let deposit_idx = 0u32;
-    let assignee = {
-        let bridge_state = harness.bridge_state().unwrap();
-        let assignment = bridge_state
-            .assignments()
-            .get_assignment(deposit_idx)
-            .expect("assignment for deposit 0 should exist");
-        assert_eq!(assignment.current_assignee(), pinned_operator);
-        assignment.current_assignee()
-    };
+    let assignee_pubkey = resolve_assignee_pubkey(
+        &harness.bridge_state().unwrap(),
+        deposit_idx,
+        pinned_operator,
+    );
 
     let fulfillment_block = submit_withdrawal_fulfillment_tx(&harness, deposit_idx)
         .await
@@ -302,7 +316,7 @@ async fn test_reorg_drops_moho_export_entry_when_fulfillment_excluded() {
 
     // Precondition: the fulfillment mirrored the OperatorClaimUnlock leaf, so the
     // reorg below has something to drop.
-    let leaf = OperatorClaimUnlock::new(deposit_idx, assignee).compute_hash();
+    let leaf = OperatorClaimUnlock::new(deposit_idx, assignee_pubkey).compute_hash();
     assert!(
         harness
             .moho_context
