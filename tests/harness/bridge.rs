@@ -689,9 +689,11 @@ pub async fn submit_withdrawal_fulfillment_tx(
 pub fn create_test_bridge_setup(num_operators: usize) -> (BridgeInitConfig, BridgeContext) {
     let (privkeys, pubkeys) = create_test_operators(num_operators);
 
-    let denomination = BitcoinAmount::from_sat(1_000_000);
+    let denomination = BitcoinAmount::try_from(1_000_000)
+        .expect("test amount must be within the Bitcoin money supply");
     let recovery_delay = 1008;
-    let operator_fee = BitcoinAmount::from_sat(100_000);
+    let operator_fee = BitcoinAmount::try_from(100_000)
+        .expect("test amount must be within the Bitcoin money supply");
     let safe_harbour_address: SafeHarbourAddress = ArbitraryGenerator::new().generate();
 
     let config = BridgeInitConfig {

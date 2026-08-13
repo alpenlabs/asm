@@ -6,6 +6,7 @@ use strata_asm_checkpoint_types::{
     SimpleWithdrawalIntentLogData,
 };
 use strata_asm_manifest_types::AsmManifestRangeHash;
+use strata_btc_types::BitcoinAmount;
 use strata_crypto::hash;
 use strata_identifiers::L1Height;
 use strata_predicate::{PredicateKey, PredicateTypeId};
@@ -248,8 +249,10 @@ pub(crate) fn extract_withdrawal_intents(
         };
 
         let selected_operator = OperatorSelection::from_raw(withdrawal_data.selected_operator);
-        let withdraw_output =
-            WithdrawalIntent::new(destination, withdrawal_data.amt().into(), selected_operator);
+        let sats = withdrawal_data.amt();
+        let amount = BitcoinAmount::try_from(sats)
+            .map_err(|_| InvalidCheckpointPayload::InvalidWithdrawalAmount { sats })?;
+        let withdraw_output = WithdrawalIntent::new(destination, amount, selected_operator);
         withdrawal_intents.push(withdraw_output);
     }
 
@@ -586,7 +589,10 @@ mod tests {
         baseline.l1_height = boundary;
         harness.update_verified_tip(baseline);
         state.verified_tip = baseline;
-        state.record_deposit(BitcoinAmount::from_sat(100_000));
+        state.record_deposit(
+            BitcoinAmount::try_from(100_000)
+                .expect("test amount must be within the Bitcoin money supply"),
+        );
         state.queue_predicate_transition(PendingPredicateTransition::new(
             signer.predicate(),
             boundary,
@@ -754,7 +760,29 @@ mod tests {
 
         // Only the well-formed gateway withdrawal-intent log produces an output.
         assert_eq!(outputs.len(), 1);
-        assert_eq!(outputs[0].amt(), withdrawal.amt().into());
+        assert_eq!(
+            outputs[0].amt(),
+            BitcoinAmount::try_from(withdrawal.amt())
+                .expect("test amount must be within the Bitcoin money supply")
+        );
+    }
+
+    #[test]
+    fn test_extract_rejects_amount_above_money_supply() {
+        const OVER_MAX_MONEY_SATS: u64 = 2_100_000_000_000_001;
+
+        let dest = Descriptor::new_p2wpkh(&[0x14; 20]).to_bytes();
+        let withdrawal = SimpleWithdrawalIntentLogData::new(OVER_MAX_MONEY_SATS, dest, 0)
+            .expect("withdrawal intent creation should not fail");
+        let log = OLLog::from_log(BRIDGE_GATEWAY_ACCT_SERIAL, &withdrawal).unwrap();
+
+        let err = extract_withdrawal_intents(&[log]).unwrap_err();
+        assert!(matches!(
+            err,
+            CheckpointValidationError::InvalidPayload(
+                InvalidCheckpointPayload::InvalidWithdrawalAmount { sats }
+            ) if sats == OVER_MAX_MONEY_SATS
+        ));
     }
 
     #[test]

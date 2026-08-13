@@ -240,10 +240,9 @@ fn relay_alpen_predicate_update(relayer: &mut impl MsgRelayer, key: PredicateKey
 }
 
 fn relay_checkpoint_sequencer_update(relayer: &mut impl MsgRelayer, new_key: Buf32) {
-    let msg = CheckpointIncomingMsg::UpdateSequencerKey(PredicateKey::new(
-        PredicateTypeId::Bip340Schnorr,
-        new_key.0.to_vec(),
-    ));
+    let predicate = PredicateKey::try_new(PredicateTypeId::Bip340Schnorr, new_key.0.to_vec())
+        .expect("a 32-byte sequencer key is within the predicate condition limit");
+    let msg = CheckpointIncomingMsg::UpdateSequencerKey(predicate);
     relayer.relay_msg(&msg);
     debug!(?new_key, "new sequencer key");
     info!("forwarded sequencer key update to checkpoint subprotocol");
@@ -478,7 +477,8 @@ mod tests {
     }
 
     fn test_predicate(tag: u8) -> PredicateKey {
-        PredicateKey::new(PredicateTypeId::Sp1Groth16, vec![tag])
+        PredicateKey::try_new(PredicateTypeId::Sp1Groth16, vec![tag])
+            .expect("test predicate is within the condition limit")
     }
 
     /// Signs and submits an `OlStfVk` rotation as the Strata administrator.

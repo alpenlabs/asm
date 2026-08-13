@@ -66,10 +66,11 @@ pub(super) fn resolve_sp1_predicate(host: &impl ZkVmHost) -> ProverResult<Predic
     )
     .map_err(|e| ProverError::backend("failed to load SP1 Groth16 verifier", e))?;
 
-    Ok(PredicateKey::new(
+    PredicateKey::try_new(
         PredicateTypeId::Sp1Groth16,
         verifier.to_uncompressed_bytes(),
-    ))
+    )
+    .map_err(|e| ProverError::backend("failed to construct SP1 predicate key", e))
 }
 
 #[cfg(not(feature = "sp1"))]

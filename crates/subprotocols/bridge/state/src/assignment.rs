@@ -7,6 +7,7 @@
 use std::cmp::Ordering;
 
 use arbitrary::Arbitrary;
+use bitcoin::Amount;
 use rand_chacha::{
     ChaChaRng,
     rand_core::{RngCore, SeedableRng},
@@ -145,9 +146,11 @@ impl AssignmentEntry {
 
     /// Returns the amount the user receives: the withdrawal amount minus the operator fee.
     pub fn net_amount(&self) -> BitcoinAmount {
-        self.withdrawal_output
-            .amt()
-            .saturating_sub(self.operator_fee)
+        let withdrawal_amount: Amount = self.withdrawal_output.amt().into();
+        withdrawal_amount
+            .checked_sub(self.operator_fee.into())
+            .unwrap_or(Amount::ZERO)
+            .into()
     }
 
     /// Returns the index of the currently assigned operator.

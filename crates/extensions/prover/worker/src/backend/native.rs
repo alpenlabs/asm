@@ -5,9 +5,7 @@ use strata_predicate::{PredicateKey, PredicateTypeId};
 use zkaleido::ZkVmHost;
 
 use super::ProofHost;
-#[cfg(feature = "sp1")]
-use crate::errors::ProverError;
-use crate::errors::ProverResult;
+use crate::errors::{ProverError, ProverResult};
 
 /// Resolves the [`PredicateKey`] for a native host.
 ///
@@ -15,10 +13,11 @@ use crate::errors::ProverResult;
 /// simply carries the verifying-key bytes verbatim under the BIP-340 Schnorr
 /// type as a placeholder identifier.
 pub(super) fn resolve_native_predicate(host: &impl ZkVmHost) -> ProverResult<PredicateKey> {
-    Ok(PredicateKey::new(
+    PredicateKey::try_new(
         PredicateTypeId::Bip340Schnorr,
         host.vk().as_bytes().to_vec(),
-    ))
+    )
+    .map_err(|e| ProverError::backend("failed to construct native predicate key", e))
 }
 
 #[cfg(feature = "sp1")]

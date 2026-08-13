@@ -25,12 +25,14 @@ pub fn create_test_state() -> (BridgeStateV1, Vec<EvenSecretKey>) {
     let mut rng = rand::thread_rng();
     let num_operators = rng.gen_range(2..=5);
     let (privkeys, operators) = create_test_operators(num_operators);
-    let denomination = BitcoinAmount::from_sat(1_000_000);
+    let denomination = BitcoinAmount::try_from(1_000_000)
+        .expect("test amount must be within the Bitcoin money supply");
     let config = BridgeInitConfig {
         denomination,
         operators,
         assignment_duration: 144, // ~24 hours
-        operator_fee: BitcoinAmount::from_sat(100_000),
+        operator_fee: BitcoinAmount::try_from(100_000)
+            .expect("test amount must be within the Bitcoin money supply"),
         recovery_delay: 1008,
         safe_harbour_address: ArbitraryGenerator::new().generate(),
     };

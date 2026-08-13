@@ -138,10 +138,12 @@ mod tests {
     #[test]
     fn decompose_splits_into_denomination_units() {
         let mut arb = ArbitraryGenerator::new();
-        let denomination = BitcoinAmount::from_sat(10_000);
+        let denomination = BitcoinAmount::try_from(10_000)
+            .expect("test amount must be within the Bitcoin money supply");
 
         let mut intent: WithdrawalIntent = arb.generate();
-        intent.amt = BitcoinAmount::from_sat(denomination.to_sat() * 3);
+        intent.amt = BitcoinAmount::try_from(denomination.to_sat() * 3)
+            .expect("test amount must be within the Bitcoin money supply");
 
         let intents: Vec<WithdrawalIntent> = intent.decompose(denomination).unwrap().collect();
 
@@ -157,10 +159,12 @@ mod tests {
     #[test]
     fn decompose_non_multiple_returns_none() {
         let mut arb = ArbitraryGenerator::new();
-        let denomination = BitcoinAmount::from_sat(10_000);
+        let denomination = BitcoinAmount::try_from(10_000)
+            .expect("test amount must be within the Bitcoin money supply");
 
         let mut intent: WithdrawalIntent = arb.generate();
-        intent.amt = BitcoinAmount::from_sat(denomination.to_sat() + 1);
+        intent.amt = BitcoinAmount::try_from(denomination.to_sat() + 1)
+            .expect("test amount must be within the Bitcoin money supply");
 
         assert!(intent.decompose(denomination).is_none());
     }

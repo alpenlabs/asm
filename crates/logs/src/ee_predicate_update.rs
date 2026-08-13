@@ -65,8 +65,10 @@ mod tests {
     // Local `PredicateKey` strategy — `strata_predicate::test_utils::predicate_key_strategy`
     // is `pub(crate)` upstream. Mirrors the one in `asm_stf.rs`.
     fn predicate_key_strategy() -> impl Strategy<Value = PredicateKey> {
-        prop::collection::vec(any::<u8>(), 0..=MAX_CONDITION_LEN as usize)
-            .prop_map(|c| PredicateKey::new(PredicateTypeId::AlwaysAccept, c))
+        prop::collection::vec(any::<u8>(), 0..=MAX_CONDITION_LEN as usize).prop_map(|c| {
+            PredicateKey::try_new(PredicateTypeId::AlwaysAccept, c)
+                .expect("generated predicate is within the condition limit")
+        })
     }
 
     fn ee_predicate_key_update_strategy() -> impl Strategy<Value = EePredicateKeyUpdate> {
@@ -86,14 +88,16 @@ mod tests {
         let cases = [
             EePredicateKeyUpdate::new(
                 AccountSerial::new(0),
-                PredicateKey::new(PredicateTypeId::AlwaysAccept, vec![]),
+                PredicateKey::try_new(PredicateTypeId::AlwaysAccept, vec![])
+                    .expect("empty predicate is within the condition limit"),
             ),
             EePredicateKeyUpdate::new(
                 AccountSerial::new(u32::MAX),
-                PredicateKey::new(
+                PredicateKey::try_new(
                     PredicateTypeId::AlwaysAccept,
                     vec![0u8; MAX_CONDITION_LEN as usize],
-                ),
+                )
+                .expect("boundary predicate is within the condition limit"),
             ),
         ];
         for log in cases {

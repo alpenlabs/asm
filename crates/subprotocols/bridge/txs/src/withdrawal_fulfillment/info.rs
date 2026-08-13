@@ -65,7 +65,7 @@ impl<'a> Arbitrary<'a> for WithdrawalFulfillmentInfo {
         Ok(WithdrawalFulfillmentInfo {
             header_aux: WithdrawalFulfillmentTxHeaderAux::arbitrary(u)?,
             withdrawal_destination,
-            withdrawal_amount: BitcoinAmount::from_sat(u64::arbitrary(u)?),
+            withdrawal_amount: BitcoinAmount::arbitrary(u)?,
         })
     }
 }

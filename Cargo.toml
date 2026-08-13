@@ -103,30 +103,30 @@ strata-test-utils-btcio = { path = "crates/test-utils/btcio" }
 strata-test-utils-checkpoint = { path = "crates/test-utils/checkpoint" }
 
 # Dependencies from alpenlabs/moho
-moho-recursive-proof = { git = "https://github.com/alpenlabs/moho", tag = "v0.3.0" }
-moho-runtime-impl = { git = "https://github.com/alpenlabs/moho", tag = "v0.3.0" }
-moho-runtime-interface = { git = "https://github.com/alpenlabs/moho", tag = "v0.3.0" }
-moho-types = { git = "https://github.com/alpenlabs/moho", tag = "v0.3.0" }
+moho-recursive-proof = { git = "https://github.com/alpenlabs/moho", tag = "v0.4.0-rc.1" }
+moho-runtime-impl = { git = "https://github.com/alpenlabs/moho", tag = "v0.4.0-rc.1" }
+moho-runtime-interface = { git = "https://github.com/alpenlabs/moho", tag = "v0.4.0-rc.1" }
+moho-types = { git = "https://github.com/alpenlabs/moho", tag = "v0.4.0-rc.1" }
 
 # Dependencies from alpenlabs/strata-common
-strata-btc-types = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.3.0" }
+strata-btc-types = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.4.0-rc.2" }
 strata-codec = { git = "https://github.com/alpenlabs/strata-common", features = [
   "derive",
-], tag = "v0.3.0" }
-strata-codec-utils = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.3.0" }
-strata-crypto = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.3.0" }
-strata-identifiers = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.3.0" }
-strata-l1-envelope-fmt = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.3.0" }
-strata-l1-txfmt = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.3.0" }
-strata-logging = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.3.0" }
-strata-merkle = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.3.0" }
-strata-merkle-node-store = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.3.0" }
-strata-msg-fmt = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.3.0" }
-strata-ol-logs = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.3.0" }
-strata-predicate = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.3.0" }
-strata-service = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.3.0" }
-strata-ssz-tests = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.3.0" }
-strata-tasks = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.3.0" }
+], tag = "v0.4.0-rc.2" }
+strata-codec-utils = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.4.0-rc.2" }
+strata-crypto = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.4.0-rc.2" }
+strata-identifiers = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.4.0-rc.2" }
+strata-l1-envelope-fmt = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.4.0-rc.2" }
+strata-l1-txfmt = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.4.0-rc.2" }
+strata-logging = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.4.0-rc.2" }
+strata-merkle = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.4.0-rc.2" }
+strata-merkle-node-store = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.4.0-rc.2" }
+strata-msg-fmt = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.4.0-rc.2" }
+strata-ol-logs = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.4.0-rc.2" }
+strata-predicate = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.4.0-rc.2" }
+strata-service = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.4.0-rc.2" }
+strata-ssz-tests = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.4.0-rc.2" }
+strata-tasks = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.4.0-rc.2" }
 
 # dependencies from alpenlabs/ssz-gen
 ssz = { git = "https://github.com/alpenlabs/ssz-gen", tag = "v0.17.0" }
