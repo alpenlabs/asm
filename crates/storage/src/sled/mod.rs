@@ -12,11 +12,12 @@ use strata_identifiers::{Buf32, L1BlockCommitment, L1BlockId};
 mod aux;
 mod manifest;
 mod manifest_mmr;
+mod spec_activation;
 mod state;
 
 pub use self::{
     aux::SledAsmAuxDataDb, manifest::SledAsmManifestDb, manifest_mmr::SledAsmManifestMmrDb,
-    state::SledAsmStateDb,
+    spec_activation::SledSpecActivationDb, state::SledAsmStateDb,
 };
 
 // ── Key encoding ──────────────────────────────────────────────────────

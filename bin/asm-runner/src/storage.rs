@@ -9,7 +9,9 @@
 use std::{path::Path, sync::Arc};
 
 use anyhow::Result;
-use asm_storage::{SledAsmAuxDataDb, SledAsmManifestDb, SledAsmManifestMmrDb, SledAsmStateDb};
+use asm_storage::{
+    SledAsmAuxDataDb, SledAsmManifestDb, SledAsmManifestMmrDb, SledAsmStateDb, SledSpecActivationDb,
+};
 use strata_asm_moho_storage::{SledExportEntriesDb, SledMohoStateDb};
 use strata_asm_prover_storage::SledProofDb;
 
@@ -19,6 +21,7 @@ pub(crate) struct AsmStorage {
     pub aux_db: Arc<SledAsmAuxDataDb>,
     pub manifest_db: Arc<SledAsmManifestDb>,
     pub mmr_db: Arc<SledAsmManifestMmrDb>,
+    pub spec_activation_db: Arc<SledSpecActivationDb>,
 }
 
 /// Moho storage backends, both opened on the Moho sled database.
@@ -35,6 +38,7 @@ pub(crate) fn create_asm_storage(path: &Path) -> Result<AsmStorage> {
         aux_db: Arc::new(SledAsmAuxDataDb::open(&db)?),
         manifest_db: Arc::new(SledAsmManifestDb::open(&db)?),
         mmr_db: Arc::new(SledAsmManifestMmrDb::open(&db)?),
+        spec_activation_db: Arc::new(SledSpecActivationDb::open(&db)?),
     })
 }
 

@@ -1,17 +1,19 @@
 use bitcoin::{Block, CompactTarget, params::Params};
-use strata_asm_common::{AnchorState, AsmSpec, AuxData, HeaderVerificationState};
+use strata_asm_common::{AnchorState, AsmLogEntry, AsmSpec, AuxData, HeaderVerificationState};
+use strata_asm_logs::AsmStfUpdate;
+use strata_asm_params::{SpecSchedule, SpecScheduleError};
 use strata_asm_stf::AsmStfOutput;
 use strata_btc_types::BlockHashExt;
 use strata_btc_verification::{
     TxidInclusionProof, compute_block_hash, get_relative_difficulty_adjustment_height,
 };
-use strata_identifiers::L1BlockCommitment;
+use strata_identifiers::{L1BlockCommitment, L1Height};
 use strata_service::ServiceState;
 use tracing::field::Empty;
 
 use crate::{
-    AnchorMismatch, L1DataProvider, Subscribers, WorkerContext, WorkerError, WorkerResult,
-    aux_resolver::AuxDataResolver, constants,
+    AnchorMismatch, L1DataProvider, SpecActivationRecord, Subscribers, WorkerContext, WorkerError,
+    WorkerResult, aux_resolver::AuxDataResolver, constants,
 };
 
 /// Service state for the ASM worker.
@@ -42,6 +44,14 @@ pub struct AsmWorkerServiceState<W, S: AsmSpec> {
     /// the service fans the new commitment out to these; see
     /// [`crate::AsmWorkerHandle::subscribe_blocks`].
     pub(crate) subscribers: Subscribers<L1BlockCommitment>,
+
+    /// Base spec schedule, as configured via params.
+    pub(crate) base_spec_schedule: SpecSchedule,
+
+    /// Effective schedule: `base_spec_schedule` overlaid with every
+    /// discovered activation. This is what discovery validates against, and
+    /// what params threading into the STF will consume once it lands.
+    pub(crate) spec_schedule: SpecSchedule,
 }
 
 impl<W, S> AsmWorkerServiceState<W, S>
@@ -52,15 +62,30 @@ where
 {
     /// Creates a new service state, loading the latest anchor or creating genesis.
     ///
+    /// `spec_schedule` is the configured base schedule; activations
+    /// discovered before a restart are overlaid to resume the effective
+    /// schedule.
+    ///
     /// Construction goes through [`crate::AsmWorkerBuilder`], which owns the
     /// shared [`Subscribers`] registry — hence `pub(crate)`.
     pub(crate) fn new(
         context: W,
         spec: S,
         params: S::Params,
+        spec_schedule: SpecSchedule,
         subscribers: Subscribers<L1BlockCommitment>,
     ) -> WorkerResult<Self> {
         let genesis_height = spec.genesis_l1_height(&params);
+
+        let base_spec_schedule = spec_schedule;
+        let activations = context.list_spec_activations()?;
+        let spec_schedule = effective_schedule(&base_spec_schedule, &activations)?;
+        if !activations.is_empty() {
+            tracing::info!(
+                ?activations,
+                "resuming with persisted spec activations applied"
+            );
+        }
 
         // Align the manifest MMR with L1 heights before processing any block:
         // it is height-indexed, prefilled with sentinels for heights
@@ -98,6 +123,8 @@ where
             blkid,
             genesis_height,
             subscribers,
+            base_spec_schedule,
+            spec_schedule,
         })
     }
 
@@ -159,6 +186,121 @@ where
         self.anchor = anchor;
         self.blkid = blkid;
     }
+
+    /// Scans a processed block's logs for enacted ASM VK upgrades and derives
+    /// the spec activation each one triggers, without touching any state;
+    /// [`Self::apply_spec_activations`] enacts them.
+    ///
+    /// The upgrade log does not name a version — the artifact enacting an
+    /// upgrade may predate the version it activates, so the wire cannot
+    /// require knowing it. Instead each upgrade activates the successor of
+    /// the newest version the effective schedule knows
+    /// ([`SpecSchedule::schedule_successor`]), chaining through upgrades
+    /// earlier in the same block.
+    ///
+    /// An error means the block must not be committed: either the successor
+    /// id has no [`SpecId`](strata_asm_params::SpecId) variant
+    /// ([`WorkerError::UnsupportedSpecActivation`]), so the worker is running
+    /// old software past an upgrade it cannot execute and must halt until
+    /// restarted with an image that supports the version — or the upgrade
+    /// would activate below a height the configured schedule already put its
+    /// predecessor at ([`WorkerError::InconsistentSpecSchedule`]).
+    ///
+    /// Collects into a `Vec` deliberately: every update must validate before
+    /// [`Self::apply_spec_activations`] persists anything, so a flawed update
+    /// cannot leave a prefix of the block's activations on disk.
+    pub(crate) fn discover_spec_activations(
+        &self,
+        block_id: &L1BlockCommitment,
+        logs: &[AsmLogEntry],
+    ) -> WorkerResult<Vec<SpecActivationRecord>> {
+        let enacting_height = block_id.height();
+        let stuck_height = enacting_height.saturating_sub(1);
+        let activation_height = enacting_height.saturating_add(1);
+        // Scheduled on a scratch copy so an upgrade earlier in this block
+        // moves the successor forward for the ones after it, without touching
+        // the schedule before the whole block validates.
+        let mut schedule = self.spec_schedule.clone();
+        logs.iter()
+            .filter_map(|l| l.try_into_log::<AsmStfUpdate>().ok())
+            .map(|update| {
+                let version = schedule
+                    .schedule_successor(activation_height)
+                    .map_err(|err| match err {
+                        SpecScheduleError::UnknownSuccessor(version) => {
+                            WorkerError::UnsupportedSpecActivation {
+                                version,
+                                block_height: enacting_height,
+                                stuck_height,
+                            }
+                        }
+                        err => WorkerError::InconsistentSpecSchedule(err),
+                    })?;
+                Ok(SpecActivationRecord::new(
+                    enacting_height,
+                    version,
+                    update.into_new_predicate(),
+                ))
+            })
+            .collect()
+    }
+
+    /// Persists each discovered activation and applies it to the in-memory
+    /// effective schedule.
+    ///
+    /// MUST run before the enacting block's anchor state is committed:
+    /// persisting the activation first guarantees a committed anchor never
+    /// lacks the activation it enacted (crash-replay simply rewrites the same
+    /// record).
+    pub(crate) fn apply_spec_activations(
+        &mut self,
+        activations: Vec<SpecActivationRecord>,
+    ) -> WorkerResult<()> {
+        for activation in activations {
+            let version = activation.version();
+            let enacting_height = activation.enacting_height();
+            let activation_height = activation.activation_height();
+            self.context.record_spec_activation(activation)?;
+            self.spec_schedule.schedule(version, activation_height)?;
+            tracing::info!(
+                ?version,
+                activation_height,
+                enacting_height,
+                "spec version activated by ASM VK upgrade"
+            );
+        }
+        Ok(())
+    }
+
+    /// Drops spec activations enacted strictly above `base_height` and
+    /// recomputes the effective schedule.
+    ///
+    /// Called when a sync rebases onto an ancestor (reorg): activations
+    /// enacted on the abandoned branch must not leak into re-processing;
+    /// any still on the new branch are re-discovered as its blocks re-apply.
+    pub(crate) fn rollback_spec_activations(&mut self, base_height: L1Height) -> WorkerResult<()> {
+        self.context.prune_spec_activations_after(base_height)?;
+        let activations = self.context.list_spec_activations()?;
+        self.spec_schedule = effective_schedule(&self.base_spec_schedule, &activations)?;
+        Ok(())
+    }
+}
+
+/// Overlays `activations` onto the `base` schedule.
+///
+/// Errs when a record does not fit the base schedule
+/// ([`WorkerError::InconsistentSpecSchedule`]) — the store and the configured
+/// params disagree, so the worker must not start on a schedule missing
+/// activations it already committed blocks under.
+fn effective_schedule(
+    base: &SpecSchedule,
+    activations: &[SpecActivationRecord],
+) -> WorkerResult<SpecSchedule> {
+    let mut schedule = base.clone();
+    for activation in activations {
+        schedule.schedule(activation.version(), activation.activation_height())?;
+    }
+    Ok(schedule)
 }
 
 impl<W, S> ServiceState for AsmWorkerServiceState<W, S>
@@ -334,6 +476,7 @@ mod tests {
             seed.state.context.clone(),
             TestAsmSpec,
             params,
+            SpecSchedule::genesis(),
             Subscribers::default(),
         )
         .unwrap();
@@ -460,12 +603,195 @@ mod tests {
 
         let context = fx.state.context.clone();
         let params = fixtures::genesis_params(&fx.client, 101).await;
-        AsmWorkerServiceState::new(context, TestAsmSpec, params, Subscribers::default()).unwrap();
+        AsmWorkerServiceState::new(
+            context,
+            TestAsmSpec,
+            params,
+            SpecSchedule::genesis(),
+            Subscribers::default(),
+        )
+        .unwrap();
 
         assert_eq!(
             fx.state.context.mmr_leaf_count(),
             102,
             "prefill is idempotent across restart",
         );
+    }
+
+    mod spec_activation {
+        use strata_asm_logs::AsmStfUpdate;
+        use strata_asm_params::SpecId;
+        use strata_identifiers::Buf32;
+        use strata_predicate::{PredicateKey, PredicateTypeId};
+
+        use super::*;
+        use crate::SpecActivationStore;
+
+        /// Stands in for the upgraded artifact's VK, persisted with the
+        /// activation discovery records.
+        fn upgrade_predicate() -> PredicateKey {
+            PredicateKey::new(PredicateTypeId::Bip340Schnorr, vec![0x33; 32])
+        }
+
+        fn upgrade_log() -> AsmLogEntry {
+            AsmLogEntry::from_log(&AsmStfUpdate::new(upgrade_predicate()))
+                .expect("AsmStfUpdate encoding is infallible")
+        }
+
+        fn block_at(height: L1Height) -> L1BlockCommitment {
+            L1BlockCommitment::new(height, Buf32::new([0xEE; 32]).into())
+        }
+
+        /// An upgrade log yields the activation of the successor of the
+        /// newest scheduled version; applying it activates that version at
+        /// H+1, in memory and on disk. Discovery alone touches nothing.
+        #[tokio::test(flavor = "multi_thread")]
+        async fn discover_then_apply_activates_successor_version() {
+            let mut fx = fixtures::setup_state(101).await;
+
+            let discovered = fx
+                .state
+                .discover_spec_activations(&block_at(150), &[upgrade_log()])
+                .unwrap();
+
+            let expected = vec![SpecActivationRecord::new(
+                150,
+                SpecId::V1,
+                upgrade_predicate(),
+            )];
+            assert_eq!(discovered, expected);
+            assert_eq!(fx.state.spec_schedule, SpecSchedule::genesis());
+            assert!(fx.state.context.list_spec_activations().unwrap().is_empty());
+
+            fx.state.apply_spec_activations(discovered).unwrap();
+
+            assert_eq!(
+                fx.state.spec_schedule.activation_height_of(SpecId::V1),
+                Some(151)
+            );
+            assert_eq!(fx.state.context.list_spec_activations().unwrap(), expected);
+        }
+
+        /// An upgrade whose successor this binary has no variant for prevents
+        /// the enacting block from being committed at all.
+        #[tokio::test(flavor = "multi_thread")]
+        async fn discover_rejects_unknown_successor() {
+            let mut fx = fixtures::setup_state(101).await;
+            // Every known version is already scheduled, so the next upgrade's
+            // successor (2) falls past the known set.
+            fx.state
+                .spec_schedule
+                .schedule(SpecId::V1, 10)
+                .expect("schedule V1");
+
+            let err = fx
+                .state
+                .discover_spec_activations(&block_at(150), &[upgrade_log()])
+                .unwrap_err();
+
+            assert!(
+                matches!(
+                    err,
+                    WorkerError::UnsupportedSpecActivation {
+                        version: 2,
+                        block_height: 150,
+                        stuck_height: 149,
+                    }
+                ),
+                "expected unsupported spec activation error, got {err:?}",
+            );
+            assert!(fx.state.context.list_spec_activations().unwrap().is_empty());
+        }
+
+        /// A flawed update anywhere in the block's logs fails discovery as a
+        /// whole: the valid earlier update must not slip through, so nothing
+        /// is ever persisted for a block the worker refuses to commit. This
+        /// also exercises chaining within a block: the second upgrade's
+        /// successor is 2 only because the first one moved it past V1.
+        #[tokio::test(flavor = "multi_thread")]
+        async fn discover_rejects_block_with_valid_and_flawed_updates() {
+            let fx = fixtures::setup_state(101).await;
+            let logs = [upgrade_log(), upgrade_log()];
+
+            let err = fx
+                .state
+                .discover_spec_activations(&block_at(150), &logs)
+                .unwrap_err();
+
+            assert!(
+                matches!(
+                    err,
+                    WorkerError::UnsupportedSpecActivation { version: 2, .. }
+                ),
+                "expected unsupported spec activation error, got {err:?}",
+            );
+            assert_eq!(fx.state.spec_schedule, SpecSchedule::genesis());
+            assert!(fx.state.context.list_spec_activations().unwrap().is_empty());
+        }
+
+        /// A restart resumes the effective schedule from persisted
+        /// activations.
+        #[tokio::test(flavor = "multi_thread")]
+        async fn new_resumes_persisted_activations() {
+            let fx = fixtures::setup_state(101).await;
+            let context = fx.state.context.clone(); // shares the sled store
+            context
+                .record_spec_activation(SpecActivationRecord::new(
+                    120,
+                    SpecId::V1,
+                    upgrade_predicate(),
+                ))
+                .unwrap();
+
+            let params = fixtures::genesis_params(&fx.client, 101).await;
+            let reloaded = AsmWorkerServiceState::new(
+                context,
+                TestAsmSpec,
+                params,
+                SpecSchedule::genesis(),
+                Subscribers::default(),
+            )
+            .unwrap();
+
+            assert_eq!(
+                reloaded.spec_schedule.activation_height_of(SpecId::V1),
+                Some(121),
+                "restart must resume the discovered activation",
+            );
+        }
+
+        /// A reorg rollback prunes activations above the base and recomputes
+        /// the effective schedule from what survives.
+        #[tokio::test(flavor = "multi_thread")]
+        async fn rollback_prunes_and_recomputes() {
+            let mut fx = fixtures::setup_state(101).await;
+            let logs = [upgrade_log()];
+
+            let activations = fx
+                .state
+                .discover_spec_activations(&block_at(150), &logs)
+                .unwrap();
+            fx.state.apply_spec_activations(activations).unwrap();
+            assert!(fx.state.spec_schedule.is_active(SpecId::V1, 151));
+
+            // Reorg to a base below the enacting block: back to the base schedule.
+            fx.state.rollback_spec_activations(140).unwrap();
+            assert_eq!(
+                fx.state.spec_schedule,
+                SpecSchedule::genesis(),
+                "activation enacted above the base must be dropped",
+            );
+            assert!(fx.state.context.list_spec_activations().unwrap().is_empty());
+
+            // A rollback at or above the enacting height keeps the activation.
+            let activations = fx
+                .state
+                .discover_spec_activations(&block_at(150), &logs)
+                .unwrap();
+            fx.state.apply_spec_activations(activations).unwrap();
+            fx.state.rollback_spec_activations(150).unwrap();
+            assert!(fx.state.spec_schedule.is_active(SpecId::V1, 151));
+        }
     }
 }

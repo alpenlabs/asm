@@ -1,21 +1,25 @@
 //! Worker-context trait implementations for the ASM runner.
 //!
-//! Implements the four [`WorkerContext`](strata_asm_worker::WorkerContext)
+//! Implements the five [`WorkerContext`](strata_asm_worker::WorkerContext)
 //! concern traits ([`L1DataProvider`], [`AnchorStateStore`],
-//! [`ManifestMmrStore`], [`AuxDataStore`]) for [`AsmWorkerContext`].
+//! [`ManifestMmrStore`], [`AuxDataStore`], [`SpecActivationStore`]) for
+//! [`AsmWorkerContext`].
 
 use std::sync::Arc;
 
-use anyhow::Context;
-use asm_storage::{SledAsmAuxDataDb, SledAsmManifestDb, SledAsmManifestMmrDb, SledAsmStateDb};
+use anyhow::{Context, anyhow};
+use asm_storage::{
+    SledAsmAuxDataDb, SledAsmManifestDb, SledAsmManifestMmrDb, SledAsmStateDb, SledSpecActivationDb,
+};
 use bitcoin::{Block, BlockHash, Network, block::Header};
 use bitcoind_async_client::{Client, traits::Reader};
 use strata_asm_common::{AnchorState, AsmManifest, AsmManifestHash, AuxData};
 use strata_asm_worker::{
-    AnchorStateStore, AuxDataStore, L1DataProvider, ManifestMmrStore, WorkerError, WorkerResult,
+    AnchorStateStore, AuxDataStore, L1DataProvider, ManifestMmrStore, SpecActivationRecord,
+    SpecActivationStore, WorkerError, WorkerResult,
 };
 use strata_btc_types::{BitcoinTxid, L1BlockIdBitcoinExt, RawBitcoinTx};
-use strata_identifiers::{L1BlockCommitment, L1BlockId};
+use strata_identifiers::{L1BlockCommitment, L1BlockId, L1Height};
 use strata_merkle::MerkleProofB32;
 use tokio::runtime::Handle;
 
@@ -37,9 +41,14 @@ pub(crate) struct AsmWorkerContext {
     aux_db: Arc<SledAsmAuxDataDb>,
     manifest_db: Arc<SledAsmManifestDb>,
     mmr_db: Arc<SledAsmManifestMmrDb>,
+    spec_activation_db: Arc<SledSpecActivationDb>,
 }
 
 impl AsmWorkerContext {
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "one argument per storage concern"
+    )]
     pub(crate) fn new(
         runtime_handle: Handle,
         bitcoin_client: Arc<Client>,
@@ -48,6 +57,7 @@ impl AsmWorkerContext {
         aux_db: Arc<SledAsmAuxDataDb>,
         manifest_db: Arc<SledAsmManifestDb>,
         mmr_db: Arc<SledAsmManifestMmrDb>,
+        spec_activation_db: Arc<SledSpecActivationDb>,
     ) -> Self {
         Self {
             runtime_handle,
@@ -58,6 +68,7 @@ impl AsmWorkerContext {
             aux_db,
             manifest_db,
             mmr_db,
+            spec_activation_db,
         }
     }
 }
@@ -216,6 +227,41 @@ impl ManifestMmrStore for AsmWorkerContext {
             .get_leaf(index)
             .map_err(WorkerError::DbError)?
             .ok_or(WorkerError::ManifestHashNotFound { index })
+    }
+}
+
+impl SpecActivationStore for AsmWorkerContext {
+    fn record_spec_activation(&self, activation: SpecActivationRecord) -> WorkerResult<()> {
+        self.spec_activation_db
+            .put(
+                activation.enacting_height(),
+                activation.version().into(),
+                activation.new_predicate(),
+            )
+            .map_err(WorkerError::DbError)
+    }
+
+    fn list_spec_activations(&self) -> WorkerResult<Vec<SpecActivationRecord>> {
+        self.spec_activation_db
+            .list()
+            .map_err(WorkerError::DbError)?
+            .into_iter()
+            .map(|(enacting_height, version, new_predicate)| {
+                SpecActivationRecord::from_raw(enacting_height, version, new_predicate).map_err(
+                    |id| {
+                        WorkerError::DbError(anyhow!(
+                            "unknown spec version {id} in spec activation store"
+                        ))
+                    },
+                )
+            })
+            .collect()
+    }
+
+    fn prune_spec_activations_after(&self, after_height: L1Height) -> WorkerResult<()> {
+        self.spec_activation_db
+            .prune_after(after_height)
+            .map_err(WorkerError::DbError)
     }
 }
 

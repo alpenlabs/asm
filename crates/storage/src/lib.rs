@@ -10,6 +10,8 @@
 //! - [`AsmAuxDataDb`] / [`SledAsmAuxDataDb`] — auxiliary data, keyed by block commitment
 //! - [`AsmManifestDb`] / [`SledAsmManifestDb`] — full manifests, keyed by block commitment
 //! - [`AsmManifestMmrDb`] / [`SledAsmManifestMmrDb`] — manifest hash MMR, keyed by L1 height
+//! - [`AsmSpecActivationDb`] / [`SledSpecActivationDb`] — discovered spec activations, keyed by
+//!   `(enacting height, version)`
 //!
 //! The commitment-keyed stores ([`AsmStateDb`], [`AsmAuxDataDb`],
 //! [`AsmManifestDb`]) key each entry by its [`L1BlockCommitment`] — height plus
@@ -30,10 +32,14 @@ mod aux;
 mod manifest;
 mod manifest_mmr;
 mod sled;
+mod spec_activation;
 mod state;
 
 pub use aux::AsmAuxDataDb;
 pub use manifest::AsmManifestDb;
 pub use manifest_mmr::AsmManifestMmrDb;
-pub use sled::{SledAsmAuxDataDb, SledAsmManifestDb, SledAsmManifestMmrDb, SledAsmStateDb};
+pub use sled::{
+    SledAsmAuxDataDb, SledAsmManifestDb, SledAsmManifestMmrDb, SledAsmStateDb, SledSpecActivationDb,
+};
+pub use spec_activation::{AsmSpecActivationDb, RawSpecActivation};
 pub use state::AsmStateDb;

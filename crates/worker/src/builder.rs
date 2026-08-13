@@ -1,4 +1,5 @@
 use strata_asm_common::AsmSpec;
+use strata_asm_params::SpecSchedule;
 use strata_service::ServiceBuilder;
 use strata_tasks::TaskExecutor;
 
@@ -26,6 +27,7 @@ pub struct AsmWorkerBuilder<W, S: AsmSpec> {
     context: Option<W>,
     params: Option<S::Params>,
     spec: Option<S>,
+    spec_schedule: Option<SpecSchedule>,
 }
 
 impl<W, S: AsmSpec> AsmWorkerBuilder<W, S> {
@@ -35,6 +37,7 @@ impl<W, S: AsmSpec> AsmWorkerBuilder<W, S> {
             context: None,
             params: None,
             spec: None,
+            spec_schedule: None,
         }
     }
 
@@ -59,6 +62,14 @@ impl<W, S: AsmSpec> AsmWorkerBuilder<W, S> {
         self
     }
 
+    /// Set the base spec schedule the worker starts from (the runtime
+    /// params' schedule). Spec activations discovered from the ASM VK
+    /// upgrade log are overlaid on top of it to form the effective schedule.
+    pub fn with_spec_schedule(mut self, spec_schedule: SpecSchedule) -> Self {
+        self.spec_schedule = Some(spec_schedule);
+        self
+    }
+
     /// Launch the ASM worker service and return a handle to it.
     ///
     /// This method validates all required dependencies, creates the service state,
@@ -77,6 +88,9 @@ impl<W, S: AsmSpec> AsmWorkerBuilder<W, S> {
             .params
             .ok_or(WorkerError::MissingDependency("params"))?;
         let spec = self.spec.ok_or(WorkerError::MissingDependency("spec"))?;
+        let spec_schedule = self
+            .spec_schedule
+            .ok_or(WorkerError::MissingDependency("spec_schedule"))?;
 
         // Shared between the service state (which emits) and the handle (which
         // hands out subscriptions), so a `subscribe_blocks()` on the handle
@@ -84,7 +98,8 @@ impl<W, S: AsmSpec> AsmWorkerBuilder<W, S> {
         let subscribers = Subscribers::default();
 
         // Create the service state.
-        let service_state = AsmWorkerServiceState::new(context, spec, params, subscribers.clone())?;
+        let service_state =
+            AsmWorkerServiceState::new(context, spec, params, spec_schedule, subscribers.clone())?;
 
         // Create the service builder and get command handle.
         let mut service_builder =

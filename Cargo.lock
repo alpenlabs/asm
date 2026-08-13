@@ -804,6 +804,7 @@ dependencies = [
  "strata-identifiers",
  "strata-merkle",
  "strata-merkle-node-store",
+ "strata-predicate",
  "tempfile",
 ]
 
@@ -4537,7 +4538,17 @@ version = "0.5.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1f646caf906c20226733ed5b1374287eb97e3c2a5c227ce668c1f2ce20ae57c9"
 dependencies = [
- "num_enum_derive",
+ "num_enum_derive 0.5.11",
+]
+
+[[package]]
+name = "num_enum"
+version = "0.7.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5d0bca838442ec211fa11de3a8b0e0e8f3a4522575b5c4c06ed722e005036f26"
+dependencies = [
+ "num_enum_derive 0.7.6",
+ "rustversion",
 ]
 
 [[package]]
@@ -4550,6 +4561,18 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 1.0.109",
+]
+
+[[package]]
+name = "num_enum_derive"
+version = "0.7.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "680998035259dcfcafe653688bf2aa6d3e2dc05e98be6ab46afb089dc84f1df8"
+dependencies = [
+ "proc-macro-crate 3.5.0",
+ "proc-macro2",
+ "quote",
+ "syn 2.0.118",
 ]
 
 [[package]]
@@ -5770,7 +5793,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "efd079cd303257a4cb4e5aadfa79a7fe23f3c8301aa4740ccc3a99673485a352"
 dependencies = [
  "downcast-rs",
- "num_enum",
+ "num_enum 0.5.11",
  "paste",
 ]
 
@@ -7627,8 +7650,6 @@ version = "0.1.0"
 dependencies = [
  "bitcoin",
  "borsh",
- "serde",
- "serde_json",
  "ssz",
  "ssz_derive",
  "ssz_types",
@@ -7729,12 +7750,12 @@ version = "0.1.0"
 dependencies = [
  "arbitrary",
  "bitcoin",
+ "num_enum 0.7.6",
  "proptest",
  "serde",
  "serde_json",
  "ssz",
  "ssz_derive",
- "strata-asm-common",
  "strata-asm-proto-bridge-types",
  "strata-btc-types",
  "strata-btc-verification",
@@ -7742,6 +7763,7 @@ dependencies = [
  "strata-identifiers",
  "strata-l1-txfmt",
  "strata-predicate",
+ "thiserror 2.0.18",
 ]
 
 [[package]]
@@ -8210,12 +8232,15 @@ dependencies = [
  "serde",
  "sled",
  "strata-asm-common",
+ "strata-asm-logs",
+ "strata-asm-params",
  "strata-asm-stf",
  "strata-btc-types",
  "strata-btc-verification",
  "strata-identifiers",
  "strata-l1-txfmt",
  "strata-merkle",
+ "strata-predicate",
  "strata-service",
  "strata-tasks",
  "strata-test-utils-btcio",
@@ -8469,6 +8494,7 @@ version = "0.1.0"
 source = "git+https://github.com/alpenlabs/strata-common?tag=v0.3.0-rc.2#c3698c0f26d8d3d16e56a478eb375e077d813775"
 dependencies = [
  "arbitrary",
+ "borsh",
  "hex",
  "k256",
  "serde",

@@ -33,6 +33,7 @@ pub(crate) async fn bootstrap(
         aux_db,
         manifest_db,
         mmr_db,
+        spec_activation_db,
     } = create_asm_storage(&config.database.asm_path)?;
     let MohoStorage {
         state_db: moho_state_db,
@@ -67,6 +68,7 @@ pub(crate) async fn bootstrap(
         aux_db.clone(),
         manifest_db.clone(),
         mmr_db.clone(),
+        spec_activation_db,
     );
 
     // 5. Launch ASM worker.
@@ -80,6 +82,7 @@ pub(crate) async fn bootstrap(
             .with_context(worker_context)
             .with_asm_spec(StrataAsmSpec)
             .with_params(params.genesis.clone())
+            .with_spec_schedule(params.runtime.spec_schedule.clone())
             .launch(&executor)
     })?;
 
