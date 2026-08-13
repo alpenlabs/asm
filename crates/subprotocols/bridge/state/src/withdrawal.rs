@@ -21,10 +21,9 @@ use strata_identifiers::Buf32;
 /// - Only the [hash](Self::compute_hash) of this structure leaves the ASM, emitted as an ASM log
 ///   via `NewExportEntry` and folded into the bridge export container's MMR. The structure itself
 ///   is never stored.
-/// - The Bridge proof system reconstructs this preimage to prove MMR membership, verifying that
-///   operators have correctly fulfilled withdrawal obligations before allowing them to unlock
-///   deposit UTXOs. That makes the encoding below a cross-repo consensus contract: changing it
-///   invalidates every previously committed leaf.
+/// - This data is stored in the MohoState and emitted as an ASM log via `NewExportEntry`.
+/// - The Bridge proof system consumes these entries to verify operators have correctly fulfilled
+///   withdrawal obligations before allowing them to unlock deposit UTXOs.
 #[derive(Debug, Clone, PartialEq, Eq, Codec)]
 pub struct OperatorClaimUnlock {
     /// The index of the deposit that was fulfilled.
@@ -56,8 +55,6 @@ mod tests {
 
     use super::*;
 
-    /// Pins the wire format that the Bridge proof system reconstructs out-of-repo: a 4-byte
-    /// big-endian `deposit_idx` followed by the 32 key bytes, hashed to form the MMR leaf.
     #[test]
     fn encoding_is_stable() {
         let claim = OperatorClaimUnlock::new(1, Buf32::from([2u8; 32]));
