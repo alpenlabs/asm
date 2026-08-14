@@ -105,31 +105,34 @@ impl fmt::Debug for BitcoinConfig {
 mod tests {
     use super::*;
 
+    // Every required section, no `[logging]`. Tests that care about logging
+    // append their own `[logging]` table. The credentials are sentinels so
+    // `debug_redacts_bitcoin_rpc_credentials` can search rendered output for
+    // them without matching field names or other values.
+    const BASE: &str = r#"
+        [rpc]
+        host = "127.0.0.1"
+        port = 8000
+
+        [database]
+        asm_path = "/tmp/asm-db"
+        moho_path = "/tmp/moho-db"
+
+        [bitcoin]
+        rpc_url = "http://localhost:18443"
+        rpc_user = "sentinel-user"
+        rpc_password = "sentinel-password"
+        hashblock_connection_string = "tcp://127.0.0.1:28332"
+    "#;
+
     // A `[logging]` section that only sets `otlp_url` must deserialize cleanly
     // and leave every other field at its default — historically the missing
     // `extra_filter_directives` triggered `missing field` errors.
     #[test]
     fn logging_config_partial_section_uses_defaults() {
-        let toml_src = r#"
-            [rpc]
-            host = "127.0.0.1"
-            port = 8000
+        let toml_src = format!("{BASE}\n[logging]\notlp_url = \"http://localhost:4317\"\n");
 
-            [database]
-            asm_path = "/tmp/asm-db"
-            moho_path = "/tmp/moho-db"
-
-            [bitcoin]
-            rpc_url = "http://localhost:18443"
-            rpc_user = "user"
-            rpc_password = "pass"
-            hashblock_connection_string = "tcp://127.0.0.1:28332"
-
-            [logging]
-            otlp_url = "http://localhost:4317"
-        "#;
-
-        let config: AsmRpcConfig = toml::from_str(toml_src).expect("should parse");
+        let config: AsmRpcConfig = toml::from_str(&toml_src).expect("should parse");
 
         assert_eq!(
             config.logging.otlp_url.as_deref(),
@@ -146,23 +149,7 @@ mod tests {
     // Bitcoin RPC credentials — neither the leaf struct nor the parent that holds it.
     #[test]
     fn debug_redacts_bitcoin_rpc_credentials() {
-        let toml_src = r#"
-            [rpc]
-            host = "127.0.0.1"
-            port = 8000
-
-            [database]
-            asm_path = "/tmp/asm-db"
-            moho_path = "/tmp/moho-db"
-
-            [bitcoin]
-            rpc_url = "http://localhost:18443"
-            rpc_user = "sentinel-user"
-            rpc_password = "sentinel-password"
-            hashblock_connection_string = "tcp://127.0.0.1:28332"
-        "#;
-
-        let config: AsmRpcConfig = toml::from_str(toml_src).expect("should parse");
+        let config: AsmRpcConfig = toml::from_str(BASE).expect("should parse");
 
         for rendered in [
             format!("{:?}", config.bitcoin),
@@ -188,23 +175,7 @@ mod tests {
     // Omitting the entire `[logging]` table must also be a clean parse.
     #[test]
     fn logging_section_optional() {
-        let toml_src = r#"
-            [rpc]
-            host = "127.0.0.1"
-            port = 8000
-
-            [database]
-            asm_path = "/tmp/asm-db"
-            moho_path = "/tmp/moho-db"
-
-            [bitcoin]
-            rpc_url = "http://localhost:18443"
-            rpc_user = "user"
-            rpc_password = "pass"
-            hashblock_connection_string = "tcp://127.0.0.1:28332"
-        "#;
-
-        let config: AsmRpcConfig = toml::from_str(toml_src).expect("should parse");
+        let config: AsmRpcConfig = toml::from_str(BASE).expect("should parse");
 
         assert!(config.logging.otlp_url.is_none());
         assert!(config.logging.extra_filter_directives.is_empty());
