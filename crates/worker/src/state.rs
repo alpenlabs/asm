@@ -141,6 +141,9 @@ where
         let stf_span = tracing::debug_span!("asm.stf.process");
         let _stf_guard = stf_span.enter();
 
+        // The block comes from our own L1 source, so it has a coinbase and this is `Some`. It is
+        // `None` only for a block with no transactions, which the STF then rejects with
+        // `L1BodyError::EmptyBlock`.
         let coinbase_inclusion_proof = TxidInclusionProof::generate(&block.txdata, 0);
 
         strata_asm_stf::compute_asm_transition(
@@ -148,7 +151,7 @@ where
             cur_state,
             block,
             &aux_data,
-            Some(&coinbase_inclusion_proof),
+            coinbase_inclusion_proof.as_ref(),
         )
         .map(|output| (output, aux_data))
         .map_err(WorkerError::AsmError)

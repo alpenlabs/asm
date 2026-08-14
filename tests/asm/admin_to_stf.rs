@@ -136,7 +136,8 @@ async fn test_proof_program_reflects_predicate_update() {
 
     // Fetch the activation block.
     let activation_block = harness.get_block(activation_block_hash).await.unwrap();
-    let coinbase_inclusion_proof = TxidInclusionProof::generate(&activation_block.txdata, 0);
+    let coinbase_inclusion_proof =
+        TxidInclusionProof::generate(&activation_block.txdata, 0).expect("valid index");
 
     // Build AsmStepInput from the real activation block.
     let step_input = AsmStepInput::new(
