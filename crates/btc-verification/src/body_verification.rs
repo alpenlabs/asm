@@ -193,7 +193,8 @@ mod tests {
     #[test]
     fn test_block_with_valid_witness() {
         let block = BtcMainnetSegment::load_full_block();
-        let coinbase_inclusion_proof = TxidInclusionProof::generate(&block.txdata, 0);
+        let coinbase_inclusion_proof =
+            TxidInclusionProof::generate(&block.txdata, 0).expect("valid index");
         check_block_integrity(&block, Some(&coinbase_inclusion_proof)).unwrap();
     }
 
@@ -207,7 +208,8 @@ mod tests {
     #[test]
     fn test_block_with_valid_inclusion_proof_of_other_tx() {
         let block = BtcMainnetSegment::load_full_block();
-        let non_coinbase_inclusion_proof = TxidInclusionProof::generate(&block.txdata, 1);
+        let non_coinbase_inclusion_proof =
+            TxidInclusionProof::generate(&block.txdata, 1).expect("valid index");
         let err = check_block_integrity(&block, Some(&non_coinbase_inclusion_proof)).unwrap_err();
         assert!(matches!(err, L1BodyError::InvalidInclusionProof));
     }
@@ -239,7 +241,8 @@ mod tests {
             }
         }
 
-        let valid_inclusion_proof = TxidInclusionProof::generate(&block.txdata, 0);
+        let valid_inclusion_proof =
+            TxidInclusionProof::generate(&block.txdata, 0).expect("valid index");
         assert!(check_block_integrity(&block, Some(&valid_inclusion_proof)).is_err());
     }
 
@@ -252,7 +255,8 @@ mod tests {
         check_block_integrity(&block, None).unwrap();
 
         // Verify with a valid inclusion proof.
-        let valid_inclusion_proof = TxidInclusionProof::generate(&block.txdata, 0);
+        let valid_inclusion_proof =
+            TxidInclusionProof::generate(&block.txdata, 0).expect("valid index");
         check_block_integrity(&block, Some(&valid_inclusion_proof)).unwrap();
     }
 

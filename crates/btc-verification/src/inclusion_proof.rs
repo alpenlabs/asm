@@ -50,20 +50,18 @@ impl TxidInclusionProof {
     ///
     /// Bitcoin's Merkle tree duplicates the last element when a level has an odd number of nodes.
     ///
-    /// # Panics
-    ///
-    /// Panics if `idx` is out of bounds for `transactions`.
-    pub fn generate(transactions: &[Transaction], idx: u32) -> Self {
+    /// Returns `None` if `idx` is out of bounds for `transactions`, which includes the case of an
+    /// empty list. The bound is checked before any transaction is hashed, so a bad index costs
+    /// nothing.
+    pub fn generate(transactions: &[Transaction], idx: u32) -> Option<Self> {
+        if idx as usize >= transactions.len() {
+            return None;
+        }
+
         let mut curr_level: Vec<Buf32> = transactions
             .iter()
             .map(|tx| compute_txid(tx).to_buf32())
             .collect();
-
-        assert!(
-            (idx as usize) < curr_level.len(),
-            "The transaction index ({idx}) should be within the transactions length ({})",
-            curr_level.len()
-        );
 
         let mut curr_index = idx;
 
@@ -101,7 +99,7 @@ impl TxidInclusionProof {
             curr_index >>= 1;
         }
 
-        TxidInclusionProof::new(idx, siblings)
+        Some(TxidInclusionProof::new(idx, siblings))
     }
 
     /// Computes the Merkle root for the given `transaction` by hashing it with each sibling
@@ -176,7 +174,7 @@ mod tests {
         let txs = &block.txdata;
 
         for (idx, tx) in txs.iter().enumerate() {
-            let proof = TxidInclusionProof::generate(txs, idx as u32);
+            let proof = TxidInclusionProof::generate(txs, idx as u32).expect("valid index");
             assert!(proof.verify(tx, merkle_root, txs.len()));
         }
     }
@@ -204,7 +202,7 @@ mod tests {
         // Forgery 2: an out-of-range position that verifies against the real Merkle root because
         // only the low `siblings.len()` bits feed left/right ordering. Rejected by the leaf-index
         // bound.
-        let valid = TxidInclusionProof::generate(txs, 0);
+        let valid = TxidInclusionProof::generate(txs, 0).expect("valid index");
         let depth = valid.siblings().len();
         let bogus_position = 1usize << depth;
         assert!(
@@ -217,6 +215,19 @@ mod tests {
 
         // The genuine proof still verifies.
         assert!(valid.verify(coinbase, merkle_root, tx_count));
+    }
+
+    /// An out-of-range index has no proof to return. The empty-list case matters most: the worker
+    /// asks for index 0 on every block, so a block with no transactions must yield `None` instead
+    /// of taking down the process.
+    #[test]
+    fn test_generate_rejects_out_of_range_index() {
+        let block = BtcMainnetSegment::load_full_block();
+        let txs = &block.txdata;
+
+        assert!(TxidInclusionProof::generate(txs, txs.len() as u32).is_none());
+        assert!(TxidInclusionProof::generate(txs, u32::MAX).is_none());
+        assert!(TxidInclusionProof::generate(&[], 0).is_none());
     }
 
     #[test]

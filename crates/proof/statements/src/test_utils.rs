@@ -22,7 +22,7 @@ use crate::moho_program::{input::AsmStepInput, program::AsmStfProgram};
 /// Creates a single-step input from a fixed test Bitcoin block.
 pub fn create_asm_step_input() -> AsmStepInput {
     let block = BtcMainnetSegment::load_full_block();
-    let coinbase_inclusion_proof = Some(TxidInclusionProof::generate(&block.txdata, 0));
+    let coinbase_inclusion_proof = TxidInclusionProof::generate(&block.txdata, 0);
     AsmStepInput::new(block, AuxData::default(), coinbase_inclusion_proof)
 }
 

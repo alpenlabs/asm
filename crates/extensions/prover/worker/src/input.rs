@@ -121,10 +121,9 @@ impl InputBuilder {
         // 2. Fetch the auxiliary data stored during STF execution.
         let aux_data = ctx.get_aux_data(&commitment)?;
 
-        let coinbase_inclusion_proof = match block.witness_root() {
-            Some(_) => Some(TxidInclusionProof::generate(&block.txdata, 0)),
-            None => None,
-        };
+        // `None` only for a block with no transactions. The guest rejects that when it re-runs
+        // the STF, so there is nothing to check here.
+        let coinbase_inclusion_proof = TxidInclusionProof::generate(&block.txdata, 0);
 
         // 3. Build the step input.
         let step_input = AsmStepInput::new(block, aux_data, coinbase_inclusion_proof);
