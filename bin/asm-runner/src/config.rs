@@ -57,10 +57,10 @@ pub(crate) struct DatabaseConfig {
 
 /// Bitcoin node configuration
 ///
-/// `Debug` is implemented by hand so `rpc_password` is never printed. Startup
-/// logs the whole [`AsmRpcConfig`], and those records reach stdout, rolling
-/// files, and the OTLP collector, so a derived `Debug` would copy the
-/// credential to every enabled sink.
+/// `Debug` is implemented by hand so neither half of the RPC credential is
+/// printed. Startup logs the whole [`AsmRpcConfig`], and those records reach
+/// stdout, rolling files, and the OTLP collector, so a derived `Debug` would
+/// copy the credential to every enabled sink.
 #[derive(Clone, Serialize, Deserialize)]
 pub(crate) struct BitcoinConfig {
     /// Bitcoin RPC URL
@@ -90,7 +90,7 @@ impl fmt::Debug for BitcoinConfig {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("BitcoinConfig")
             .field("rpc_url", &self.rpc_url)
-            .field("rpc_user", &self.rpc_user)
+            .field("rpc_user", &"<redacted>")
             .field("rpc_password", &"<redacted>")
             .field(
                 "hashblock_connection_string",
@@ -143,9 +143,9 @@ mod tests {
     }
 
     // Startup logs the whole config, so no debug rendering of it may carry the
-    // Bitcoin RPC password — neither the leaf struct nor the parent that holds it.
+    // Bitcoin RPC credentials — neither the leaf struct nor the parent that holds it.
     #[test]
-    fn debug_redacts_bitcoin_rpc_password() {
+    fn debug_redacts_bitcoin_rpc_credentials() {
         let toml_src = r#"
             [rpc]
             host = "127.0.0.1"
@@ -157,8 +157,8 @@ mod tests {
 
             [bitcoin]
             rpc_url = "http://localhost:18443"
-            rpc_user = "user"
-            rpc_password = "hunter2"
+            rpc_user = "sentinel-user"
+            rpc_password = "sentinel-password"
             hashblock_connection_string = "tcp://127.0.0.1:28332"
         "#;
 
@@ -169,8 +169,14 @@ mod tests {
             format!("{:#?}", config.bitcoin),
             format!("{config:?}"),
         ] {
-            assert!(!rendered.contains("hunter2"), "password leaked: {rendered}");
-            assert!(rendered.contains("<redacted>"));
+            assert!(
+                !rendered.contains("sentinel-password"),
+                "password leaked: {rendered}"
+            );
+            assert!(
+                !rendered.contains("sentinel-user"),
+                "username leaked: {rendered}"
+            );
         }
 
         // Non-secret fields stay visible — the point is a usable diagnostic, not a blank struct.
