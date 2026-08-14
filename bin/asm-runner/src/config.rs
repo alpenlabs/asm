@@ -1,6 +1,6 @@
 //! Configuration structures for ASM RPC server
 
-use std::{path::PathBuf, time::Duration};
+use std::{fmt, path::PathBuf, time::Duration};
 
 use serde::{Deserialize, Serialize};
 use strata_asm_prover_worker::OrchestratorConfig;
@@ -56,7 +56,12 @@ pub(crate) struct DatabaseConfig {
 }
 
 /// Bitcoin node configuration
-#[derive(Debug, Clone, Serialize, Deserialize)]
+///
+/// `Debug` is implemented by hand so `rpc_password` is never printed. Startup
+/// logs the whole [`AsmRpcConfig`], and those records reach stdout, rolling
+/// files, and the OTLP collector, so a derived `Debug` would copy the
+/// credential to every enabled sink.
+#[derive(Clone, Serialize, Deserialize)]
 pub(crate) struct BitcoinConfig {
     /// Bitcoin RPC URL
     pub rpc_url: String,
@@ -79,6 +84,21 @@ pub(crate) struct BitcoinConfig {
     /// retried by this outer layer.
     #[serde(default)]
     pub retry_config: RetryConfig,
+}
+
+impl fmt::Debug for BitcoinConfig {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("BitcoinConfig")
+            .field("rpc_url", &self.rpc_url)
+            .field("rpc_user", &self.rpc_user)
+            .field("rpc_password", &"<redacted>")
+            .field(
+                "hashblock_connection_string",
+                &self.hashblock_connection_string,
+            )
+            .field("retry_config", &self.retry_config)
+            .finish()
+    }
 }
 
 #[cfg(test)]
@@ -120,6 +140,43 @@ mod tests {
         assert!(config.logging.log_file_prefix.is_none());
         assert!(config.logging.json_format.is_none());
         assert!(config.logging.extra_filter_directives.is_empty());
+    }
+
+    // Startup logs the whole config, so no debug rendering of it may carry the
+    // Bitcoin RPC password — neither the leaf struct nor the parent that holds it.
+    #[test]
+    fn debug_redacts_bitcoin_rpc_password() {
+        let toml_src = r#"
+            [rpc]
+            host = "127.0.0.1"
+            port = 8000
+
+            [database]
+            asm_path = "/tmp/asm-db"
+            moho_path = "/tmp/moho-db"
+
+            [bitcoin]
+            rpc_url = "http://localhost:18443"
+            rpc_user = "user"
+            rpc_password = "hunter2"
+            hashblock_connection_string = "tcp://127.0.0.1:28332"
+        "#;
+
+        let config: AsmRpcConfig = toml::from_str(toml_src).expect("should parse");
+
+        for rendered in [
+            format!("{:?}", config.bitcoin),
+            format!("{:#?}", config.bitcoin),
+            format!("{config:?}"),
+        ] {
+            assert!(!rendered.contains("hunter2"), "password leaked: {rendered}");
+            assert!(rendered.contains("<redacted>"));
+        }
+
+        // Non-secret fields stay visible — the point is a usable diagnostic, not a blank struct.
+        let rendered = format!("{:?}", config.bitcoin);
+        assert!(rendered.contains("http://localhost:18443"));
+        assert!(rendered.contains("tcp://127.0.0.1:28332"));
     }
 
     // Omitting the entire `[logging]` table must also be a clean parse.
