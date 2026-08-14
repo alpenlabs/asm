@@ -68,6 +68,10 @@ name = "asm_core"
 path = "asm/core.rs"
 
 [[test]]
+name = "asm_coinbase"
+path = "asm/coinbase.rs"
+
+[[test]]
 name = "asm_admin"
 path = "asm/admin.rs"
 
