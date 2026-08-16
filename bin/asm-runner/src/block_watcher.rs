@@ -15,7 +15,7 @@
 
 use std::{sync::Arc, time::Duration};
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, bail};
 use bitcoincore_zmq::{Message, SocketMessage, subscribe_async_wait_handshake};
 use bitcoind_async_client::{Client, traits::Reader};
 use futures::StreamExt;
@@ -82,10 +82,13 @@ pub(crate) async fn drive_asm_from_bitcoin(
             }
             item = stream.next() => match item {
                 Some(item) => item,
-                None => {
-                    warn!("ZMQ stream ended unexpectedly");
-                    return Ok(());
-                }
+                // Unreachable with the current bitcoincore-zmq: its stream never
+                // yields `None`, it panics instead, and the task manager turns
+                // that into a shutdown. If that ever changes, returning `Ok`
+                // here would stop block ingestion without a trace while the
+                // runner keeps serving stale state, so fail the task and let the
+                // supervisor bring the process down.
+                None => bail!("ZMQ stream ended unexpectedly"),
             }
         };
 
