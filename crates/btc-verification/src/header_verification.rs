@@ -21,8 +21,13 @@ use crate::{
 /// 2. Verifying that the encoded previous block hash in the current block matches the actual hash
 ///    of the previous block.
 ///
-/// 3. Checking that the block's timestamp is not lower than the median of the last eleven blocks'
-///    timestamps and does not exceed the network time by more than two hours.
+/// 3. Checking that the block's timestamp is greater than the median of the last eleven blocks'
+///    timestamps.
+///
+///    Bitcoin also bounds a header's timestamp to two hours ahead of network-adjusted time. That
+///    rule is deliberately not enforced here. It reads the node's own clock, so it is not a fact
+///    about the chain and cannot be re-checked later. This state transition has to be reproducible
+///    by anyone at any time, so it only uses inputs the chain itself carries.
 ///
 /// 4. Ensuring that the correct target is encoded in the block. If a retarget event occurred,
 ///    validating that the new target was accurately derived from the epoch timestamps.

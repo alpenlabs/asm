@@ -1983,7 +1983,6 @@ dependencies = [
  "strata-asm-common",
  "strata-asm-proto-bridge-txs",
  "strata-btc-types",
- "strata-codec",
  "strata-crypto",
  "strata-identifiers",
  "thiserror",
