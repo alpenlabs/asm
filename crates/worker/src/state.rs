@@ -209,7 +209,7 @@ fn validate_anchor_against_l1<W: L1DataProvider>(
     let btc_params = Params::from(l1_network);
 
     // The anchor must commit to the block actually at that height on the chain.
-    let anchor_header = context.get_l1_block_header_at_height(height as u64)?;
+    let anchor_header = context.get_l1_block_header_at_height(height)?;
     let actual_blkid = compute_block_hash(&anchor_header).to_l1_block_id();
     let anchor_blkid = *pow_state.last_verified_block.blkid();
     if actual_blkid != anchor_blkid {
@@ -224,7 +224,7 @@ fn validate_anchor_against_l1<W: L1DataProvider>(
     // The epoch-start timestamp must be the timestamp of the first block of the
     // anchor's current difficulty-adjustment epoch.
     let epoch_start_height = get_relative_difficulty_adjustment_height(0, height, &btc_params);
-    let epoch_start_header = context.get_l1_block_header_at_height(epoch_start_height as u64)?;
+    let epoch_start_header = context.get_l1_block_header_at_height(epoch_start_height)?;
     if epoch_start_header.time != pow_state.epoch_start_timestamp() {
         return Err(AnchorMismatch::EpochStartTimestamp {
             epoch_start_height: epoch_start_height as u64,

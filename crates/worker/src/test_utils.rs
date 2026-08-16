@@ -17,7 +17,7 @@ use bitcoind_async_client::{Client, traits::Reader};
 use strata_asm_common::{AnchorState, AsmManifest, AsmManifestHash};
 use strata_btc_types::{BitcoinTxid, BlockHashExt, L1BlockIdBitcoinExt, RawBitcoinTx};
 use strata_btc_verification::{L1Anchor, get_relative_difficulty_adjustment_height};
-use strata_identifiers::{L1BlockCommitment, L1BlockId};
+use strata_identifiers::{L1BlockCommitment, L1BlockId, L1Height};
 use strata_merkle::MerkleProofB32;
 use tempfile::TempDir;
 use tokio::{runtime::Handle, task::block_in_place};
@@ -141,11 +141,11 @@ impl L1DataProvider for TestAsmWorkerContext {
         Ok(header)
     }
 
-    fn get_l1_block_header_at_height(&self, height: u64) -> WorkerResult<Header> {
+    fn get_l1_block_header_at_height(&self, height: L1Height) -> WorkerResult<Header> {
         // See `get_l1_block` for the two-context branching rationale.
         let client = self.client.clone();
         let fetch = || async move {
-            let hash = client.get_block_hash(height).await?;
+            let hash = client.get_block_hash(u64::from(height)).await?;
             client.get_block_header(&hash).await
         };
         let header = if Handle::try_current().is_ok() {
@@ -158,7 +158,7 @@ impl L1DataProvider for TestAsmWorkerContext {
         Ok(header)
     }
 
-    fn get_l1_block_height(&self, blockid: &L1BlockId) -> WorkerResult<u64> {
+    fn get_l1_block_height(&self, blockid: &L1BlockId) -> WorkerResult<L1Height> {
         // See `get_l1_block` for the two-context branching rationale.
         let block_hash = blockid.to_block_hash();
         let client = self.client.clone();
@@ -170,7 +170,7 @@ impl L1DataProvider for TestAsmWorkerContext {
         }
         .map_err(|_| WorkerError::MissingL1Block(*blockid))?;
 
-        Ok(height)
+        L1Height::try_from(height).map_err(|_| WorkerError::HeightOutOfRange { height })
     }
 
     fn get_network(&self) -> WorkerResult<Network> {

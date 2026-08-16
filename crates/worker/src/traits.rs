@@ -18,7 +18,7 @@ use strata_asm_common::{
     AnchorState, AsmManifest, AsmManifestHash, AuxData, MMR_SENTINEL_DUMMY_LEAF,
 };
 use strata_btc_types::{BitcoinTxid, RawBitcoinTx};
-use strata_identifiers::{L1BlockCommitment, L1BlockId};
+use strata_identifiers::{L1BlockCommitment, L1BlockId, L1Height};
 use strata_merkle::MerkleProofB32;
 
 use crate::WorkerResult;
@@ -37,7 +37,7 @@ pub trait L1DataProvider {
     /// by height rather than id. Used at startup to validate the configured
     /// anchor against L1, where the anchor block and its difficulty-epoch start
     /// block are known only by height.
-    fn get_l1_block_header_at_height(&self, height: u64) -> WorkerResult<Header>;
+    fn get_l1_block_header_at_height(&self, height: L1Height) -> WorkerResult<Header>;
 
     /// Fetches the L1 height of the block with the given id.
     ///
@@ -45,7 +45,7 @@ pub trait L1DataProvider {
     /// height-tagged [`L1BlockCommitment`] here. Every subsequent height is
     /// derived by the worker itself (the STF chains each block's height from its
     /// parent), so this is the single point where an authoritative height enters.
-    fn get_l1_block_height(&self, blockid: &L1BlockId) -> WorkerResult<u64>;
+    fn get_l1_block_height(&self, blockid: &L1BlockId) -> WorkerResult<L1Height>;
 
     /// Fetches a raw Bitcoin transaction by txid.
     ///
