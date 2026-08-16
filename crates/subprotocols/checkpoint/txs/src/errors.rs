@@ -1,5 +1,5 @@
 use strata_codec::CodecError;
-use strata_l1_envelope_fmt::errors::EnvelopeParseError;
+use strata_l1_envelope_fmt::EnvelopeParseError;
 use thiserror::Error;
 
 /// Errors that can occur while parsing checkpoint transactions from SPS-50 envelopes.

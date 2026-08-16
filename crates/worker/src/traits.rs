@@ -14,9 +14,8 @@
 //! the narrower trait instead of the whole context.
 
 use bitcoin::{Block, Network, block::Header};
-use strata_asm_common::{
-    AnchorState, AsmManifest, AsmManifestHash, AuxData, MMR_SENTINEL_DUMMY_LEAF,
-};
+use strata_asm_common::{AnchorState, AsmManifest, AsmManifestHash, AuxData};
+use strata_asm_manifest_types::ASM_MANIFEST_MMR_PREFILL_LEAF;
 use strata_btc_types::{BitcoinTxid, RawBitcoinTx};
 use strata_identifiers::{L1BlockCommitment, L1BlockId, L1Height};
 use strata_merkle::MerkleProofB32;
@@ -117,7 +116,7 @@ pub trait ManifestMmrStore {
     /// land at a leaf index equal to their L1 block height.
     ///
     /// The MMR is height-indexed: positions `0..=genesis_height` are filled
-    /// with [`MMR_SENTINEL_DUMMY_LEAF`], so the manifest produced for height
+    /// with [`ASM_MANIFEST_MMR_PREFILL_LEAF`], so the manifest produced for height
     /// `h` appends at leaf index `h`. This mirrors the in-memory (proven) MMR's
     /// genesis prefill.
     ///
@@ -127,7 +126,7 @@ pub trait ManifestMmrStore {
     /// MMR already holds `genesis_height + 1` entries, so it is safe to run on
     /// every restart.
     fn prefill_manifest_mmr(&self, genesis_height: u64) -> WorkerResult<()> {
-        let sentinel = AsmManifestHash::from(MMR_SENTINEL_DUMMY_LEAF);
+        let sentinel = AsmManifestHash::from(ASM_MANIFEST_MMR_PREFILL_LEAF);
         for height in self.manifest_mmr_leaf_count()?..=genesis_height {
             self.put_manifest_hash(height, sentinel)?;
         }
