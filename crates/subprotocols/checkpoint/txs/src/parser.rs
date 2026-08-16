@@ -3,7 +3,7 @@ use strata_asm_checkpoint_types::CheckpointPayload;
 use strata_asm_common::TxInputRef;
 use strata_codec::decode_buf_exact;
 use strata_codec_utils::CodecSsz;
-use strata_l1_envelope_fmt::parser::parse_envelope_container;
+use strata_l1_envelope_fmt::parse_envelope_container;
 
 use crate::errors::{CheckpointTxError, CheckpointTxResult};
 

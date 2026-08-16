@@ -3,7 +3,7 @@ use ssz_derive::{Decode as DeriveDecode, Encode as DeriveEncode};
 use strata_asm_admin_threshold_sig::SignatureSet;
 use strata_asm_admin_types::{AdminTxType, UpdateTxType};
 use strata_asm_common::{TxInputRef, logging::warn};
-use strata_l1_envelope_fmt::parser::parse_envelope_payload;
+use strata_l1_envelope_fmt::parse_envelope_payload;
 use strata_l1_txfmt::TxType;
 
 use crate::{
@@ -162,7 +162,7 @@ fn extract_signed_payload(
         .script;
 
     // Parse the envelope payload from the script
-    let envelope_payload = parse_envelope_payload(&payload_script.into())?;
+    let envelope_payload = parse_envelope_payload(payload_script)?;
 
     decode_signed_payload(admin_tx_type, &envelope_payload, tx_type)
 }

@@ -62,7 +62,7 @@ use strata_asm_worker::{
 };
 use strata_btc_types::BlockHashExt;
 use strata_identifiers::L1BlockCommitment;
-use strata_l1_envelope_fmt::builder::{build_envelope_script, EnvelopeScriptBuilder};
+use strata_l1_envelope_fmt::{build_envelope_script, EnvelopeScriptBuilder};
 use strata_l1_txfmt::{ParseConfig, TagData};
 use strata_predicate::PredicateKey;
 use strata_tasks::{TaskExecutor, TaskManager};

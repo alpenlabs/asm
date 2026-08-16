@@ -15,7 +15,7 @@ use bitcoin::{
 };
 use rand::{RngCore, rngs::OsRng};
 use strata_asm_common::TxInputRef;
-use strata_l1_envelope_fmt::builder::EnvelopeScriptBuilder;
+use strata_l1_envelope_fmt::EnvelopeScriptBuilder;
 use strata_l1_txfmt::{MagicBytes, ParseConfig, TagData};
 
 pub const TEST_MAGIC_BYTES: MagicBytes = MagicBytes::new(*b"ALPN");
