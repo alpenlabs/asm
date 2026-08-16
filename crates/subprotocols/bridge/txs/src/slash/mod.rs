@@ -13,11 +13,15 @@
 //! - 1. **Contest slash connector**: Locked to the N-of-N multisig with a relative timelock
 //! - 2. **Stake connector**: Locked to the N-of-N multisig..
 //!
-//! Only the stake connector is validated. The contest connector carries a relative timelock that
-//! is enforced on-chain, but the bridge subprotocol does not store the timelock that is used,
-//! so ASM cannot verify it and skips validation of that input. This is sufficient because the
-//! transaction is identified by its SPS-50 type; a different transaction that merely spends a
-//! pure N-of-N input would fail the type check.
+//! Only the stake connector is validated. ASM does not store the relative timelock, so it cannot
+//! check the contest connector, and does not need to: the stake connector is spent with
+//! `SIGHASH_ALL`, whose taproot sighash commits to every input's outpoint, value and script, so
+//! that signature already binds input 0.
+//!
+//! Matching the script does not prove the stake connector belongs to the operator being slashed:
+//! all operators active in the same N/N configuration share one script, so a match only shows which
+//! configuration was in force. The operator index comes from the aux data, and only presigning ties
+//! it to the stake connector being spent.
 //!
 //! ### Outputs
 //!
