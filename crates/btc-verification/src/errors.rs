@@ -36,6 +36,11 @@ pub enum L1BodyError {
     #[error("first transaction is not a coinbase")]
     NotCoinbase,
 
+    /// The block repeats a transaction. Duplicate leaves let a body be altered without changing
+    /// the merkle root (CVE-2012-2459), so the root alone does not identify one transaction list.
+    #[error("block contains duplicate transactions")]
+    DuplicateTransaction,
+
     /// A witness commitment exists but no coinbase inclusion proof was provided.
     #[error("missing coinbase inclusion proof for segwit block")]
     MissingInclusionProof,
