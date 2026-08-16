@@ -289,4 +289,155 @@ mod tests {
         let err = check_block_integrity(&block, None).unwrap_err();
         assert!(matches!(err, L1BodyError::UncommittedWitnessData));
     }
+
+    /// Number of trailing transactions to repeat so that the merkle root does not change.
+    ///
+    /// Bitcoin duplicates the last node of any odd-sized level, so repeating the subtree that sits
+    /// under that node reproduces the level exactly. The subtree at level `l` spans `2^l`
+    /// transactions, so the answer is `2^l` for the lowest odd level `l`.
+    fn mutation_width(tx_count: usize) -> usize {
+        let mut width = 1;
+        let mut level = tx_count;
+        while level > 1 {
+            if !level.is_multiple_of(2) {
+                return width;
+            }
+            level /= 2;
+            width *= 2;
+        }
+        panic!("every level of a {tx_count}-transaction tree is even; cannot mutate");
+    }
+
+    /// Repeats the last `mutation_width` transactions of `block`, leaving its merkle root intact.
+    fn mutate(block: &Block) -> Block {
+        let mut mutated = block.clone();
+        let width = mutation_width(block.txdata.len());
+        mutated
+            .txdata
+            .extend_from_within(block.txdata.len() - width..);
+        mutated
+    }
+
+    /// Builds a witness-free block of `tx_count` distinct transactions with a correct merkle root.
+    ///
+    /// The mainnet fixtures are either a single segwit block or coinbase-only blocks, so the legacy
+    /// path needs a block built by hand.
+    fn legacy_block(tx_count: usize) -> Block {
+        use bitcoin::{
+            Amount, OutPoint, ScriptBuf, Sequence, TxIn, TxOut, Witness,
+            absolute::LockTime,
+            block::{Header, Version},
+            transaction,
+        };
+
+        let txdata: Vec<Transaction> = (0..tx_count)
+            .map(|i| Transaction {
+                version: transaction::Version::TWO,
+                // Vary the lock time so every transaction has a distinct txid.
+                lock_time: LockTime::from_height(i as u32).unwrap(),
+                input: vec![TxIn {
+                    // A null prevout is what makes the first transaction a coinbase; the rest get
+                    // a distinct one so they are not coinbases themselves.
+                    previous_output: if i == 0 {
+                        OutPoint::null()
+                    } else {
+                        OutPoint::new(bitcoin::Txid::from_byte_array([i as u8; 32]), 0)
+                    },
+                    script_sig: ScriptBuf::new(),
+                    sequence: Sequence::MAX,
+                    witness: Witness::new(),
+                }],
+                output: vec![TxOut {
+                    value: Amount::from_sat(1_000),
+                    script_pubkey: ScriptBuf::new(),
+                }],
+            })
+            .collect();
+
+        let merkle_root = {
+            let hashes = txdata
+                .iter()
+                .map(|tx| Buf32::from(compute_txid(tx).to_byte_array()));
+            TxMerkleNode::from_byte_array(calculate_root(hashes).unwrap().0)
+        };
+
+        Block {
+            header: Header {
+                version: Version::TWO,
+                prev_blockhash: bitcoin::BlockHash::from_byte_array([0u8; 32]),
+                merkle_root,
+                time: 0,
+                bits: bitcoin::CompactTarget::from_consensus(0x1d00_ffff),
+                nonce: 0,
+            },
+            txdata,
+        }
+    }
+
+    /// Bitcoin's own tree duplicates the last node of an odd-sized level. That duplication is
+    /// normal and must keep verifying — mistaking it for a mutated body would halt the ASM on
+    /// ordinary mainnet blocks.
+    #[test]
+    fn test_odd_transaction_counts_accepted() {
+        for tx_count in [1, 3, 5, 7, 9, 11] {
+            let block = legacy_block(tx_count);
+            check_block_integrity(&block, None)
+                .unwrap_or_else(|e| panic!("{tx_count} transactions must verify, got {e}"));
+        }
+    }
+
+    /// Repeating the trailing transactions of a legacy block leaves the merkle root untouched
+    /// (CVE-2012-2459), so comparing the root against the header cannot separate the two bodies.
+    ///
+    /// The block is accepted today. A later commit rejects it.
+    #[test]
+    fn test_merkle_mutation_accepted_legacy() {
+        let block = legacy_block(5);
+        check_block_integrity(&block, None).expect("the original block verifies");
+
+        let mutated = mutate(&block);
+        assert_eq!(mutated.txdata.len(), 6, "the body grew");
+        assert_eq!(
+            compute_merkle_root(&mutated).unwrap(),
+            block.header.merkle_root,
+            "the mutation must not change the merkle root, or it demonstrates nothing"
+        );
+
+        assert!(
+            check_block_integrity(&mutated, None).is_ok(),
+            "known gap: a body Bitcoin rejects is admitted for execution"
+        );
+    }
+
+    /// The same on the segwit path, which never compares the txid merkle root directly.
+    ///
+    /// Every check the path does make still passes: the witness root is preserved by the same
+    /// duplication, so the coinbase commitment matches, and the tree depth is unchanged, so the
+    /// coinbase inclusion proof verifies against the real header.
+    ///
+    /// The block is accepted today. A later commit rejects it.
+    #[test]
+    fn test_merkle_mutation_accepted_segwit() {
+        let block = BtcMainnetSegment::load_full_block();
+        let proof = TxidInclusionProof::generate(&block.txdata, 0).expect("valid index");
+        let witness_root =
+            check_block_integrity(&block, Some(&proof)).expect("the original block verifies");
+
+        let mutated = mutate(&block);
+        assert!(mutated.txdata.len() > block.txdata.len(), "the body grew");
+        assert!(
+            proof.verify(
+                &mutated.txdata[0],
+                mutated.header.merkle_root.to_byte_array().into(),
+                mutated.txdata.len(),
+            ),
+            "the mutated body must still satisfy the coinbase inclusion proof"
+        );
+
+        assert_eq!(
+            check_block_integrity(&mutated, Some(&proof)).ok(),
+            Some(witness_root),
+            "known gap: the mutated body yields the same witness root and is admitted"
+        );
+    }
 }
