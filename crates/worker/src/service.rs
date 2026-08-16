@@ -123,11 +123,12 @@ where
     // height the worker takes from outside; every later height is derived from
     // the parent chain as the STF processes each block.
     let genesis_height = state.genesis_height();
-    let height = state.context.get_l1_block_height(target_blkid)? as u32;
+    let height = state.context.get_l1_block_height(target_blkid)?;
     let target = L1BlockCommitment::new(height, *target_blkid);
 
-    // Ignore blocks before genesis.
-    if height < genesis_height as u32 {
+    // Ignore blocks before genesis. Compared in the wider domain because
+    // `genesis_height` is an MMR leaf index, which is a `u64`.
+    if u64::from(height) < genesis_height {
         warn!(height, "ignoring unexpected L1 block before genesis");
         return Ok(vec![]);
     }

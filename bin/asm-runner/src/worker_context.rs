@@ -15,7 +15,7 @@ use strata_asm_worker::{
     AnchorStateStore, AuxDataStore, L1DataProvider, ManifestMmrStore, WorkerError, WorkerResult,
 };
 use strata_btc_types::{BitcoinTxid, L1BlockIdBitcoinExt, RawBitcoinTx};
-use strata_identifiers::{L1BlockCommitment, L1BlockId};
+use strata_identifiers::{L1BlockCommitment, L1BlockId, L1Height};
 use strata_merkle::MerkleProofB32;
 use tokio::runtime::Handle;
 
@@ -91,8 +91,9 @@ impl L1DataProvider for AsmWorkerContext {
             .map_err(WorkerError::BtcRpc)
     }
 
-    fn get_l1_block_header_at_height(&self, height: u64) -> WorkerResult<Header> {
+    fn get_l1_block_header_at_height(&self, height: L1Height) -> WorkerResult<Header> {
         let client = &self.bitcoin_client;
+        let height = u64::from(height);
         let block_hash = self
             .runtime_handle
             .block_on(retry_with_backoff_async(
@@ -114,10 +115,11 @@ impl L1DataProvider for AsmWorkerContext {
             .map_err(WorkerError::BtcRpc)
     }
 
-    fn get_l1_block_height(&self, blockid: &L1BlockId) -> WorkerResult<u64> {
+    fn get_l1_block_height(&self, blockid: &L1BlockId) -> WorkerResult<L1Height> {
         let block_hash: BlockHash = blockid.to_block_hash();
         let client = &self.bitcoin_client;
-        self.runtime_handle
+        let height = self
+            .runtime_handle
             .block_on(retry_with_backoff_async(
                 "btc_get_block_height",
                 self.rpc_max_retries,
@@ -125,7 +127,8 @@ impl L1DataProvider for AsmWorkerContext {
                 || async { client.get_block_height(&block_hash).await },
             ))
             .with_context(|| format!("get_block_height({block_hash})"))
-            .map_err(WorkerError::BtcRpc)
+            .map_err(WorkerError::BtcRpc)?;
+        L1Height::try_from(height).map_err(|_| WorkerError::HeightOutOfRange { height })
     }
 
     fn get_network(&self) -> WorkerResult<Network> {

@@ -1,6 +1,6 @@
 use bitcoin::Network;
 use strata_btc_types::BitcoinTxid;
-use strata_identifiers::{L1BlockCommitment, L1BlockId};
+use strata_identifiers::{L1BlockCommitment, L1BlockId, L1Height};
 use strata_service::ServiceError;
 use thiserror::Error;
 
@@ -95,7 +95,11 @@ pub enum WorkerError {
     BitcoinTxNotFound(BitcoinTxid),
 
     #[error("L1 block not found at height {height}")]
-    L1BlockNotFound { height: u64 },
+    L1BlockNotFound { height: L1Height },
+
+    /// The L1 source reported a height that does not fit [`L1Height`].
+    #[error("L1 height {height} does not fit in a block commitment")]
+    HeightOutOfRange { height: u64 },
 
     #[error("No ASM state available")]
     NoAsmState,
