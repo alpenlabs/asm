@@ -4,6 +4,7 @@ use strata_codec::decode_buf_exact;
 use crate::{
     constants::BridgeTxType,
     deposit::{DEPOSIT_OUTPUT_INDEX, DepositInfo, aux_input::DepositTxHeaderAux},
+    deposit_request::DRT_OUTPUT_INDEX,
     errors::TxStructureError,
 };
 
@@ -19,8 +20,8 @@ const DRT_INPUT_INDEX: usize = 0;
 ///
 /// # Errors
 ///
-/// Returns [`TxStructureError`] if the auxiliary data cannot be decoded or if the expected
-/// deposit output at index [`DEPOSIT_OUTPUT_INDEX`] is missing.
+/// Returns [`TxStructureError`] if the auxiliary data cannot be decoded, if the expected
+/// deposit output is missing, or if the first input does not spend the DRT's output.
 pub fn parse_deposit_tx<'a>(tx_input: &TxInputRef<'a>) -> Result<DepositInfo, TxStructureError> {
     // Parse auxiliary data
     let header_aux: DepositTxHeaderAux = decode_buf_exact(tx_input.tag().aux_data())
@@ -57,11 +58,26 @@ pub fn parse_deposit_tx<'a>(tx_input: &TxInputRef<'a>) -> Result<DepositInfo, Tx
         .ok_or_else(|| {
             TxStructureError::missing_input(BridgeTxType::Deposit, DRT_INPUT_INDEX, "drt input")
         })?
-        .previous_output
-        .into();
+        .previous_output;
+
+    // The DRT is later fetched as auxiliary data by txid alone, and `parse_drt` always reads the
+    // output at `DRT_OUTPUT_INDEX`. Without this check the deposit could spend some other output
+    // of that transaction while validation approves an output that is never consumed.
+    if drt_inpoint.vout != DRT_OUTPUT_INDEX as u32 {
+        return Err(TxStructureError::wrong_spent_output(
+            BridgeTxType::Deposit,
+            DRT_OUTPUT_INDEX as u32,
+            drt_inpoint.vout,
+            "drt input",
+        ));
+    }
 
     // Construct the validated deposit information
-    Ok(DepositInfo::new(header_aux, deposit_output, drt_inpoint))
+    Ok(DepositInfo::new(
+        header_aux,
+        deposit_output,
+        drt_inpoint.into(),
+    ))
 }
 
 #[cfg(test)]
@@ -166,6 +182,27 @@ mod tests {
             TxStructureErrorKind::MissingInput {
                 index: DRT_INPUT_INDEX
             }
+        ))
+    }
+
+    /// A deposit spending some output of the DRT other than the deposit request output must be
+    /// rejected. Otherwise validation would approve the output at `DRT_OUTPUT_INDEX` while the
+    /// deposit consumes a different one, leaving the real DRT output unspent.
+    #[test]
+    fn test_parse_wrong_spent_drt_output() {
+        let (_, mut tx) = create_deposit_tx_with_info();
+
+        // Keep the same DRT txid, but point the input at a different output of it.
+        let wrong_vout = DRT_OUTPUT_INDEX as u32 + 1;
+        tx.input[DRT_INPUT_INDEX].previous_output.vout = wrong_vout;
+
+        let tx_input = parse_sps50_tx(&tx);
+        let err = parse_deposit_tx(&tx_input).unwrap_err();
+        assert_eq!(err.tx_type(), BridgeTxType::Deposit);
+        assert!(matches!(
+            err.kind(),
+            TxStructureErrorKind::WrongSpentOutput { expected, got }
+                if *expected == DRT_OUTPUT_INDEX as u32 && *got == wrong_vout
         ))
     }
 

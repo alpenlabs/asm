@@ -18,6 +18,15 @@ pub enum TxStructureErrorKind {
     #[error("missing output at index {index}")]
     MissingOutput { index: usize },
 
+    /// Input spends the wrong output of the referenced transaction.
+    #[error("spends output {got}, expected output {expected}")]
+    WrongSpentOutput {
+        /// Output index the protocol requires the input to spend.
+        expected: u32,
+        /// Output index the input actually spends.
+        got: u32,
+    },
+
     /// Output at the expected index could not be converted into a validated Bitcoin output.
     #[error("invalid output at index {index}: {source}")]
     InvalidOutput {
@@ -113,6 +122,20 @@ impl TxStructureError {
         Self::new_with_context(
             tx_type,
             TxStructureErrorKind::MissingOutput { index },
+            Some(context),
+        )
+    }
+
+    /// Input spends the wrong output of the referenced transaction.
+    pub fn wrong_spent_output(
+        tx_type: BridgeTxType,
+        expected: u32,
+        got: u32,
+        context: &'static str,
+    ) -> Self {
+        Self::new_with_context(
+            tx_type,
+            TxStructureErrorKind::WrongSpentOutput { expected, got },
             Some(context),
         )
     }
