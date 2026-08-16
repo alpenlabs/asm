@@ -150,10 +150,14 @@ fn extract_signed_payload(
 ) -> Result<SignedPayload, AdministrationTxParseError> {
     let tx_type = tx.tag().tx_type();
 
-    // Extract the taproot leaf script from the first input's witness
-    let payload_script = tx.tx().input[0]
-        .witness
-        .taproot_leaf_script()
+    // Extract the taproot leaf script from the first input's witness. Index through
+    // `first()`: the tx is routed here on its output tag alone, so nothing upstream has
+    // checked that it even has an input.
+    let payload_script = tx
+        .tx()
+        .input
+        .first()
+        .and_then(|input| input.witness.taproot_leaf_script())
         .ok_or(AdministrationTxParseError::MissingPayloadScript(tx_type))?
         .script;
 
@@ -240,11 +244,12 @@ fn decode_wire<A: Encode + Decode>(
 
 #[cfg(test)]
 mod tests {
+    use strata_asm_proto_txs_test_utils::{create_dummy_tx, overwrite_aux_data, parse_sps50_tx};
     use strata_crypto::threshold_signature::IndexedSignature;
     use strata_test_utils_arb::ArbitraryGenerator;
 
     use super::*;
-    use crate::actions::RenderSigningMessage;
+    use crate::{actions::RenderSigningMessage, constants::ADMINISTRATION_SUBPROTOCOL_ID};
 
     fn dummy_signatures() -> SignatureSet {
         let sigs = vec![
@@ -285,5 +290,21 @@ mod tests {
                 Err(AdministrationTxParseError::MalformedPayload { .. })
             ));
         }
+    }
+
+    /// Transactions are routed to this subprotocol on their output tag alone, so one with
+    /// no inputs at all can reach the parser. It must be skipped rather than indexed into.
+    #[test]
+    fn zero_input_tx_is_skipped() {
+        let mut tx = create_dummy_tx(0, 1);
+        overwrite_aux_data(
+            &mut tx,
+            ADMINISTRATION_SUBPROTOCOL_ID,
+            AdminTxType::Cancel.into(),
+            vec![],
+        );
+
+        assert!(tx.input.is_empty());
+        assert!(parse_tx(&parse_sps50_tx(&tx)).is_none());
     }
 }
