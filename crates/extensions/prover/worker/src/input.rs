@@ -84,9 +84,10 @@ impl InputBuilder {
         Ok(parent)
     }
 
-    /// Fetches the persisted [`MohoState`] for the given L1 block. The worker
-    /// materializes this alongside each anchor state — see the runner's
-    /// `AsmWorkerContext::store_anchor_state`.
+    /// Fetches the persisted [`MohoState`] for the given L1 block. The Moho
+    /// worker writes it when it folds the ASM commit for that block — see
+    /// `strata-asm-moho-worker`'s `process_block`. It lands after the anchor
+    /// state, so it can trail it briefly.
     async fn get_moho_state<C: ProverContext>(
         &self,
         ctx: &C,
