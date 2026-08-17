@@ -295,7 +295,7 @@ mod tests {
 
         // Two confirmed coinbase txs, fetched by txid.
         let mut expected = Vec::new();
-        let mut collector = AuxRequestCollector::new(0, 0);
+        let mut collector = AuxRequestCollector::new(0);
         for height in [1u64, 2] {
             let hash = fx.client.get_block_hash(height).await.unwrap();
             let block = fx.client.get_block(&hash).await.unwrap();
@@ -329,7 +329,7 @@ mod tests {
         let accumulator = populate_manifests(&fx.context, 5); // heights 6..=10
         let at_leaf_count = accumulator.num_entries();
 
-        let mut collector = AuxRequestCollector::new(0, at_leaf_count);
+        let mut collector = AuxRequestCollector::new(at_leaf_count);
         collector.request_manifest_hashes(7, 9);
         let requests = collector.into_requests();
 
@@ -371,7 +371,7 @@ mod tests {
         let block = fx.client.get_block(&hash).await.unwrap();
         let txid = block.txdata[0].compute_txid();
 
-        let mut collector = AuxRequestCollector::new(0, 0);
+        let mut collector = AuxRequestCollector::new(0);
         for _ in 0..5 {
             collector.request_bitcoin_tx(txid);
         }
@@ -399,7 +399,7 @@ mod tests {
         let accumulator = populate_manifests(&fx.context, 5); // heights 6..=10
         let at_leaf_count = accumulator.num_entries();
 
-        let mut collector = AuxRequestCollector::new(0, at_leaf_count);
+        let mut collector = AuxRequestCollector::new(at_leaf_count);
         collector.request_manifest_hashes(7, 9); // overlaps the next two
         collector.request_manifest_hashes(8, 10);
         collector.request_manifest_hashes(7, 9); // exact repeat
@@ -432,7 +432,7 @@ mod tests {
     async fn bitcoin_tx_not_found() {
         let fx = fixtures::setup_context_with_txindex(1).await;
 
-        let mut collector = AuxRequestCollector::new(0, 0);
+        let mut collector = AuxRequestCollector::new(0);
         collector.request_bitcoin_tx(Txid::from_byte_array([0xff; 32]));
         let requests = collector.into_requests();
 
@@ -450,7 +450,7 @@ mod tests {
         let accumulator = populate_manifests(&fx.context, 3); // heights 6..=8
         let at_leaf_count = accumulator.num_entries();
 
-        let mut collector = AuxRequestCollector::new(0, u64::MAX);
+        let mut collector = AuxRequestCollector::new(u64::MAX);
         collector.request_manifest_hashes(6, at_leaf_count + 2);
         let requests = collector.into_requests();
 

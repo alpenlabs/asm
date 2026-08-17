@@ -616,7 +616,7 @@ mod tests {
 
         // Everything up to height 9 resolves against chain A.
         let resolver_a = AuxDataResolver::new(&fx.state.context, leaf_count_a);
-        let mut req_a = AuxRequestCollector::new(0, leaf_count_a);
+        let mut req_a = AuxRequestCollector::new(leaf_count_a);
         req_a.request_manifest_hashes(6, 9);
         let data = resolver_a
             .resolve(&req_a.into_requests())
@@ -670,7 +670,7 @@ mod tests {
         let resolver_b = AuxDataResolver::new(&fx.state.context, leaf_count_b);
 
         // Branch B's own heights still resolve.
-        let mut req_b = AuxRequestCollector::new(0, leaf_count_b);
+        let mut req_b = AuxRequestCollector::new(leaf_count_b);
         req_b.request_manifest_hashes(6, 7);
         resolver_b
             .resolve(&req_b.into_requests())
@@ -681,7 +681,7 @@ mod tests {
         // fails at the first such index (8). The collector would normally drop
         // such a request as out-of-bounds, so bypass that clamp to exercise the
         // resolver-level guarantee directly.
-        let mut req_orphans = AuxRequestCollector::new(0, u64::MAX);
+        let mut req_orphans = AuxRequestCollector::new(u64::MAX);
         req_orphans.request_manifest_hashes(8, 9);
         let result = resolver_b.resolve(&req_orphans.into_requests());
         assert!(
