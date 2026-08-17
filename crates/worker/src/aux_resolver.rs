@@ -18,7 +18,7 @@
 //! - Requires Bitcoin node with transaction indexing enabled (`txindex=1`)
 //! - Returns `WorkerError::BitcoinTxNotFound` if transaction not found
 
-use std::fmt;
+use std::{collections::HashSet, fmt};
 
 use strata_asm_common::{
     AsmMerkleProof, AuxData, AuxRequests, BitcoinTxid, ManifestHashRange, RawBitcoinTx,
@@ -41,6 +41,8 @@ use crate::{L1DataProvider, ManifestMmrStore, WorkerResult};
 /// Depends only on the two worker-context concerns it actually touches —
 /// [`L1DataProvider`] (transaction fetch) and [`ManifestMmrStore`] (manifest
 /// hashes + proofs) — rather than the full `WorkerContext`.
+///
+/// Requests arrive unfiltered, so each distinct txid and height is fetched once.
 pub struct AuxDataResolver<'a, C: ?Sized + L1DataProvider + ManifestMmrStore> {
     /// Worker context for accessing Bitcoin transactions and the MMR database.
     context: &'a C,
@@ -117,7 +119,8 @@ impl<'a, C: ?Sized + L1DataProvider + ManifestMmrStore> AuxDataResolver<'a, C> {
     ///
     /// # Returns
     ///
-    /// Vector of raw Bitcoin transaction data in the same order as requested.
+    /// Vector of raw Bitcoin transaction data, one entry per distinct txid, in the
+    /// order the txid was first requested.
     ///
     /// # Errors
     ///
@@ -133,8 +136,11 @@ impl<'a, C: ?Sized + L1DataProvider + ManifestMmrStore> AuxDataResolver<'a, C> {
 
         debug!(count = txids.len(), "Resolving Bitcoin transactions");
 
+        let mut seen = HashSet::with_capacity(txids.len());
+
         txids
             .iter()
+            .filter(|txid| seen.insert(**txid))
             .map(|txid| {
                 trace!(?txid, "Fetching Bitcoin transaction");
                 self.context.get_bitcoin_tx(&(*txid).into()).map(Into::into)
@@ -155,7 +161,8 @@ impl<'a, C: ?Sized + L1DataProvider + ManifestMmrStore> AuxDataResolver<'a, C> {
     ///
     /// # Returns
     ///
-    /// Vector of manifest hashes with their MMR proofs.
+    /// Vector of manifest hashes with their MMR proofs, one entry per distinct
+    /// height, in the order the height was first requested.
     ///
     /// # Errors
     ///
@@ -173,6 +180,7 @@ impl<'a, C: ?Sized + L1DataProvider + ManifestMmrStore> AuxDataResolver<'a, C> {
         debug!(count = ranges.len(), "Resolving manifest hash ranges");
 
         let mut resolved = Vec::new();
+        let mut seen = HashSet::new();
 
         for range in ranges {
             let start_height = range.start_height();
@@ -182,6 +190,11 @@ impl<'a, C: ?Sized + L1DataProvider + ManifestMmrStore> AuxDataResolver<'a, C> {
 
             // L1 block height == MMR leaf index (height-indexed MMR).
             for mmr_index in start_height..=end_height {
+                if !seen.insert(mmr_index) {
+                    trace!(index = mmr_index, "Skipping already resolved manifest hash");
+                    continue;
+                }
+
                 // Fetch manifest hash from storage
                 let hash = self.context.get_manifest_hash(mmr_index)?;
 
@@ -346,6 +359,71 @@ mod tests {
             !accumulator.verify_manifest_leaf(resolved[0].proof(), &manifest_hash(999)),
             "proof must not verify against a different leaf",
         );
+    }
+
+    /// A txid requested more than once is fetched once, however many times the
+    /// transactions in a block ask for it.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn resolve_bitcoin_txs_dedups_repeat_txids() {
+        let fx = fixtures::setup_context_with_txindex(3).await;
+
+        let hash = fx.client.get_block_hash(1).await.unwrap();
+        let block = fx.client.get_block(&hash).await.unwrap();
+        let txid = block.txdata[0].compute_txid();
+
+        let mut collector = AuxRequestCollector::new(0, 0);
+        for _ in 0..5 {
+            collector.request_bitcoin_tx(txid);
+        }
+        let requests = collector.into_requests();
+        assert_eq!(
+            requests.bitcoin_txs().len(),
+            5,
+            "collector keeps requests as-is",
+        );
+
+        let resolver = AuxDataResolver::new(&fx.context, 0);
+        let data = resolver.resolve(&requests).expect("resolve");
+
+        let resolved = data.bitcoin_txs();
+        assert_eq!(resolved.len(), 1, "the tx is fetched once");
+        let tx: Transaction = (&resolved[0]).try_into().expect("deserialize raw tx");
+        assert_eq!(tx.compute_txid(), txid);
+    }
+
+    /// Overlapping and repeated ranges resolve each height once. Every height the
+    /// ranges cover is still present, so nothing the process phase asks for is lost.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn resolve_manifest_hashes_dedups_overlapping_ranges() {
+        let fx = fixtures::setup_context(0).await;
+        let accumulator = populate_manifests(&fx.context, 5); // heights 6..=10
+        let at_leaf_count = accumulator.num_entries();
+
+        let mut collector = AuxRequestCollector::new(0, at_leaf_count);
+        collector.request_manifest_hashes(7, 9); // overlaps the next two
+        collector.request_manifest_hashes(8, 10);
+        collector.request_manifest_hashes(7, 9); // exact repeat
+        let requests = collector.into_requests();
+        assert_eq!(
+            requests.manifest_hashes().len(),
+            3,
+            "collector keeps requests as-is",
+        );
+
+        let resolver = AuxDataResolver::new(&fx.context, at_leaf_count);
+        let data = resolver.resolve(&requests).expect("resolve");
+
+        let resolved = data.manifest_hashes();
+        let heights: Vec<u64> = resolved.iter().map(|entry| entry.proof().index()).collect();
+        assert_eq!(
+            heights,
+            vec![7, 8, 9, 10],
+            "each covered height resolved once"
+        );
+        for entry in resolved {
+            assert_eq!(*entry.hash(), manifest_hash(entry.proof().index()));
+            assert!(accumulator.verify_manifest_leaf(entry.proof(), entry.hash()));
+        }
     }
 
     /// A txid the node cannot serve surfaces as `BitcoinTxNotFound` rather than
