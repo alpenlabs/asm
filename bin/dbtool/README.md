@@ -63,7 +63,8 @@ dbtool --db ./data/asm asm manifest-mmr count
 dbtool --db ./data/asm asm manifest-mmr leaf 1234
 dbtool --db ./data/asm asm manifest-mmr proof 1234 --at 2000
 
-# Roll storage back to a known-good height (mutating → needs --write)
+# Roll storage back to a known-good height (mutating → needs --write).
+# Prune the state tree — see "Rolling back" below.
 dbtool --db ./data/asm --write asm state prune --after 1234
 
 # Round-trip a record: get → hex-decode its ssz_hex to raw bytes → put it back
@@ -134,3 +135,32 @@ A `<range>` is `<commitment>` (single block) or `<commitment>..<commitment>`
 each verb prints copies straight back into the next command. `proof prune`
 drops ASM and Moho proofs only — the mapping and status bookkeeping are left
 untouched.
+
+## Rolling back
+
+Every `prune --after` edits one tree. They are not a coordinated transaction,
+and dbtool does not check that the trees agree afterwards — that is the point
+of a surgical tool, but it means only one of them actually rolls the node back:
+
+```sh
+dbtool --db ./data/asm --write asm state prune --after <h>
+```
+
+The anchor state is the worker's commit point. Sync planning treats a block as
+processed once its anchor state is stored, so dropping the anchor states above
+`h` is what makes the worker reprocess from `h` on the next block. Reprocessing
+re-runs the STF, which rewrites the manifests, the MMR leaves, and the aux data
+for that range. So the state prune alone leaves the ASM DB consistent.
+
+Pruning a derived tree on its own does not roll anything back. `asm aux prune
+--after` deletes the aux rows but leaves the anchor states in place, so the
+worker still considers those blocks processed and never regenerates them, while
+the prover fails with a not-found error when it tries to build inputs for them.
+Same for `asm manifest prune --after`. If you have already done this, prune
+`asm state` to the same height and restart the runner — the reprocessing
+restores the deleted rows.
+
+The Moho DB follows along. The Moho worker folds each ASM commit as it is
+emitted, so the blocks the ASM worker reprocesses are re-folded and their Moho
+states and export entries are rewritten. Its own `prune --after` is for
+repairing that DB on its own.

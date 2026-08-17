@@ -39,8 +39,13 @@ pub trait AsmAuxDataDb {
     /// Removes all auxiliary data for blocks with height strictly above
     /// `after_height` (which is kept).
     ///
-    /// For manual intervention — e.g. rolling storage back to a known-good
-    /// height so the worker reprocesses from there.
+    /// For manual intervention. Aux data is derived from the STF, not the
+    /// worker's commit point, so this on its own does not make the worker
+    /// reprocess anything — planning treats a block as processed once its
+    /// anchor state exists. Dropping aux rows while their anchor states remain
+    /// leaves the prover unable to build inputs for those blocks. To roll back,
+    /// prune [`AsmStateDb`](crate::AsmStateDb) to the same height; reprocessing
+    /// rewrites the aux data.
     fn prune_after(
         &self,
         after_height: u32,
