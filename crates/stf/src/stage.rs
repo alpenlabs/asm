@@ -58,6 +58,10 @@ impl<'c> PreProcessStage<'c> {
         // the bound here.
         let min_manifest_height = 0;
         let max_manifest_height = accumulator.last_inserted_height();
+
+        // Manifests only exist for heights below the block being processed — this
+        // block's own manifest is appended at the end of the transition — so the
+        // accumulator's last inserted height is the highest one that can be served.
         let aux_collector = AuxRequestCollector::new(min_manifest_height, max_manifest_height);
         Self {
             manager,
