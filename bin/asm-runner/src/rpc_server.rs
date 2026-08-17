@@ -280,7 +280,7 @@ impl AsmMohoApiServer for AsmMohoRpcServer {
         &self,
         block_hash: BlockHash,
         container_id: u8,
-        leaf: Vec<u8>,
+        leaf: [u8; 32],
     ) -> RpcResult<Option<Vec<u8>>> {
         let commitment = to_block_commitment(&self.bitcoin_client, block_hash)
             .await
@@ -299,8 +299,6 @@ impl AsmMohoApiServer for AsmMohoRpcServer {
 
 #[derive(Debug, thiserror::Error)]
 enum MmrProofError {
-    #[error("leaf must be 32 bytes, got {0}")]
-    InvalidLeafLength(usize),
     #[error(transparent)]
     Sled(#[from] sled::Error),
     #[error(transparent)]
@@ -310,18 +308,14 @@ enum MmrProofError {
 /// SSZ-encoded MMR inclusion proof for `leaf` in `container_id` at `commitment`.
 ///
 /// `Ok(None)` if the leaf or container isn't in this snapshot yet. `Err` only
-/// for bad input or storage failures.
+/// for storage failures.
 fn build_export_entry_mmr_proof(
     moho_state_db: &SledMohoStateDb,
     export_entries_db: &SledExportEntriesDb,
     commitment: L1BlockCommitment,
     container_id: u8,
-    leaf: &[u8],
+    leaf: &[u8; 32],
 ) -> Result<Option<Vec<u8>>, MmrProofError> {
-    let leaf_hash: [u8; 32] = leaf
-        .try_into()
-        .map_err(|_| MmrProofError::InvalidLeafLength(leaf.len()))?;
-
     let Some(moho_state) = moho_state_db.get(commitment)? else {
         return Ok(None);
     };
@@ -337,7 +331,7 @@ fn build_export_entry_mmr_proof(
 
     let at_leaf_count = container.entries_mmr().num_entries();
 
-    let Some(mmr_index) = export_entries_db.find_index(container_id, &leaf_hash)? else {
+    let Some(mmr_index) = export_entries_db.find_index(container_id, leaf)? else {
         return Ok(None);
     };
 
@@ -654,26 +648,6 @@ mod tests {
         )
         .unwrap();
         assert!(out.is_none());
-    }
-
-    #[test]
-    fn err_on_wrong_sized_leaf() {
-        let (_db, moho, idx, _tmp) = temp_dbs();
-        let b1 = commitment(100, 1);
-        apply_block(
-            &moho,
-            &idx,
-            genesis_moho(),
-            b1,
-            &[(BRIDGE_SUBPROTOCOL_ID, entry_hash(0xa0))],
-        );
-
-        let err = build_export_entry_mmr_proof(&moho, &idx, b1, BRIDGE_SUBPROTOCOL_ID, &[0xa0; 31])
-            .unwrap_err();
-        assert!(matches!(err, MmrProofError::InvalidLeafLength(31)));
-        let err = build_export_entry_mmr_proof(&moho, &idx, b1, BRIDGE_SUBPROTOCOL_ID, &[0xa0; 33])
-            .unwrap_err();
-        assert!(matches!(err, MmrProofError::InvalidLeafLength(33)));
     }
 
     #[test]
