@@ -71,8 +71,15 @@ pub fn pre_process_asm<'b, S: AsmSpec>(
 
     // 4. PROCESS: Feed each subprotocol its filtered transactions for pre-processing.
     // This stage extracts auxiliary requests that will be needed for the main STF execution.
-    let mut pre_process_stage =
-        PreProcessStage::new(&mut manager, pre_state, &grouped_relevant_txs);
+    // After `check_and_update`, `last_verified_block` is the block we are about to
+    // pre-process. The stage needs its height to bound manifest hash requests.
+    let current_l1_height = pow_state.last_verified_block.height() as u64;
+    let mut pre_process_stage = PreProcessStage::new(
+        &mut manager,
+        pre_state,
+        current_l1_height,
+        &grouped_relevant_txs,
+    );
     spec.call_subprotocols(&mut pre_process_stage);
 
     // 5. Export auxiliary requests collected during pre-processing.

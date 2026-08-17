@@ -64,6 +64,12 @@ pub fn verify_progression(
     // Validate L1 progression: checkpoint must cover blocks strictly below the current L1
     // tip — the checkpoint transaction itself is contained in the L1 block at
     // `current_l1_height`, so it can only reference earlier blocks.
+    //
+    // This comparison must stay strict. The ASM only holds manifests for heights below
+    // the block it is processing, so a checkpoint covering its own block would need a
+    // manifest that pre-processing cannot request and that the handler then panics on,
+    // stranding that L1 block forever. `PreProcessStage::new` in `strata-asm-stf` carries
+    // the other half of this invariant.
     if l1_height_covered_in_new_checkpoint >= current_l1_height {
         return Err(InvalidCheckpointPayload::CheckpointBeyondL1Tip {
             checkpoint_height: l1_height_covered_in_new_checkpoint,
@@ -407,6 +413,46 @@ mod tests {
                 InvalidCheckpointPayload::CheckpointBeyondL1Tip { .. }
             )
         ));
+    }
+
+    /// Boundary case for the check above: a checkpoint covering the block that carries
+    /// it. Relaxing `>=` to `>` would accept it and strand that L1 block, because the
+    /// ASM has no manifest for its own height yet. Keep this test passing.
+    #[test]
+    fn test_new_tip_at_current_l1_height_is_rejected() {
+        let harness = CheckpointTestHarness::new_random();
+        let payload = harness.build_payload();
+        let current_l1_height = payload.new_tip().l1_height;
+
+        let err = verify_progression(harness.verified_tip(), payload.new_tip(), current_l1_height)
+            .unwrap_err();
+        assert!(matches!(
+            err,
+            CheckpointValidationError::InvalidPayload(
+                InvalidCheckpointPayload::CheckpointBeyondL1Tip { .. }
+            )
+        ));
+    }
+
+    /// The highest L1 height a checkpoint may cover. Its manifests are the last ones the
+    /// ASM can resolve, so this is the case the aux request bound has to admit.
+    #[test]
+    fn test_new_tip_just_below_current_l1_height_is_accepted() {
+        let harness = CheckpointTestHarness::new_random();
+        let payload = harness.build_payload();
+        let new_height = payload.new_tip().l1_height;
+        let current_l1_height = new_height + 1;
+
+        let coverage =
+            verify_progression(harness.verified_tip(), payload.new_tip(), current_l1_height)
+                .expect("a checkpoint one height below the current block is accepted");
+        assert_eq!(
+            coverage,
+            CheckpointL1Range::Range {
+                start_height: harness.verified_tip().l1_height + 1,
+                end_height: new_height,
+            }
+        );
     }
 
     #[test]

@@ -45,9 +45,16 @@ pub(crate) struct PreProcessStage<'c> {
 }
 
 impl<'c> PreProcessStage<'c> {
+    /// Builds the stage for the block at `current_l1_height`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the anchor state's manifest accumulator does not end exactly one
+    /// height below the block being processed. See the comment on the bound below.
     pub(crate) fn new(
         manager: &'c mut SubprotoManager,
         anchor_state: &'c AnchorState,
+        current_l1_height: u64,
         tx_bufs: &'c BTreeMap<SubprotocolId, Vec<TxInputRef<'c>>>,
     ) -> Self {
         let accumulator = &anchor_state.chain_view.history_accumulator;
@@ -58,6 +65,31 @@ impl<'c> PreProcessStage<'c> {
         // the bound here.
         let min_manifest_height = 0;
         let max_manifest_height = accumulator.last_inserted_height();
+
+        // The bound is what makes the collector's silent out-of-bounds drop safe.
+        // A dropped request is not a rejection: the process phase still runs, and
+        // if it asks for a height that was never resolved the subprotocol panics,
+        // leaving an L1 block that can never be processed. So the bound has to
+        // cover every height a subprotocol can legitimately ask for.
+        //
+        // It does, but with no margin. The only manifest consumer is the checkpoint
+        // subprotocol, and `verify_progression` requires a checkpoint's L1 height to
+        // be *strictly* below the block carrying it, so it can never need a manifest
+        // at `current_l1_height` or above. Relaxing that comparison without also
+        // extending this bound turns the first checkpoint covering its own block
+        // into a permanent halt.
+        //
+        // This assert pins the other half: the accumulator holds a manifest for
+        // every height below the current block and nothing at or above it, since
+        // the current block's own manifest is only appended at the end of the
+        // transition. It can only trip if the accumulator and the PoW state inside
+        // one `AnchorState` have diverged.
+        assert_eq!(
+            max_manifest_height + 1,
+            current_l1_height,
+            "asm: manifest accumulator must end one height below the block being processed"
+        );
+
         let aux_collector = AuxRequestCollector::new(min_manifest_height, max_manifest_height);
         Self {
             manager,

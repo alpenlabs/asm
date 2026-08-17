@@ -19,6 +19,11 @@ use crate::{
 /// L1 transactions (e.g. a checkpoint claiming a beyond-tip L1 height) from
 /// causing the aux resolver to fail, which would block processing of the entire
 /// L1 block.
+///
+/// Dropping is only safe because the bound covers every height a subprotocol can
+/// legitimately need. A drop is not a rejection: the process phase still runs, and
+/// panics if it asks for a height that was never resolved. Whoever sets the bound
+/// owns that guarantee — see `PreProcessStage::new` in `strata-asm-stf`.
 #[derive(Debug)]
 pub struct AuxRequestCollector {
     requests: AuxRequests,
