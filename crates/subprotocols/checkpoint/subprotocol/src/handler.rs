@@ -18,8 +18,7 @@ use strata_identifiers::L1Height;
 ///
 /// # Panics
 ///
-/// Panics if the required auxiliary data (ASM manifest hashes) is not provided or withdrawal intent
-/// has a malformed descriptor.
+/// Panics if the required auxiliary data (ASM manifest hashes) is not provided.
 pub(crate) fn handle_checkpoint_tx(
     state: &mut CheckpointState,
     tx: &TxInputRef<'_>,
