@@ -95,6 +95,6 @@ pub trait AsmMohoApi {
         &self,
         block_hash: BlockHash,
         container_id: u8,
-        leaf: Vec<u8>,
+        leaf: [u8; 32],
     ) -> RpcResult<Option<Vec<u8>>>;
 }
