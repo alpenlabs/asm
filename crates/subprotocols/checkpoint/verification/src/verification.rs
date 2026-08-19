@@ -8,12 +8,12 @@ use strata_asm_checkpoint_types::{
 use strata_asm_manifest_types::AsmManifestRangeHash;
 use strata_btc_types::BitcoinAmount;
 use strata_crypto::hash;
-use strata_identifiers::L1Height;
-use strata_predicate::{PredicateKey, PredicateTypeId};
+use strata_identifiers::{Buf32, L1Height};
+use strata_predicate::PredicateKey;
 use zkaleido_logging as logging;
 
 use crate::errors::{
-    CheckpointValidationResult, InvalidCheckpointPayload, InvalidSequencerPredicate, hex_encode,
+    CheckpointValidationResult, InvalidCheckpointPayload, InvalidSequencerKey, hex_encode,
 };
 
 /// L1 block range of a checkpoint, returned by [`verify_progression`].
@@ -135,44 +135,28 @@ pub(crate) fn verify_proof(
     Ok(())
 }
 
-/// Verifies that the envelope pubkey is authorized by the sequencer predicate.
+/// Verifies that the envelope pubkey is the sequencer's key.
 ///
-/// Uses the SPS-51 envelope trick: the envelope's taproot pubkey is checked against the
-/// sequencer predicate. Bitcoin consensus already verified the script-spend signature,
-/// so we only need to confirm the pubkey matches.
+/// Uses the SPS-51 envelope trick: the envelope container commits to an initial pubkey that
+/// controls the spend, and the ASM treats the script-spend signature as transitively signing
+/// the envelope contents. Bitcoin consensus already verified that signature, so matching the
+/// pubkey is all that is left to check.
 ///
-/// Dispatches on the predicate type:
-/// - [`NeverAccept`](PredicateTypeId::NeverAccept): always rejects.
-/// - [`AlwaysAccept`](PredicateTypeId::AlwaysAccept): always accepts (useful for testing).
-/// - [`Bip340Schnorr`](PredicateTypeId::Bip340Schnorr): compares the envelope pubkey against the
-///   predicate's condition bytes (the sequencer's x-only public key).
-/// - [`Sp1Groth16`](PredicateTypeId::Sp1Groth16): not a valid sequencer predicate type.
-/// - Unknown type IDs are rejected.
-pub fn verify_sequencer_predicate(
-    sequencer_predicate: &PredicateKey,
+/// `envelope_pubkey` is whatever the leaf script pushed, so its length is not known to be 32
+/// here. The comparison rejects a wrong length along with a wrong key.
+pub fn verify_sequencer_key(
+    sequencer_key: &Buf32,
     envelope_pubkey: &[u8],
 ) -> CheckpointValidationResult<()> {
-    let type_id = PredicateTypeId::try_from(sequencer_predicate.id())
-        .map_err(|_| InvalidSequencerPredicate::UnknownPredicateType(sequencer_predicate.id()))?;
-
-    match type_id {
-        PredicateTypeId::NeverAccept => Err(InvalidSequencerPredicate::NeverAccept.into()),
-        PredicateTypeId::AlwaysAccept => Ok(()),
-        PredicateTypeId::Bip340Schnorr => {
-            if envelope_pubkey != sequencer_predicate.condition() {
-                Err(InvalidSequencerPredicate::PubkeyMismatch {
-                    expected: sequencer_predicate.condition().to_vec(),
-                    actual: envelope_pubkey.to_vec(),
-                }
-                .into())
-            } else {
-                Ok(())
-            }
+    if envelope_pubkey != sequencer_key.as_ref() {
+        return Err(InvalidSequencerKey::PubkeyMismatch {
+            expected: *sequencer_key,
+            actual: envelope_pubkey.to_vec(),
         }
-        PredicateTypeId::Sp1Groth16 => {
-            Err(InvalidSequencerPredicate::UnsupportedType(type_id).into())
-        }
+        .into());
     }
+
+    Ok(())
 }
 
 /// Constructs a complete checkpoint claim for verification by combining the last verified
@@ -284,18 +268,17 @@ mod tests {
         CheckpointState, PredicateSelection,
         errors::{
             CheckpointValidationError, CheckpointValidationResult, InvalidCheckpointPayload,
-            InvalidSequencerPredicate,
+            InvalidSequencerKey,
         },
         verification::{
-            CheckpointL1Range, extract_withdrawal_intents, verify_progression,
-            verify_sequencer_predicate,
+            CheckpointL1Range, extract_withdrawal_intents, verify_progression, verify_sequencer_key,
         },
     };
 
     fn test_setup() -> (CheckpointState, CheckpointTestHarness) {
         let harness = CheckpointTestHarness::new_random();
         let state = CheckpointState::new(
-            harness.sequencer_predicate(),
+            harness.sequencer_key(),
             harness.checkpoint_predicate(),
             *harness.verified_tip(),
         );
@@ -325,8 +308,7 @@ mod tests {
         let asm_manifests_hash = harness.gen_asm_manifests_hash(&new_tip);
         let current_l1_height = new_tip.l1_height + 1;
 
-        verify_sequencer_predicate(state.sequencer_predicate(), harness.sequencer_pubkey())
-            .expect("auth");
+        verify_sequencer_key(state.sequencer_key(), harness.sequencer_pubkey()).expect("auth");
         let res = run_proof_pipeline(&mut state, current_l1_height, &payload, asm_manifests_hash);
         assert!(res.is_ok());
     }
@@ -336,47 +318,38 @@ mod tests {
     #[test]
     fn test_wrong_envelope_pubkey() {
         let harness = CheckpointTestHarness::new_random();
-        let err =
-            verify_sequencer_predicate(&harness.sequencer_predicate(), &[0u8; 32]).unwrap_err();
+        let err = verify_sequencer_key(&harness.sequencer_key(), &[0u8; 32]).unwrap_err();
         assert!(matches!(
             err,
-            CheckpointValidationError::InvalidSequencerPredicate(
-                InvalidSequencerPredicate::PubkeyMismatch { .. }
+            CheckpointValidationError::InvalidSequencerKey(
+                InvalidSequencerKey::PubkeyMismatch { .. }
             )
         ));
     }
 
-    /// Even though Bitcoin would reject an envelope without an envelope_pubkey set,
-    /// this test is an additional railguard checking that the ASM checkpoint verification
-    /// **would reject it as well**.
+    /// The envelope pubkey is an arbitrary-length script push, so a key of the wrong
+    /// length must be rejected rather than compared against a truncated or padded copy.
+    /// Bitcoin would already reject an envelope with no pubkey set; this is a railguard
+    /// checking the ASM rejects it too.
     #[test]
-    fn test_empty_envelope_pubkey_rejected() {
+    fn test_wrong_length_envelope_pubkey_rejected() {
         let harness = CheckpointTestHarness::new_random();
-        let err = verify_sequencer_predicate(&harness.sequencer_predicate(), &[]).unwrap_err();
-        assert!(matches!(
-            err,
-            CheckpointValidationError::InvalidSequencerPredicate(
-                InvalidSequencerPredicate::PubkeyMismatch { .. }
-            )
-        ));
+        for pubkey in [[].as_slice(), &[0xab; 31], &[0xab; 33]] {
+            let err = verify_sequencer_key(&harness.sequencer_key(), pubkey).unwrap_err();
+            assert!(matches!(
+                err,
+                CheckpointValidationError::InvalidSequencerKey(
+                    InvalidSequencerKey::PubkeyMismatch { .. }
+                )
+            ));
+        }
     }
 
     #[test]
-    fn test_always_accept_predicate_skips_pubkey_check() {
-        let res = verify_sequencer_predicate(&PredicateKey::always_accept(), &[0xab; 32]);
-        assert!(res.is_ok());
-    }
-
-    #[test]
-    fn test_never_accept_predicate_always_rejects() {
-        let err =
-            verify_sequencer_predicate(&PredicateKey::never_accept(), &[0xab; 32]).unwrap_err();
-        assert!(matches!(
-            err,
-            CheckpointValidationError::InvalidSequencerPredicate(
-                InvalidSequencerPredicate::NeverAccept
-            )
-        ));
+    fn test_matching_envelope_pubkey_accepted() {
+        let harness = CheckpointTestHarness::new_random();
+        verify_sequencer_key(&harness.sequencer_key(), harness.sequencer_pubkey())
+            .expect("the sequencer's own key authenticates");
     }
 
     // --- Progression ---
@@ -576,7 +549,7 @@ mod tests {
 
             // Keep the harness alive through the assertion so its randomly generated
             // predicates cannot be optimized out of the state setup.
-            assert_eq!(state.sequencer_predicate(), &harness.sequencer_predicate());
+            assert_eq!(state.sequencer_key(), &harness.sequencer_key());
         }
     }
 
@@ -716,7 +689,7 @@ mod tests {
     fn test_init_starts_without_a_pending_transition() {
         let harness = CheckpointTestHarness::new_random();
         let config = CheckpointInitConfig {
-            sequencer_predicate: harness.sequencer_predicate(),
+            sequencer_key: harness.sequencer_key(),
             checkpoint_predicate: harness.checkpoint_predicate(),
             genesis_l1_height: harness.genesis_l1_height(),
             genesis_ol_blkid: *harness.verified_tip().l2_commitment().blkid(),
