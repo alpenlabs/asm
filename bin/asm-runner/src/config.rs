@@ -5,8 +5,7 @@ use std::{fmt, path::PathBuf, time::Duration};
 use serde::{Deserialize, Serialize};
 use strata_asm_prover_worker::OrchestratorConfig;
 use strata_logging::LoggingInitConfig;
-
-use crate::retry::RetryConfig;
+use strata_retry::RetryConfig;
 
 /// Main configuration structure
 #[derive(Debug, Clone, Serialize, Deserialize)]

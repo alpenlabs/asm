@@ -28,9 +28,8 @@ use strata_asm_moho_worker::{
 };
 use strata_btc_types::{BlockHashExt, L1BlockIdBitcoinExt};
 use strata_identifiers::L1BlockCommitment;
+use strata_retry::{ExponentialBackoff, RetryConfig, retry_with_backoff_async};
 use tokio::{runtime::Handle, task};
-
-use crate::retry::{ExponentialBackoff, RetryConfig, retry_with_backoff_async};
 
 /// Storage and L1 access the Moho worker derives per-block Moho states from.
 pub(crate) struct MohoWorkerContextImpl {

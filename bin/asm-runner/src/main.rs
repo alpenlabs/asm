@@ -8,7 +8,6 @@ mod bootstrap;
 mod config;
 mod moho_context;
 mod prover_context;
-mod retry;
 mod rpc_server;
 mod storage;
 mod worker_context;

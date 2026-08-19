@@ -8228,6 +8228,7 @@ dependencies = [
  "strata-logging",
  "strata-merkle",
  "strata-predicate",
+ "strata-retry",
  "strata-tasks",
  "tempfile",
  "thiserror 2.0.18",
@@ -8580,6 +8581,16 @@ dependencies = [
  "tree_hash",
  "tree_hash_derive",
  "zkaleido-sp1-groth16-verifier",
+]
+
+[[package]]
+name = "strata-retry"
+version = "0.3.0-alpha.1"
+source = "git+https://github.com/alpenlabs/strata-common?tag=v0.4.0-rc.2#4e9dedf044e84e78cb3d2c9fbce262777735de09"
+dependencies = [
+ "serde",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]
