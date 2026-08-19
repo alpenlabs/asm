@@ -45,8 +45,8 @@ pub struct AssignmentEntry {
 
     /// Index of the operator currently assigned to execute this withdrawal.
     ///
-    /// If they successfully front the withdrawal based on `withdrawal_output`
-    /// within the `fulfillment_deadline`, they are able to unlock their claim.
+    /// If they successfully front the withdrawal based on `withdrawal_output` by the
+    /// [`fulfillment_deadline`](Self::fulfillment_deadline), they are able to unlock their claim.
     current_assignee: OperatorIdx,
 
     /// Bitmap of operators who were previously assigned to this withdrawal.
@@ -58,8 +58,10 @@ pub struct AssignmentEntry {
 
     /// Bitcoin block height deadline for withdrawal execution.
     ///
-    /// The withdrawal fulfillment transaction must be executed before this block height for the
-    /// operator to be eligible for [`ClaimUnlock`](strata_asm_bridge_types::OperatorClaimUnlock).
+    /// The deadline is inclusive: the withdrawal fulfillment transaction must land in a block at
+    /// or before this height for the operator to be eligible for
+    /// [`ClaimUnlock`](strata_asm_bridge_types::OperatorClaimUnlock). An assignment made at height
+    /// `H` with an assignment duration of `D` is therefore fulfillable in blocks `H+1..=H+D`.
     fulfillment_deadline: L1Height,
 }
 
@@ -854,6 +856,58 @@ mod tests {
         assert_eq!(
             future_assignment_after.current_assignee(),
             future_original_assignee
+        );
+    }
+
+    /// An assignment whose deadline is exactly the current height is reassigned by this pass,
+    /// rather than being left for the next block.
+    #[test]
+    fn test_reassign_expired_assignments_includes_exact_deadline() {
+        let mut table = AssignmentTable::new(100);
+        let mut arb = ArbitraryGenerator::new();
+
+        let current_height: L1Height = 150;
+        let seed: L1BlockId = arb.generate();
+        let l1_block = L1BlockCommitment::new(current_height as u32, seed);
+
+        let current_active_operators = OperatorBitmap::new_with_size(5, true);
+        let nn_history = NnScriptHistory::single_for_test(current_active_operators.clone());
+
+        // Deadline exactly at the current height.
+        let arb_entry: DepositEntry = arb.generate();
+        let deposit_entry = DepositEntry::new(arb_entry.idx(), 0, arb_entry.amt());
+        let withdrawal_intent: WithdrawalIntent = arb.generate();
+        let operator_fee: BitcoinAmount = arb.generate();
+
+        let assignment = AssignmentEntry::create(
+            deposit_entry,
+            withdrawal_intent,
+            operator_fee,
+            current_height,
+            &current_active_operators,
+            &current_active_operators,
+            seed,
+        )
+        .unwrap();
+
+        let deposit_idx = assignment.deposit_idx();
+        let original_assignee = assignment.current_assignee();
+        table.insert(assignment);
+
+        let reassigned = table
+            .reassign_expired_assignments(&nn_history, &current_active_operators, &l1_block)
+            .expect("reassignment should succeed");
+        assert_eq!(reassigned.len(), 1);
+
+        let after = table.get_assignment(deposit_idx).unwrap();
+        assert!(
+            after.previous_assignees.is_active(original_assignee),
+            "the assignee that let the deadline block pass should be recorded as tried"
+        );
+        assert_eq!(
+            after.fulfillment_deadline(),
+            current_height + table.assignment_duration as u32,
+            "the deadline should be refreshed from the current height"
         );
     }
 

@@ -68,6 +68,13 @@ impl Subprotocol for BridgeSubprotoV1 {
     /// 1. **Transaction processing**: Handles incoming bridge transactions
     /// 2. **Post-processing**: Reassigns any expired assignments to new operators
     ///
+    /// The order is load-bearing. The reassignment pass counts an assignment as expired once the
+    /// current height reaches its deadline, so running it first would rotate the assignment away
+    /// from an operator whose fulfillment confirms in that very block. Processing transactions
+    /// first makes the deadline height fulfillable: the fulfillment removes the assignment, and
+    /// the pass never sees it. An operator therefore gets the full window its deadline promises,
+    /// and cannot lose the claim to a race it has no way to win.
+    ///
     /// # Panics
     ///
     /// **CRITICAL**: This function panics if expired assignment reassignment fails, as this
