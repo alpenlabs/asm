@@ -18,7 +18,7 @@ use std::sync::Arc;
 
 use asm_storage::{SledAsmManifestDb, SledAsmStateDb};
 use bitcoin::BlockHash;
-use bitcoind_async_client::{Client, error::ClientError, traits::Reader};
+use bitcoind_async_client::error::ClientError;
 use moho_types::MohoState;
 use strata_asm_common::{AnchorState, AsmLogEntry};
 use strata_asm_moho_storage::{SledExportEntriesDb, SledMohoStateDb};
@@ -28,17 +28,14 @@ use strata_asm_moho_worker::{
 };
 use strata_btc_types::{BlockHashExt, L1BlockIdBitcoinExt};
 use strata_identifiers::L1BlockCommitment;
-use strata_retry::{ExponentialBackoff, RetryConfig, retry_with_backoff_async};
 use tokio::{runtime::Handle, task};
+
+use crate::bitcoin_client::RetryingBitcoinClient;
 
 /// Storage and L1 access the Moho worker derives per-block Moho states from.
 pub(crate) struct MohoWorkerContextImpl {
     runtime_handle: Handle,
-    bitcoin_client: Arc<Client>,
-    /// Backoff schedule for Bitcoin RPC calls.
-    rpc_backoff: ExponentialBackoff,
-    /// Maximum retry attempts per Bitcoin RPC call.
-    rpc_max_retries: u16,
+    bitcoin_client: Arc<RetryingBitcoinClient>,
     /// ASM anchor states the Moho state is derived from, committed by the ASM
     /// worker.
     state_db: Arc<SledAsmStateDb>,
@@ -55,8 +52,7 @@ pub(crate) struct MohoWorkerContextImpl {
 impl MohoWorkerContextImpl {
     pub(crate) fn new(
         runtime_handle: Handle,
-        bitcoin_client: Arc<Client>,
-        retry: &RetryConfig,
+        bitcoin_client: Arc<RetryingBitcoinClient>,
         state_db: Arc<SledAsmStateDb>,
         manifest_db: Arc<SledAsmManifestDb>,
         moho_state_db: SledMohoStateDb,
@@ -65,8 +61,6 @@ impl MohoWorkerContextImpl {
         Self {
             runtime_handle,
             bitcoin_client,
-            rpc_backoff: retry.backoff(),
-            rpc_max_retries: retry.max_retries,
             state_db,
             manifest_db,
             moho_state_db,
@@ -115,12 +109,8 @@ impl L1ProviderContext for MohoWorkerContextImpl {
         // the blocking call so the runtime keeps making progress; it requires
         // the multi-threaded runtime the runner builds.
         let header = task::block_in_place(|| {
-            self.runtime_handle.block_on(retry_with_backoff_async(
-                "btc_get_block_header",
-                self.rpc_max_retries,
-                &self.rpc_backoff,
-                || async { client.get_block_header(&block_hash).await },
-            ))
+            self.runtime_handle
+                .block_on(client.get_block_header(&block_hash))
         })
         .map_err(|_: ClientError| MohoWorkerError::MissingParentBlock(*block))?;
 

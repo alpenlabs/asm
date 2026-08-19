@@ -6,7 +6,7 @@
 //! and the Bitcoin client into the concern traits the prover worker drives
 //! against. The proof-store traits are delegated to [`SledProofDb`]; Moho-state
 //! reads to [`SledMohoStateDb`]; anchor reads to [`SledAsmStateDb`]; aux reads to
-//! [`SledAsmAuxDataDb`]; and L1 block reads to the Bitcoin [`Client`].
+//! [`SledAsmAuxDataDb`]; and L1 block reads to the Bitcoin client.
 //!
 //! [`ProverContext`]: strata_asm_prover_worker::ProverContext
 
@@ -14,7 +14,6 @@ use std::sync::Arc;
 
 use asm_storage::{SledAsmAuxDataDb, SledAsmStateDb};
 use bitcoin::{Block, block::Header};
-use bitcoind_async_client::{Client, traits::Reader};
 use moho_types::MohoState;
 use strata_asm_common::{AnchorState, AuxData};
 use strata_asm_moho_storage::{MohoStateDb, SledMohoStateDb};
@@ -30,18 +29,21 @@ use strata_btc_types::L1BlockIdBitcoinExt;
 use strata_identifiers::{L1BlockCommitment, L1BlockId};
 use zkaleido::RemoteProofStatus;
 
+use crate::bitcoin_client::RetryingBitcoinClient;
+
 /// Concrete prover context for the ASM runner.
 ///
 /// Implements every concern trait the prover worker needs, so it satisfies the
 /// `ProverContext` umbrella via its blanket impl. The bitcoin reads are async
-/// and hit the client directly — the orchestrator drives this from a
-/// single-threaded runtime, so blocking on the client would deadlock.
+/// and awaited directly — the orchestrator drives this from a single-threaded
+/// runtime, so blocking on the client would deadlock. Retries come from
+/// [`RetryingBitcoinClient`], which is async for that reason.
 pub(crate) struct AsmProverContext {
     proof_db: SledProofDb,
     moho_state_db: SledMohoStateDb,
     state_db: Arc<SledAsmStateDb>,
     aux_db: Arc<SledAsmAuxDataDb>,
-    bitcoin_client: Arc<Client>,
+    bitcoin_client: Arc<RetryingBitcoinClient>,
 }
 
 impl AsmProverContext {
@@ -50,7 +52,7 @@ impl AsmProverContext {
         moho_state_db: SledMohoStateDb,
         state_db: Arc<SledAsmStateDb>,
         aux_db: Arc<SledAsmAuxDataDb>,
-        bitcoin_client: Arc<Client>,
+        bitcoin_client: Arc<RetryingBitcoinClient>,
     ) -> Self {
         Self {
             proof_db,

@@ -9,7 +9,6 @@ use std::sync::Arc;
 use anyhow::Context;
 use asm_storage::{SledAsmAuxDataDb, SledAsmManifestDb, SledAsmManifestMmrDb, SledAsmStateDb};
 use bitcoin::{Block, BlockHash, Network, block::Header};
-use bitcoind_async_client::{Client, traits::Reader};
 use strata_asm_common::{AnchorState, AsmManifest, AsmManifestHash, AuxData};
 use strata_asm_worker::{
     AnchorStateStore, AuxDataStore, L1DataProvider, ManifestMmrStore, WorkerError, WorkerResult,
@@ -17,8 +16,9 @@ use strata_asm_worker::{
 use strata_btc_types::{BitcoinTxid, L1BlockIdBitcoinExt, RawBitcoinTx};
 use strata_identifiers::{L1BlockCommitment, L1BlockId, L1Height};
 use strata_merkle::MerkleProofB32;
-use strata_retry::{ExponentialBackoff, RetryConfig, retry_with_backoff_async};
 use tokio::runtime::Handle;
+
+use crate::bitcoin_client::RetryingBitcoinClient;
 
 /// ASM [`WorkerContext`](strata_asm_worker::WorkerContext) implementation.
 ///
@@ -27,11 +27,7 @@ use tokio::runtime::Handle;
 /// the Moho worker; see [`moho_context`](crate::moho_context).
 pub(crate) struct AsmWorkerContext {
     runtime_handle: Handle,
-    bitcoin_client: Arc<Client>,
-    /// Backoff schedule for Bitcoin RPC calls.
-    rpc_backoff: ExponentialBackoff,
-    /// Maximum retry attempts per Bitcoin RPC call.
-    rpc_max_retries: u16,
+    bitcoin_client: Arc<RetryingBitcoinClient>,
     state_db: Arc<SledAsmStateDb>,
     aux_db: Arc<SledAsmAuxDataDb>,
     manifest_db: Arc<SledAsmManifestDb>,
@@ -41,8 +37,7 @@ pub(crate) struct AsmWorkerContext {
 impl AsmWorkerContext {
     pub(crate) fn new(
         runtime_handle: Handle,
-        bitcoin_client: Arc<Client>,
-        retry: &RetryConfig,
+        bitcoin_client: Arc<RetryingBitcoinClient>,
         state_db: Arc<SledAsmStateDb>,
         aux_db: Arc<SledAsmAuxDataDb>,
         manifest_db: Arc<SledAsmManifestDb>,
@@ -51,8 +46,6 @@ impl AsmWorkerContext {
         Self {
             runtime_handle,
             bitcoin_client,
-            rpc_backoff: retry.backoff(),
-            rpc_max_retries: retry.max_retries,
             state_db,
             aux_db,
             manifest_db,
@@ -66,12 +59,7 @@ impl L1DataProvider for AsmWorkerContext {
         let block_hash: BlockHash = blockid.to_block_hash();
         let client = &self.bitcoin_client;
         self.runtime_handle
-            .block_on(retry_with_backoff_async(
-                "btc_get_block",
-                self.rpc_max_retries,
-                &self.rpc_backoff,
-                || async { client.get_block(&block_hash).await },
-            ))
+            .block_on(client.get_block(&block_hash))
             .with_context(|| format!("get_block({block_hash})"))
             .map_err(WorkerError::BtcRpc)
     }
@@ -80,12 +68,7 @@ impl L1DataProvider for AsmWorkerContext {
         let block_hash: BlockHash = blockid.to_block_hash();
         let client = &self.bitcoin_client;
         self.runtime_handle
-            .block_on(retry_with_backoff_async(
-                "btc_get_block_header",
-                self.rpc_max_retries,
-                &self.rpc_backoff,
-                || async { client.get_block_header(&block_hash).await },
-            ))
+            .block_on(client.get_block_header(&block_hash))
             .with_context(|| format!("get_block_header({block_hash})"))
             .map_err(WorkerError::BtcRpc)
     }
@@ -95,21 +78,11 @@ impl L1DataProvider for AsmWorkerContext {
         let height = u64::from(height);
         let block_hash = self
             .runtime_handle
-            .block_on(retry_with_backoff_async(
-                "btc_get_block_hash",
-                self.rpc_max_retries,
-                &self.rpc_backoff,
-                || async { client.get_block_hash(height).await },
-            ))
+            .block_on(client.get_block_hash(height))
             .with_context(|| format!("get_block_hash({height})"))
             .map_err(WorkerError::BtcRpc)?;
         self.runtime_handle
-            .block_on(retry_with_backoff_async(
-                "btc_get_block_header",
-                self.rpc_max_retries,
-                &self.rpc_backoff,
-                || async { client.get_block_header(&block_hash).await },
-            ))
+            .block_on(client.get_block_header(&block_hash))
             .with_context(|| format!("get_block_header({block_hash})"))
             .map_err(WorkerError::BtcRpc)
     }
@@ -119,12 +92,7 @@ impl L1DataProvider for AsmWorkerContext {
         let client = &self.bitcoin_client;
         let height = self
             .runtime_handle
-            .block_on(retry_with_backoff_async(
-                "btc_get_block_height",
-                self.rpc_max_retries,
-                &self.rpc_backoff,
-                || async { client.get_block_height(&block_hash).await },
-            ))
+            .block_on(client.get_block_height(&block_hash))
             .with_context(|| format!("get_block_height({block_hash})"))
             .map_err(WorkerError::BtcRpc)?;
         L1Height::try_from(height).map_err(|_| WorkerError::HeightOutOfRange { height })
@@ -133,12 +101,7 @@ impl L1DataProvider for AsmWorkerContext {
     fn get_network(&self) -> WorkerResult<Network> {
         let client = &self.bitcoin_client;
         self.runtime_handle
-            .block_on(retry_with_backoff_async(
-                "btc_network",
-                self.rpc_max_retries,
-                &self.rpc_backoff,
-                || async { client.network().await },
-            ))
+            .block_on(client.network())
             .context("network")
             .map_err(WorkerError::BtcRpc)
     }
@@ -147,16 +110,7 @@ impl L1DataProvider for AsmWorkerContext {
         let bitcoin_txid = txid.inner();
         let client = &self.bitcoin_client;
         self.runtime_handle
-            .block_on(retry_with_backoff_async(
-                "btc_get_raw_transaction",
-                self.rpc_max_retries,
-                &self.rpc_backoff,
-                || async {
-                    client
-                        .get_raw_transaction_verbosity_zero(&bitcoin_txid)
-                        .await
-                },
-            ))
+            .block_on(client.get_raw_transaction_verbosity_zero(&bitcoin_txid))
             .map(|resp| RawBitcoinTx::from(resp.0))
             .with_context(|| format!("get_raw_transaction({bitcoin_txid})"))
             .map_err(WorkerError::BtcRpc)
