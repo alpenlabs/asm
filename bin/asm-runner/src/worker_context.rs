@@ -17,9 +17,8 @@ use strata_asm_worker::{
 use strata_btc_types::{BitcoinTxid, L1BlockIdBitcoinExt, RawBitcoinTx};
 use strata_identifiers::{L1BlockCommitment, L1BlockId, L1Height};
 use strata_merkle::MerkleProofB32;
+use strata_retry::{ExponentialBackoff, RetryConfig, retry_with_backoff_async};
 use tokio::runtime::Handle;
-
-use crate::retry::{ExponentialBackoff, RetryConfig, retry_with_backoff_async};
 
 /// ASM [`WorkerContext`](strata_asm_worker::WorkerContext) implementation.
 ///

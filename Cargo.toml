@@ -124,6 +124,7 @@ strata-merkle-node-store = { git = "https://github.com/alpenlabs/strata-common",
 strata-msg-fmt = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.4.0-rc.2" }
 strata-ol-logs = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.4.0-rc.2" }
 strata-predicate = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.4.0-rc.2" }
+strata-retry = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.4.0-rc.2" }
 strata-service = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.4.0-rc.2" }
 strata-ssz-tests = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.4.0-rc.2" }
 strata-tasks = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.4.0-rc.2" }
