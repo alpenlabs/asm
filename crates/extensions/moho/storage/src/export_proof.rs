@@ -7,17 +7,60 @@
 
 use std::fmt::Debug;
 
-use ssz::Encode;
 use strata_identifiers::L1BlockCommitment;
+use strata_merkle::MerkleProofB32;
 
 use crate::{ExportEntriesDb, MohoStateDb};
 
-/// Failure while building an export-entry inclusion proof.
+/// Why an export-entry inclusion proof could not be built.
 ///
-/// Each variant carries the originating store's error. The traits only require
+/// The absence variants each name a distinct reason the requested leaf is not
+/// provable at the queried block. They are ordinary outcomes of a query, not
+/// faults: callers that treat "no such leaf" as an empty response should match
+/// on them rather than on a bare `None`.
+///
+/// The store variants carry the originating error. The traits only require
 /// [`Debug`] of them, so that is what is rendered.
 #[derive(Debug, thiserror::Error)]
 pub enum ExportProofError<M: Debug, E: Debug> {
+    /// No Moho state is stored for the queried block.
+    #[error("no moho state at {0:?}")]
+    NoStateAtBlock(L1BlockCommitment),
+
+    /// The block's state has no container with this id.
+    #[error("no container {container_id} at {commitment:?}")]
+    NoSuchContainer {
+        /// The container that was queried.
+        container_id: u8,
+        /// The block the state was read at.
+        commitment: L1BlockCommitment,
+    },
+
+    /// The leaf is not in the container's entry index at all.
+    #[error("leaf not found in container {container_id}")]
+    NoSuchLeaf {
+        /// The container that was queried.
+        container_id: u8,
+    },
+
+    /// The leaf exists, but was appended after the queried block, so it is not
+    /// covered by that block's MMR.
+    ///
+    /// The index grows monotonically as the worker advances, while the
+    /// historical state only ever saw the first `at_leaf_count` leaves.
+    #[error(
+        "leaf is at index {mmr_index} but container {container_id} held only \
+         {at_leaf_count} entries at the queried block"
+    )]
+    LeafAfterBlock {
+        /// The container that was queried.
+        container_id: u8,
+        /// Where the leaf sits in the index today.
+        mmr_index: u64,
+        /// How many leaves the container held at the queried block.
+        at_leaf_count: u64,
+    },
+
     /// The Moho state store failed.
     #[error("moho state store: {0:?}")]
     MohoState(M),
@@ -27,62 +70,61 @@ pub enum ExportProofError<M: Debug, E: Debug> {
     ExportEntries(E),
 }
 
-/// Builds an SSZ-encoded MMR inclusion proof for `leaf` in `container_id`, as of
+/// Builds an MMR inclusion proof for `leaf` in `container_id`, as of
 /// `commitment`.
 ///
-/// Resolves to `None` when the leaf or the container is not part of that
-/// snapshot yet; `Err` only for storage failures.
+/// The proof verifies against the container's compact MMR in the [`MohoState`]
+/// stored at `commitment`, which fixes the MMR size. Encoding is left to the
+/// caller.
+///
+/// [`MohoState`]: moho_types::MohoState
 pub async fn build_export_entry_mmr_proof<M, E>(
     moho_state_db: &M,
     export_entries_db: &E,
     commitment: L1BlockCommitment,
     container_id: u8,
     leaf: &[u8; 32],
-) -> Result<Option<Vec<u8>>, ExportProofError<M::Error, E::Error>>
+) -> Result<MerkleProofB32, ExportProofError<M::Error, E::Error>>
 where
     M: MohoStateDb,
     E: ExportEntriesDb,
 {
-    let Some(moho_state) = moho_state_db
+    let moho_state = moho_state_db
         .get_moho_state(commitment)
         .await
         .map_err(ExportProofError::MohoState)?
-    else {
-        return Ok(None);
-    };
+        .ok_or(ExportProofError::NoStateAtBlock(commitment))?;
 
-    let Some(container) = moho_state
+    let container = moho_state
         .export_state()
         .containers()
         .iter()
         .find(|c| c.container_id() == container_id)
-    else {
-        return Ok(None);
-    };
+        .ok_or(ExportProofError::NoSuchContainer {
+            container_id,
+            commitment,
+        })?;
 
     let at_leaf_count = container.entries_mmr().num_entries();
 
-    let Some(mmr_index) = export_entries_db
+    let mmr_index = export_entries_db
         .find_entry_index(container_id, *leaf)
         .await
         .map_err(ExportProofError::ExportEntries)?
-    else {
-        return Ok(None);
-    };
+        .ok_or(ExportProofError::NoSuchLeaf { container_id })?;
 
-    // Guard against entries appended after `commitment`: the index is populated
-    // monotonically by the worker, but the historical `MohoState` only saw the
-    // first `at_leaf_count` of them.
     if mmr_index >= at_leaf_count {
-        return Ok(None);
+        return Err(ExportProofError::LeafAfterBlock {
+            container_id,
+            mmr_index,
+            at_leaf_count,
+        });
     }
 
-    let proof = export_entries_db
+    export_entries_db
         .generate_entry_proof(container_id, mmr_index, at_leaf_count)
         .await
-        .map_err(ExportProofError::ExportEntries)?;
-
-    Ok(Some(proof.as_ssz_bytes()))
+        .map_err(ExportProofError::ExportEntries)
 }
 
 #[cfg(test)]
@@ -90,9 +132,7 @@ mod tests {
     //! Tests against real sled storage, mirroring the worker's invariant: each
     //! new export entry hits both `ExportState` and the entry index, in order.
     use moho_types::{ExportState, InnerStateCommitment, MohoState};
-    use ssz::Decode;
     use strata_identifiers::{Buf32, L1BlockId};
-    use strata_merkle::MerkleProofB32;
     use strata_predicate::PredicateKey;
     use tokio::runtime::Runtime;
 
@@ -163,8 +203,12 @@ mod tests {
             .num_entries()
     }
 
-    fn verify_against(state: &MohoState, container_id: u8, bytes: &[u8], leaf: &[u8; 32]) -> bool {
-        let proof = MerkleProofB32::from_ssz_bytes(bytes).unwrap();
+    fn verify_against(
+        state: &MohoState,
+        container_id: u8,
+        proof: &MerkleProofB32,
+        leaf: &[u8; 32],
+    ) -> bool {
         state
             .export_state()
             .containers()
@@ -172,7 +216,7 @@ mod tests {
             .find(|c| c.container_id() == container_id)
             .unwrap()
             .entries_mmr()
-            .verify(&proof, leaf)
+            .verify(proof, leaf)
     }
 
     #[test]
@@ -207,14 +251,13 @@ mod tests {
             .await;
 
             let leaf = entry_hash(0xa2);
-            let bytes = build_export_entry_mmr_proof(&moho, &idx, b2, CONTAINER_ID, &leaf)
+            let proof = build_export_entry_mmr_proof(&moho, &idx, b2, CONTAINER_ID, &leaf)
                 .await
-                .unwrap()
                 .expect("proof should be present");
 
             assert_eq!(container_mmr_len(&state_at_b2, CONTAINER_ID), 4);
             assert!(
-                verify_against(&state_at_b2, CONTAINER_ID, &bytes, &leaf),
+                verify_against(&state_at_b2, CONTAINER_ID, &proof, &leaf),
                 "proof must verify against MohoState's compact MMR at the queried block"
             );
         });
@@ -250,18 +293,17 @@ mod tests {
             // Querying leaf 0xa0 at b1 must produce a proof valid against the
             // size-1 MMR, not the size-3 MMR at b2.
             let leaf = entry_hash(0xa0);
-            let bytes = build_export_entry_mmr_proof(&moho, &idx, b1, CONTAINER_ID, &leaf)
+            let proof = build_export_entry_mmr_proof(&moho, &idx, b1, CONTAINER_ID, &leaf)
                 .await
-                .unwrap()
                 .unwrap();
 
             assert_eq!(container_mmr_len(&state_at_b1, CONTAINER_ID), 1);
-            assert!(verify_against(&state_at_b1, CONTAINER_ID, &bytes, &leaf));
+            assert!(verify_against(&state_at_b1, CONTAINER_ID, &proof, &leaf));
         });
     }
 
     #[test]
-    fn none_when_leaf_inserted_after_queried_block() {
+    fn errors_when_leaf_inserted_after_queried_block() {
         Runtime::new().unwrap().block_on(async {
             let (moho, idx, _tmp) = temp_dbs();
 
@@ -284,17 +326,27 @@ mod tests {
             )
             .await;
 
-            // 0xa1 was inserted at b2, so it is absent as of b1.
-            let out =
+            // 0xa1 was inserted at b2, so it is not covered by b1's MMR.
+            let err =
                 build_export_entry_mmr_proof(&moho, &idx, b1, CONTAINER_ID, &entry_hash(0xa1))
                     .await
-                    .unwrap();
-            assert!(out.is_none());
+                    .unwrap_err();
+            assert!(
+                matches!(
+                    err,
+                    ExportProofError::LeafAfterBlock {
+                        mmr_index: 1,
+                        at_leaf_count: 1,
+                        ..
+                    }
+                ),
+                "expected LeafAfterBlock, got {err:?}"
+            );
         });
     }
 
     #[test]
-    fn none_when_leaf_unknown() {
+    fn errors_when_leaf_unknown() {
         Runtime::new().unwrap().block_on(async {
             let (moho, idx, _tmp) = temp_dbs();
             let b1 = commitment(100, 1);
@@ -307,16 +359,19 @@ mod tests {
             )
             .await;
 
-            let out =
+            let err =
                 build_export_entry_mmr_proof(&moho, &idx, b1, CONTAINER_ID, &entry_hash(0xff))
                     .await
-                    .unwrap();
-            assert!(out.is_none());
+                    .unwrap_err();
+            assert!(
+                matches!(err, ExportProofError::NoSuchLeaf { .. }),
+                "expected NoSuchLeaf, got {err:?}"
+            );
         });
     }
 
     #[test]
-    fn none_when_container_missing() {
+    fn errors_when_container_missing() {
         Runtime::new().unwrap().block_on(async {
             let (moho, idx, _tmp) = temp_dbs();
             let b1 = commitment(100, 1);
@@ -331,18 +386,27 @@ mod tests {
 
             // A container that was never populated. Indistinguishable from one
             // that has not been created yet — both are legitimate absence.
-            let out = build_export_entry_mmr_proof(&moho, &idx, b1, 99, &entry_hash(0xa0))
+            let err = build_export_entry_mmr_proof(&moho, &idx, b1, 99, &entry_hash(0xa0))
                 .await
-                .unwrap();
-            assert!(out.is_none());
+                .unwrap_err();
+            assert!(
+                matches!(
+                    err,
+                    ExportProofError::NoSuchContainer {
+                        container_id: 99,
+                        ..
+                    }
+                ),
+                "expected NoSuchContainer, got {err:?}"
+            );
         });
     }
 
     #[test]
-    fn none_when_state_missing() {
+    fn errors_when_state_missing() {
         Runtime::new().unwrap().block_on(async {
             let (moho, idx, _tmp) = temp_dbs();
-            let out = build_export_entry_mmr_proof(
+            let err = build_export_entry_mmr_proof(
                 &moho,
                 &idx,
                 commitment(999, 9),
@@ -350,8 +414,11 @@ mod tests {
                 &entry_hash(0xa0),
             )
             .await
-            .unwrap();
-            assert!(out.is_none());
+            .unwrap_err();
+            assert!(
+                matches!(err, ExportProofError::NoStateAtBlock(_)),
+                "expected NoStateAtBlock, got {err:?}"
+            );
         });
     }
 }
