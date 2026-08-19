@@ -61,7 +61,7 @@ pub fn pre_process_asm<'b, S: AsmSpec>(
 
     // 2. Filter and group transactions by subprotocol based on magic bytes.
     // Only transactions relevant to registered subprotocols are processed further.
-    let grouped_relevant_txs = group_txs_by_subprotocol(pre_state.magic(), &block.txdata);
+    let grouped_relevant_txs = group_txs_by_subprotocol(pre_state.magic(), block);
 
     let mut manager = SubprotoManager::new();
 
