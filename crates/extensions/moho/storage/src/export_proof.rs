@@ -61,6 +61,25 @@ pub enum ExportProofError<M: Debug, E: Debug> {
         at_leaf_count: u64,
     },
 
+    /// The generated proof did not verify against the block's MMR.
+    ///
+    /// The two stores disagree: the entry index produced a proof that the
+    /// state's compact MMR rejects. Neither input is attacker-controlled, so
+    /// this means the mirrored leaves have drifted from the state they are
+    /// supposed to track.
+    #[error(
+        "proof for index {mmr_index} in container {container_id} does not verify \
+         against the mmr at {commitment:?}"
+    )]
+    ProofDoesNotVerify {
+        /// The container that was queried.
+        container_id: u8,
+        /// The leaf's index in the container.
+        mmr_index: u64,
+        /// The block whose MMR rejected the proof.
+        commitment: L1BlockCommitment,
+    },
+
     /// The Moho state store failed.
     #[error("moho state store: {0:?}")]
     MohoState(M),
@@ -76,6 +95,9 @@ pub enum ExportProofError<M: Debug, E: Debug> {
 /// The proof verifies against the container's compact MMR in the [`MohoState`]
 /// stored at `commitment`, which fixes the MMR size. Encoding is left to the
 /// caller.
+///
+/// The proof is checked against that MMR before it is returned, so a caller
+/// never hands out a proof that would fail at the verifier.
 ///
 /// [`MohoState`]: moho_types::MohoState
 pub async fn build_export_entry_mmr_proof<M, E>(
@@ -121,10 +143,23 @@ where
         });
     }
 
-    export_entries_db
+    let proof = export_entries_db
         .generate_entry_proof(container_id, mmr_index, at_leaf_count)
         .await
-        .map_err(ExportProofError::ExportEntries)
+        .map_err(ExportProofError::ExportEntries)?;
+
+    // The proof comes from the mirrored leaves, but it is consumed against the
+    // state's compact MMR. Check it here so drift between the two stores fails
+    // at the source rather than at whoever verifies it later.
+    if !container.entries_mmr().verify(&proof, leaf) {
+        return Err(ExportProofError::ProofDoesNotVerify {
+            container_id,
+            mmr_index,
+            commitment,
+        });
+    }
+
+    Ok(proof)
 }
 
 #[cfg(test)]
@@ -398,6 +433,52 @@ mod tests {
                     }
                 ),
                 "expected NoSuchContainer, got {err:?}"
+            );
+        });
+    }
+
+    /// Drives the two stores out of sync on purpose: the index gets a leaf the
+    /// state's MMR never absorbed, so the proof is well-formed but wrong.
+    #[test]
+    fn errors_when_proof_does_not_verify() {
+        Runtime::new().unwrap().block_on(async {
+            let (moho, idx, _tmp) = temp_dbs();
+            let b1 = commitment(100, 1);
+
+            // The state records two entries for the container...
+            let mut export = ExportState::new(vec![]).unwrap();
+            export.add_entry(CONTAINER_ID, entry_hash(0xa0)).unwrap();
+            export.add_entry(CONTAINER_ID, entry_hash(0xa1)).unwrap();
+            let state = MohoState::new(
+                InnerStateCommitment::from([0u8; 32]),
+                PredicateKey::always_accept(),
+                export,
+            );
+            moho.store_moho_state(b1, state).await.unwrap();
+
+            // ...but the index mirrors a different second leaf. Both agree on
+            // the count, so the size guard passes and the proof is built.
+            idx.append_entries(CONTAINER_ID, b1.height(), vec![entry_hash(0xa0)])
+                .await
+                .unwrap();
+            idx.append_entries(CONTAINER_ID, b1.height(), vec![entry_hash(0xbb)])
+                .await
+                .unwrap();
+
+            let err =
+                build_export_entry_mmr_proof(&moho, &idx, b1, CONTAINER_ID, &entry_hash(0xbb))
+                    .await
+                    .unwrap_err();
+            assert!(
+                matches!(
+                    err,
+                    ExportProofError::ProofDoesNotVerify {
+                        container_id: CONTAINER_ID,
+                        mmr_index: 1,
+                        ..
+                    }
+                ),
+                "expected ProofDoesNotVerify, got {err:?}"
             );
         });
     }

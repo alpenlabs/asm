@@ -309,9 +309,13 @@ impl AsmMohoApiServer for AsmMohoRpcServer {
                 | ExportProofError::LeafAfterBlock { .. },
             ) => Ok(None),
 
-            Err(e @ (ExportProofError::MohoState(..) | ExportProofError::ExportEntries(..))) => {
-                Err(to_rpc_error(e))
-            }
+            // A store failure, or the two stores disagreeing. Neither is an
+            // answer to the query, so both surface as errors.
+            Err(
+                e @ (ExportProofError::MohoState(..)
+                | ExportProofError::ExportEntries(..)
+                | ExportProofError::ProofDoesNotVerify { .. }),
+            ) => Err(to_rpc_error(e)),
         }
     }
 }
