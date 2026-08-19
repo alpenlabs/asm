@@ -12,13 +12,18 @@
 //! - [`MohoStateDb`] / [`SledMohoStateDb`] — the Moho-state store, keyed by L1 block commitment.
 //! - [`ExportEntriesDb`] / [`SledExportEntriesDb`] — the per-container export-entry index mirroring
 //!   the `ExportState` MMR leaves.
+//!
+//! [`build_export_entry_mmr_proof`] reads across both stores to rebuild an
+//! inclusion proof for a single export entry.
 
 mod export_entries;
+mod export_proof;
 mod moho_state;
 mod sled;
 
 pub use self::{
     export_entries::ExportEntriesDb,
+    export_proof::{ExportProofError, build_export_entry_mmr_proof},
     moho_state::MohoStateDb,
     sled::{SledExportEntriesDb, SledMohoStateDb},
 };
