@@ -89,12 +89,16 @@ pub trait AsmMohoApi {
     #[method(name = "getMohoState")]
     async fn get_moho_state(&self, block_hash: BlockHash) -> RpcResult<Option<MohoState>>;
 
-    /// Return the MMR inclusion proof for `leaf` in the export container at `container_id`.
+    /// Return the SSZ-encoded MMR inclusion proof for `leaf` in the export
+    /// container at `container_id`.
+    ///
+    /// Errors when no proof can be built, including when the leaf is simply not
+    /// part of that block's container. The error says which it was.
     #[method(name = "getExportEntryMMRProof")]
     async fn get_export_entry_mmr_proof(
         &self,
         block_hash: BlockHash,
         container_id: u8,
         leaf: [u8; 32],
-    ) -> RpcResult<Option<Vec<u8>>>;
+    ) -> RpcResult<Vec<u8>>;
 }

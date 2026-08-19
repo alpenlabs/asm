@@ -17,9 +17,7 @@ use ssz::{Decode, Encode};
 use strata_asm_bridge_types::SafeHarbour;
 use strata_asm_checkpoint_types::CheckpointTip;
 use strata_asm_common::{AnchorState, AsmManifest};
-use strata_asm_moho_storage::{
-    ExportProofError, SledExportEntriesDb, SledMohoStateDb, build_export_entry_mmr_proof,
-};
+use strata_asm_moho_storage::{SledExportEntriesDb, SledMohoStateDb, build_export_entry_mmr_proof};
 use strata_asm_params::AsmParams;
 use strata_asm_proto_bridge::{AssignmentEntry, BridgeStateV1, DepositEntry};
 use strata_asm_proto_bridge_txs::BRIDGE_SUBPROTOCOL_ID;
@@ -283,7 +281,7 @@ impl AsmMohoApiServer for AsmMohoRpcServer {
         block_hash: BlockHash,
         container_id: u8,
         leaf: [u8; 32],
-    ) -> RpcResult<Option<Vec<u8>>> {
+    ) -> RpcResult<Vec<u8>> {
         let commitment = to_block_commitment(&self.bitcoin_client, block_hash)
             .await
             .map_err(to_rpc_error)?;
@@ -295,28 +293,10 @@ impl AsmMohoApiServer for AsmMohoRpcServer {
             container_id,
             &leaf,
         )
-        .await;
+        .await
+        .map_err(to_rpc_error)?;
 
-        match proof {
-            Ok(proof) => Ok(Some(proof.as_ssz_bytes())),
-
-            // The leaf simply isn't provable at this block. That is an ordinary
-            // answer to the query, so it stays `null` on the wire.
-            Err(
-                ExportProofError::NoStateAtBlock(..)
-                | ExportProofError::NoSuchContainer { .. }
-                | ExportProofError::NoSuchLeaf { .. }
-                | ExportProofError::LeafAfterBlock { .. },
-            ) => Ok(None),
-
-            // A store failure, or the two stores disagreeing. Neither is an
-            // answer to the query, so both surface as errors.
-            Err(
-                e @ (ExportProofError::MohoState(..)
-                | ExportProofError::ExportEntries(..)
-                | ExportProofError::ProofDoesNotVerify { .. }),
-            ) => Err(to_rpc_error(e)),
-        }
+        Ok(proof.as_ssz_bytes())
     }
 }
 
