@@ -53,8 +53,15 @@ impl ProofBackend {
     ///
     /// - Returns an error if the requested [`BackendConfig`] variant does not match the binary's
     ///   build features (e.g. `Sp1` requested without the `sp1` feature).
-    /// - Returns an error if either host cannot be constructed (e.g. a guest ELF cannot be read in
-    ///   `sp1` builds) or if either host's verifying key cannot be turned into a [`PredicateKey`].
+    /// - Returns an error if a guest ELF cannot be read in `sp1` builds, or if either host's
+    ///   verifying key cannot be turned into a [`PredicateKey`].
+    ///
+    /// # Panics
+    ///
+    /// In `sp1` builds, panics if a guest ELF is readable but invalid: `SP1Host::init` is
+    /// infallible in its signature and calls `expect` when proving key setup fails. This runs
+    /// at startup, before the runner serves anything, so a bad ELF path stops the process
+    /// instead of leaving it running without a usable prover.
     pub async fn new(cfg: &BackendConfig) -> ProverResult<Self> {
         let (asm_host, moho_host) = build_proof_hosts(cfg).await?;
         let asm_predicate = resolve_predicate(&asm_host)?;
