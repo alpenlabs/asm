@@ -6,6 +6,7 @@ use anyhow::Result;
 use asm_storage::{SledAsmManifestDb, SledAsmStateDb};
 use async_trait::async_trait;
 use bitcoin::BlockHash;
+use bitcoind_async_client::traits::Reader;
 use jsonrpsee::{
     core::RpcResult,
     server::ServerBuilder,
@@ -41,12 +42,20 @@ fn to_rpc_error(e: impl Display) -> ErrorObjectOwned {
     ErrorObject::owned(-32000, e.to_string(), None::<()>)
 }
 
+/// Resolves `block_hash` to its commitment for an RPC handler.
+///
+/// Reads without retrying: the retry budget is sized for a worker to sit out a
+/// bitcoind restart, which is far longer than a caller awaiting a response
+/// should be made to block.
 async fn to_block_commitment(
     bitcoin_client: &RetryingBitcoinClient,
     block_hash: BlockHash,
 ) -> anyhow::Result<L1BlockCommitment> {
     let block_id = block_hash.to_l1_block_id();
-    let height = bitcoin_client.get_block_height(&block_hash).await? as u32;
+    let height = bitcoin_client
+        .no_retry()
+        .get_block_height(&block_hash)
+        .await? as u32;
     Ok(L1BlockCommitment::new(height, block_id))
 }
 

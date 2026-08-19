@@ -13,7 +13,8 @@
 //! method resolve through to the raw client and silently skip the retry, which
 //! is the failure this type exists to prevent. With an inherent impl, a read we
 //! have not routed through the retry is a compile error instead. Add methods
-//! here as callers need them.
+//! here as callers need them, or reach for
+//! [`RetryingBitcoinClient::no_retry`] when skipping the retry is the point.
 //!
 //! The methods are async and never block. [`AsmProverContext`] is driven from a
 //! single-threaded runtime, so blocking in here would deadlock it; the
@@ -107,6 +108,14 @@ impl RetryingBitcoinClient {
             backoff: retry.backoff(),
             max_retries: retry.max_retries,
         }
+    }
+
+    /// Returns the unwrapped client, whose reads do **not** retry.
+    ///
+    /// Prefer the retrying reads above. Use this only where failing fast beats
+    /// riding the outage out, and say why at the call site.
+    pub(crate) fn no_retry(&self) -> &Client {
+        &self.inner
     }
 }
 
