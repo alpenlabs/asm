@@ -13,7 +13,7 @@ use strata_asm_proto_admin_txs::{
 use strata_asm_proto_bridge_msgs::{BridgeIncomingMsg, DefconPayload, UpdateOperatorSetPayload};
 use strata_asm_proto_checkpoint_msgs::CheckpointIncomingMsg;
 use strata_identifiers::{AccountSerial, Buf32, L1Height, SYSTEM_RESERVED_ACCTS};
-use strata_predicate::{PredicateKey, PredicateTypeId};
+use strata_predicate::PredicateKey;
 
 use crate::{
     error::AdministrationError, queued_update::QueuedUpdate, state::AdministrationSubprotoState,
@@ -240,10 +240,7 @@ fn relay_alpen_predicate_update(relayer: &mut impl MsgRelayer, key: PredicateKey
 }
 
 fn relay_checkpoint_sequencer_update(relayer: &mut impl MsgRelayer, new_key: Buf32) {
-    let predicate = PredicateKey::try_new(PredicateTypeId::Bip340Schnorr, new_key.0.to_vec())
-        .expect("a 32-byte sequencer key is within the predicate condition limit");
-    let msg = CheckpointIncomingMsg::UpdateSequencerKey(predicate);
-    relayer.relay_msg(&msg);
+    relayer.relay_msg(&CheckpointIncomingMsg::UpdateSequencerKey(new_key));
     debug!(?new_key, "new sequencer key");
     info!("forwarded sequencer key update to checkpoint subprotocol");
 }
@@ -898,20 +895,11 @@ mod tests {
             .messages()
             .iter()
             .filter_map(|msg| match msg {
-                CheckpointIncomingMsg::UpdateSequencerKey(predicate) => {
-                    Some(predicate.condition().to_vec())
-                }
+                CheckpointIncomingMsg::UpdateSequencerKey(key) => Some(*key),
                 _ => None,
             })
             .collect();
-        assert_eq!(
-            relayed_keys,
-            [
-                first_key.0.to_vec(),
-                second_key.0.to_vec(),
-                third_key.0.to_vec()
-            ]
-        );
+        assert_eq!(relayed_keys, [first_key, second_key, third_key]);
     }
 
     #[test]

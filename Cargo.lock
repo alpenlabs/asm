@@ -8054,7 +8054,7 @@ dependencies = [
  "strata-asm-common",
  "strata-asm-proto-checkpoint-txs",
  "strata-btc-types",
- "strata-predicate",
+ "strata-identifiers",
 ]
 
 [[package]]

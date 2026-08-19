@@ -8,15 +8,14 @@
 //! covers. The split is by question, not by subprotocol: propagation here, selection there.
 //!
 //! Key interactions tested:
-//! - Sequencer key update (depth 0) → checkpoint sequencer_predicate adopts the new Bip340Schnorr
-//!   key
+//! - Sequencer key update (depth 0) → checkpoint sequencer_key adopts the new Schnorr key
 //! - Multiple sequential sequencer updates → checkpoint ends up with the latest key
 //! - Predicate (OL STF VK) update → queued by admin first, then checkpoint records a pending
 //!   boundary transition and emits an enactment log
 //! - Combined depth-0 sequencer + queued predicate → sequencer applies immediately while predicate
 //!   enactment queues a checkpoint transition
 //! - Sequencer update signed by any non-`StrataSequencerManager` role → rejected, checkpoint
-//!   sequencer_predicate unchanged
+//!   sequencer_key unchanged
 //! - Predicate update signed by any non-`StrataAdministrator` role → rejected, checkpoint
 //!   checkpoint_predicate unchanged
 //! - Depth-0 sequencer update in the same block as a checkpoint → checkpoint validates against the
@@ -45,10 +44,11 @@ use harness::{
 };
 use integration_tests::harness;
 use strata_asm_logs::CheckpointPredicateEnacted;
-use strata_predicate::{PredicateKey, PredicateTypeId};
+use strata_identifiers::Buf32;
+use strata_predicate::PredicateKey;
 
 // ============================================================================
-// Sequencer Key → Checkpoint Sequencer Predicate
+// Sequencer Key → Checkpoint Sequencer Key
 // ============================================================================
 
 /// Verifies sequencer key updates propagate to checkpoint subprotocol.
@@ -66,12 +66,8 @@ async fn test_sequencer_update_propagates_to_checkpoint() {
         .build()
         .await;
 
-    // Arrange: capture the initial checkpoint sequencer predicate.
-    let initial_sequencer_predicate = harness
-        .checkpoint_state()
-        .unwrap()
-        .sequencer_predicate()
-        .clone();
+    // Arrange: capture the initial checkpoint sequencer key.
+    let initial_sequencer_key = *harness.checkpoint_state().unwrap().sequencer_key();
 
     // Act: submit a (depth-0) sequencer key update.
     let new_key = [42u8; 32];
@@ -80,19 +76,17 @@ async fn test_sequencer_update_propagates_to_checkpoint() {
         .await
         .unwrap();
 
-    // Assert: checkpoint adopts the new Bip340Schnorr sequencer predicate.
+    // Assert: checkpoint adopts the new sequencer key.
     let final_checkpoint_state = harness.checkpoint_state().unwrap();
     assert_ne!(
-        final_checkpoint_state.sequencer_predicate(),
-        &initial_sequencer_predicate,
-        "checkpoint sequencer_predicate should change after a sequencer key update"
+        final_checkpoint_state.sequencer_key(),
+        &initial_sequencer_key,
+        "checkpoint sequencer_key should change after a sequencer key update"
     );
-    let expected = PredicateKey::try_new(PredicateTypeId::Bip340Schnorr, new_key.to_vec())
-        .expect("a 32-byte test key is within the predicate condition limit");
     assert_eq!(
-        final_checkpoint_state.sequencer_predicate(),
-        &expected,
-        "checkpoint should have the new sequencer predicate"
+        final_checkpoint_state.sequencer_key(),
+        &Buf32::from(new_key),
+        "checkpoint should have the new sequencer key"
     );
 }
 
@@ -128,12 +122,11 @@ async fn test_multiple_sequencer_updates_checkpoint_has_latest() {
         .unwrap();
 
     // Assert: checkpoint holds the latest key, and all three updates were processed.
-    let expected = PredicateKey::try_new(PredicateTypeId::Bip340Schnorr, key3.to_vec())
-        .expect("a 32-byte test key is within the predicate condition limit");
+    let expected = Buf32::from(key3);
     assert_eq!(
-        harness.checkpoint_state().unwrap().sequencer_predicate(),
+        harness.checkpoint_state().unwrap().sequencer_key(),
         &expected,
-        "checkpoint should have the latest sequencer predicate"
+        "checkpoint should have the latest sequencer key"
     );
     assert_eq!(
         harness.admin_state().unwrap().next_update_id(),
@@ -255,13 +248,10 @@ async fn test_zero_and_nonzero_depth_updates_both_apply() {
         .submit_admin_action(&mut ctx, sequencer_update(new_sequencer_key))
         .await
         .unwrap();
-    let expected_seq_predicate =
-        PredicateKey::try_new(PredicateTypeId::Bip340Schnorr, new_sequencer_key.to_vec())
-            .expect("a 32-byte test key is within the predicate condition limit");
     assert_eq!(
-        harness.checkpoint_state().unwrap().sequencer_predicate(),
-        &expected_seq_predicate,
-        "sequencer predicate should be updated immediately at confirmation depth 0"
+        harness.checkpoint_state().unwrap().sequencer_key(),
+        &Buf32::from(new_sequencer_key),
+        "sequencer key should be updated immediately at confirmation depth 0"
     );
 
     // Act: queue a predicate update (non-zero depth).
@@ -298,9 +288,9 @@ async fn test_zero_and_nonzero_depth_updates_both_apply() {
     );
     let final_checkpoint_state = harness.checkpoint_state().unwrap();
     assert_eq!(
-        final_checkpoint_state.sequencer_predicate(),
-        &expected_seq_predicate,
-        "sequencer predicate should still be the new value"
+        final_checkpoint_state.sequencer_key(),
+        &Buf32::from(new_sequencer_key),
+        "sequencer key should still be the new value"
     );
     assert_eq!(
         final_checkpoint_state.checkpoint_predicate(),
@@ -329,7 +319,7 @@ async fn test_zero_and_nonzero_depth_updates_both_apply() {
 ///
 /// Sequencer updates require `StrataSequencerManager`; the shared helper verifies every other
 /// role is rejected at the admin layer, and the call site additionally checks the
-/// cross-subprotocol effect (the checkpoint sequencer predicate stays put).
+/// cross-subprotocol effect (the checkpoint sequencer key stays put).
 #[tokio::test(flavor = "multi_thread")]
 async fn test_sequencer_update_rejected_from_wrong_role() {
     let Setup {
@@ -338,18 +328,14 @@ async fn test_sequencer_update_rejected_from_wrong_role() {
         ..
     } = AsmTestHarnessBuilder::default().build().await;
 
-    let initial = harness
-        .checkpoint_state()
-        .unwrap()
-        .sequencer_predicate()
-        .clone();
+    let initial = *harness.checkpoint_state().unwrap().sequencer_key();
 
     assert_only_required_role_can_send(&harness, &mut ctx, sequencer_update([42u8; 32])).await;
 
     assert_eq!(
-        harness.checkpoint_state().unwrap().sequencer_predicate(),
+        harness.checkpoint_state().unwrap().sequencer_key(),
         &initial,
-        "wrong-role sequencer update must not change the checkpoint sequencer predicate",
+        "wrong-role sequencer update must not change the checkpoint sequencer key",
     );
 }
 
@@ -441,12 +427,11 @@ async fn run_immediate_sequencer_same_block(admin_first: bool) {
         "exactly one tip-update log should be emitted"
     );
 
-    let expected = PredicateKey::try_new(PredicateTypeId::Bip340Schnorr, new_key.to_vec())
-        .expect("a 32-byte test key is within the predicate condition limit");
+    let expected = Buf32::from(new_key);
     assert_eq!(
-        cp_state.sequencer_predicate(),
+        cp_state.sequencer_key(),
         &expected,
-        "sequencer predicate should be updated once the block's transactions are processed"
+        "sequencer key should be updated once the block's transactions are processed"
     );
 }
 
@@ -463,7 +448,7 @@ async fn test_sequencer_immediate_update_same_block_checkpoint_validates_checkpo
 }
 
 /// A queued sequencer update that activates in the same block as a checkpoint still validates
-/// that checkpoint against the old sequencer predicate; the new key takes effect afterward.
+/// that checkpoint against the old sequencer key; the new key takes effect afterward.
 #[tokio::test(flavor = "multi_thread")]
 async fn test_queued_sequencer_update_activation_same_block_checkpoint_validates() {
     const DEPTH: u64 = DEFAULT_CONFIRMATION_DEPTH as u64;
@@ -510,12 +495,11 @@ async fn test_queued_sequencer_update_activation_same_block_checkpoint_validates
         1,
         "exactly one tip-update log should be emitted"
     );
-    let expected = PredicateKey::try_new(PredicateTypeId::Bip340Schnorr, new_key.to_vec())
-        .expect("a 32-byte test key is within the predicate condition limit");
+    let expected = Buf32::from(new_key);
     assert_eq!(
-        cp_state.sequencer_predicate(),
+        cp_state.sequencer_key(),
         &expected,
-        "sequencer predicate should be updated after the activation block"
+        "sequencer key should be updated after the activation block"
     );
     assert_eq!(
         harness.admin_state().unwrap().queued().len(),

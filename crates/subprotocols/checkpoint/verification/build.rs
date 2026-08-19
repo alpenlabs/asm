@@ -10,6 +10,7 @@ fn main() {
     let base_dir = "ssz";
     let crates = [
         "strata_predicate",
+        "strata_identifiers",
         "strata_btc_types",
         "strata_asm_checkpoint_types",
     ];

@@ -107,13 +107,13 @@ impl Subprotocol for CheckpointSubprotocol {
                         "recording processed deposit"
                     );
                 }
-                CheckpointIncomingMsg::UpdateSequencerKey(new_predicate) => {
+                CheckpointIncomingMsg::UpdateSequencerKey(new_key) => {
                     logging::info!(
-                        old = state.sequencer_predicate().id(),
-                        new = new_predicate.id(),
-                        "updating sequencer predicate"
+                        old = %state.sequencer_key(),
+                        new = %new_key,
+                        "updating sequencer key"
                     );
-                    state.update_sequencer_predicate(new_predicate.clone());
+                    state.update_sequencer_key(*new_key);
                 }
                 CheckpointIncomingMsg::QueueCheckpointPredicateTransition(transition) => {
                     logging::info!(

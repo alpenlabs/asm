@@ -5,7 +5,7 @@ use strata_asm_proto_admin_msgs::AdministrationIncomingMsg;
 use strata_asm_proto_bridge_msgs::BridgeIncomingMsg;
 use strata_asm_proto_checkpoint_txs::extract_checkpoint_from_envelope;
 use strata_checkpoint_verification::{
-    CheckpointL1Range, CheckpointState, verify_progression, verify_sequencer_predicate,
+    CheckpointL1Range, CheckpointState, verify_progression, verify_sequencer_key,
 };
 use strata_identifiers::L1Height;
 
@@ -43,11 +43,9 @@ pub(crate) fn handle_checkpoint_tx(
 
     logging::debug!(txid = %tx.tx().compute_txid(), epoch, "processing checkpoint transaction");
 
-    // Authenticate the envelope against the sequencer predicate before doing any
+    // Authenticate the envelope against the sequencer key before doing any
     // progression or proof work.
-    if let Err(e) =
-        verify_sequencer_predicate(state.sequencer_predicate(), &envelope.envelope_pubkey)
-    {
+    if let Err(e) = verify_sequencer_key(state.sequencer_key(), &envelope.envelope_pubkey) {
         logging::warn!(txid = %tx.tx().compute_txid(), epoch, error = %e, "checkpoint envelope authentication failed");
         return;
     }
