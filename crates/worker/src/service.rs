@@ -58,12 +58,12 @@ where
                 match sync_to_block(state, &target.to_l1_block_id()) {
                     Ok(processed) => completion.send_blocking(Ok(processed)),
                     Err(err) => {
-                        // A sync error is fatal for the whole runner, not just for
-                        // this worker, so it is returned as an `Err` rather than
-                        // `Response::ShouldExit`. The worker runs as a critical
-                        // task: an `Err` shuts the process down, while a clean exit
-                        // would leave the rest of the runner alive with nothing
-                        // advancing ASM state.
+                        // A sync error is terminal: nothing will advance ASM state
+                        // again, so it is reported as an `Err` rather than
+                        // `Response::ShouldExit`. The framework turns an `Err` into
+                        // a critical-task failure, which the host can act on. A
+                        // clean exit is indistinguishable from the worker finishing
+                        // its work, so it tells the host nothing.
                         //
                         // Log the failure here as well. The caller's completion
                         // result may be awaited on another task, and `WorkerError`
@@ -813,12 +813,12 @@ mod tests {
         assert_eq!(state.blkid, target, "anchor advanced");
     }
 
-    /// A failing sync takes the runner down with it: `process_input` returns an
-    /// `Err`, which the service framework turns into a critical-task failure, and
-    /// the error also reaches the caller. Returning `Ok(Response::ShouldExit)`
-    /// instead would end the worker cleanly and leave the rest of the runner
-    /// running with nothing advancing ASM state. The bogus id can't be resolved to
-    /// a height, so the sync fails at the up-front lookup.
+    /// A failing sync fails the worker's task: `process_input` returns an `Err`,
+    /// which the service framework turns into a critical-task failure, and the
+    /// error also reaches the caller. Returning `Ok(Response::ShouldExit)` instead
+    /// would end the worker cleanly, which the host cannot tell apart from the
+    /// worker finishing its work. The bogus id can't be resolved to a height, so
+    /// the sync fails at the up-front lookup.
     #[tokio::test(flavor = "multi_thread")]
     async fn process_input_failure_is_fatal() {
         let fx = fixtures::setup_state(101).await;
