@@ -15,6 +15,12 @@
 //! worker never awaits a consumer: it fans out and returns to the next block.
 //! The trade-off is that a stuck consumer is a memory leak; [`Subscription::backlog`]
 //! exposes the queue depth so consumers (or alerting) can notice.
+//!
+//! A subscription ends when every [`Subscribers`] clone is dropped, which is not
+//! the same as the emitting worker stopping. The worker handle holds a clone and
+//! outlives the service state, so the senders survive the worker and a consumer
+//! parked in [`Subscription::recv`] stays parked. Consumers need their own way to
+//! stop; the stream will not tell them.
 
 use std::{
     pin::Pin,
@@ -52,18 +58,18 @@ impl<T> Subscription<T> {
         self.rx.len()
     }
 
-    /// Receives the next emitted item, or `None` once the worker has shut down
-    /// (every sender dropped).
+    /// Receives the next emitted item, or `None` once every [`Subscribers`] clone
+    /// is dropped. That is not the same as the emitting worker stopping; see the
+    /// module docs.
     pub async fn recv(&mut self) -> Option<T> {
         self.rx.recv().await
     }
 
     /// Pulls the next already-queued item without awaiting.
     ///
-    /// Returns [`TryRecvError::Empty`] when nothing is queued right now, and
-    /// [`TryRecvError::Disconnected`] once the worker has shut down and the
-    /// backlog is drained. Lets a periodically-ticking consumer drain everything
-    /// buffered at the top of each tick without parking on the channel.
+    /// Returns [`TryRecvError::Empty`] when nothing is queued right now. Lets a
+    /// periodically-ticking consumer drain everything buffered at the top of each
+    /// tick without parking on the channel.
     pub fn try_recv(&mut self) -> Result<T, TryRecvError> {
         self.rx.try_recv()
     }

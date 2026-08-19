@@ -2,6 +2,7 @@
 
 use std::marker;
 
+use anyhow::anyhow;
 use serde::{Deserialize, Serialize};
 use strata_asm_common::{AnchorState, AsmSpec};
 use strata_btc_types::BlockHashExt;
@@ -54,18 +55,25 @@ where
                 // The wire carries a bitcoin block hash; translate it to the
                 // worker's L1 block id at this boundary so nothing downstream
                 // deals in bitcoin types.
-                let result = sync_to_block(state, &target.to_l1_block_id());
-                if let Err(err) = &result {
-                    // A sync error is fatal: the worker exits below. Log it here
-                    // so the shutdown reason lands in the worker's own log, not
-                    // only in the caller's completion result (which may be
-                    // awaited on another task).
-                    error!(%target, %err, "ASM sync failed; shutting down worker");
-                }
-                let should_exit = result.is_err();
-                completion.send_blocking(result);
-                if should_exit {
-                    return Ok(Response::ShouldExit);
+                match sync_to_block(state, &target.to_l1_block_id()) {
+                    Ok(processed) => completion.send_blocking(Ok(processed)),
+                    Err(err) => {
+                        // A sync error is terminal: nothing will advance ASM state
+                        // again, so it is reported as an `Err` rather than
+                        // `Response::ShouldExit`. The framework turns an `Err` into
+                        // a critical-task failure, which the host can act on. A
+                        // clean exit is indistinguishable from the worker finishing
+                        // its work, so it tells the host nothing.
+                        //
+                        // Log the failure here as well. The caller's completion
+                        // result may be awaited on another task, and `WorkerError`
+                        // is not `Clone`, so the caller gets the typed error and
+                        // the task exits with a rendering of it.
+                        error!(%target, %err, "ASM sync failed; shutting down worker");
+                        let fatal = anyhow!("ASM sync failed for block {target}: {err}");
+                        completion.send_blocking(Err(err));
+                        return Err(fatal);
+                    }
                 }
             }
         }
@@ -805,11 +813,14 @@ mod tests {
         assert_eq!(state.blkid, target, "anchor advanced");
     }
 
-    /// A failing sync shuts the worker down: `process_input` returns `ShouldExit`
-    /// and the error reaches the caller. The bogus id can't be resolved to a
-    /// height, so the sync fails at the up-front lookup.
+    /// A failing sync fails the worker's task: `process_input` returns an `Err`,
+    /// which the service framework turns into a critical-task failure, and the
+    /// error also reaches the caller. Returning `Ok(Response::ShouldExit)` instead
+    /// would end the worker cleanly, which the host cannot tell apart from the
+    /// worker finishing its work. The bogus id can't be resolved to a height, so
+    /// the sync fails at the up-front lookup.
     #[tokio::test(flavor = "multi_thread")]
-    async fn process_input_failure_exits() {
+    async fn process_input_failure_is_fatal() {
         let fx = fixtures::setup_state(101).await;
         let bogus = L1BlockId::from(Buf32::from([0xcd; 32])).to_block_hash();
         let (tx, rx) = oneshot::channel();
@@ -817,7 +828,10 @@ mod tests {
 
         let (response, _state) = process_input_off_runtime(fx.state, msg);
 
-        assert!(matches!(response.unwrap(), Response::ShouldExit));
+        assert!(
+            response.is_err(),
+            "a fatal sync error must propagate out of the worker task, not exit it cleanly",
+        );
         assert!(rx.await.unwrap().is_err(), "caller received the error");
     }
 }
