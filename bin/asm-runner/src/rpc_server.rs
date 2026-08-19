@@ -6,7 +6,7 @@ use anyhow::Result;
 use asm_storage::{SledAsmManifestDb, SledAsmStateDb};
 use async_trait::async_trait;
 use bitcoin::BlockHash;
-use bitcoind_async_client::{Client, traits::Reader};
+use bitcoind_async_client::traits::Reader;
 use jsonrpsee::{
     core::RpcResult,
     server::ServerBuilder,
@@ -35,17 +35,27 @@ use strata_identifiers::L1BlockCommitment;
 use strata_tasks::ShutdownGuard;
 use tracing::{info, warn};
 
+use crate::bitcoin_client::RetryingBitcoinClient;
+
 /// Convert any error to an RPC error
 fn to_rpc_error(e: impl Display) -> ErrorObjectOwned {
     ErrorObject::owned(-32000, e.to_string(), None::<()>)
 }
 
+/// Resolves `block_hash` to its commitment for an RPC handler.
+///
+/// Reads without retrying: the retry budget is sized for a worker to sit out a
+/// bitcoind restart, which is far longer than a caller awaiting a response
+/// should be made to block.
 async fn to_block_commitment(
-    bitcoin_client: &Client,
+    bitcoin_client: &RetryingBitcoinClient,
     block_hash: BlockHash,
 ) -> anyhow::Result<L1BlockCommitment> {
     let block_id = block_hash.to_l1_block_id();
-    let height = bitcoin_client.get_block_height(&block_hash).await? as u32;
+    let height = bitcoin_client
+        .no_retry()
+        .get_block_height(&block_hash)
+        .await? as u32;
     Ok(L1BlockCommitment::new(height, block_id))
 }
 
@@ -55,7 +65,7 @@ pub(crate) struct AsmRpcServer {
     state_db: Arc<SledAsmStateDb>,
     manifest_db: Arc<SledAsmManifestDb>,
     asm_worker: Arc<AsmWorkerHandle>,
-    bitcoin_client: Arc<Client>,
+    bitcoin_client: Arc<RetryingBitcoinClient>,
     params: Arc<AsmParams>,
     /// Monotonic start instant, used to compute uptime for the control API.
     start_time: Instant,
@@ -66,7 +76,7 @@ impl AsmRpcServer {
         state_db: Arc<SledAsmStateDb>,
         manifest_db: Arc<SledAsmManifestDb>,
         asm_worker: Arc<AsmWorkerHandle>,
-        bitcoin_client: Arc<Client>,
+        bitcoin_client: Arc<RetryingBitcoinClient>,
         params: AsmParams,
     ) -> Self {
         Self {
@@ -196,14 +206,14 @@ pub(crate) struct AsmProofRpcDeps {
 
 /// RPC handlers serving the ASM/Moho proofs and the prover worker's status.
 pub(crate) struct AsmProofRpcServer {
-    bitcoin_client: Arc<Client>,
+    bitcoin_client: Arc<RetryingBitcoinClient>,
     proof_db: SledProofDb,
     prover_handle: Arc<ProverWorkerHandle>,
 }
 
 impl AsmProofRpcServer {
     pub(crate) fn new(
-        bitcoin_client: Arc<Client>,
+        bitcoin_client: Arc<RetryingBitcoinClient>,
         proof_db: SledProofDb,
         prover_handle: Arc<ProverWorkerHandle>,
     ) -> Self {
@@ -247,14 +257,14 @@ impl AsmProofApiServer for AsmProofRpcServer {
 
 /// RPC handlers serving the per-block Moho state and export-entry MMR proofs.
 pub(crate) struct AsmMohoRpcServer {
-    bitcoin_client: Arc<Client>,
+    bitcoin_client: Arc<RetryingBitcoinClient>,
     moho_state_db: SledMohoStateDb,
     export_entries_db: SledExportEntriesDb,
 }
 
 impl AsmMohoRpcServer {
     pub(crate) fn new(
-        bitcoin_client: Arc<Client>,
+        bitcoin_client: Arc<RetryingBitcoinClient>,
         moho_state_db: SledMohoStateDb,
         export_entries_db: SledExportEntriesDb,
     ) -> Self {
@@ -309,7 +319,7 @@ pub(crate) async fn run_rpc_server(
     state_db: Arc<SledAsmStateDb>,
     manifest_db: Arc<SledAsmManifestDb>,
     asm_worker: Arc<AsmWorkerHandle>,
-    bitcoin_client: Arc<Client>,
+    bitcoin_client: Arc<RetryingBitcoinClient>,
     params: AsmParams,
     proof_deps: Option<AsmProofRpcDeps>,
     rpc_host: String,

@@ -3,6 +3,7 @@
 //! Standalone binary that runs the ASM (Anchor State Machine) STF and exposes an RPC API
 //! for querying ASM state.
 
+mod bitcoin_client;
 mod block_watcher;
 mod bootstrap;
 mod config;

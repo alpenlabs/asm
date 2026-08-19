@@ -17,14 +17,13 @@ use std::{sync::Arc, time::Duration};
 
 use anyhow::{Context, Result, bail};
 use bitcoincore_zmq::{Message, SocketMessage, subscribe_async_wait_handshake};
-use bitcoind_async_client::{Client, traits::Reader};
 use futures::StreamExt;
 use strata_asm_worker::AsmWorkerHandle;
 use strata_tasks::ShutdownGuard;
 use tokio::time::timeout;
 use tracing::{debug, error, info, warn};
 
-use crate::config::BitcoinConfig;
+use crate::{bitcoin_client::RetryingBitcoinClient, config::BitcoinConfig};
 
 /// Timeout for the initial ZMQ handshake with bitcoind.
 const ZMQ_HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(2);
@@ -37,7 +36,7 @@ const ZMQ_HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(2);
 /// N.B. Will be (eventually) onto SF rails and integrated with the worker "natively".
 pub(crate) async fn drive_asm_from_bitcoin(
     config: BitcoinConfig,
-    bitcoin_client: Arc<Client>,
+    bitcoin_client: Arc<RetryingBitcoinClient>,
     asm_worker: Arc<AsmWorkerHandle>,
     shutdown: ShutdownGuard,
 ) -> Result<()> {
@@ -57,10 +56,11 @@ pub(crate) async fn drive_asm_from_bitcoin(
     // Submit the current tip once to catch up from the persisted height without
     // waiting for the next mined block. This runs *after* subscribing so any
     // block mined in between still arrives over ZMQ — no gap between the
-    // catch-up and the live stream. A failure here isn't fatal: the next ZMQ
-    // block drives the same walk-back, just later. `getblockchaininfo` resolves
-    // the tip hash in one call, so there's no window where a block mined between
-    // a height read and a hash read could desync them.
+    // catch-up and the live stream. A failure here isn't fatal even after the
+    // retries are exhausted: the next ZMQ block drives the same walk-back, just
+    // later. The tip hash comes from one `getblockchaininfo` call, so there's no
+    // window where a block mined between a height read and a hash read could
+    // desync them.
     match bitcoin_client.get_blockchain_info().await {
         Ok(info) => {
             let block_hash = info.best_block_hash;

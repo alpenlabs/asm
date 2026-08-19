@@ -81,6 +81,9 @@ pub(crate) struct BitcoinConfig {
     /// outer layer here is what carries us through longer outages (e.g. a
     /// bitcoind restart). Every `ClientError` from the inner layer is
     /// retried by this outer layer.
+    ///
+    /// [`RetryingBitcoinClient`](crate::bitcoin_client::RetryingBitcoinClient)
+    /// applies this to every Bitcoin read in the runner.
     #[serde(default)]
     pub retry_config: RetryConfig,
 }

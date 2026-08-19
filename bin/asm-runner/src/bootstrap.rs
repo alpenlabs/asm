@@ -11,6 +11,7 @@ use strata_tasks::TaskExecutor;
 use tokio::{runtime::Handle, task};
 
 use crate::{
+    bitcoin_client::RetryingBitcoinClient,
     block_watcher::drive_asm_from_bitcoin,
     config::{AsmRpcConfig, BitcoinConfig},
     moho_context::MohoWorkerContextImpl,
@@ -40,7 +41,10 @@ pub(crate) async fn bootstrap(
     } = create_moho_storage(&config.database.moho_path)?;
 
     // 2. Connect to Bitcoin node
-    let bitcoin_client = Arc::new(connect_bitcoin(&config.bitcoin).await?);
+    let bitcoin_client = Arc::new(RetryingBitcoinClient::new(
+        connect_bitcoin(&config.bitcoin).await?,
+        &config.bitcoin.retry_config,
+    ));
 
     // 3. If the orchestrator is configured, open proof storage and build the proof backend up front
     //    so the Moho worker and orchestrator can receive the asm predicate.
@@ -62,7 +66,6 @@ pub(crate) async fn bootstrap(
     let worker_context = AsmWorkerContext::new(
         runtime_handle.clone(),
         bitcoin_client.clone(),
-        &config.bitcoin.retry_config,
         state_db.clone(),
         aux_db.clone(),
         manifest_db.clone(),
@@ -105,7 +108,6 @@ pub(crate) async fn bootstrap(
         let moho_context = MohoWorkerContextImpl::new(
             runtime_handle.clone(),
             bitcoin_client.clone(),
-            &config.bitcoin.retry_config,
             state_db.clone(),
             manifest_db.clone(),
             moho_state_db.clone(),
