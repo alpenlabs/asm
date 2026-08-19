@@ -17,7 +17,7 @@ use ssz::{Decode, Encode};
 use strata_asm_bridge_types::SafeHarbour;
 use strata_asm_checkpoint_types::CheckpointTip;
 use strata_asm_common::{AnchorState, AsmManifest};
-use strata_asm_moho_storage::{SledExportEntriesDb, SledMohoStateDb};
+use strata_asm_moho_storage::{SledExportEntriesDb, SledMohoStateDb, build_export_entry_mmr_proof};
 use strata_asm_params::AsmParams;
 use strata_asm_proto_bridge::{AssignmentEntry, BridgeStateV1, DepositEntry};
 use strata_asm_proto_bridge_txs::BRIDGE_SUBPROTOCOL_ID;
@@ -281,69 +281,23 @@ impl AsmMohoApiServer for AsmMohoRpcServer {
         block_hash: BlockHash,
         container_id: u8,
         leaf: [u8; 32],
-    ) -> RpcResult<Option<Vec<u8>>> {
+    ) -> RpcResult<Vec<u8>> {
         let commitment = to_block_commitment(&self.bitcoin_client, block_hash)
             .await
             .map_err(to_rpc_error)?;
 
-        build_export_entry_mmr_proof(
+        let proof = build_export_entry_mmr_proof(
             &self.moho_state_db,
             &self.export_entries_db,
             commitment,
             container_id,
             &leaf,
         )
-        .map_err(to_rpc_error)
+        .await
+        .map_err(to_rpc_error)?;
+
+        Ok(proof.as_ssz_bytes())
     }
-}
-
-#[derive(Debug, thiserror::Error)]
-enum MmrProofError {
-    #[error(transparent)]
-    Sled(#[from] sled::Error),
-    #[error(transparent)]
-    Storage(#[from] anyhow::Error),
-}
-
-/// SSZ-encoded MMR inclusion proof for `leaf` in `container_id` at `commitment`.
-///
-/// `Ok(None)` if the leaf or container isn't in this snapshot yet. `Err` only
-/// for storage failures.
-fn build_export_entry_mmr_proof(
-    moho_state_db: &SledMohoStateDb,
-    export_entries_db: &SledExportEntriesDb,
-    commitment: L1BlockCommitment,
-    container_id: u8,
-    leaf: &[u8; 32],
-) -> Result<Option<Vec<u8>>, MmrProofError> {
-    let Some(moho_state) = moho_state_db.get(commitment)? else {
-        return Ok(None);
-    };
-
-    let Some(container) = moho_state
-        .export_state()
-        .containers()
-        .iter()
-        .find(|c| c.container_id() == container_id)
-    else {
-        return Ok(None);
-    };
-
-    let at_leaf_count = container.entries_mmr().num_entries();
-
-    let Some(mmr_index) = export_entries_db.find_index(container_id, leaf)? else {
-        return Ok(None);
-    };
-
-    // Guard against entries appended after `commitment`: the index is populated
-    // monotonically by the worker, but the historical `MohoState` only saw the
-    // first `at_leaf_count` of them.
-    if mmr_index >= at_leaf_count {
-        return Ok(None);
-    }
-
-    let proof = export_entries_db.generate_proof(container_id, mmr_index, at_leaf_count)?;
-    Ok(Some(proof.as_ssz_bytes()))
 }
 
 /// Run the RPC server.
@@ -411,260 +365,4 @@ pub(crate) async fn run_rpc_server(
     }
 
     Ok(())
-}
-
-#[cfg(test)]
-mod tests {
-    //! Tests for [`build_export_entry_mmr_proof`] against real sled storage.
-    //! Mirrors the worker's invariant: each `NewExportEntry` hits both `ExportState` and
-    //! `SledExportEntriesDb` in order.
-    use moho_types::{ExportState, InnerStateCommitment, MohoState};
-    use ssz::Decode;
-    use strata_identifiers::{Buf32, L1BlockCommitment, L1BlockId};
-    use strata_merkle::MerkleProofB32;
-    use strata_predicate::PredicateKey;
-
-    use super::*;
-
-    fn temp_dbs() -> (
-        sled::Db,
-        SledMohoStateDb,
-        SledExportEntriesDb,
-        tempfile::TempDir,
-    ) {
-        let dir = tempfile::tempdir().unwrap();
-        let sled_db = sled::open(dir.path()).unwrap();
-        let moho_state_db = SledMohoStateDb::open(&sled_db).unwrap();
-        let export_entries_db = SledExportEntriesDb::open(&sled_db).unwrap();
-        (sled_db, moho_state_db, export_entries_db, dir)
-    }
-
-    fn commitment(height: u32, seed: u8) -> L1BlockCommitment {
-        L1BlockCommitment::new(height, L1BlockId::from(Buf32::from([seed; 32])))
-    }
-
-    fn entry_hash(seed: u8) -> [u8; 32] {
-        [seed; 32]
-    }
-
-    /// Same dual-write the worker does per block: each entry hits both the
-    /// `ExportState` MMR and the `SledExportEntriesDb` leaf log.
-    fn apply_block(
-        moho: &SledMohoStateDb,
-        idx: &SledExportEntriesDb,
-        prev: MohoState,
-        at: L1BlockCommitment,
-        entries: &[(u8, [u8; 32])],
-    ) -> MohoState {
-        let mut export = prev.export_state().clone();
-        for (container_id, hash) in entries {
-            export.add_entry(*container_id, *hash).unwrap();
-            idx.append(*container_id, at.height(), vec![*hash]).unwrap();
-        }
-        let next = MohoState::new(
-            InnerStateCommitment::from([0u8; 32]),
-            PredicateKey::always_accept(),
-            export,
-        );
-        moho.store(at, next.clone()).unwrap();
-        next
-    }
-
-    fn genesis_moho() -> MohoState {
-        MohoState::new(
-            InnerStateCommitment::from([0u8; 32]),
-            PredicateKey::always_accept(),
-            ExportState::new(vec![]).unwrap(),
-        )
-    }
-
-    #[test]
-    fn returns_proof_that_verifies_against_historical_mmr() {
-        let (_db, moho, idx, _tmp) = temp_dbs();
-
-        // Two blocks each add two entries to container BRIDGE_SUBPROTOCOL_ID. Total 4 entries.
-        let b1 = commitment(100, 1);
-        let state_at_b1 = apply_block(
-            &moho,
-            &idx,
-            genesis_moho(),
-            b1,
-            &[
-                (BRIDGE_SUBPROTOCOL_ID, entry_hash(0xa0)),
-                (BRIDGE_SUBPROTOCOL_ID, entry_hash(0xa1)),
-            ],
-        );
-        let b2 = commitment(101, 2);
-        let state_at_b2 = apply_block(
-            &moho,
-            &idx,
-            state_at_b1,
-            b2,
-            &[
-                (BRIDGE_SUBPROTOCOL_ID, entry_hash(0xa2)),
-                (BRIDGE_SUBPROTOCOL_ID, entry_hash(0xa3)),
-            ],
-        );
-
-        let leaf = entry_hash(0xa2);
-        let bytes = build_export_entry_mmr_proof(&moho, &idx, b2, BRIDGE_SUBPROTOCOL_ID, &leaf)
-            .unwrap()
-            .expect("proof should be present");
-
-        // SSZ-decode and verify against the container's compact MMR at b2.
-        let proof = MerkleProofB32::from_ssz_bytes(&bytes).unwrap();
-        let container = state_at_b2
-            .export_state()
-            .containers()
-            .iter()
-            .find(|c| c.container_id() == BRIDGE_SUBPROTOCOL_ID)
-            .unwrap();
-        assert_eq!(container.entries_mmr().num_entries(), 4);
-        assert!(
-            container.entries_mmr().verify(&proof, &leaf),
-            "proof must verify against MohoState's compact MMR at the queried block"
-        );
-    }
-
-    #[test]
-    fn proof_at_earlier_block_uses_that_blocks_mmr_size() {
-        let (_db, moho, idx, _tmp) = temp_dbs();
-
-        // b1 has one entry for BRIDGE_SUBPROTOCOL_ID.
-        let b1 = commitment(100, 1);
-        let state_at_b1 = apply_block(
-            &moho,
-            &idx,
-            genesis_moho(),
-            b1,
-            &[(BRIDGE_SUBPROTOCOL_ID, entry_hash(0xa0))],
-        );
-        // b2 adds two more.
-        let b2 = commitment(101, 2);
-        apply_block(
-            &moho,
-            &idx,
-            state_at_b1.clone(),
-            b2,
-            &[
-                (BRIDGE_SUBPROTOCOL_ID, entry_hash(0xa1)),
-                (BRIDGE_SUBPROTOCOL_ID, entry_hash(0xa2)),
-            ],
-        );
-
-        // Querying with leaf 0xa0 at block b1 must produce a proof valid
-        // against the size-1 MMR, not the size-3 MMR at b2.
-        let leaf = entry_hash(0xa0);
-        let bytes = build_export_entry_mmr_proof(&moho, &idx, b1, BRIDGE_SUBPROTOCOL_ID, &leaf)
-            .unwrap()
-            .unwrap();
-        let proof = MerkleProofB32::from_ssz_bytes(&bytes).unwrap();
-        let container_at_b1 = state_at_b1
-            .export_state()
-            .containers()
-            .iter()
-            .find(|c| c.container_id() == BRIDGE_SUBPROTOCOL_ID)
-            .unwrap();
-        assert_eq!(container_at_b1.entries_mmr().num_entries(), 1);
-        assert!(container_at_b1.entries_mmr().verify(&proof, &leaf));
-    }
-
-    #[test]
-    fn none_when_leaf_inserted_after_queried_block() {
-        let (_db, moho, idx, _tmp) = temp_dbs();
-
-        // Only one entry exists at b1.
-        let b1 = commitment(100, 1);
-        let state_at_b1 = apply_block(
-            &moho,
-            &idx,
-            genesis_moho(),
-            b1,
-            &[(BRIDGE_SUBPROTOCOL_ID, entry_hash(0xa0))],
-        );
-        // A later entry at b2.
-        let b2 = commitment(101, 2);
-        apply_block(
-            &moho,
-            &idx,
-            state_at_b1,
-            b2,
-            &[(BRIDGE_SUBPROTOCOL_ID, entry_hash(0xa1))],
-        );
-
-        // Querying 0xa1 at b1 must return None — it was inserted later.
-        let out =
-            build_export_entry_mmr_proof(&moho, &idx, b1, BRIDGE_SUBPROTOCOL_ID, &entry_hash(0xa1))
-                .unwrap();
-        assert!(out.is_none());
-    }
-
-    #[test]
-    fn none_when_leaf_unknown() {
-        let (_db, moho, idx, _tmp) = temp_dbs();
-        let b1 = commitment(100, 1);
-        apply_block(
-            &moho,
-            &idx,
-            genesis_moho(),
-            b1,
-            &[(BRIDGE_SUBPROTOCOL_ID, entry_hash(0xa0))],
-        );
-
-        let out =
-            build_export_entry_mmr_proof(&moho, &idx, b1, BRIDGE_SUBPROTOCOL_ID, &entry_hash(0xff))
-                .unwrap();
-        assert!(out.is_none());
-    }
-
-    #[test]
-    fn none_when_container_missing() {
-        let (_db, moho, idx, _tmp) = temp_dbs();
-        let b1 = commitment(100, 1);
-        apply_block(
-            &moho,
-            &idx,
-            genesis_moho(),
-            b1,
-            &[(BRIDGE_SUBPROTOCOL_ID, entry_hash(0xa0))],
-        );
-
-        // Query a container_id that was never populated. Indistinguishable from
-        // a container that hasn't been created yet — both are legitimate absence.
-        let out = build_export_entry_mmr_proof(&moho, &idx, b1, 99, &entry_hash(0xa0)).unwrap();
-        assert!(out.is_none());
-    }
-
-    #[test]
-    fn none_when_state_missing() {
-        let (_db, moho, idx, _tmp) = temp_dbs();
-        // No state stored for this commitment.
-        let out = build_export_entry_mmr_proof(
-            &moho,
-            &idx,
-            commitment(999, 9),
-            BRIDGE_SUBPROTOCOL_ID,
-            &entry_hash(0xa0),
-        )
-        .unwrap();
-        assert!(out.is_none());
-    }
-
-    #[test]
-    fn moho_state_round_trips_via_ssz() {
-        let (_db, moho, _idx, _tmp) = temp_dbs();
-        let at = commitment(100, 1);
-        let state = genesis_moho();
-        moho.store(at, state.clone()).unwrap();
-
-        let bytes = moho.get(at).unwrap().unwrap().as_ssz_bytes();
-        let decoded = MohoState::from_ssz_bytes(&bytes).unwrap();
-        assert_eq!(decoded, state);
-    }
-
-    #[test]
-    fn moho_state_missing_returns_none() {
-        let (_db, moho, _idx, _tmp) = temp_dbs();
-        assert!(moho.get(commitment(999, 9)).unwrap().is_none());
-    }
 }

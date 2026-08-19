@@ -3,6 +3,7 @@ import logging
 import flexitest
 
 from constants import BRIDGE_SUBPROTOCOL_ID
+from rpc.client import RpcError
 from utils.utils import (
     wait_until_asm_reaches_height,
     wait_until_asm_ready,
@@ -50,28 +51,28 @@ class AsmExportEntryMmrProofTest(flexitest.Test):
 
         block_hash = bitcoin_rpc.proxy.getblockhash(target_height)
 
-        # An unobserved leaf is legitimate absence — the handler returns None
-        # rather than erroring, since the chain may simply not have produced
-        # that entry yet.
-        result = asm_rpc.strata_asm_getExportEntryMMRProof(
-            block_hash, BRIDGE_SUBPROTOCOL_ID, UNKNOWN_LEAF_HASH
-        )
-        assert result is None, f"unknown leaf at tip should return None, got {result!r}"
-        logging.info("unknown leaf at tip returned None as expected")
+        # An unobserved leaf has no proof, and the error says so rather than
+        # leaving the caller to guess why nothing came back.
+        self.expect_no_proof(asm_rpc, block_hash, "tip")
 
         # Same query against an earlier processed block — the handler stays
         # consistent across history, not just the tip.
         earlier_height = initial_btc_height + 1
         earlier_block_hash = bitcoin_rpc.proxy.getblockhash(earlier_height)
-        result = asm_rpc.strata_asm_getExportEntryMMRProof(
-            earlier_block_hash, BRIDGE_SUBPROTOCOL_ID, UNKNOWN_LEAF_HASH
-        )
-        assert result is None, (
-            f"unknown leaf at height {earlier_height} should return None, got {result!r}"
-        )
-        logging.info(
-            "unknown leaf at earlier height %s returned None as expected",
-            earlier_height,
-        )
+        self.expect_no_proof(asm_rpc, earlier_block_hash, f"height {earlier_height}")
 
         return True
+
+    def expect_no_proof(self, asm_rpc, block_hash, where):
+        """Asserts the leaf has no proof at `block_hash`, and that the error says why."""
+        try:
+            result = asm_rpc.strata_asm_getExportEntryMMRProof(
+                block_hash, BRIDGE_SUBPROTOCOL_ID, UNKNOWN_LEAF_HASH
+            )
+        except RpcError as e:
+            assert "leaf not found" in e.msg, (
+                f"unknown leaf at {where} should report the leaf as missing, got {e.msg!r}"
+            )
+            logging.info("unknown leaf at %s reported as missing: %s", where, e.msg)
+        else:
+            raise AssertionError(f"unknown leaf at {where} should have errored, got {result!r}")
