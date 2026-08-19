@@ -1,3 +1,28 @@
+//! Block body verification.
+//!
+//! # Scope
+//!
+//! The ASM is not a Bitcoin validator. It does not check scripts, signatures, fees, value
+//! conservation, or double spends. Proof of work authenticates the *header*, and the header is
+//! trusted only for what it commits to.
+//!
+//! What this module enforces is correspondingly narrow: the rules that make a header a binding
+//! commitment to one body, plus the rules that make transaction identity well defined. That set is
+//! closed, and all of it is enforced here:
+//!
+//! - No duplicate transactions, without which a merkle root does not identify one transaction list
+//!   (CVE-2012-2459). See [`calculate_root_no_dups`].
+//! - No witness data unless the coinbase commits to it, since the txid merkle root does not cover
+//!   witness data (BIP141). See [`L1BodyError::UncommittedWitnessData`].
+//! - No internal merkle node passed off as a leaf, excluded by pinning proof length to the tree
+//!   depth in [`TxidInclusionProof::verify`].
+//!
+//! Rules outside that set are left to Bitcoin: breaking one means mining a block the network then
+//! orphans, so it reaches the ASM only as part of a chain that out-mines the honest one. Duplicate
+//! transactions are the exception, and the reason they appear above — a body mutated that way
+//! reuses the header it came with, so it carries the same accumulated work as the honest body and
+//! no comparison of chains separates them.
+
 use bitcoin::{
     Block, Transaction, TxMerkleNode, WitnessCommitment, WitnessMerkleNode, consensus::Encodable,
     hashes::Hash,
@@ -68,8 +93,7 @@ pub fn check_block_integrity(
         }
 
         // Compute the witness root once and reuse it for both the commitment check and return.
-        let witness_root =
-            compute_witness_root(txdata).ok_or(L1BodyError::WitnessCommitmentMismatch)?;
+        let witness_root = compute_witness_root(txdata)?;
 
         // Verify the witness commitment using the computed witness root.
         let mut vec = vec![];
@@ -108,7 +132,7 @@ pub fn check_block_integrity(
         // No witness commitment in the coinbase. Per BIP141 the commitment may be omitted only
         // when *no* transaction carries witness data, so validate the header's merkle root against
         // the txids.
-        if !check_merkle_root(block) {
+        if compute_merkle_root(block)? != header.merkle_root {
             return Err(L1BodyError::MerkleRootMismatch);
         }
 
@@ -116,21 +140,70 @@ pub fn check_block_integrity(
     }
 }
 
+/// Computes a merkle root over `hashes`, rejecting duplicate leaves.
+///
+/// Bitcoin's merkle tree duplicates the last node of any odd-sized level, so a transaction list
+/// that repeats its trailing entries produces the same root as the list without them
+/// (CVE-2012-2459). A merkle root therefore does not identify one transaction list, and a header
+/// does not bind a body, until duplicates are excluded.
+///
+/// Duplicates are detected at the leaves. Two equal nodes higher up mean two equal subtrees, hence
+/// duplicate leaves beneath them, so a leaf scan covers every level. Bitcoin Core instead flags
+/// equal sibling pairs as it walks the tree. Checking here rather than in [`calculate_root`] keeps
+/// that function a faithful port of its rust-bitcoin counterpart, which has no such check.
+///
+/// The leaves are sorted before the scan. A repeated subtree of width `w` places its copies `w`
+/// apart, so neighbours in block order reveal only the `w == 1` case.
+///
+/// Callers pass different leaves: txids on the legacy path, wtxids on the segwit path. Either
+/// identifies a repeated transaction. A pair sharing a txid but not a wtxid is invisible to the
+/// wtxid leaves; the differing wtxid moves the witness root, so the commitment check rejects it
+/// instead.
+///
+/// # Returns
+///
+/// The merkle root over `hashes`, in the order given.
+///
+/// # Errors
+///
+/// Returns [`L1BodyError::DuplicateTransaction`] if any leaf repeats, or
+/// [`L1BodyError::EmptyBlock`] if `hashes` is empty.
+fn calculate_root_no_dups<I>(hashes: I) -> Result<Buf32, L1BodyError>
+where
+    I: ExactSizeIterator<Item = Buf32>,
+{
+    let mut leaves: Vec<Buf32> = hashes.collect();
+
+    // Take the root before sorting; the merkle root depends on the block's own ordering.
+    let root = calculate_root(leaves.iter().copied()).ok_or(L1BodyError::EmptyBlock)?;
+
+    leaves.sort_unstable();
+    if leaves.windows(2).any(|w| w[0] == w[1]) {
+        return Err(L1BodyError::DuplicateTransaction);
+    }
+
+    Ok(root)
+}
+
 /// Computes the transaction merkle root.
 ///
-/// Equivalent to [`compute_merkle_root`](Block::compute_merkle_root)
-pub(crate) fn compute_merkle_root(block: &Block) -> Option<TxMerkleNode> {
+/// Equivalent to [`compute_merkle_root`](Block::compute_merkle_root), except that duplicate
+/// transactions are rejected. See [`calculate_root_no_dups`].
+pub(crate) fn compute_merkle_root(block: &Block) -> Result<TxMerkleNode, L1BodyError> {
     let hashes = block
         .txdata
         .iter()
         .map(|tx| Buf32::from(compute_txid(tx).to_byte_array()));
-    calculate_root(hashes).map(|root| TxMerkleNode::from_byte_array(root.0))
+    calculate_root_no_dups(hashes).map(|root| TxMerkleNode::from_byte_array(root.0))
 }
 
 /// Computes the witness root.
 ///
-/// Equivalent to [`witness_root`](Block::witness_root)
-pub(crate) fn compute_witness_root(transactions: &[Transaction]) -> Option<WitnessMerkleNode> {
+/// Equivalent to [`witness_root`](Block::witness_root), except that duplicate transactions are
+/// rejected. See [`calculate_root_no_dups`].
+pub(crate) fn compute_witness_root(
+    transactions: &[Transaction],
+) -> Result<WitnessMerkleNode, L1BodyError> {
     let hashes = transactions.iter().enumerate().map(|(i, t)| {
         if i == 0 {
             // Replace the first hash with zeroes.
@@ -139,19 +212,7 @@ pub(crate) fn compute_witness_root(transactions: &[Transaction]) -> Option<Witne
             Buf32::from(compute_wtxid(t).to_byte_array())
         }
     });
-    calculate_root(hashes).map(|root| WitnessMerkleNode::from_byte_array(root.0))
-}
-
-/// Checks if Merkle root of header matches Merkle root of the transaction list.
-///
-/// Equivalent to [`check_merkle_root`](Block::check_merkle_root).
-pub(crate) fn check_merkle_root(block: &Block) -> bool {
-    match compute_merkle_root(block) {
-        Some(merkle_root) => {
-            block.header.merkle_root == TxMerkleNode::from_byte_array(*merkle_root.as_ref())
-        }
-        None => false,
-    }
+    calculate_root_no_dups(hashes).map(|root| WitnessMerkleNode::from_byte_array(root.0))
 }
 
 /// Scans the given coinbase transaction for a witness commitment and returns it if found.
@@ -280,13 +341,169 @@ mod tests {
         block.txdata[0].input[0].witness = witness;
 
         // The merkle root still matches (txids are unchanged by witness edits)...
-        assert!(
-            check_merkle_root(&block),
+        assert_eq!(
+            compute_merkle_root(&block).unwrap(),
+            block.header.merkle_root,
             "witness edits must not change the txid merkle root"
         );
 
         // ...yet the block must be rejected because the witness is uncommitted.
         let err = check_block_integrity(&block, None).unwrap_err();
         assert!(matches!(err, L1BodyError::UncommittedWitnessData));
+    }
+
+    /// Number of trailing transactions to repeat so that the merkle root does not change.
+    ///
+    /// Bitcoin duplicates the last node of any odd-sized level, so repeating the subtree that sits
+    /// under that node reproduces the level exactly. The subtree at level `l` spans `2^l`
+    /// transactions, so the answer is `2^l` for the lowest odd level `l`.
+    fn mutation_width(tx_count: usize) -> usize {
+        let mut width = 1;
+        let mut level = tx_count;
+        while level > 1 {
+            if !level.is_multiple_of(2) {
+                return width;
+            }
+            level /= 2;
+            width *= 2;
+        }
+        panic!("every level of a {tx_count}-transaction tree is even; cannot mutate");
+    }
+
+    /// Repeats the last `mutation_width` transactions of `block`, leaving its merkle root intact.
+    fn mutate(block: &Block) -> Block {
+        let mut mutated = block.clone();
+        let width = mutation_width(block.txdata.len());
+        mutated
+            .txdata
+            .extend_from_within(block.txdata.len() - width..);
+        mutated
+    }
+
+    /// Builds a witness-free block of `tx_count` distinct transactions with a correct merkle root.
+    ///
+    /// The mainnet fixtures are either a single segwit block or coinbase-only blocks, so the legacy
+    /// path needs a block built by hand.
+    fn legacy_block(tx_count: usize) -> Block {
+        use bitcoin::{
+            Amount, OutPoint, ScriptBuf, Sequence, TxIn, TxOut, Witness,
+            absolute::LockTime,
+            block::{Header, Version},
+            transaction,
+        };
+
+        let txdata: Vec<Transaction> = (0..tx_count)
+            .map(|i| Transaction {
+                version: transaction::Version::TWO,
+                // Vary the lock time so every transaction has a distinct txid.
+                lock_time: LockTime::from_height(i as u32).unwrap(),
+                input: vec![TxIn {
+                    // A null prevout is what makes the first transaction a coinbase; the rest get
+                    // a distinct one so they are not coinbases themselves.
+                    previous_output: if i == 0 {
+                        OutPoint::null()
+                    } else {
+                        OutPoint::new(bitcoin::Txid::from_byte_array([i as u8; 32]), 0)
+                    },
+                    script_sig: ScriptBuf::new(),
+                    sequence: Sequence::MAX,
+                    witness: Witness::new(),
+                }],
+                output: vec![TxOut {
+                    value: Amount::from_sat(1_000),
+                    script_pubkey: ScriptBuf::new(),
+                }],
+            })
+            .collect();
+
+        let merkle_root = {
+            let hashes = txdata
+                .iter()
+                .map(|tx| Buf32::from(compute_txid(tx).to_byte_array()));
+            TxMerkleNode::from_byte_array(calculate_root(hashes).unwrap().0)
+        };
+
+        Block {
+            header: Header {
+                version: Version::TWO,
+                prev_blockhash: bitcoin::BlockHash::from_byte_array([0u8; 32]),
+                merkle_root,
+                time: 0,
+                bits: bitcoin::CompactTarget::from_consensus(0x1d00_ffff),
+                nonce: 0,
+            },
+            txdata,
+        }
+    }
+
+    /// Bitcoin's own tree duplicates the last node of an odd-sized level. That duplication is
+    /// normal and must not be mistaken for a mutated body — if it were, the ASM would halt on
+    /// ordinary mainnet blocks, which is worse than the bug this check exists to catch.
+    #[test]
+    fn test_odd_transaction_counts_accepted() {
+        for tx_count in [1, 3, 5, 7, 9, 11] {
+            let block = legacy_block(tx_count);
+            check_block_integrity(&block, None)
+                .unwrap_or_else(|e| panic!("{tx_count} transactions must verify, got {e}"));
+        }
+    }
+
+    /// CVE-2012-2459 on the legacy path: repeating the trailing transactions leaves the merkle root
+    /// untouched, so the root check cannot tell the mutated body from the honest one.
+    #[test]
+    fn test_merkle_mutation_rejected_legacy() {
+        let block = legacy_block(5);
+        check_block_integrity(&block, None).expect("the honest block verifies");
+
+        let mutated = mutate(&block);
+        assert_eq!(mutated.txdata.len(), 6, "the body grew");
+
+        // The premise of the attack: the header still commits to the mutated body, so nothing
+        // about the root gives it away.
+        let unchecked_root = {
+            let hashes = mutated
+                .txdata
+                .iter()
+                .map(|tx| Buf32::from(compute_txid(tx).to_byte_array()));
+            TxMerkleNode::from_byte_array(calculate_root(hashes).unwrap().0)
+        };
+        assert_eq!(
+            unchecked_root, block.header.merkle_root,
+            "the mutation must not change the merkle root, or this test proves nothing"
+        );
+
+        // Which leaves the duplicate check as the only thing that can reject it.
+        let err = check_block_integrity(&mutated, None).unwrap_err();
+        assert!(matches!(err, L1BodyError::DuplicateTransaction), "{err}");
+    }
+
+    /// The same attack on the segwit path, which never compares the txid merkle root directly.
+    ///
+    /// Every other check still passes on the mutated body — the witness commitment matches and the
+    /// coinbase inclusion proof verifies against the real header — so the duplicate check is the
+    /// only thing standing between the ASM and a body Bitcoin would reject.
+    #[test]
+    fn test_merkle_mutation_rejected_segwit() {
+        let block = BtcMainnetSegment::load_full_block();
+        let proof = TxidInclusionProof::generate(&block.txdata, 0).expect("valid index");
+        check_block_integrity(&block, Some(&proof)).expect("the honest block verifies");
+
+        let mutated = mutate(&block);
+        assert!(mutated.txdata.len() > block.txdata.len(), "the body grew");
+
+        // The coinbase inclusion proof is unchanged and still verifies at the new transaction
+        // count: the mutation leaves the tree depth alone, because an odd node count is never a
+        // power of two.
+        assert!(
+            proof.verify(
+                &mutated.txdata[0],
+                mutated.header.merkle_root.to_byte_array().into(),
+                mutated.txdata.len(),
+            ),
+            "the mutated body must still satisfy the coinbase inclusion proof"
+        );
+
+        let err = check_block_integrity(&mutated, Some(&proof)).unwrap_err();
+        assert!(matches!(err, L1BodyError::DuplicateTransaction), "{err}");
     }
 }
