@@ -67,7 +67,7 @@ jobs:
         env:
           ZKVM_MOCK: "1"
           ZKVM_PROFILING: "1"
-          SKIP_VKEY_BUILD: "1"
+          BUILD_ELF: "1"
           SP1_CORE_RUNNER_OVERRIDE_BINARY: ${{ steps.sp1-runner.outputs.override-binary }}
         run: |
           cargo run --release -p strata-asm-prover-perf -- \
@@ -83,7 +83,7 @@ jobs:
         env:
           ZKVM_MOCK: "1"
           ZKVM_PROFILING: "1"
-          SKIP_VKEY_BUILD: "1"
+          BUILD_ELF: "1"
           SP1_CORE_RUNNER_OVERRIDE_BINARY: ${{ steps.sp1-runner.outputs.override-binary }}
         run: |
           cargo run --release -p strata-asm-prover-perf -- --programs asm-stf

@@ -8,9 +8,9 @@ name: Publish Bare-Metal Binaries (S3)
 # Built WITH --features sp1 to match the deployed asm-runner image, which
 # strata-bridge's production build matrix produces with ASM_FEATURES=--features=sp1
 # (build_matrix.py) — testnet uses Sp1Groth16 predicates, so the native build
-# can't verify them. No SP1 toolchain needed for the binary: the repo default
-# SKIP_VKEY_BUILD=1 (.cargo/config.toml) skips guest/vkey compilation; the sp1
-# feature only links the verifier/host crates.
+# can't verify them. No SP1 toolchain needed for the binary: guest/vkey
+# compilation is opt-in via BUILD_ELF/BUILD_VKEY and this job sets neither; the
+# sp1 feature only links the verifier/host crates.
 #
 # SECURITY MODEL
 # --------------
@@ -120,9 +120,9 @@ jobs:
 
       - name: Build strata-asm-runner (--features sp1)
         # Built --features sp1 to match the deployed image (build_matrix.py). The
-        # binary keeps the plain name strata-asm-runner. SKIP_VKEY_BUILD stays at
-        # the repo default (1) so no guest/vkey compile is triggered; rustup
-        # auto-installs the pinned nightly from rust-toolchain.toml.
+        # binary keeps the plain name strata-asm-runner. BUILD_ELF/BUILD_VKEY are
+        # left unset so no guest/vkey compile is triggered; rustup auto-installs
+        # the pinned nightly from rust-toolchain.toml.
         env:
           SP1_CORE_RUNNER_OVERRIDE_BINARY: ${{ steps.sp1-runner.outputs.override-binary }}
         run: |

@@ -48,10 +48,11 @@ jobs:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build guest ELFs and vk JSONs
-        # Override the repo-wide SKIP_VKEY_BUILD=1 default (.cargo/config.toml) so
-        # this release build still derives and emits the *-vk.json artifacts.
+        # The guest build and vk derivation are both opt-in (see the crate's build.rs).
+        # This is the only job that publishes the *-vk.json artifacts, so it opts into both.
         env:
-          SKIP_VKEY_BUILD: "0"
+          BUILD_ELF: "1"
+          BUILD_VKEY: "1"
         run: cargo build --locked -p strata-asm-sp1-guest-builder --features docker-build
 
       - name: Stage release artifacts
