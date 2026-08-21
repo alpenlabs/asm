@@ -6,6 +6,17 @@
 //! as a JSON-encoded `"Sp1Groth16:<hex>"` string — the form the bridge consumes as a trust
 //! anchor.
 //!
+//! # Environment
+//!
+//! Both steps are off by default and opt-in, because both are slow and most builds of this
+//! workspace only need the crate to compile. The ELFs in `<crate>/elfs/` survive `cargo clean`,
+//! so a build that skips these steps still leaves whatever was built earlier in place.
+//!
+//! - **`BUILD_ELF`** — set to `1`/`true` to compile the guest programs. Ignored under `cargo
+//!   clippy`, which only needs the crate to typecheck.
+//! - **`BUILD_VKEY`** — set to `1`/`true` to derive each guest's vk and write the `*-vk.json`
+//!   files. Requires the ELFs to exist, so it implies `BUILD_ELF`.
+//!
 //! # Features
 //!
 //! - **`docker-build`** — when enabled, guest programs are compiled inside Docker via
@@ -31,16 +42,22 @@ const GUESTS: &[(&str, &str, &str)] = &[
 ];
 
 fn main() {
-    println!("cargo:rerun-if-env-changed=SP1_SKIP_PROGRAM_BUILD");
-    println!("cargo:rerun-if-env-changed=SKIP_VKEY_BUILD");
-    println!("cargo:warning=exporting SP1 guest ELFs to {ELFS_DIR}");
+    println!("cargo:rerun-if-env-changed=BUILD_ELF");
+    println!("cargo:rerun-if-env-changed=BUILD_VKEY");
 
-    if skip_elf_build() {
-        println!(
-            "cargo:warning=SP1_SKIP_PROGRAM_BUILD set or clippy detected; skipping guest build"
-        );
+    // clippy only needs the crate to typecheck, so it never builds guests whatever is set.
+    if is_clippy() {
         return;
     }
+
+    // Deriving a vk reads the ELF back off disk, so asking for the vk implies building the ELF.
+    let build_vkey = is_enabled("BUILD_VKEY");
+    if !is_enabled("BUILD_ELF") && !build_vkey {
+        println!("cargo:warning=BUILD_ELF/BUILD_VKEY unset; skipping SP1 guest build");
+        return;
+    }
+
+    println!("cargo:warning=exporting SP1 guest ELFs to {ELFS_DIR}");
 
     // macOS-only: point cc-rs (used by secp256k1-sys etc.) at the SP1 toolchain's llvm-ar,
     // which knows how to package archives for the riscv32im-succinct-zkvm-elf target. macOS's
@@ -53,8 +70,7 @@ fn main() {
         build_guest(guest_dir, elf_name);
     }
 
-    if skip_vkey_build() {
-        println!("cargo:warning=SKIP_VKEY_BUILD set; skipping vk JSON emission");
+    if !build_vkey {
         return;
     }
 
@@ -142,21 +158,15 @@ fn rustc_succinct(args: &[&str]) -> String {
         .to_owned()
 }
 
-/// Returns `true` when `SKIP_VKEY_BUILD` is set, suppressing vk emission.
-fn skip_vkey_build() -> bool {
-    std::env::var("SKIP_VKEY_BUILD")
-        .map(|v| v.eq_ignore_ascii_case("true") || v == "1")
+fn is_clippy() -> bool {
+    std::env::var("RUSTC_WORKSPACE_WRAPPER")
+        .map(|v| v.contains("clippy-driver"))
         .unwrap_or(false)
 }
 
-/// Returns `true` when sp1-build itself would skip the build — under
-/// `SP1_SKIP_PROGRAM_BUILD=true` or `cargo clippy`.
-fn skip_elf_build() -> bool {
-    let skip_env = std::env::var("SP1_SKIP_PROGRAM_BUILD")
-        .map(|v| v.eq_ignore_ascii_case("true"))
-        .unwrap_or(false);
-    let is_clippy = std::env::var("RUSTC_WORKSPACE_WRAPPER")
-        .map(|v| v.contains("clippy-driver"))
-        .unwrap_or(false);
-    skip_env || is_clippy
+/// Reads an opt-in flag: set and equal to `1` or `true` (any case) enables it.
+fn is_enabled(var: &str) -> bool {
+    std::env::var(var)
+        .map(|v| v.eq_ignore_ascii_case("true") || v == "1")
+        .unwrap_or(false)
 }

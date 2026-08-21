@@ -82,7 +82,6 @@ jobs:
           cargo llvm-cov --locked --workspace nextest --all-features --lcov --output-path lcov.unit.info
         env:
           RUST_BACKTRACE: 1
-          SP1_SKIP_PROGRAM_BUILD: "true"
           SP1_CORE_RUNNER_OVERRIDE_BINARY: ${{ steps.sp1-runner.outputs.override-binary }}
 
       - name: Upload coverage lcov artifact
@@ -129,7 +128,6 @@ jobs:
       - name: Run doctests
         run: cargo test --doc --all-features
         env:
-          SP1_SKIP_PROGRAM_BUILD: "true"
           SP1_CORE_RUNNER_OVERRIDE_BINARY: ${{ steps.sp1-runner.outputs.override-binary }}
 
   unit-success:
