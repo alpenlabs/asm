@@ -23,9 +23,9 @@ use crate::{
 ///
 /// In-memory representation handed to the subprotocol handler. On the wire the action is
 /// encoded *without* enum discriminants: the SPS-50 tag's tx type selects the concrete
-/// action type, and the envelope carries the corresponding [`SignedActionPayload`]. Use
-/// [`into_envelope_bytes`](Self::into_envelope_bytes) / [`parse_tx`] to cross that
-/// boundary.
+/// action type, and the envelope carries the seqno, that action and the signatures as a
+/// flat SSZ struct. Use [`into_envelope_bytes`](Self::into_envelope_bytes) / [`parse_tx`]
+/// to cross that boundary.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct SignedPayload {
     /// Sequence number used to prevent replay attacks and enforce ordering.
