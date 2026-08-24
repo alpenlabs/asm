@@ -82,11 +82,16 @@ jobs:
           for f in "${assets[@]}"; do
             [ -f "$f" ] || { echo "::error::missing artifact: $f"; exit 1; }
           done
-          # Create the release if it doesn't already exist. Tags with a hyphen
-          # (e.g. v0.1.0-rc1, v0.1-alpha.10) are treated as prereleases.
-          if ! gh release view "$TAG" >/dev/null 2>&1; then
+          # Create the release as a draft so the assets can be attached, then publish.
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            if [ "$(gh release view "$TAG" --json isDraft --jq .isDraft)" != "true" ]; then
+              echo "::error::release $TAG is already published; assets cannot be attached to an immutable release"
+              exit 1
+            fi
+          else
             prerelease_flag=""
             case "$TAG" in *-*) prerelease_flag="--prerelease" ;; esac
-            gh release create "$TAG" $prerelease_flag --title "$TAG" --generate-notes
+            gh release create "$TAG" --draft $prerelease_flag --title "$TAG" --generate-notes
           fi
           gh release upload "$TAG" --clobber "${assets[@]}"
+          gh release edit "$TAG" --draft=false
