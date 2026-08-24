@@ -3,10 +3,10 @@
     "anchor": {
         "block": {
             "height": 319119,
-            "blkid": "<block_hash>"
+            "blkid": "00000008665dc49f3b82a0d0e7e4b6ae73c0809b5a81465a1e70f7cbdd955d76"
         },
-        "next_target": 487979077,
-        "epoch_start_timestamp": 1780826097,
+        "next_target": 487833794,
+        "epoch_start_timestamp": 1787212131,
         "network": "signet"
     },
     "subprotocols": [
@@ -64,21 +64,23 @@
             "Checkpoint": {
                 "sequencer_predicate": "AlwaysAccept",
                 "checkpoint_predicate": "AlwaysAccept",
-                "genesis_l1_height": 12231,
+                "genesis_l1_height": 319119,
                 "genesis_ol_blkid": "0000000000000000000000000000000000000000000000000000000000000000"
             }
         },
         {
             "Bridge": {
                 "operators": [
-                    "02b5ac886b84f3e3f53e4615f2cddd71a72dfadda255cfe1c58c1ed8de90de5e04",
-                    "023b6817beecc27385e5da20968dff637b160ef29feb6457293945ea25dfe514cd",
-                    "024fa2598700f16df118a0af9454bae66051d2d589b4955a9202b4cb23e4d8cef8"
+                    "02085aab0cd930db8cddf4ea08daf49b45ef28aefdd5b9591b87de3837ec54d1a6",
+                    "02c2d030ea3d8fe77b8d736e919b7e1cb503061d2c3a90d1d2a99d8dc3976e9098",
+                    "0275fd4aea03724f0b5b3d237ba5e5a4b2f1798976cfb846aa4aab5b75d7eaed0a",
+                    "02f4cb09f5b997018c280ef9423d5effb01cc83505b4bf76e17f98e1c8c6547eec",
+                    "02cfa0f8d5046a4e6782a6c0e0233f5d6664668b20d469796935e488b0e74ba867"
                 ],
-                "denomination": 1000000000,
-                "assignment_duration": 10,
-                "operator_fee": 100000000,
-                "recovery_delay": 1008,
+                "denomination": 20000000,
+                "assignment_duration": 536,
+                "operator_fee": 30000,
+                "recovery_delay": 6,
                 "safe_harbour_address": "040f0c8db753acbd17343a39c2f3f4e35e4be6da749f9e35137ab220e7b238a667"
             }
         }
