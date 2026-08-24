@@ -18,7 +18,6 @@ use bitcoin::{
     secp256k1::{PublicKey, Secp256k1, SecretKey},
     BlockHash, Transaction,
 };
-use ssz::Encode;
 use strata_asm_admin_types::{AdministrationInitConfig, ConfirmationDepths, Role};
 use strata_asm_bridge_types::SafeHarbourAddress;
 use strata_asm_common::{AnchorState, SectionStateExt, Subprotocol};
@@ -210,7 +209,7 @@ impl AdminContext {
     fn sign_impl(&self, action: &MultisigAction, signing_role: Role, seqno: u64) -> Vec<u8> {
         let keys = self.role_keys(signing_role);
         let sig_set = create_signature_set(&keys.privkeys, &keys.signer_indices, action, seqno);
-        SignedPayload::new(seqno, action.clone(), sig_set).as_ssz_bytes()
+        SignedPayload::new(seqno, action.clone(), sig_set).into_envelope_bytes()
     }
 }
 

@@ -5,7 +5,8 @@ use thiserror::Error;
 /// Top-level error type for the administration subprotocol, composed of smaller error categories.
 #[derive(Debug, Error)]
 pub enum AdministrationTxParseError {
-    /// The transaction witness does not carry a taproot leaf script holding the payload.
+    /// The transaction has no inputs, or its witness does not carry a taproot leaf script
+    /// holding the payload.
     #[error("admin tx for tx_type = {0} is missing its taproot leaf script payload")]
     MissingPayloadScript(TxType),
 
@@ -16,8 +17,4 @@ pub enum AdministrationTxParseError {
     /// Failed to parse the transaction envelope.
     #[error("failed to parse transaction envelope: {0}")]
     MalformedEnvelope(#[from] EnvelopeParseError),
-
-    /// Failed to deserialize the transaction payload for the given transaction type.
-    #[error("tx type is not defined")]
-    UnknownTxType,
 }

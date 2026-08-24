@@ -3,7 +3,6 @@ use bitcoin::{
     secp256k1::{Message, SECP256K1, SecretKey},
     sign_message::MessageSignature,
 };
-use ssz::Encode;
 use strata_asm_proto_txs_test_utils::create_reveal_transaction_stub;
 use strata_crypto::threshold_signature::{IndexedSignature, SignatureSet};
 
@@ -91,7 +90,7 @@ pub fn create_test_admin_tx(
 
     // Create the signed payload (action + signatures) for the envelope
     let signed_payload = SignedPayload::new(seqno, action.clone(), signature_set);
-    let envelope_payload = signed_payload.as_ssz_bytes();
+    let envelope_payload = signed_payload.into_envelope_bytes();
 
     // Create a minimal reveal transaction structure
     // This is a simplified version - in practice, this would be created as part of
