@@ -36,10 +36,11 @@ impl BtcMainnetSegment {
     /// Loads a single full mainnet block fixture from disk.
     ///
     /// The fixture file contains block
-    /// `000000000000000000000c835b2adcaedc20fdf6ee440009c249452c726dafae`.
+    /// `000000000000000000012cb6b1f814cbe38dba941571efedbd4f0c4086c3e7b6` — height 963,626,
+    /// mined 2026-08-22, **4,957 transactions in 1,586,401 bytes**.
     pub fn load_full_block() -> Block {
         let raw_block = include_bytes!(
-            "../data/btc_mainnet_block_000000000000000000000c835b2adcaedc20fdf6ee440009c249452c726dafae.raw"
+            "../data/btc_mainnet_block_000000000000000000012cb6b1f814cbe38dba941571efedbd4f0c4086c3e7b6.raw"
         );
         deserialize(&raw_block[..]).expect("valid bundled full block fixture")
     }
