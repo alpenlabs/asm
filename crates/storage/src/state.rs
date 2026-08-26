@@ -46,7 +46,11 @@ pub trait AsmStateDb {
     /// `after_height` (which is kept).
     ///
     /// For manual intervention — e.g. rolling state back to a known-good height
-    /// so the worker reprocesses from there.
+    /// so the worker reprocesses from there. The anchor state is the worker's
+    /// commit point, so this is the one prune that drives reprocessing:
+    /// re-running the blocks rewrites the manifests, the MMR leaves, and the
+    /// aux data derived from them. Roll back here rather than pruning those
+    /// derived stores directly.
     fn prune_after(
         &self,
         after_height: u32,
