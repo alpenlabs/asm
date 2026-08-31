@@ -21,7 +21,9 @@ use strata_asm_common::{AnchorState, AsmManifest, SectionStateExt, Subprotocol};
 use strata_asm_moho_storage::{SledExportEntriesDb, SledMohoStateDb, build_export_entry_mmr_proof};
 use strata_asm_params::AsmParams;
 use strata_asm_proto_admin::AdministrationSubprotocol;
-use strata_asm_proto_bridge::{AssignmentEntry, BridgeStateV1, DepositEntry};
+use strata_asm_proto_bridge::{
+    AssignmentEntry, BridgeStateV1, DepositEntry, decode_bridge_section,
+};
 use strata_asm_proto_bridge_txs::BRIDGE_SUBPROTOCOL_ID;
 use strata_asm_proto_checkpoint::CheckpointState;
 use strata_asm_proto_checkpoint_txs::CHECKPOINT_SUBPROTOCOL_ID;
@@ -102,8 +104,9 @@ impl AsmRpcServer {
                     .find_section(BRIDGE_SUBPROTOCOL_ID)
                     .expect("bridge subprotocol should be enabled");
 
-                let bridge_state = BridgeStateV1::from_ssz_bytes(&bridge_state.data)
-                    .expect("bridge state deserialization should be infallible");
+                // Stored states keep the schema they were written under, so decode by version.
+                let bridge_state = decode_bridge_section(bridge_state)
+                    .expect("stored bridge section decodes under a supported schema");
 
                 Ok(Some(bridge_state))
             }

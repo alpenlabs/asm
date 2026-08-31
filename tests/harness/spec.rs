@@ -1,6 +1,6 @@
 //! Test-only successor shared by transition and running-worker qualification.
 
-use strata_asm_common::{AnchorState, AsmSpec, SpecId, Stage};
+use strata_asm_common::{AnchorState, AsmResult, AsmSpec, SpecId, Stage};
 use strata_asm_params::AsmParams;
 use strata_asm_spec::{construct_genesis_state, StrataAsmSpec};
 
@@ -12,11 +12,11 @@ impl AsmSpec for TestSuccessor {
     const ID: SpecId = 17;
     type GenesisParams = AsmParams;
 
-    fn prepare(&self, source: &AnchorState) -> AnchorState {
+    fn prepare(&self, source: &AnchorState) -> AsmResult<AnchorState> {
         assert!(matches!(source.spec_id, 0 | Self::ID));
         let mut state = source.clone();
         state.spec_id = Self::ID;
-        state
+        Ok(state)
     }
 
     fn call_subprotocols(&self, stage: &mut impl Stage) {

@@ -22,6 +22,7 @@ strata-identifiers.workspace = true
 
 [dev-dependencies]
 bitcoin-bosd.workspace = true
+ssz.workspace = true
 strata-asm-proto-bridge-state = { workspace = true, features = [
   "test-utils",
 ] }

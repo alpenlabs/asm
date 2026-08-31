@@ -340,8 +340,8 @@ pub(crate) mod fixtures {
     use bitcoind_async_client::{Client, traits::Reader};
     use corepc_node::Node;
     use strata_asm_common::{
-        AnchorState, AsmHistoryAccumulatorState, AsmSpec, ChainViewState, HeaderVerificationState,
-        SpecId, Stage,
+        AnchorState, AsmHistoryAccumulatorState, AsmResult, AsmSpec, ChainViewState,
+        HeaderVerificationState, SpecId, Stage,
     };
     use strata_btc_types::BlockHashExt;
     use strata_btc_verification::L1Anchor;
@@ -371,9 +371,9 @@ pub(crate) mod fixtures {
     impl AsmSpec for TestAsmSpec {
         const ID: SpecId = 0;
 
-        fn prepare(&self, state: &AnchorState) -> AnchorState {
+        fn prepare(&self, state: &AnchorState) -> AsmResult<AnchorState> {
             assert_eq!(state.spec_id, Self::ID, "unsupported source spec");
-            state.clone()
+            Ok(state.clone())
         }
 
         type GenesisParams = TestAsmParams;

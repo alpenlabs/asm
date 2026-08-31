@@ -56,7 +56,7 @@ impl<H> AsmHostRegistry<H> {
 #[cfg(test)]
 mod tests {
     use k256::schnorr::SigningKey;
-    use strata_asm_common::{AnchorState, AsmSpec, SpecId, Stage};
+    use strata_asm_common::{AnchorState, AsmResult, AsmSpec, SpecId, Stage};
     use strata_asm_proof_impl::statements::process_asm_stf;
     use strata_asm_spec::StrataAsmSpec;
     use zkaleido_native_adapter::NativeHost;
@@ -70,7 +70,7 @@ mod tests {
         const ID: SpecId = StrataAsmSpec::ID + 1;
         type GenesisParams = <StrataAsmSpec as AsmSpec>::GenesisParams;
 
-        fn prepare(&self, state: &AnchorState) -> AnchorState {
+        fn prepare(&self, state: &AnchorState) -> AsmResult<AnchorState> {
             StrataAsmSpec.prepare(state)
         }
 

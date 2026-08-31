@@ -22,8 +22,8 @@ pub mod operator;
 #[cfg(any(test, feature = "test-utils"))]
 pub mod test_utils;
 
-pub use assignment::AssignmentEntry;
-pub use bridge::BridgeStateV1;
+pub use assignment::{AssignmentEntry, AssignmentStatus, ReassignmentOutcome, ReassignmentReport};
+pub use bridge::{BridgeStateV1, BridgeStateV2};
 pub use deposit::DepositEntry;
 pub use errors::*;
 pub use operator::NnScriptIdx;

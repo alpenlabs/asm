@@ -1,4 +1,4 @@
-use crate::{AnchorState, SpecId, Subprotocol};
+use crate::{AnchorState, AsmResult, SpecId, Subprotocol};
 
 /// Specification for a concrete ASM instantiation describing the subprotocols we
 /// want to invoke and in what order.
@@ -20,13 +20,13 @@ pub trait AsmSpec {
     ///
     /// # Example
     ///
-    /// A future spec 1 can migrate only checkpoint from schema 0 to 1. Here
+    /// A future spec can migrate only checkpoint from schema 0 to 1. Here
     /// `CheckpointV0`, `CheckpointV1`, and `migrate_checkpoint` are illustrative
     /// subprotocol implementations and a deterministic conversion, not existing types.
-    /// Admin and bridge sections remain untouched. Inside `impl AsmSpec for Spec1`:
+    /// Admin and bridge sections remain untouched. Inside `impl AsmSpec for SpecN`:
     ///
     /// ```ignore
-    /// fn prepare(&self, source: &AnchorState) -> AnchorState {
+    /// fn prepare(&self, source: &AnchorState) -> AsmResult<AnchorState> {
     ///     let mut state = source.clone();
     ///     assert!(matches!(state.spec_id, 0 | 1), "unsupported source spec");
     ///     let checkpoint = state.sections.iter_mut()
@@ -35,25 +35,28 @@ pub trait AsmSpec {
     ///
     ///     if state.spec_id == Self::ID {
     ///         assert_eq!(checkpoint.version, CheckpointV1::STATE_VERSION);
-    ///         return state;
+    ///         return Ok(state);
     ///     }
     ///
-    ///     let old = checkpoint.try_to_state::<CheckpointV0>()
-    ///         .expect("source checkpoint has schema 0");
+    ///     let old = checkpoint.try_to_state::<CheckpointV0>()?;
     ///     let migrated = migrate_checkpoint(old);
-    ///     *checkpoint = SectionState::from_state::<CheckpointV1>(&migrated)
-    ///         .expect("migrated checkpoint fits the section capacity");
+    ///     *checkpoint = SectionState::from_state::<CheckpointV1>(&migrated)?;
     ///     state.spec_id = Self::ID;
-    ///     state
+    ///     Ok(state)
     /// }
     /// ```
     ///
     /// The example uses [`crate::SectionStateExt`] for checked decoding and versioned encoding.
     ///
+    /// # Errors
+    ///
+    /// Returns an error if a migration cannot represent the source state, for example because a
+    /// migrated section no longer fits its capacity. The block then fails to process.
+    ///
     /// # Panics
     ///
-    /// Panics if the source spec or representation is unsupported.
-    fn prepare(&self, state: &AnchorState) -> AnchorState;
+    /// Panics if the source spec is unsupported.
+    fn prepare(&self, state: &AnchorState) -> AsmResult<AnchorState>;
 
     /// Function that calls the stage with each subprotocol we intend to
     /// process, in the order we intend to process them.

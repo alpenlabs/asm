@@ -35,7 +35,7 @@ use strata_asm_worker::{ExecutionRegistry, WorkerError};
 use strata_predicate::PredicateKey;
 use thiserror::Error;
 
-use crate::{StrataAsmSpec, StrataAsmSpecV1};
+use crate::{StrataAsmSpec, StrataAsmSpecV1, StrataAsmSpecV2};
 
 /// A failure to assemble the configured native execution targets.
 #[derive(Debug, Error)]
@@ -58,6 +58,9 @@ pub enum CompiledSpec {
     V0,
     /// Its successor, which commits `OperatorClaimUnlockV1` bridge export leaves.
     V1,
+    /// Spec 2, which marks stranded bridge assignments unassignable and stores bridge section
+    /// schema 1.
+    V2,
 }
 
 impl CompiledSpec {
@@ -66,6 +69,7 @@ impl CompiledSpec {
         match id {
             StrataAsmSpec::ID => Ok(Self::V0),
             StrataAsmSpecV1::ID => Ok(Self::V1),
+            StrataAsmSpecV2::ID => Ok(Self::V2),
             _ => Err(NativeAssemblyError::UnsupportedSpec(id)),
         }
     }
@@ -75,6 +79,7 @@ impl CompiledSpec {
         match self {
             Self::V0 => StrataAsmSpec.construct_genesis_state(params),
             Self::V1 => StrataAsmSpecV1.construct_genesis_state(params),
+            Self::V2 => StrataAsmSpecV2.construct_genesis_state(params),
         }
     }
 
@@ -86,6 +91,7 @@ impl CompiledSpec {
         match self {
             Self::V0 => registry.register(predicate, StrataAsmSpec),
             Self::V1 => registry.register(predicate, StrataAsmSpecV1),
+            Self::V2 => registry.register(predicate, StrataAsmSpecV2),
         }
     }
 }
@@ -107,6 +113,8 @@ pub fn build_execution_registry(
 
 #[cfg(test)]
 mod tests {
+    use strata_predicate::PredicateTypeId;
+
     use super::*;
 
     #[test]
@@ -143,6 +151,29 @@ mod tests {
             registry.resolve(&successor).unwrap().spec_id(),
             StrataAsmSpecV1::ID
         );
+    }
+
+    /// Spec 2 resolves and registers alongside the earlier rulesets, each under its own
+    /// predicate.
+    #[test]
+    fn native_catalog_carries_spec_2_beside_earlier_rulesets() {
+        assert_eq!(
+            CompiledSpec::resolve(StrataAsmSpecV2::ID).unwrap(),
+            CompiledSpec::V2
+        );
+
+        let targets = [
+            (PredicateKey::always_accept(), StrataAsmSpec::ID),
+            (PredicateKey::never_accept(), StrataAsmSpecV1::ID),
+            (
+                PredicateKey::try_new(PredicateTypeId::NeverAccept, vec![2]).unwrap(),
+                StrataAsmSpecV2::ID,
+            ),
+        ];
+        let registry = build_execution_registry(targets.clone()).unwrap();
+        for (predicate, spec_id) in targets {
+            assert_eq!(registry.resolve(&predicate).unwrap().spec_id(), spec_id);
+        }
     }
 
     #[test]

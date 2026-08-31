@@ -150,11 +150,11 @@ mod tests {
     impl<const ID: SpecId> AsmSpec for ObservedSpec<ID> {
         const ID: SpecId = ID;
         type GenesisParams = ();
-        fn prepare(&self, source: &AnchorState) -> AnchorState {
+        fn prepare(&self, source: &AnchorState) -> AsmResult<AnchorState> {
             self.0.fetch_add(1, Ordering::SeqCst);
             let mut state = source.clone();
             state.spec_id = ID;
-            state
+            Ok(state)
         }
         fn call_subprotocols(&self, _: &mut impl Stage) {}
         fn construct_genesis_state(&self, _: &()) -> AnchorState {

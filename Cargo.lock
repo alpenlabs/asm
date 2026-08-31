@@ -8222,6 +8222,7 @@ version = "0.1.0"
 dependencies = [
  "bitcoin",
  "bitcoin-bosd",
+ "ssz",
  "strata-asm-bridge-types",
  "strata-asm-common",
  "strata-asm-logs",
@@ -8525,6 +8526,7 @@ dependencies = [
  "strata-asm-proto-checkpoint",
  "strata-asm-worker",
  "strata-predicate",
+ "strata-test-utils-arb",
  "thiserror 2.0.18",
 ]
 

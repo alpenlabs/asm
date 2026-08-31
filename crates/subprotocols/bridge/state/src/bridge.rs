@@ -1,3 +1,6 @@
+use std::ops::{Deref, DerefMut};
+
+use ssz::{Decode as SszDecode, DecodeError, Encode as SszEncode};
 use ssz_derive::{Decode, Encode};
 use strata_asm_bridge_types::{
     BridgeInitConfig, OperatorIdx, SafeHarbor, SafeHarborAddress, WithdrawalIntent,
@@ -8,7 +11,10 @@ use strata_btc_types::BitcoinAmount;
 use strata_identifiers::L1BlockCommitment;
 
 use crate::{
-    assignment::{AssignmentEntry, AssignmentTable},
+    assignment::{
+        AssignmentEntry, AssignmentTable, AssignmentTableSszV0, AssignmentTableSszV0Ref,
+        ReassignmentReport,
+    },
     deposit::{DepositEntry, DepositsTable},
     errors::{DepositValidationError, WithdrawalAssignmentError},
     operator::OperatorTable,
@@ -18,7 +24,11 @@ use crate::{
 ///
 /// This structure holds all the persistent state for the bridge, including
 /// operator registrations, deposit tracking, and assignment management.
-#[derive(Debug, Clone, Encode, Decode)]
+///
+/// Its SSZ encoding is section schema 0, which rulesets before spec 2 store. That schema has no
+/// assignment status, so encoding panics if an assignment is unassignable. Rulesets that can mark
+/// one store [`BridgeStateV2`] instead.
+#[derive(Debug, Clone)]
 pub struct BridgeStateV1 {
     /// Table of registered bridge operators.
     operators: OperatorTable,
@@ -41,6 +51,188 @@ pub struct BridgeStateV1 {
 
     /// Safe harbor
     safe_harbor: SafeHarbor,
+}
+
+/// Section schema 0 layout of [`BridgeStateV1`]. Only the assignment entries differ from schema
+/// 1: they predate [`AssignmentStatus`](crate::AssignmentStatus).
+#[derive(Decode)]
+struct BridgeStateSszV0 {
+    operators: OperatorTable,
+    deposits: DepositsTable,
+    assignments: AssignmentTableSszV0,
+    denomination: BitcoinAmount,
+    operator_fee: BitcoinAmount,
+    recovery_delay: u16,
+    safe_harbor: SafeHarbor,
+}
+
+/// Borrowed encoder for [`BridgeStateSszV0`].
+#[derive(Encode)]
+struct BridgeStateSszV0Ref<'a> {
+    operators: &'a OperatorTable,
+    deposits: &'a DepositsTable,
+    assignments: AssignmentTableSszV0Ref<'a>,
+    denomination: &'a BitcoinAmount,
+    operator_fee: &'a BitcoinAmount,
+    recovery_delay: &'a u16,
+    safe_harbor: &'a SafeHarbor,
+}
+
+impl<'a> From<&'a BridgeStateV1> for BridgeStateSszV0Ref<'a> {
+    fn from(value: &'a BridgeStateV1) -> Self {
+        Self {
+            operators: &value.operators,
+            deposits: &value.deposits,
+            assignments: AssignmentTableSszV0Ref::from(&value.assignments),
+            denomination: &value.denomination,
+            operator_fee: &value.operator_fee,
+            recovery_delay: &value.recovery_delay,
+            safe_harbor: &value.safe_harbor,
+        }
+    }
+}
+
+impl SszEncode for BridgeStateV1 {
+    fn is_ssz_fixed_len() -> bool {
+        false
+    }
+
+    fn ssz_append(&self, buf: &mut Vec<u8>) {
+        BridgeStateSszV0Ref::from(self).ssz_append(buf);
+    }
+
+    fn ssz_bytes_len(&self) -> usize {
+        BridgeStateSszV0Ref::from(self).ssz_bytes_len()
+    }
+}
+
+impl SszDecode for BridgeStateV1 {
+    fn is_ssz_fixed_len() -> bool {
+        false
+    }
+
+    /// Every assignment decodes as [`Active`](crate::AssignmentStatus::Active), the only status
+    /// schema 0 can hold.
+    fn from_ssz_bytes(bytes: &[u8]) -> Result<Self, DecodeError> {
+        let payload = BridgeStateSszV0::from_ssz_bytes(bytes)?;
+        Ok(Self {
+            operators: payload.operators,
+            deposits: payload.deposits,
+            assignments: AssignmentTable::try_from(payload.assignments)?,
+            denomination: payload.denomination,
+            operator_fee: payload.operator_fee,
+            recovery_delay: payload.recovery_delay,
+            safe_harbor: payload.safe_harbor,
+        })
+    }
+}
+
+/// [`BridgeStateV1`] stored in section schema 1, which records each assignment's
+/// [`AssignmentStatus`](crate::AssignmentStatus).
+///
+/// Spec 2 introduced this schema so that an assignment no active operator can take stays
+/// recorded as unassignable instead of halting block processing. It differs from
+/// [`BridgeStateV1`] only in encoding, so it dereferences to it.
+#[derive(Debug, Clone)]
+pub struct BridgeStateV2(BridgeStateV1);
+
+impl BridgeStateV2 {
+    /// Returns the wrapped state.
+    pub fn into_inner(self) -> BridgeStateV1 {
+        self.0
+    }
+}
+
+impl From<BridgeStateV1> for BridgeStateV2 {
+    fn from(value: BridgeStateV1) -> Self {
+        Self(value)
+    }
+}
+
+impl Deref for BridgeStateV2 {
+    type Target = BridgeStateV1;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl DerefMut for BridgeStateV2 {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
+/// Section schema 1 layout of [`BridgeStateV1`].
+#[derive(Decode)]
+struct BridgeStateSszV1 {
+    operators: OperatorTable,
+    deposits: DepositsTable,
+    assignments: AssignmentTable,
+    denomination: BitcoinAmount,
+    operator_fee: BitcoinAmount,
+    recovery_delay: u16,
+    safe_harbor: SafeHarbor,
+}
+
+/// Borrowed encoder for [`BridgeStateSszV1`].
+#[derive(Encode)]
+struct BridgeStateSszV1Ref<'a> {
+    operators: &'a OperatorTable,
+    deposits: &'a DepositsTable,
+    assignments: &'a AssignmentTable,
+    denomination: &'a BitcoinAmount,
+    operator_fee: &'a BitcoinAmount,
+    recovery_delay: &'a u16,
+    safe_harbor: &'a SafeHarbor,
+}
+
+impl<'a> From<&'a BridgeStateV2> for BridgeStateSszV1Ref<'a> {
+    fn from(value: &'a BridgeStateV2) -> Self {
+        let state = &value.0;
+        Self {
+            operators: &state.operators,
+            deposits: &state.deposits,
+            assignments: &state.assignments,
+            denomination: &state.denomination,
+            operator_fee: &state.operator_fee,
+            recovery_delay: &state.recovery_delay,
+            safe_harbor: &state.safe_harbor,
+        }
+    }
+}
+
+impl SszEncode for BridgeStateV2 {
+    fn is_ssz_fixed_len() -> bool {
+        false
+    }
+
+    fn ssz_append(&self, buf: &mut Vec<u8>) {
+        BridgeStateSszV1Ref::from(self).ssz_append(buf);
+    }
+
+    fn ssz_bytes_len(&self) -> usize {
+        BridgeStateSszV1Ref::from(self).ssz_bytes_len()
+    }
+}
+
+impl SszDecode for BridgeStateV2 {
+    fn is_ssz_fixed_len() -> bool {
+        false
+    }
+
+    fn from_ssz_bytes(bytes: &[u8]) -> Result<Self, DecodeError> {
+        let payload = BridgeStateSszV1::from_ssz_bytes(bytes)?;
+        Ok(Self(BridgeStateV1 {
+            operators: payload.operators,
+            deposits: payload.deposits,
+            assignments: payload.assignments,
+            denomination: payload.denomination,
+            operator_fee: payload.operator_fee,
+            recovery_delay: payload.recovery_delay,
+            safe_harbor: payload.safe_harbor,
+        }))
+    }
 }
 
 impl BridgeStateV1 {
@@ -237,7 +429,7 @@ impl BridgeStateV1 {
     pub fn reassign_expired_assignments(
         &mut self,
         current_block: &L1BlockCommitment,
-    ) -> Result<Vec<&AssignmentEntry>, WithdrawalAssignmentError> {
+    ) -> Result<ReassignmentReport, WithdrawalAssignmentError> {
         self.assignments.reassign_expired_assignments(
             self.operators.nn_history(),
             self.operators.current_multisig(),
@@ -278,12 +470,23 @@ impl BridgeStateV1 {
 
 #[cfg(test)]
 mod tests {
+    use arbitrary::{Arbitrary, Unstructured};
+    use bitcoin::hashes::{Hash, sha256};
     use strata_asm_bridge_types::WithdrawalIntent;
-    use strata_identifiers::L1BlockCommitment;
+    use strata_asm_proto_bridge_txs::test_utils::create_test_operators;
+    use strata_identifiers::{Buf32, L1BlockCommitment};
     use strata_test_utils_arb::ArbitraryGenerator;
 
     use super::*;
-    use crate::test_utils::{add_deposits, create_test_state};
+    use crate::{
+        AssignmentStatus,
+        test_utils::{add_deposits, create_test_state},
+    };
+
+    /// Length and SHA-256 of [`deterministic_state`] in schema 0, as the released code wrote it.
+    const SCHEMA_0_VECTOR_LEN: usize = 371;
+    const SCHEMA_0_VECTOR_SHA256: &str =
+        "fe794606106ef7f34d26bd76a6a431f1cf885d8cd83e65a231b24d78a8a7506f";
 
     /// Test successful withdrawal assignment creation.
     ///
@@ -410,5 +613,130 @@ mod tests {
 
         // A failed creation must not mutate state: the deposit stays in the table.
         assert_eq!(state.deposits.len(), 1);
+    }
+
+    /// Builds the same state on every run from fixed bytes: two deposits, one still
+    /// unassigned, an assignment, and that assignment's reassignment. Uses only APIs that
+    /// predate schema 1, so the released code can build it too.
+    fn deterministic_state() -> BridgeStateV1 {
+        let bytes: Vec<u8> = (0..8192u32)
+            .map(|i| (i.wrapping_mul(31) ^ 0xa5) as u8)
+            .collect();
+        let mut u = Unstructured::new(&bytes);
+        let config = BridgeInitConfig::arbitrary(&mut u).expect("fixed bytes build a config");
+        let mut state = BridgeStateV1::new(&config);
+
+        for _ in 0..2 {
+            let mut info = DepositInfo::arbitrary(&mut u).expect("fixed bytes build a deposit");
+            info.set_amt(state.denomination);
+            state.add_deposit(&info).expect("fixed deposit is valid");
+        }
+
+        let mut intent = WithdrawalIntent::arbitrary(&mut u).expect("fixed bytes build an intent");
+        intent.amt = state.denomination;
+        let created_at = L1BlockCommitment::new(100, Buf32::from([7; 32]).into());
+        let assignment = state
+            .create_withdrawal_assignment(&intent, &created_at)
+            .expect("fixed assignment is valid");
+        let deadline = assignment.fulfillment_deadline();
+        state.insert_withdrawal_assignment(assignment);
+
+        let expired_at = L1BlockCommitment::new(deadline, Buf32::from([9; 32]).into());
+        let _ = state
+            .reassign_expired_assignments(&expired_at)
+            .expect("fixed reassignment is valid");
+        state
+    }
+
+    /// Returns a state with one assignment marked unassignable after a full operator-set
+    /// turnover, and that assignment's deposit index.
+    fn state_with_unassignable_assignment() -> (BridgeStateV1, u32) {
+        let (mut state, _privkeys) = create_test_state();
+        let mut arb = ArbitraryGenerator::new();
+        add_deposits(&mut state, 1);
+        let mut intent: WithdrawalIntent = arb.generate();
+        intent.amt = state.denomination;
+        let assignment = state
+            .create_withdrawal_assignment(&intent, &L1BlockCommitment::new(0, arb.generate()))
+            .expect("creating an assignment for a matching deposit should succeed");
+        let deposit_idx = assignment.deposit_idx();
+        state.insert_withdrawal_assignment(assignment);
+
+        let removed: Vec<_> = (0..state.operators().len()).collect();
+        let (_, replacements) = create_test_operators(2);
+        state.apply_operator_set_update(&replacements, &removed);
+        let report = state
+            .reassign_expired_assignments(&L1BlockCommitment::new(500, arb.generate()))
+            .expect("assignment state is well formed");
+        assert_eq!(report.newly_unassignable(), &[deposit_idx]);
+        (state, deposit_idx)
+    }
+
+    /// Schema 0 is what rulesets before spec 2 store, so its bytes must not move. The expected
+    /// digest was produced by the released code (`origin/main` at abf2bd5) from the same state.
+    #[test]
+    fn test_schema_0_encoding_matches_released_layout() {
+        let encoded = deterministic_state().as_ssz_bytes();
+
+        assert_eq!(encoded.len(), SCHEMA_0_VECTOR_LEN);
+        assert_eq!(
+            sha256::Hash::hash(&encoded).to_string(),
+            SCHEMA_0_VECTOR_SHA256
+        );
+    }
+
+    /// The two schemas differ only by one status byte per assignment, and neither decodes as the
+    /// other. Schema-0 assignments decode as active.
+    #[test]
+    fn test_schema_0_and_schema_1_differ_only_by_assignment_status() {
+        let (mut state, _privkeys) = create_test_state();
+        let mut arb = ArbitraryGenerator::new();
+        let count = 3;
+        add_deposits(&mut state, count);
+        for _ in 0..count {
+            let l1blk: L1BlockCommitment = arb.generate();
+            let mut intent: WithdrawalIntent = arb.generate();
+            intent.amt = state.denomination;
+            let assignment = state
+                .create_withdrawal_assignment(&intent, &l1blk)
+                .expect("creating an assignment for a matching deposit should succeed");
+            state.insert_withdrawal_assignment(assignment);
+        }
+
+        let schema_0 = state.as_ssz_bytes();
+        let schema_1 = BridgeStateV2::from(state).as_ssz_bytes();
+        assert_eq!(schema_1.len(), schema_0.len() + count);
+        assert!(BridgeStateV2::from_ssz_bytes(&schema_0).is_err());
+        assert!(BridgeStateV1::from_ssz_bytes(&schema_1).is_err());
+
+        let decoded = BridgeStateV1::from_ssz_bytes(&schema_0).expect("schema 0 decodes");
+        for assignment in decoded.assignments().assignments() {
+            assert_eq!(assignment.status(), AssignmentStatus::Active);
+        }
+        assert_eq!(decoded.as_ssz_bytes(), schema_0);
+        assert_eq!(BridgeStateV2::from(decoded).as_ssz_bytes(), schema_1);
+    }
+
+    /// Schema 1 keeps an unassignable assignment unassignable across a round trip.
+    #[test]
+    fn test_schema_1_roundtrips_unassignable_status() {
+        let (state, deposit_idx) = state_with_unassignable_assignment();
+        let encoded = BridgeStateV2::from(state).as_ssz_bytes();
+
+        let decoded = BridgeStateV2::from_ssz_bytes(&encoded).expect("schema 1 decodes");
+        let assignment = decoded
+            .assignments()
+            .get_assignment(deposit_idx)
+            .expect("assignment survives the round trip");
+        assert_eq!(assignment.status(), AssignmentStatus::Unassignable);
+        assert_eq!(decoded.as_ssz_bytes(), encoded);
+    }
+
+    /// Schema 0 cannot record an unassignable assignment, so writing one there is a bug.
+    #[test]
+    #[should_panic(expected = "schema 0 cannot record unassignable deposit")]
+    fn test_schema_0_encoding_rejects_unassignable_assignment() {
+        let (state, _) = state_with_unassignable_assignment();
+        let _ = state.as_ssz_bytes();
     }
 }

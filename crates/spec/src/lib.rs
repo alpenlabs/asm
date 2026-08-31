@@ -4,6 +4,8 @@
 //!
 //! - [`StrataAsmSpec`] — declares which subprotocols are active and their invocation order.
 //! - [`StrataAsmSpecV1`] — its successor, which commits `OperatorClaimUnlockV1` export leaves.
+//! - [`StrataAsmSpecV2`] — spec 2, which marks stranded bridge assignments unassignable instead of
+//!   halting, storing the bridge section in schema 1.
 //! - [`construct_genesis_state`] — builds the genesis
 //!   [`AnchorState`](strata_asm_common::AnchorState) from
 //!   [`AsmParams`](strata_asm_params::AsmParams).
@@ -15,7 +17,7 @@ mod genesis;
 mod spec;
 
 pub use genesis::construct_genesis_state;
-pub use spec::{StrataAsmSpec, StrataAsmSpecV1};
+pub use spec::{StrataAsmSpec, StrataAsmSpecV1, StrataAsmSpecV2};
 
 #[cfg(feature = "host")]
 pub mod host;

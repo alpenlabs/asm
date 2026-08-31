@@ -20,14 +20,16 @@ use bitcoin::{
 };
 use integration_tests::harness::spec::TestSuccessor;
 use rand::{rngs::StdRng, SeedableRng};
+use ssz::Encode;
 use strata_asm_common::{AnchorState, AsmSpec, AuxData};
 use strata_asm_params::AsmParams;
+use strata_asm_proto_bridge::decode_bridge_section;
 use strata_asm_proto_bridge_txs::{
     deposit::DepositTxHeaderAux,
     test_utils::{create_dummy_tx, TEST_MAGIC_BYTES},
     BRIDGE_SUBPROTOCOL_ID,
 };
-use strata_asm_spec::{construct_genesis_state, StrataAsmSpec, StrataAsmSpecV1};
+use strata_asm_spec::{construct_genesis_state, StrataAsmSpec, StrataAsmSpecV1, StrataAsmSpecV2};
 use strata_asm_stf::{compute_asm_transition, pre_process_asm};
 use strata_btc_types::BlockHashExt;
 use strata_btc_verification::{compute_block_hash, L1Anchor};
@@ -123,9 +125,9 @@ fn tagged_coinbase_is_ignored_by_the_stf() {
     let genesis = genesis_state(parent);
     assert_eq!(genesis.spec_id, StrataAsmSpec::ID);
     let original_parent = genesis.clone();
-    let prepared = StrataAsmSpec.prepare(&genesis);
+    let prepared = StrataAsmSpec.prepare(&genesis).unwrap();
     assert_eq!(prepared, genesis, "compatible state needs no migration");
-    let prepared = StrataAsmSpec.prepare(&prepared);
+    let prepared = StrataAsmSpec.prepare(&prepared).unwrap();
     assert_eq!(prepared, genesis, "preparation must be idempotent");
 
     // Control: an untagged coinbase requests nothing and transitions cleanly.
@@ -211,8 +213,8 @@ where
     let old_snapshot = old.clone();
     let block = mine_child_block(parent, untagged_coinbase());
     for source in [&old, &direct] {
-        let prepared = successor.prepare(source);
-        assert_eq!(successor.prepare(&prepared), prepared);
+        let prepared = successor.prepare(source).unwrap();
+        assert_eq!(successor.prepare(&prepared).unwrap(), prepared);
         let preprocessed = pre_process_asm(&successor, source, &block).unwrap();
         assert!(preprocessed.aux_requests.bitcoin_txs().is_empty());
         let output =
@@ -237,4 +239,45 @@ fn successor_genesis_and_prepare_preserve_baseline_semantics() {
     // Spec 1 changes only the bridge export leaf, so on a block with no bridge transactions it
     // must be indistinguishable from spec 0.
     assert_successor_preserves_baseline_semantics(StrataAsmSpecV1);
+}
+
+/// Spec 2 moves the bridge section to schema 1 and changes only what happens to stranded
+/// assignments. On a block with no bridge transactions it must match spec 0 everywhere except the
+/// bridge section's encoding, whether it starts from a spec 0 parent or from its own genesis.
+#[test]
+fn spec_2_matches_baseline_apart_from_the_bridge_section_schema() {
+    let parent = BlockHash::all_zeros();
+    let params = genesis_params(parent);
+    let old = StrataAsmSpec.construct_genesis_state(&params);
+    let direct = StrataAsmSpecV2.construct_genesis_state(&params);
+    let block = mine_child_block(parent, untagged_coinbase());
+    let baseline =
+        compute_asm_transition(&StrataAsmSpec, &old, &block, &AuxData::default(), None).unwrap();
+
+    for source in [&old, &direct] {
+        let output =
+            compute_asm_transition(&StrataAsmSpecV2, source, &block, &AuxData::default(), None)
+                .unwrap();
+        assert_eq!(output.state.spec_id, StrataAsmSpecV2::ID);
+        assert_eq!(output.state.chain_view, baseline.state.chain_view);
+        assert_eq!(output.manifest, baseline.manifest);
+        assert_eq!(output.state.sections.len(), baseline.state.sections.len());
+        for (got, want) in output
+            .state
+            .sections
+            .iter()
+            .zip(baseline.state.sections.iter())
+        {
+            if got.id == BRIDGE_SUBPROTOCOL_ID {
+                assert_eq!(got.version, 1);
+                assert_eq!(want.version, 0);
+                assert_eq!(
+                    decode_bridge_section(got).unwrap().as_ssz_bytes(),
+                    decode_bridge_section(want).unwrap().as_ssz_bytes()
+                );
+            } else {
+                assert_eq!(got, want);
+            }
+        }
+    }
 }

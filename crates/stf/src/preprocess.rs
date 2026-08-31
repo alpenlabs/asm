@@ -60,7 +60,7 @@ pub fn pre_process_asm<'b, S: AsmSpec>(
     block: &'b Block,
 ) -> AsmResult<AsmPreProcessOutput<'b>> {
     // 0. Prepare compatible working state before loading subprotocols, preserving the parent.
-    let pre_state = spec.prepare(pre_state);
+    let pre_state = spec.prepare(pre_state)?;
 
     // 1. Validate and update PoW header continuity for the new block.
     // This ensures the block header follows proper Bitcoin consensus rules and chain continuity.

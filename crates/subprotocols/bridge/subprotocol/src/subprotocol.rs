@@ -9,11 +9,11 @@ use strata_asm_bridge_types::BridgeInitConfig;
 use strata_asm_common::{
     AsmLogEntry, AuxRequestCollector, HeaderVerificationState, MsgRelayer, SectionStateVersion,
     Subprotocol, SubprotocolId, TxInputRef, VerifiedAuxData,
-    logging::{debug, error, info},
+    logging::{debug, error, info, warn},
 };
 use strata_asm_logs::ExportExtraDataUpdate;
 use strata_asm_proto_bridge_msgs::BridgeIncomingMsg;
-use strata_asm_proto_bridge_state::BridgeStateV1;
+use strata_asm_proto_bridge_state::{BridgeStateV1, BridgeStateV2};
 use strata_asm_proto_bridge_txs::{BRIDGE_SUBPROTOCOL_ID, errors::Mismatch, parser::parse_tx};
 use strata_identifiers::L1BlockCommitment;
 
@@ -32,6 +32,7 @@ use crate::{
 /// Every released version shares this implementation and differs only in `C`, so use one of
 /// the aliases below rather than naming `C` at a call site. The subprotocol ID and the section
 /// schema are the same for all of them: the claim version moves the export leaf, not the state.
+/// They store section schema 0; [`BridgeSubprotoV3`] is the version that stores schema 1.
 #[derive(Debug)]
 pub struct BridgeSubproto<C: ClaimVersion>(PhantomData<C>);
 
@@ -47,6 +48,30 @@ pub type BridgeSubprotoV1 = BridgeSubproto<ClaimV0>;
 ///
 /// [`OperatorClaimUnlockV1`]: strata_asm_bridge_types::OperatorClaimUnlockV1
 pub type BridgeSubprotoV2 = BridgeSubproto<ClaimV1>;
+
+/// The bridge subprotocol that records stranded assignments, committing
+/// [`OperatorClaimUnlockV1`] export leaves like [`BridgeSubprotoV2`].
+///
+/// When no active operator from a deposit's notary set can take an expired assignment, the
+/// released versions halt block processing. This version marks the assignment unassignable,
+/// leaves it with its current assignee, and keeps processing. Recording that status needs
+/// section schema 1 ([`BridgeStateV2`]), so it is a separate [`Subprotocol`] implementation
+/// rather than another claim version; spec 2 invokes it after migrating the section.
+///
+/// [`OperatorClaimUnlockV1`]: strata_asm_bridge_types::OperatorClaimUnlockV1
+#[derive(Debug)]
+pub struct BridgeSubprotoV3;
+
+/// What the reassignment pass does with an expired assignment that no active operator from its
+/// notary set can take.
+#[derive(Clone, Copy, Debug)]
+enum StrandedAssignment {
+    /// Fail the block. Schema 0 cannot record an unassignable assignment, so the released
+    /// versions keep the behavior they shipped with.
+    Halt,
+    /// Leave the assignment marked unassignable and continue (schema 1).
+    MarkUnassignable,
+}
 
 impl<C: ClaimVersion> Subprotocol for BridgeSubproto<C> {
     const ID: SubprotocolId = BRIDGE_SUBPROTOCOL_ID;
@@ -72,16 +97,7 @@ impl<C: ClaimVersion> Subprotocol for BridgeSubproto<C> {
         txs: &[TxInputRef<'_>],
         collector: &mut AuxRequestCollector,
     ) {
-        // Pre-Process each transaction
-        for tx in txs {
-            // Parse transaction to extract structured data, then handle the preprocess transaction
-            // to get the auxiliary requests. Transactions that are not directly processed by the
-            // bridge subprotocol (e.g. `DepositRequest`, `Commit`) or are otherwise unparseable
-            // are silently skipped.
-            if let Some(parsed_tx) = parse_tx(tx) {
-                preprocess_parsed_tx(parsed_tx, state, collector);
-            }
-        }
+        pre_process_bridge_txs(state, txs, collector);
     }
 
     /// Processes transactions and reassigns expired assignments.
@@ -111,68 +127,13 @@ impl<C: ClaimVersion> Subprotocol for BridgeSubproto<C> {
         verified_aux_data: &VerifiedAuxData,
         relayer: &mut impl MsgRelayer,
     ) {
-        // Process each transaction
-        for tx in txs {
-            // Parse transaction to extract structured data (deposit/withdrawal info)
-            // then handle the parsed transaction to update state and emit events.
-            // Transactions that are not directly processed by the bridge subprotocol
-            // (e.g. `DepositRequest`, `Commit`) or are otherwise unparseable are silently skipped.
-            let Some(parsed_tx) = parse_tx(tx) else {
-                continue;
-            };
-            match handle_parsed_tx::<C>(state, parsed_tx, verified_aux_data, relayer) {
-                // `handle_parsed_tx` already emits a type-specific info log on success, so this
-                // is only a coarse trace marker. `txid` is computed inside the macro, because
-                // logging is compiled to noop in ZkVM.
-                Ok(()) => debug!(txid = %tx.tx().compute_txid(), "Processed bridge tx"),
-                Err(e) => {
-                    error!(txid = %tx.tx().compute_txid(), error = %e, "Failed to process bridge tx")
-                }
-            }
-        }
-
-        // After processing all transactions, reassign expired assignments
-        match state.reassign_expired_assignments(&header_vs.last_verified_block) {
-            Ok(reassigned) => {
-                // Only log when something actually happened, to avoid a line every block.
-                if let Some(first) = reassigned.first() {
-                    info!(
-                        count = reassigned.len(),
-                        l1_height = header_vs.last_verified_block.height(),
-                        // Uniform across the batch: all entries get the same new deadline.
-                        fulfillment_deadline = first.fulfillment_deadline(),
-                        "Reassigned expired withdrawal assignments",
-                    );
-                    for assignment in &reassigned {
-                        info!(
-                            deposit_idx = assignment.deposit_idx(),
-                            operator_idx = assignment.current_assignee(),
-                            "Reassigned withdrawal to new operator",
-                        );
-                    }
-                }
-            }
-            Err(e) => {
-                // PANIC: Failure to reassign expired assignments indicates a violation of the
-                // bridge's fundamental 1/N honesty assumption. This means no operators remain
-                // available to fulfill withdrawals, representing an unrecoverable protocol breach
-                // that poses significant risk of fund loss.
-                error!(
-                    l1_height = header_vs.last_verified_block.height(),
-                    error = %e,
-                    "Failed to reassign expired assignments; 1/N honesty assumption violated"
-                );
-                panic!("Failed to reassign expired assignments {e}");
-            }
-        }
-
-        // Publish the accumulated proof of work as the bridge container's export `extra_data`,
-        // so downstream consumers can read the verified L1 work directly from the export state.
-        let accumulated_pow = header_vs.total_accumulated_pow().to_le_bytes();
-        let extra_data_log = ExportExtraDataUpdate::new(BRIDGE_SUBPROTOCOL_ID, accumulated_pow);
-        relayer.emit_log(
-            AsmLogEntry::from_log(&extra_data_log)
-                .expect("export extra data log encoding is infallible for fixed-size SSZ"),
+        process_bridge_txs::<C>(
+            state,
+            txs,
+            header_vs,
+            verified_aux_data,
+            relayer,
+            StrandedAssignment::Halt,
         );
     }
 
@@ -197,75 +158,281 @@ impl<C: ClaimVersion> Subprotocol for BridgeSubproto<C> {
     /// Both conditions represent unrecoverable protocol violations where continued operation
     /// poses significant risk of fund loss.
     fn process_msgs(state: &mut Self::State, msgs: &[Self::Msg], l1ref: &L1BlockCommitment) {
-        for msg in msgs {
-            match msg {
-                BridgeIncomingMsg::DispatchWithdrawal(payload) => {
-                    // Decompose the batch intent into per-denomination intents, then for each one
-                    // create an assignment, log it, and insert it (consuming the deposit that
-                    // backs it). A non-decomposable amount (not a whole multiple of the
-                    // denomination) surfaces here as an amount mismatch.
-                    let denomination = *state.denomination();
-                    let result = payload
-                        .decompose(denomination)
-                        .ok_or_else(|| {
-                            WithdrawalAssignmentError::DepositWithdrawalAmountMismatch(Mismatch {
-                                expected: denomination.to_sat(),
-                                got: payload.amt().to_sat(),
-                            })
+        process_bridge_msgs(state, msgs, l1ref);
+    }
+}
+
+impl Subprotocol for BridgeSubprotoV3 {
+    const ID: SubprotocolId = BRIDGE_SUBPROTOCOL_ID;
+    // Schema 1 records each assignment's status; schema-0 sections are migrated by
+    // `migrate_bridge_section` in spec 2's `prepare`.
+    const STATE_VERSION: SectionStateVersion = 1;
+
+    type State = BridgeStateV2;
+
+    type InitConfig = BridgeInitConfig;
+
+    type Msg = BridgeIncomingMsg;
+
+    fn init(config: &Self::InitConfig) -> Self::State {
+        BridgeStateV2::from(BridgeStateV1::new(config))
+    }
+
+    /// Pre-processes transactions exactly as [`BridgeSubproto`] does.
+    fn pre_process_txs(
+        state: &Self::State,
+        txs: &[TxInputRef<'_>],
+        collector: &mut AuxRequestCollector,
+    ) {
+        pre_process_bridge_txs(state, txs, collector);
+    }
+
+    /// Processes transactions and reassigns expired assignments, in the order and with the
+    /// deadline semantics of [`BridgeSubproto`].
+    ///
+    /// An expired assignment with no active operator from its historical notary set is marked
+    /// unassignable instead of failing the block. It keeps its assignee, who may still fulfill
+    /// it, and later passes skip it.
+    ///
+    /// # Panics
+    ///
+    /// Panics if reassignment encounters malformed assignment state.
+    fn process_txs(
+        state: &mut Self::State,
+        txs: &[TxInputRef<'_>],
+        header_vs: &HeaderVerificationState,
+        verified_aux_data: &VerifiedAuxData,
+        relayer: &mut impl MsgRelayer,
+    ) {
+        process_bridge_txs::<ClaimV1>(
+            state,
+            txs,
+            header_vs,
+            verified_aux_data,
+            relayer,
+            StrandedAssignment::MarkUnassignable,
+        );
+    }
+
+    /// Processes incoming bridge messages exactly as [`BridgeSubproto`] does.
+    ///
+    /// # Panics
+    ///
+    /// Panics if withdrawal assignment creation fails; see [`BridgeSubproto`].
+    fn process_msgs(state: &mut Self::State, msgs: &[Self::Msg], l1ref: &L1BlockCommitment) {
+        process_bridge_msgs(state, msgs, l1ref);
+    }
+}
+
+/// Collects the auxiliary data requests of every bridge transaction in `txs`.
+fn pre_process_bridge_txs(
+    state: &BridgeStateV1,
+    txs: &[TxInputRef<'_>],
+    collector: &mut AuxRequestCollector,
+) {
+    // Pre-Process each transaction
+    for tx in txs {
+        // Parse transaction to extract structured data, then handle the preprocess transaction
+        // to get the auxiliary requests. Transactions that are not directly processed by the
+        // bridge subprotocol (e.g. `DepositRequest`, `Commit`) or are otherwise unparseable
+        // are silently skipped.
+        if let Some(parsed_tx) = parse_tx(tx) {
+            preprocess_parsed_tx(parsed_tx, state, collector);
+        }
+    }
+}
+
+/// Handles every bridge transaction in `txs`, then reassigns expired assignments, treating
+/// stranded ones as `stranded` directs.
+///
+/// # Panics
+///
+/// Panics if reassignment encounters malformed assignment state, or under
+/// [`StrandedAssignment::Halt`] if an expired assignment has no eligible operator.
+fn process_bridge_txs<C: ClaimVersion>(
+    state: &mut BridgeStateV1,
+    txs: &[TxInputRef<'_>],
+    header_vs: &HeaderVerificationState,
+    verified_aux_data: &VerifiedAuxData,
+    relayer: &mut impl MsgRelayer,
+    stranded: StrandedAssignment,
+) {
+    // Process each transaction
+    for tx in txs {
+        // Parse transaction to extract structured data (deposit/withdrawal info)
+        // then handle the parsed transaction to update state and emit events.
+        // Transactions that are not directly processed by the bridge subprotocol
+        // (e.g. `DepositRequest`, `Commit`) or are otherwise unparseable are silently skipped.
+        let Some(parsed_tx) = parse_tx(tx) else {
+            continue;
+        };
+        match handle_parsed_tx::<C>(state, parsed_tx, verified_aux_data, relayer) {
+            // `handle_parsed_tx` already emits a type-specific info log on success, so this
+            // is only a coarse trace marker. `txid` is computed inside the macro, because
+            // logging is compiled to noop in ZkVM.
+            Ok(()) => debug!(txid = %tx.tx().compute_txid(), "Processed bridge tx"),
+            Err(e) => {
+                error!(txid = %tx.tx().compute_txid(), error = %e, "Failed to process bridge tx")
+            }
+        }
+    }
+
+    // After processing all transactions, reassign expired assignments
+    let report = match state.reassign_expired_assignments(&header_vs.last_verified_block) {
+        Ok(report) => report,
+        Err(e) => {
+            error!(
+                l1_height = header_vs.last_verified_block.height(),
+                error = %e,
+                "Failed to reassign expired assignments because assignment state is invalid"
+            );
+            panic!("Failed to reassign expired assignments {e}");
+        }
+    };
+
+    if let StrandedAssignment::Halt = stranded
+        && let Some(&deposit_idx) = report.newly_unassignable().first()
+    {
+        // PANIC: Failure to reassign expired assignments indicates a violation of the bridge's
+        // fundamental 1/N honesty assumption. This means no operators remain available to
+        // fulfill withdrawals, representing an unrecoverable protocol breach that poses
+        // significant risk of fund loss. The pass lists stranded deposits in deposit order, so
+        // this names the deposit the released pass stopped at, with the error it raised.
+        let e = WithdrawalAssignmentError::NoEligibleOperators { deposit_idx };
+        error!(
+            l1_height = header_vs.last_verified_block.height(),
+            error = %e,
+            "Failed to reassign expired assignments; 1/N honesty assumption violated"
+        );
+        panic!("Failed to reassign expired assignments {e}");
+    }
+
+    // Only log when something actually happened, to avoid a line every block.
+    if let Some(first_deposit_idx) = report.reassigned().first() {
+        let first = state
+            .assignments()
+            .get_assignment(*first_deposit_idx)
+            .expect("reassignment report references a stored assignment");
+        info!(
+            count = report.reassigned().len(),
+            l1_height = header_vs.last_verified_block.height(),
+            // Uniform across the batch: all entries get the same new deadline.
+            fulfillment_deadline = first.fulfillment_deadline(),
+            "Reassigned expired withdrawal assignments",
+        );
+        for deposit_idx in report.reassigned() {
+            let assignment = state
+                .assignments()
+                .get_assignment(*deposit_idx)
+                .expect("reassignment report references a stored assignment");
+            info!(
+                deposit_idx = assignment.deposit_idx(),
+                operator_idx = assignment.current_assignee(),
+                "Reassigned withdrawal to new operator",
+            );
+        }
+    }
+
+    for deposit_idx in report.newly_unassignable() {
+        let assignment = state
+            .assignments()
+            .get_assignment(*deposit_idx)
+            .expect("reassignment report references a stored assignment");
+        warn!(
+            deposit_idx,
+            notary_set = assignment.notary_set(),
+            current_assignee = assignment.current_assignee(),
+            "Withdrawal assignment has no active operator from its historical notary set",
+        );
+    }
+
+    // Publish the accumulated proof of work as the bridge container's export `extra_data`,
+    // so downstream consumers can read the verified L1 work directly from the export state.
+    let accumulated_pow = header_vs.total_accumulated_pow().to_le_bytes();
+    let extra_data_log = ExportExtraDataUpdate::new(BRIDGE_SUBPROTOCOL_ID, accumulated_pow);
+    relayer.emit_log(
+        AsmLogEntry::from_log(&extra_data_log)
+            .expect("export extra data log encoding is infallible for fixed-size SSZ"),
+    );
+}
+
+/// Applies every bridge message in `msgs`.
+///
+/// # Panics
+///
+/// Panics if withdrawal assignment creation fails; see [`BridgeSubproto`].
+fn process_bridge_msgs(
+    state: &mut BridgeStateV1,
+    msgs: &[BridgeIncomingMsg],
+    l1ref: &L1BlockCommitment,
+) {
+    for msg in msgs {
+        match msg {
+            BridgeIncomingMsg::DispatchWithdrawal(payload) => {
+                // Decompose the batch intent into per-denomination intents, then for each one
+                // create an assignment, log it, and insert it (consuming the deposit that
+                // backs it). A non-decomposable amount (not a whole multiple of the
+                // denomination) surfaces here as an amount mismatch.
+                let denomination = *state.denomination();
+                let result = payload
+                    .decompose(denomination)
+                    .ok_or_else(|| {
+                        WithdrawalAssignmentError::DepositWithdrawalAmountMismatch(Mismatch {
+                            expected: denomination.to_sat(),
+                            got: payload.amt().to_sat(),
                         })
-                        .and_then(|intents| {
-                            for intent in intents {
-                                let assignment =
-                                    state.create_withdrawal_assignment(&intent, l1ref)?;
-                                info!(
-                                    deposit_idx = assignment.deposit_idx(),
-                                    assignee = assignment.current_assignee(),
-                                    amount_sat = assignment.withdrawal_output().amt().to_sat(),
-                                    fulfillment_deadline = assignment.fulfillment_deadline(),
-                                    selected_operator = %intent.selected_operator(),
-                                    "Created withdrawal assignment",
-                                );
-                                state.insert_withdrawal_assignment(assignment);
-                            }
-                            Ok(())
-                        });
-                    if let Err(e) = result {
-                        // PANIC: Withdrawal assignment failure indicates catastrophic system
-                        // compromise.
-                        error!(
-                            l1_height = l1ref.height(),
-                            error = %e,
-                            "Failed to create withdrawal assignment"
-                        );
-                        panic!("Failed to create withdrawal assignment: {e}",);
-                    }
-                }
-                BridgeIncomingMsg::UpdateOperatorSet(payload) => {
-                    let add_members = &payload.add_members;
-                    let remove_members = &payload.remove_members;
-                    info!(
-                        added = add_members.len(),
-                        removed = remove_members.len(),
-                        "Applying operator set update from admin subprotocol",
+                    })
+                    .and_then(|intents| {
+                        for intent in intents {
+                            let assignment = state.create_withdrawal_assignment(&intent, l1ref)?;
+                            info!(
+                                deposit_idx = assignment.deposit_idx(),
+                                assignee = assignment.current_assignee(),
+                                amount_sat = assignment.withdrawal_output().amt().to_sat(),
+                                fulfillment_deadline = assignment.fulfillment_deadline(),
+                                selected_operator = %intent.selected_operator(),
+                                "Created withdrawal assignment",
+                            );
+                            state.insert_withdrawal_assignment(assignment);
+                        }
+                        Ok(())
+                    });
+                if let Err(e) = result {
+                    // PANIC: Withdrawal assignment failure indicates catastrophic system
+                    // compromise.
+                    error!(
+                        l1_height = l1ref.height(),
+                        error = %e,
+                        "Failed to create withdrawal assignment"
                     );
-                    state.apply_operator_set_update(add_members, remove_members);
+                    panic!("Failed to create withdrawal assignment: {e}",);
                 }
+            }
+            BridgeIncomingMsg::UpdateOperatorSet(payload) => {
+                let add_members = &payload.add_members;
+                let remove_members = &payload.remove_members;
+                info!(
+                    added = add_members.len(),
+                    removed = remove_members.len(),
+                    "Applying operator set update from admin subprotocol",
+                );
+                state.apply_operator_set_update(add_members, remove_members);
+            }
 
-                BridgeIncomingMsg::UpdateSafeHarborAddress(address) => {
-                    // Only claim success when the update actually applied; rejection (safe harbor
-                    // already activated) is warned inside `update_safe_harbor_address`.
-                    if state.update_safe_harbor_address(address.clone()) {
-                        info!("Updated safe harbor address from admin subprotocol");
-                    }
+            BridgeIncomingMsg::UpdateSafeHarborAddress(address) => {
+                // Only claim success when the update actually applied; rejection (safe harbor
+                // already activated) is warned inside `update_safe_harbor_address`.
+                if state.update_safe_harbor_address(address.clone()) {
+                    info!("Updated safe harbor address from admin subprotocol");
                 }
+            }
 
-                BridgeIncomingMsg::Defcon(_) => {
-                    state.activate_safe_harbor();
-                    info!(
-                        active_address = ?state.safe_harbor().address(),
-                        "Activated safe harbor on Defcon signal from admin subprotocol"
-                    );
-                }
+            BridgeIncomingMsg::Defcon(_) => {
+                state.activate_safe_harbor();
+                info!(
+                    active_address = ?state.safe_harbor().address(),
+                    "Activated safe harbor on Defcon signal from admin subprotocol"
+                );
             }
         }
     }
@@ -277,16 +444,16 @@ mod tests {
     use strata_asm_common::{HeaderVerificationState, Subprotocol};
     use strata_asm_logs::DepositLog;
     use strata_asm_proto_bridge_msgs::{BridgeIncomingMsg, DefconPayload};
-    use strata_asm_proto_bridge_state::BridgeStateV1;
+    use strata_asm_proto_bridge_state::{AssignmentStatus, BridgeStateV1};
     use strata_asm_proto_bridge_txs::{
         deposit_request::DrtHeaderAux,
-        test_utils::{create_drt_takeback_witness, parse_sps50_tx},
+        test_utils::{create_drt_takeback_witness, create_test_operators, parse_sps50_tx},
     };
     use strata_btc_types::BitcoinAmount;
     use strata_identifiers::L1BlockCommitment;
     use strata_test_utils_arb::ArbitraryGenerator;
 
-    use super::{BridgeSubprotoV1, BridgeSubprotoV2};
+    use super::{BridgeStateV2, BridgeSubprotoV1, BridgeSubprotoV2, BridgeSubprotoV3};
     use crate::test_utils::{
         MockMsgRelayer, add_deposits, create_test_state, create_verified_aux_data,
         setup_deposit_tx_test,
@@ -311,6 +478,14 @@ mod tests {
             BridgeSubprotoV1::STATE_VERSION,
             BridgeSubprotoV2::STATE_VERSION
         );
+    }
+
+    /// The schema-1 subprotocol replaces the same section: same ID, next schema version.
+    #[test]
+    fn v3_moves_the_section_schema_only() {
+        assert_eq!(BridgeSubprotoV3::ID, BridgeSubprotoV1::ID);
+        assert_eq!(BridgeSubprotoV1::STATE_VERSION, 0);
+        assert_eq!(BridgeSubprotoV3::STATE_VERSION, 1);
     }
 
     /// The safe harbor must start deactivated so it has no effect until the
@@ -539,6 +714,118 @@ mod tests {
         BridgeSubprotoV1::process_txs(&mut state, &txs, &header_vs, &aux_data, &mut relayer);
         assert_eq!(deposit_log_count(&relayer), 1);
         assert!(state.deposits().get_deposit(deposit_idx).is_some());
+    }
+
+    /// A state with one assignment stranded by a full operator-set turnover, one healthy
+    /// assignment made afterwards, and a header at a height past both deadlines.
+    struct StrandedFixture {
+        state: BridgeStateV1,
+        header_vs: HeaderVerificationState,
+        stranded_idx: u32,
+        stranded_assignee: u32,
+        stranded_deadline: u32,
+        healthy_idx: u32,
+    }
+
+    const STRANDED_FIXTURE_HEIGHT: u32 = 500;
+
+    fn stranded_fixture() -> StrandedFixture {
+        let (mut state, _privkeys) = create_test_state();
+        let creation_block = L1BlockCommitment::new(0, ArbitraryGenerator::new().generate());
+
+        add_deposits(&mut state, 1);
+        let mut old_intent: WithdrawalIntent = ArbitraryGenerator::new().generate();
+        old_intent.amt = *state.denomination();
+        let old_assignment = state
+            .create_withdrawal_assignment(&old_intent, &creation_block)
+            .unwrap();
+        let stranded_idx = old_assignment.deposit_idx();
+        let stranded_assignee = old_assignment.current_assignee();
+        let stranded_deadline = old_assignment.fulfillment_deadline();
+        state.insert_withdrawal_assignment(old_assignment);
+
+        let initial_operator_count = state.operators().len();
+        let (_, replacement_operators) = create_test_operators(2);
+        let removed_operators: Vec<_> = (0..initial_operator_count).collect();
+        state.apply_operator_set_update(&replacement_operators, &removed_operators);
+
+        add_deposits(&mut state, 1);
+        let mut healthy_intent: WithdrawalIntent = ArbitraryGenerator::new().generate();
+        healthy_intent.amt = *state.denomination();
+        let healthy_assignment = state
+            .create_withdrawal_assignment(&healthy_intent, &creation_block)
+            .unwrap();
+        let healthy_idx = healthy_assignment.deposit_idx();
+        state.insert_withdrawal_assignment(healthy_assignment);
+
+        let mut header_vs = HeaderVerificationState::default();
+        header_vs.last_verified_block = L1BlockCommitment::new(
+            STRANDED_FIXTURE_HEIGHT,
+            ArbitraryGenerator::new().generate(),
+        );
+
+        StrandedFixture {
+            state,
+            header_vs,
+            stranded_idx,
+            stranded_assignee,
+            stranded_deadline,
+            healthy_idx,
+        }
+    }
+
+    /// The schema-1 subprotocol marks the stranded assignment unassignable, leaves its
+    /// assignee and deadline alone, and still reassigns the healthy one.
+    #[test]
+    fn v3_process_txs_marks_stranded_assignment_and_reassigns_healthy_assignment() {
+        let fixture = stranded_fixture();
+        let mut state = BridgeStateV2::from(fixture.state);
+
+        let aux_data = create_verified_aux_data(vec![]);
+        let mut relayer = MockMsgRelayer::default();
+        BridgeSubprotoV3::process_txs(&mut state, &[], &fixture.header_vs, &aux_data, &mut relayer);
+
+        let stranded = state
+            .assignments()
+            .get_assignment(fixture.stranded_idx)
+            .unwrap();
+        assert_eq!(stranded.status(), AssignmentStatus::Unassignable);
+        assert_eq!(stranded.current_assignee(), fixture.stranded_assignee);
+        assert_eq!(stranded.fulfillment_deadline(), fixture.stranded_deadline);
+
+        let healthy = state
+            .assignments()
+            .get_assignment(fixture.healthy_idx)
+            .unwrap();
+        assert_eq!(healthy.status(), AssignmentStatus::Active);
+        assert_eq!(
+            healthy.fulfillment_deadline(),
+            STRANDED_FIXTURE_HEIGHT + 144
+        );
+        assert!(
+            !relayer.logs().is_empty(),
+            "block processing should complete"
+        );
+    }
+
+    /// The released subprotocol still fails the block on a stranded assignment, with the error
+    /// it has always raised, because schema 0 cannot record the assignment as unassignable.
+    #[test]
+    #[should_panic(
+        expected = "Failed to reassign expired assignments No current multisig operator found in \
+                    deposit's notary operators for deposit index"
+    )]
+    fn v1_process_txs_halts_on_stranded_assignment() {
+        let mut fixture = stranded_fixture();
+        let aux_data = create_verified_aux_data(vec![]);
+        let mut relayer = MockMsgRelayer::default();
+        BridgeSubprotoV1::process_txs(
+            &mut fixture.state,
+            &[],
+            &fixture.header_vs,
+            &aux_data,
+            &mut relayer,
+        );
     }
 
     #[test]

@@ -23,8 +23,11 @@ repository validation checks.
    - `prepare` receives the committed parent and must not mutate it.
    - Check the source `spec_id` and each section's schema version explicitly. Don't infer
      migration from a numeric configuration value.
-   - `prepare` currently panics on an unsupported source. Keep the set of supported predecessors
-     explicit, and don't skip versions without a tested edge.
+   - `prepare` panics on an unsupported source. Keep the set of supported predecessors explicit,
+     and don't skip versions without a tested edge.
+   - A migration that cannot represent the parent returns an error from `prepare` instead of
+     panicking, for example when a migrated section outgrows `MAX_SECTION_STATE_BYTES`. Spec 2
+     migrates the bridge section from schema 0 to schema 1 this way.
 2. **Register it in the native catalog.** Add a `CompiledSpec` variant in
    `crates/spec/src/host.rs`, and extend `CompiledSpec::resolve`, `construct_genesis_state`, and
    `register_execution`. Native callers (the runner and OL) get it through
@@ -100,7 +103,9 @@ Put `bitcoind` on `PATH` for integration tests. CI pins Bitcoin Core 30.2 in
   This is native service recovery over existing database handles. It is not a process crash,
   and it runs no prover.
 - `asm_coinbase` checks that the successor's direct genesis and `prepare` preserve the baseline
-  semantics. The successor changes only its spec ID, so this is not a section migration.
+  semantics. The successor changes only its spec ID, so this is not a section migration. It also
+  checks that spec 2, which migrates the bridge section to schema 1, matches spec 0 on a block
+  with no bridge transactions apart from that section's encoding.
 
 The functional test `fn_asm_upgrade_test` covers the proving side. It starts
 `strata-asm-runner` with spec 0 and spec 1 loaded and activates spec 1 with a signed admin update

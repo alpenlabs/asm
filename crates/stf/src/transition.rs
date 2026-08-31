@@ -32,7 +32,7 @@ pub fn compute_asm_transition<S: AsmSpec>(
     coinbase_inclusion_proof: Option<&TxidInclusionProof>,
 ) -> AsmResult<AsmStfOutput> {
     // 0. Prepare compatible working state before loading subprotocols, preserving the parent.
-    let pre_state = spec.prepare(pre_state);
+    let pre_state = spec.prepare(pre_state)?;
 
     // 1. Validate that the block body merkle is consistent with the header.
     // Returns the witness txids root (segwit) or txids root (legacy) for use below.

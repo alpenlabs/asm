@@ -9,7 +9,7 @@ use strata_asm_prover_worker::{
     ProverWorkerBuilder, load_spec_host,
 };
 use strata_asm_spec::{
-    StrataAsmSpec, StrataAsmSpecV1,
+    StrataAsmSpec, StrataAsmSpecV1, StrataAsmSpecV2,
     host::{CompiledSpec, build_execution_registry},
 };
 use strata_asm_worker::AsmWorkerBuilder;
@@ -261,5 +261,6 @@ async fn load_asm_host(
     match spec {
         CompiledSpec::V0 => load_spec_host(source, expected, StrataAsmSpec).await,
         CompiledSpec::V1 => load_spec_host(source, expected, StrataAsmSpecV1).await,
+        CompiledSpec::V2 => load_spec_host(source, expected, StrataAsmSpecV2).await,
     }
 }

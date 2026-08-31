@@ -79,7 +79,7 @@ mod tests {
 
     use moho_runtime_impl::RuntimeInput;
     use ssz::Encode;
-    use strata_asm_common::{AnchorState, AsmSpec, SpecId, Stage};
+    use strata_asm_common::{AnchorState, AsmResult, AsmSpec, SpecId, Stage};
     use strata_asm_spec::StrataAsmSpec;
     use strata_predicate::PredicateKey;
     use zkaleido::ZkVmProgram;
@@ -95,7 +95,7 @@ mod tests {
         const ID: SpecId = StrataAsmSpec::ID;
         type GenesisParams = <StrataAsmSpec as AsmSpec>::GenesisParams;
 
-        fn prepare(&self, state: &AnchorState) -> AnchorState {
+        fn prepare(&self, state: &AnchorState) -> AsmResult<AnchorState> {
             self.0.fetch_add(1, Ordering::SeqCst);
             StrataAsmSpec.prepare(state)
         }
