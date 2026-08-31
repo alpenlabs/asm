@@ -8,7 +8,7 @@ use strata_btc_types::BitcoinAmount;
 use strata_identifiers::L1BlockCommitment;
 
 use crate::{
-    assignment::{AssignmentEntry, AssignmentTable},
+    assignment::{AssignmentEntry, AssignmentTable, ReassignmentReport},
     deposit::{DepositEntry, DepositsTable},
     errors::{DepositValidationError, WithdrawalAssignmentError},
     operator::OperatorTable,
@@ -225,7 +225,7 @@ impl BridgeStateV1 {
     pub fn reassign_expired_assignments(
         &mut self,
         current_block: &L1BlockCommitment,
-    ) -> Result<Vec<&AssignmentEntry>, WithdrawalAssignmentError> {
+    ) -> Result<ReassignmentReport, WithdrawalAssignmentError> {
         self.assignments.reassign_expired_assignments(
             self.operators.nn_history(),
             self.operators.current_multisig(),
