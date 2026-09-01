@@ -5,9 +5,9 @@ import flexitest
 from constants import ASM_MAGIC_BYTES
 from utils.utils import wait_until_asm_ready, wait_until_bitcoind_ready
 
-# Externally-tagged subprotocol variants, in the order `basic_env` writes them
-# into asm-params.json. getParams must echo that order back.
-EXPECTED_SUBPROTOCOLS = ["Admin", "Checkpoint", "Bridge"]
+# The subprotocol configs the genesis config carries, each as its own named
+# field. getParams must echo all three back.
+EXPECTED_SUBPROTOCOL_FIELDS = ["admin", "checkpoint", "bridge"]
 
 
 @flexitest.register
@@ -44,14 +44,19 @@ class AsmGetParamsTest(flexitest.Test):
             f"unexpected anchor network: {params['anchor']!r}"
         )
 
-        subprotocols = params["subprotocols"]
-        tags = [next(iter(sp)) for sp in subprotocols]
-        assert tags == EXPECTED_SUBPROTOCOLS, f"unexpected subprotocols: {tags!r}"
+        # Every subprotocol config is a required named field, so a missing one is
+        # a missing key rather than a short list.
+        for field in EXPECTED_SUBPROTOCOL_FIELDS:
+            assert field in params, f"genesis config missing {field!r}: {sorted(params)!r}"
 
-        # Nested config must round-trip, not just the variant tags: the bridge
+        # Nested config must round-trip, not just the field names: the bridge
         # carries the operator set the env configured.
-        bridge = subprotocols[tags.index("Bridge")]["Bridge"]
-        assert bridge["operators"], f"bridge params missing operators: {bridge!r}"
+        bridge = params["bridge"]
+        assert bridge["operators"], f"bridge config missing operators: {bridge!r}"
 
-        logging.info("getParams returned magic=%s, subprotocols=%s", params["magic"], tags)
+        logging.info(
+            "getParams returned magic=%s, subprotocol configs=%s",
+            params["magic"],
+            EXPECTED_SUBPROTOCOL_FIELDS,
+        )
         return True

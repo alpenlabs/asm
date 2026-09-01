@@ -1,7 +1,7 @@
 //! Strata ASM specification defining the subprotocol pipeline.
 
 use strata_asm_common::{AnchorState, AsmSpec, Stage};
-use strata_asm_params::AsmParams;
+use strata_asm_params::StrataGenesisConfig;
 use strata_asm_proto_admin::AdministrationSubprotocol;
 use strata_asm_proto_bridge::BridgeSubprotoV1;
 use strata_asm_proto_checkpoint::CheckpointSubprotocol;
@@ -15,7 +15,7 @@ use strata_asm_proto_checkpoint::CheckpointSubprotocol;
 pub struct StrataAsmSpec;
 
 impl AsmSpec for StrataAsmSpec {
-    type Params = AsmParams;
+    type Params = StrataGenesisConfig;
 
     fn call_subprotocols(&self, stage: &mut impl Stage) {
         stage.invoke_subprotocol::<AdministrationSubprotocol>();
