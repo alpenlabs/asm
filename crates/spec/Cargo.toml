@@ -7,6 +7,7 @@ edition = "2024"
 workspace = true
 
 [dependencies]
+bitcoin.workspace = true
 strata-asm-common.workspace = true
 strata-asm-params.workspace = true
 strata-asm-proto-admin.workspace = true
@@ -15,5 +16,13 @@ strata-asm-proto-bridge.workspace = true
 strata-asm-proto-bridge-v0.workspace = true
 strata-asm-proto-checkpoint.workspace = true
 strata-asm-proto-checkpoint-v0.workspace = true
+strata-asm-stf.workspace = true
+strata-btc-verification.workspace = true
 strata-checkpoint-verification.workspace = true
 strata-checkpoint-verification-v0.workspace = true
+strata-predicate.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+strata-asm-params = { workspace = true, features = ["arbitrary"] }
+strata-test-utils-arb.workspace = true

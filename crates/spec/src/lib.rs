@@ -11,8 +11,10 @@
 
 mod genesis;
 mod spec;
+mod targets;
 
 pub use genesis::{
     build_v0_bootstrap, build_v1_bootstrap, construct_v0_genesis_state, construct_v1_genesis_state,
 };
 pub use spec::{StrataAsmSpecV0, StrataAsmSpecV1};
+pub use targets::{StrataAsmTarget, StrataAsmTargets, TargetTableError};

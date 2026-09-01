@@ -173,4 +173,17 @@ pub enum AsmError {
         /// Rendering of the subprotocol's own conversion error.
         reason: String,
     },
+
+    /// No specification in this build is bound to the enacted predicate.
+    ///
+    /// The chain has moved to rules this software cannot apply. Executing anyway
+    /// would produce state no proof can ever be made for, so the caller must
+    /// halt and be restarted with a build that carries the rules. The predicate
+    /// is rendered rather than typed to keep `strata-predicate` out of this
+    /// crate's dependencies.
+    #[error("no ASM specification in this build executes predicate {predicate}")]
+    UnsupportedPredicate {
+        /// Rendering of the predicate the parent state handed over.
+        predicate: String,
+    },
 }
