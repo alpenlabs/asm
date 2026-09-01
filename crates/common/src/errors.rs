@@ -103,6 +103,32 @@ pub enum AsmError {
         /// Specification the state was being prepared for.
         into: AsmSpecId,
     },
+
+    /// No specification in this build is bound to the enacted predicate.
+    ///
+    /// The chain has moved to rules this software cannot apply. Executing anyway
+    /// would produce state no proof can ever be made for, so the caller must
+    /// halt and be restarted with a build that carries the rules. The predicate
+    /// is rendered rather than typed to keep `strata-predicate` out of this
+    /// crate's dependencies.
+    #[error("no ASM specification in this build executes predicate {predicate}")]
+    UnsupportedPredicate {
+        /// Rendering of the predicate the parent state handed over.
+        predicate: String,
+    },
+
+    /// A subprotocol's state conversion failed at an upgrade boundary.
+    ///
+    /// The conversions live in the subprotocol crates that own the new layouts,
+    /// so their error types are not visible here; the reason is carried as text.
+    #[error("migrating subprotocol {id} state failed: {reason}")]
+    MigrationFailed {
+        /// Stable subprotocol identifier.
+        id: SubprotocolId,
+        /// Rendering of the subprotocol's own conversion error.
+        reason: String,
+    },
+
     /// State selected for migration did not match the target specification's
     /// exact direct predecessor schema.
     ///
@@ -119,6 +145,7 @@ pub enum AsmError {
         #[source]
         source: StateValidationError,
     },
+
     /// A migration ran but did not produce the target specification's schema.
     ///
     /// The framework checks this so a faulty conversion fails at the boundary
@@ -160,30 +187,5 @@ pub enum AsmError {
         into: AsmSpecId,
         /// Predecessor implementation used for canonical payload validation.
         predecessor: AsmSpecId,
-    },
-
-    /// A subprotocol's state conversion failed at an upgrade boundary.
-    ///
-    /// The conversions live in the subprotocol crates that own the new layouts,
-    /// so their error types are not visible here; the reason is carried as text.
-    #[error("migrating subprotocol {id} state failed: {reason}")]
-    MigrationFailed {
-        /// Stable subprotocol identifier.
-        id: SubprotocolId,
-        /// Rendering of the subprotocol's own conversion error.
-        reason: String,
-    },
-
-    /// No specification in this build is bound to the enacted predicate.
-    ///
-    /// The chain has moved to rules this software cannot apply. Executing anyway
-    /// would produce state no proof can ever be made for, so the caller must
-    /// halt and be restarted with a build that carries the rules. The predicate
-    /// is rendered rather than typed to keep `strata-predicate` out of this
-    /// crate's dependencies.
-    #[error("no ASM specification in this build executes predicate {predicate}")]
-    UnsupportedPredicate {
-        /// Rendering of the predicate the parent state handed over.
-        predicate: String,
     },
 }

@@ -1,15 +1,14 @@
 //! Test utility constructors for ASM STF proof inputs/specs.
 //!
 //! This module is intended for integration binaries/tests that need a known-good
-//! `RuntimeInput`/`StrataAsmSpec` pair for exercising the proof program.
+//! `RuntimeInput`/`StrataAsmSpecV1` pair for exercising the proof program.
 
 use arbitrary::{Arbitrary, Unstructured};
 use bitcoin::Block;
-use moho_runtime_interface::MohoProgram;
 use moho_types::{ExportState, MohoState};
 use strata_asm_common::{AnchorState, AuxData};
 use strata_asm_params::StrataGenesisConfig;
-use strata_asm_spec::construct_genesis_state;
+use strata_asm_spec::construct_v1_genesis_state;
 use strata_btc_types::BlockHashExt;
 use strata_btc_verification::{L1Anchor, TxidInclusionProof};
 use strata_identifiers::L1BlockCommitment;
@@ -17,7 +16,7 @@ use strata_predicate::PredicateKey;
 use strata_test_utils_arb::ArbitraryGenerator;
 use strata_test_utils_btc::BtcMainnetSegment;
 
-use crate::moho_program::{input::AsmStepInput, program::AsmStfProgram};
+use crate::moho_program::{input::AsmStepInput, program::compute_anchor_state_commitment};
 
 /// Creates a single-step input from a fixed test Bitcoin block.
 pub fn create_asm_step_input() -> AsmStepInput {
@@ -50,7 +49,7 @@ pub fn create_genesis_anchor_state(block: &Block) -> AnchorState {
     let mut params: StrataGenesisConfig = ArbitraryGenerator::new().generate();
     let anchor = create_l1_anchor_to_process_block(block);
     params.anchor = anchor;
-    construct_genesis_state(&params)
+    construct_v1_genesis_state(&params)
 }
 
 /// Creates a **deterministic** anchor pre-state corresponding to the parent of `block`.
@@ -64,12 +63,12 @@ pub fn create_deterministic_genesis_anchor_state(block: &Block) -> AnchorState {
         StrataGenesisConfig::arbitrary(&mut u).expect("deterministic StrataGenesisConfig");
     let anchor = create_l1_anchor_to_process_block(block);
     params.anchor = anchor;
-    construct_genesis_state(&params)
+    construct_v1_genesis_state(&params)
 }
 
 /// Creates the Moho state from an [`AnchorState`] and [`PredicateKey`] with empty export state.
 pub fn create_moho_state(anchor_state: &AnchorState, next_predicate: PredicateKey) -> MohoState {
-    let inner_state = AsmStfProgram::compute_state_commitment(anchor_state)
+    let inner_state = compute_anchor_state_commitment(anchor_state)
         .into_inner()
         .into();
 

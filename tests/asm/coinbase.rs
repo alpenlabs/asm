@@ -16,14 +16,14 @@ use bitcoin::{
     Amount, Block, BlockHash, CompactTarget, Network, OutPoint, ScriptBuf, Transaction,
     TxMerkleNode,
 };
-use strata_asm_common::{AnchorState, AuxData};
+use strata_asm_common::{prepare_state, AnchorState, AuxData};
 use strata_asm_params::StrataGenesisConfig;
 use strata_asm_proto_bridge_txs::{
     deposit::DepositTxHeaderAux,
     test_utils::{create_dummy_tx, TEST_MAGIC_BYTES},
     BRIDGE_SUBPROTOCOL_ID,
 };
-use strata_asm_spec::{construct_genesis_state, StrataAsmSpec};
+use strata_asm_spec::{construct_v1_genesis_state, StrataAsmSpecV1};
 use strata_asm_stf::{compute_asm_transition, pre_process_asm};
 use strata_btc_types::BlockHashExt;
 use strata_btc_verification::{compute_block_hash, L1Anchor};
@@ -49,7 +49,7 @@ fn genesis_state(parent: BlockHash) -> AnchorState {
         epoch_start_timestamp: 0,
         network: Network::Regtest,
     };
-    construct_genesis_state(&params)
+    construct_v1_genesis_state(&params)
 }
 
 /// Mines a child of `parent` carrying `coinbase` as its only transaction.
@@ -115,21 +115,16 @@ fn tagged_coinbase_is_ignored_by_the_stf() {
 
     // Control: an untagged coinbase requests nothing and transitions cleanly.
     let untagged = mine_child_block(parent, untagged_coinbase());
-    let control = pre_process_asm(&StrataAsmSpec, &genesis, &untagged)
-        .expect("valid untagged child block preprocesses");
+    let prepared = prepare_state::<StrataAsmSpecV1>(&genesis).expect("genesis prepares");
+    let control =
+        pre_process_asm(&prepared, &untagged).expect("valid untagged child block preprocesses");
     assert!(control.aux_requests.bitcoin_txs().is_empty());
-    compute_asm_transition(
-        &StrataAsmSpec,
-        &genesis,
-        &untagged,
-        &AuxData::default(),
-        None,
-    )
-    .expect("valid untagged child block completes its transition");
+    compute_asm_transition(&prepared, &untagged, &AuxData::default(), None)
+        .expect("valid untagged child block completes its transition");
 
     // Attack: the miner puts a valid bridge Deposit tag on the coinbase.
     let malicious = mine_child_block(parent, deposit_tagged_coinbase());
-    let preprocessed = pre_process_asm(&StrataAsmSpec, &genesis, &malicious)
+    let preprocessed = pre_process_asm(&prepared, &malicious)
         .expect("a tagged coinbase does not fail preprocessing");
 
     assert!(
@@ -143,12 +138,6 @@ fn tagged_coinbase_is_ignored_by_the_stf() {
 
     // With nothing requested, the block transitions on empty aux data instead of
     // stalling the worker on an unresolvable fetch.
-    compute_asm_transition(
-        &StrataAsmSpec,
-        &genesis,
-        &malicious,
-        &AuxData::default(),
-        None,
-    )
-    .expect("a block with a tagged coinbase still completes its transition");
+    compute_asm_transition(&prepared, &malicious, &AuxData::default(), None)
+        .expect("a block with a tagged coinbase still completes its transition");
 }
