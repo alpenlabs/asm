@@ -11,6 +11,17 @@ use strata_identifiers::L1BlockCommitment;
 use crate::manager::SubprotoManager;
 
 /// Stage to load each subprotocol.
+///
+/// This is the only place committed bytes become typed state.
+///
+/// Failure here is deliberately a panic, not an error. The transition returns
+/// `Err` for facts about the block or the prover-supplied input; reaching this
+/// stage means state preparation already accepted the section set and every
+/// declared codec version, so a section that is absent, or whose payload
+/// contradicts the codec version it carries, is the chain's own state failing
+/// to be what the specification says it is. That is an invariant violation, and
+/// reporting it as a transition outcome would let a caller mistake it for an
+/// invalid block.
 pub(crate) struct LoaderStage<'c> {
     manager: &'c mut SubprotoManager,
     anchor_state: &'c AnchorState,
@@ -30,9 +41,19 @@ impl Stage for LoaderStage<'_> {
         let state = self
             .anchor_state
             .find_section(S::ID)
-            .unwrap_or_else(|| panic!("asm: missing section for subprotocol {}", S::ID))
+            .unwrap_or_else(|| {
+                panic!(
+                    "asm: prepared state is missing the section for subprotocol {}",
+                    S::ID
+                )
+            })
             .try_to_state::<S>()
-            .unwrap_or_else(|e| panic!("asm: failed to deserialize section for {}: {e}", S::ID));
+            .unwrap_or_else(|error| {
+                panic!(
+                    "asm: section for subprotocol {} does not decode at its own codec version: {error}",
+                    S::ID
+                )
+            });
         self.manager.insert_subproto::<S>(state);
     }
 }

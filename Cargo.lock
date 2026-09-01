@@ -7759,6 +7759,9 @@ version = "0.1.0"
 dependencies = [
  "bitcoin",
  "borsh",
+ "hex",
+ "serde",
+ "serde_json",
  "ssz",
  "ssz_derive",
  "ssz_types",
@@ -8393,6 +8396,7 @@ dependencies = [
  "strata-btc-verification",
  "strata-identifiers",
  "strata-l1-txfmt",
+ "strata-predicate",
 ]
 
 [[package]]

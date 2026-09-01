@@ -5,7 +5,7 @@
 use bitcoin::Block;
 use ssz_types::VariableList;
 use strata_asm_common::{
-    AnchorState, AsmError, AsmManifest, AsmResult, AsmSpec, AuxData, ChainViewState,
+    AnchorState, AsmError, AsmManifest, AsmResult, AsmSpec, AuxData, ChainViewState, PreparedState,
     VerifiedAuxData,
 };
 use strata_btc_verification::{TxidInclusionProof, check_block_integrity};
@@ -24,13 +24,17 @@ use crate::{
 /// witness commitment) and header continuity, loading subprotocols with auxiliary input data,
 /// processing protocol-specific transactions, handling inter-protocol communication, and
 /// constructing the final state with logs.
+/// `pre_state` must be the same [`PreparedState`] that preprocessing observed,
+/// so both phases run against one layout and a boundary migration cannot land
+/// between them.
 pub fn compute_asm_transition<S: AsmSpec>(
-    spec: &S,
-    pre_state: &AnchorState,
+    pre_state: &PreparedState<'_, S>,
     block: &Block,
     aux_data: &AuxData,
     coinbase_inclusion_proof: Option<&TxidInclusionProof>,
 ) -> AsmResult<AsmStfOutput> {
+    let pre_state = pre_state.state();
+
     // 1. Validate that the block body merkle is consistent with the header.
     // Returns the witness txids root (segwit) or txids root (legacy) for use below.
     let wtxids_root = check_block_integrity(block, coinbase_inclusion_proof)?;
@@ -57,13 +61,13 @@ pub fn compute_asm_transition<S: AsmSpec>(
 
     // 4. LOAD: Initialize each subprotocol in the subproto manager.
     let mut loader = LoaderStage::new(&mut manager, pre_state);
-    spec.call_subprotocols(&mut loader);
+    S::call_subprotocols(&mut loader);
 
     // 5. PROCESS: Feed each subprotocol its filtered transactions for execution.
     // This stage performs the actual state transitions for each subprotocol.
     let mut process_stage =
         ProcessStage::new(&mut manager, &pow_state, protocol_txs, verified_aux_data);
-    spec.call_subprotocols(&mut process_stage);
+    S::call_subprotocols(&mut process_stage);
 
     // 6. FINISH: Allow each subprotocol to process buffered inter-protocol messages.
     // This stage handles cross-protocol communication and finalizes state changes.
@@ -71,7 +75,7 @@ pub fn compute_asm_transition<S: AsmSpec>(
     // processing phase until we have no more messages to deliver, or some
     // bounded number of times
     let mut finish_stage = FinishStage::new(&mut manager, &pow_state.last_verified_block);
-    spec.call_subprotocols(&mut finish_stage);
+    S::call_subprotocols(&mut finish_stage);
 
     // 7. Construct the manifest with the logs.
     let (sections, logs) = manager.export_sections_and_logs()?;

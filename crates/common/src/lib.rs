@@ -10,6 +10,7 @@ mod section;
 pub mod sorted_vec;
 mod spec;
 mod subprotocol;
+mod target;
 mod tx;
 
 pub use aux_input::*;
@@ -22,6 +23,7 @@ pub use spec::*;
 // Re-export the anchor state types so downstream crates keep a single import path.
 pub use strata_asm_state::*;
 pub use subprotocol::*;
+pub use target::*;
 use tracing as _;
 pub use tx::*;
 // Re-export the logging module
