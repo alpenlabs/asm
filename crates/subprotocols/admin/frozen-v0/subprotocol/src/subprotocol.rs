@@ -24,6 +24,12 @@ use crate::{
 #[derive(Debug)]
 pub struct AdministrationSubprotocol;
 
+// The id a released administration section is stored under, and the id its export
+// entries commit to. It is defined outside this crate, so pin the value the
+// release used: renumbering it elsewhere would silently change what these
+// frozen rules mean, and would still compile.
+const _: () = assert!(ADMINISTRATION_SUBPROTOCOL_ID == 0);
+
 impl Subprotocol for AdministrationSubprotocol {
     const ID: SubprotocolId = ADMINISTRATION_SUBPROTOCOL_ID;
 

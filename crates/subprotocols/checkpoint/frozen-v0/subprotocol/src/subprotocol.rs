@@ -28,6 +28,12 @@ use crate::handler::handle_checkpoint_tx;
 #[derive(Copy, Clone, Debug)]
 pub struct CheckpointSubprotocolV0;
 
+// The id a released checkpoint section is stored under, and the id its export
+// entries commit to. It is defined outside this crate, so pin the value the
+// release used: renumbering it elsewhere would silently change what these
+// frozen rules mean, and would still compile.
+const _: () = assert!(CHECKPOINT_SUBPROTOCOL_ID == 1);
+
 impl Subprotocol for CheckpointSubprotocolV0 {
     const ID: SubprotocolId = CHECKPOINT_SUBPROTOCOL_ID;
 
