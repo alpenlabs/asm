@@ -60,7 +60,7 @@ jobs:
       # use as the override so build.rs skips the nested build (see the action).
       - name: Pre-build SP1 core runner binary
         id: sp1-runner
-        uses: ./.github/actions/prebuild-sp1-runner
+        uses: $/.github/actions/prebuild-sp1-runner
 
       - name: Run prover-perf and post PR comment
         if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork == false

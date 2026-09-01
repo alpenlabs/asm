@@ -45,7 +45,7 @@ jobs:
       # action for why).
       - name: Pre-build SP1 core runner binary
         id: sp1-runner
-        uses: ./.github/actions/prebuild-sp1-runner
+        uses: $/.github/actions/prebuild-sp1-runner
 
       - name: Run clippy
         run: cargo clippy --examples --tests --benches --all-features --all-targets --locked
