@@ -2,6 +2,7 @@
 //! and interacting with subprotocols in an ASM (Anchor State Machine) framework.
 
 mod aux_input;
+mod bootstrap;
 mod errors;
 mod log;
 mod manifest;
@@ -14,6 +15,7 @@ mod target;
 mod tx;
 
 pub use aux_input::*;
+pub use bootstrap::*;
 pub use errors::*;
 pub use log::*;
 pub use manifest::*;

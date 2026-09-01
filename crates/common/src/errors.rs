@@ -161,4 +161,16 @@ pub enum AsmError {
         /// Predecessor implementation used for canonical payload validation.
         predecessor: AsmSpecId,
     },
+
+    /// A subprotocol's state conversion failed at an upgrade boundary.
+    ///
+    /// The conversions live in the subprotocol crates that own the new layouts,
+    /// so their error types are not visible here; the reason is carried as text.
+    #[error("migrating subprotocol {id} state failed: {reason}")]
+    MigrationFailed {
+        /// Stable subprotocol identifier.
+        id: SubprotocolId,
+        /// Rendering of the subprotocol's own conversion error.
+        reason: String,
+    },
 }
