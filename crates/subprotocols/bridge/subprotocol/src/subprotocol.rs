@@ -30,6 +30,7 @@ pub struct BridgeSubprotoV1;
 
 impl Subprotocol for BridgeSubprotoV1 {
     const ID: SubprotocolId = BRIDGE_SUBPROTOCOL_ID;
+    const STATE_VERSION: u8 = 0;
 
     type State = BridgeStateV1;
 
