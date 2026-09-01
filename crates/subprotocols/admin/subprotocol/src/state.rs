@@ -103,6 +103,18 @@ impl AdministrationSubprotoState {
                 .any(|queued| matches!(queued.action(), UpdateAction::OlStfVk(_)))
     }
 
+    /// Returns whether an ASM STF verifying-key rotation is already scheduled for `height`.
+    ///
+    /// The handover chain has one predicate slot per block, not one slot for all future blocks.
+    /// Rotations at distinct activation heights are therefore safe and remain independently
+    /// cancellable; only two rotations targeting the same block conflict.
+    pub(crate) fn has_asm_stf_vk_update_at(&self, height: L1Height) -> bool {
+        self.queued.iter().any(|queued| {
+            queued.activation_height() == height
+                && matches!(queued.action(), UpdateAction::AsmStfVk(_))
+        })
+    }
+
     /// Resolves which role must authorize the provided action.
     ///
     /// Both action variants are self-describing: updates carry their type directly, and cancels
@@ -320,6 +332,7 @@ mod tests {
         assert_eq!(state.next_update_id(), 0);
         assert_eq!(state.queued().len(), 0);
         assert!(!state.ol_transition_pending());
+        assert!(!state.has_asm_stf_vk_update_at(42));
     }
 
     #[test]
