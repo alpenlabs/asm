@@ -11,7 +11,9 @@
 
 use std::sync::Arc;
 
-use asm_storage::{SledAsmAuxDataDb, SledAsmManifestDb, SledAsmManifestMmrDb, SledAsmStateDb};
+use asm_storage::{
+    SledAsmAuxDataDb, SledAsmHandoverDb, SledAsmManifestDb, SledAsmManifestMmrDb, SledAsmStateDb,
+};
 use bitcoin::{Block, BlockHash, Network, Txid, block::Header, params::Params};
 use bitcoind_async_client::{Client, traits::Reader};
 use strata_asm_common::{AnchorState, AsmManifest, AsmManifestHash};
@@ -19,11 +21,13 @@ use strata_btc_types::{BitcoinTxid, BlockHashExt, L1BlockIdBitcoinExt, RawBitcoi
 use strata_btc_verification::{L1Anchor, get_relative_difficulty_adjustment_height};
 use strata_identifiers::{L1BlockCommitment, L1BlockId, L1Height};
 use strata_merkle::MerkleProofB32;
+use strata_predicate::PredicateKey;
 use tempfile::TempDir;
 use tokio::{runtime::Handle, task::block_in_place};
 
 use crate::{
-    AnchorStateStore, AuxDataStore, L1DataProvider, ManifestMmrStore, WorkerError, WorkerResult,
+    AnchorStateStore, AsmHandoverStore, AuxDataStore, L1DataProvider, ManifestMmrStore,
+    WorkerError, WorkerResult,
 };
 
 /// Sled-backed state stores for the test worker context.
@@ -39,6 +43,7 @@ pub struct AsmWorkerState {
     aux_db: SledAsmAuxDataDb,
     manifest_db: SledAsmManifestDb,
     mmr_db: SledAsmManifestMmrDb,
+    handover_db: SledAsmHandoverDb,
     /// Temp dir the sled database lives in; deleted when this is dropped.
     _tempdir: TempDir,
 }
@@ -75,6 +80,7 @@ impl TestAsmWorkerContext {
         let aux_db = SledAsmAuxDataDb::open(&db).expect("open aux db");
         let manifest_db = SledAsmManifestDb::open(&db).expect("open manifest db");
         let mmr_db = SledAsmManifestMmrDb::open(&db).expect("open manifest mmr db");
+        let handover_db = SledAsmHandoverDb::open(&db).expect("open handover db");
 
         Self {
             client: Arc::new(client),
@@ -84,12 +90,23 @@ impl TestAsmWorkerContext {
                 aux_db,
                 manifest_db,
                 mmr_db,
+                handover_db,
                 _tempdir: tempdir,
             }),
         }
     }
 
     /// Number of leaves in the manifest MMR (sentinels + real manifest hashes).
+    /// Replaces the stored row for a state's own commitment without moving the
+    /// active tip. Used by tests that need durable state to disagree with what
+    /// the worker holds in memory.
+    pub fn overwrite_anchor_snapshot(&self, state: &AnchorState) {
+        self.state
+            .state_db
+            .put(state)
+            .expect("overwrite anchor snapshot");
+    }
+
     pub fn mmr_leaf_count(&self) -> u64 {
         self.state.mmr_db.leaf_count().expect("read mmr leaf count")
     }
@@ -203,7 +220,7 @@ impl AnchorStateStore for TestAsmWorkerContext {
             .ok_or(WorkerError::MissingAsmState(*blockid.blkid()))
     }
 
-    fn get_latest_anchor_state(&self) -> WorkerResult<Option<AnchorState>> {
+    fn get_latest_anchor_state(&self) -> WorkerResult<Option<(L1BlockCommitment, AnchorState)>> {
         self.state
             .state_db
             .get_latest()
@@ -211,7 +228,30 @@ impl AnchorStateStore for TestAsmWorkerContext {
     }
 
     fn store_anchor_state(&self, state: &AnchorState) -> WorkerResult<()> {
-        self.state.state_db.put(state).map_err(WorkerError::DbError)
+        self.state
+            .state_db
+            .commit(state)
+            .map_err(WorkerError::DbError)
+    }
+}
+
+impl AsmHandoverStore for TestAsmWorkerContext {
+    fn store_next_predicate(
+        &self,
+        block: &L1BlockCommitment,
+        predicate: &PredicateKey,
+    ) -> WorkerResult<()> {
+        self.state
+            .handover_db
+            .put(block, predicate)
+            .map_err(WorkerError::DbError)
+    }
+
+    fn get_next_predicate(&self, block: &L1BlockCommitment) -> WorkerResult<Option<PredicateKey>> {
+        self.state
+            .handover_db
+            .get(block)
+            .map_err(WorkerError::DbError)
     }
 }
 
@@ -319,15 +359,26 @@ pub async fn get_l1_anchor(client: &Client, hash: &BlockHash) -> anyhow::Result<
 pub(crate) mod fixtures {
     use std::sync::Arc;
 
-    use bitcoin::BlockHash;
+    use bitcoin::{Block, BlockHash};
     use bitcoind_async_client::{Client, traits::Reader};
     use corepc_node::Node;
     use strata_asm_common::{
-        ANCHOR_STATE_VERSION, AnchorState, AsmHistoryAccumulatorState, AsmSpec, ChainViewState,
-        HeaderVerificationState, Stage,
+        ANCHOR_STATE_VERSION, AnchorState, AsmBootstrap, AsmError, AsmHistoryAccumulatorState,
+        AsmResult, AsmSpec, AsmSpecId, AsmSpecPredecessor, AuxData, ChainViewState,
+        HeaderVerificationState, MsgRelayer, NullMsg, SectionState, SectionStateExt, Stage,
+        Subprotocol, TxInputRef, VerifiedAuxData,
     };
+    use strata_asm_stf::{
+        AsmPreProcessOutput, AsmStfOutput, AsmTargetSet, PreStateValidation, pre_process_for,
+        transition_for, validate_pre_state_for, validate_pre_state_with_predecessor_for,
+    };
+    use strata_btc_verification::TxidInclusionProof;
+    use strata_l1_txfmt::SubprotocolId;
+    use strata_predicate::{PredicateKey, PredicateTypeId};
+
+    /// Subprotocol id the test specifications key their single section on.
+    const TEST_SUBPROTOCOL_ID: SubprotocolId = 42;
     use strata_btc_types::BlockHashExt;
-    use strata_btc_verification::L1Anchor;
     use strata_identifiers::L1BlockCommitment;
     use strata_l1_txfmt::MagicBytes;
     use strata_test_utils_btcio::{
@@ -337,44 +388,242 @@ pub(crate) mod fixtures {
     use super::{TestAsmWorkerContext, get_l1_anchor};
     use crate::{AsmWorkerServiceState, Subscribers};
 
-    /// Minimal [`AsmSpec::Params`] for the worker's own tests: just the L1 anchor
-    /// the genesis state pins to, plus a magic. The production
-    /// `StrataGenesisConfig` carries per-subprotocol configs, which [`TestAsmSpec`]
-    /// has no use for.
+    /// The single subprotocol the test specifications run, at the released
+    /// codec version. Its state is a bare `u64` so tests can assert on the
+    /// value that crosses the boundary.
     #[derive(Debug)]
-    pub(crate) struct TestAsmParams {
-        pub anchor: L1Anchor,
-        pub magic: MagicBytes,
+    pub(crate) struct TestSubprotocolV0;
+
+    impl Subprotocol for TestSubprotocolV0 {
+        const ID: SubprotocolId = TEST_SUBPROTOCOL_ID;
+        const STATE_VERSION: u8 = 0;
+        type State = u64;
+        type InitConfig = ();
+        type Msg = NullMsg<TEST_SUBPROTOCOL_ID>;
+
+        fn init(_config: &Self::InitConfig) -> Self::State {
+            0
+        }
+
+        fn process_txs(
+            _state: &mut Self::State,
+            _txs: &[TxInputRef<'_>],
+            _header_vs: &HeaderVerificationState,
+            _verified_aux_data: &VerifiedAuxData,
+            _relayer: &mut impl MsgRelayer,
+        ) {
+        }
+
+        fn process_msgs(_state: &mut Self::State, _msgs: &[Self::Msg], _l1ref: &L1BlockCommitment) {
+        }
     }
 
-    /// A no-subprotocol [`AsmSpec`] for exercising the worker in isolation.
+    /// The same subprotocol one codec version on. It shares a state type with
+    /// [`TestSubprotocolV0`], so only the declared version separates them —
+    /// exactly the situation a migration exists to resolve.
+    #[derive(Debug)]
+    pub(crate) struct TestSubprotocolV1;
+
+    impl Subprotocol for TestSubprotocolV1 {
+        const ID: SubprotocolId = TEST_SUBPROTOCOL_ID;
+        const STATE_VERSION: u8 = 1;
+        type State = u64;
+        type InitConfig = ();
+        type Msg = NullMsg<TEST_SUBPROTOCOL_ID>;
+
+        fn init(_config: &Self::InitConfig) -> Self::State {
+            0
+        }
+
+        fn process_txs(
+            _state: &mut Self::State,
+            _txs: &[TxInputRef<'_>],
+            _header_vs: &HeaderVerificationState,
+            _verified_aux_data: &VerifiedAuxData,
+            _relayer: &mut impl MsgRelayer,
+        ) {
+        }
+
+        fn process_msgs(_state: &mut Self::State, _msgs: &[Self::Msg], _l1ref: &L1BlockCommitment) {
+        }
+    }
+
+    /// Stand-in for the released rules.
     #[derive(Debug)]
     pub(crate) struct TestAsmSpec;
 
     impl AsmSpec for TestAsmSpec {
-        type Params = TestAsmParams;
+        const ID: AsmSpecId = AsmSpecId::V0;
 
-        fn call_subprotocols(&self, _stage: &mut impl Stage) {}
+        fn call_subprotocols(stage: &mut impl Stage) {
+            stage.invoke_subprotocol::<TestSubprotocolV0>();
+        }
+    }
 
-        fn construct_genesis_state(&self, params: &Self::Params) -> AnchorState {
-            let genesis_height = params.anchor.block.height() as u64;
-            let chain_view = ChainViewState {
-                history_accumulator: AsmHistoryAccumulatorState::new(genesis_height),
-                pow_state: HeaderVerificationState::init(params.anchor.clone()),
-            };
-            AnchorState {
-                version: ANCHOR_STATE_VERSION,
-                magic: AnchorState::magic_ssz(params.magic),
-                chain_view,
-                sections: Vec::new()
-                    .try_into()
-                    .expect("empty dummy sections fit within capacity"),
+    /// Stand-in for the successor rules. Its migration doubles the section
+    /// value, so a test can tell migrated state from state that was passed
+    /// through untouched.
+    #[derive(Debug)]
+    pub(crate) struct TestAsmSuccessorSpec;
+
+    impl AsmSpec for TestAsmSuccessorSpec {
+        const ID: AsmSpecId = AsmSpecId::V1;
+
+        fn call_subprotocols(stage: &mut impl Stage) {
+            stage.invoke_subprotocol::<TestSubprotocolV1>();
+        }
+
+        fn predecessor() -> Option<AsmSpecPredecessor> {
+            Some(AsmSpecPredecessor::of::<TestAsmSpec>())
+        }
+
+        fn migrate_state(pre_state: &AnchorState) -> AsmResult<AnchorState> {
+            let old = pre_state
+                .find_section(TEST_SUBPROTOCOL_ID)
+                .ok_or(AsmError::InvalidSubprotocolState(TEST_SUBPROTOCOL_ID))?
+                .try_to_state::<TestSubprotocolV0>()?;
+            let mut migrated = pre_state.clone();
+            migrated.sections = vec![SectionState::from_state::<TestSubprotocolV1>(&(old * 2))?]
+                .try_into()
+                .map_err(AsmError::TooManySections)?;
+            Ok(migrated)
+        }
+    }
+
+    /// The two-entry table the worker resolves predicates against.
+    #[derive(Debug, Clone, Copy)]
+    pub(crate) struct TestAsmTargets;
+
+    impl TestAsmTargets {
+        /// Resolves `predicate` or refuses. A predicate this build cannot
+        /// execute is a stop condition, never a fallback to some default.
+        fn require(&self, predicate: &PredicateKey) -> AsmResult<AsmSpecId> {
+            self.spec_id_for(predicate)
+                .ok_or_else(|| AsmError::UnsupportedPredicate {
+                    predicate: format!("{predicate:?}"),
+                })
+        }
+    }
+
+    impl AsmTargetSet for TestAsmTargets {
+        fn spec_id_for(&self, predicate: &PredicateKey) -> Option<AsmSpecId> {
+            if predicate == &test_predicate() || predicate == &test_rotated_baseline_predicate() {
+                Some(AsmSpecId::V0)
+            } else if predicate == &test_successor_predicate() {
+                Some(AsmSpecId::V1)
+            } else {
+                None
             }
         }
 
-        fn genesis_l1_height(&self, params: &Self::Params) -> u64 {
-            params.anchor.block.height() as u64
+        fn direct_predecessor_of(&self, target: AsmSpecId) -> Option<AsmSpecId> {
+            match target {
+                AsmSpecId::V1 => Some(AsmSpecId::V0),
+                _ => None,
+            }
         }
+
+        fn validate_pre_state(
+            &self,
+            predicate: &PredicateKey,
+            state: &AnchorState,
+        ) -> AsmResult<PreStateValidation> {
+            match self.require(predicate)? {
+                AsmSpecId::V0 => validate_pre_state_for::<TestAsmSpec>(state),
+                AsmSpecId::V1 => validate_pre_state_with_predecessor_for::<
+                    TestAsmSuccessorSpec,
+                    TestAsmSpec,
+                >(state),
+            }
+        }
+
+        fn pre_process<'b>(
+            &self,
+            predicate: &PredicateKey,
+            pre_state: &AnchorState,
+            block: &'b Block,
+        ) -> AsmResult<AsmPreProcessOutput<'b>> {
+            match self.require(predicate)? {
+                AsmSpecId::V0 => pre_process_for::<TestAsmSpec>(pre_state, block),
+                AsmSpecId::V1 => pre_process_for::<TestAsmSuccessorSpec>(pre_state, block),
+            }
+        }
+
+        fn transition(
+            &self,
+            predicate: &PredicateKey,
+            pre_state: &AnchorState,
+            block: &Block,
+            aux_data: &AuxData,
+            coinbase_inclusion_proof: Option<&TxidInclusionProof>,
+        ) -> AsmResult<AsmStfOutput> {
+            match self.require(predicate)? {
+                AsmSpecId::V0 => transition_for::<TestAsmSpec>(
+                    pre_state,
+                    block,
+                    aux_data,
+                    coinbase_inclusion_proof,
+                ),
+                AsmSpecId::V1 => transition_for::<TestAsmSuccessorSpec>(
+                    pre_state,
+                    block,
+                    aux_data,
+                    coinbase_inclusion_proof,
+                ),
+            }
+        }
+    }
+
+    /// The predicate a test chain is bootstrapped under: the released rules.
+    pub(crate) fn test_predicate() -> PredicateKey {
+        predicate(0x01)
+    }
+
+    /// A different predicate that still resolves to the released rules, for
+    /// asserting that a handover changed without changing the specification.
+    pub(crate) fn test_rotated_baseline_predicate() -> PredicateKey {
+        predicate(0x02)
+    }
+
+    /// The predicate that hands over to the successor rules.
+    pub(crate) fn test_successor_predicate() -> PredicateKey {
+        predicate(0x03)
+    }
+
+    fn predicate(seed: u8) -> PredicateKey {
+        PredicateKey::try_new(PredicateTypeId::Bip340Schnorr, vec![seed; 32])
+            .expect("test predicate is within the condition limit")
+    }
+
+    /// A validated genesis bootstrap anchored at `genesis_height`, under the
+    /// released specification.
+    pub(crate) async fn genesis_bootstrap(
+        client: &Client,
+        genesis_height: u64,
+    ) -> Arc<AsmBootstrap> {
+        let tip = client
+            .get_block_hash(genesis_height)
+            .await
+            .expect("genesis tip hash");
+        let anchor = get_l1_anchor(client, &tip).await.expect("genesis anchor");
+        let chain_view = ChainViewState {
+            history_accumulator: AsmHistoryAccumulatorState::new(genesis_height),
+            pow_state: HeaderVerificationState::init(anchor),
+        };
+        let state = AnchorState {
+            version: ANCHOR_STATE_VERSION,
+            magic: AnchorState::magic_ssz(MagicBytes::new(*b"ALPN")),
+            chain_view,
+            sections: vec![
+                SectionState::from_state::<TestSubprotocolV0>(&0).expect("test section fits"),
+            ]
+            .try_into()
+            .expect("one section fits within capacity"),
+        };
+        Arc::new(
+            AsmBootstrap::try_new::<TestAsmSpec>(state)
+                .expect("test genesis is executable under v0"),
+        )
     }
 
     /// A running regtest node, its client, and a worker state whose genesis
@@ -383,7 +632,7 @@ pub(crate) mod fixtures {
         /// Kept alive for the test's duration; dropping it stops `bitcoind`.
         pub node: Node,
         pub client: Arc<Client>,
-        pub state: AsmWorkerServiceState<TestAsmWorkerContext, TestAsmSpec>,
+        pub state: AsmWorkerServiceState<TestAsmWorkerContext, TestAsmTargets>,
     }
 
     /// Builds a worker state with genesis at `genesis_height`: mine that many
@@ -397,30 +646,21 @@ pub(crate) mod fixtures {
             .await
             .expect("mine genesis blocks");
 
-        let params = genesis_params(&client, genesis_height).await;
+        let bootstrap = genesis_bootstrap(&client, genesis_height).await;
         let context = TestAsmWorkerContext::new((*client).clone());
-        let state =
-            AsmWorkerServiceState::new(context, TestAsmSpec, params, Subscribers::default())
-                .expect("create service state");
+        let state = AsmWorkerServiceState::new(
+            context,
+            TestAsmTargets,
+            test_predicate(),
+            bootstrap,
+            Subscribers::default(),
+        )
+        .expect("create service state");
 
         StateFixture {
             node,
             client,
             state,
-        }
-    }
-
-    /// [`TestAsmParams`] with the anchor pinned to the block at `genesis_height`,
-    /// so [`AsmWorkerServiceState::new`] genesis lands there.
-    pub(crate) async fn genesis_params(client: &Client, genesis_height: u64) -> TestAsmParams {
-        let tip = client
-            .get_block_hash(genesis_height)
-            .await
-            .expect("genesis tip hash");
-        let anchor = get_l1_anchor(client, &tip).await.expect("genesis anchor");
-        TestAsmParams {
-            anchor,
-            magic: MagicBytes::new(*b"ALPN"),
         }
     }
 
