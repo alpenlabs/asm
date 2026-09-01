@@ -1,7 +1,5 @@
 use bitcoin::ScriptBuf;
-use strata_asm_proto_bridge_txs::unstake::{
-    UnstakeInfo, expected_stake_connector_script_pubkey,
-};
+use strata_asm_proto_bridge_txs::unstake::{UnstakeInfo, expected_stake_connector_script_pubkey};
 use strata_btc_types::BitcoinXOnlyPublicKey;
 
 use crate::{

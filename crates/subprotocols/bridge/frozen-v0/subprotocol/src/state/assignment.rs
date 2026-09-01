@@ -4,10 +4,10 @@
 //! Assignments link specific deposit UTXOs to operators who are responsible for processing
 //! the corresponding withdrawal requests within specified deadlines.
 
-use bitcoin::Amount;
 use std::cmp::Ordering;
 
 use arbitrary::Arbitrary;
+use bitcoin::Amount;
 use rand_chacha::{
     ChaChaRng,
     rand_core::{RngCore, SeedableRng},

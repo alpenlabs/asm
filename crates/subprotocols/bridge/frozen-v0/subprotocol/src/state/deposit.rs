@@ -342,7 +342,11 @@ mod tests {
                 .into_iter()
                 .map(|idx| {
                     (any::<u32>(), 1u64..=2_100_000_000_000).prop_map(move |(notary_set, sats)| {
-                        DepositEntry::new(idx, notary_set, BitcoinAmount::from(Amount::from_sat(sats)))
+                        DepositEntry::new(
+                            idx,
+                            notary_set,
+                            BitcoinAmount::from(Amount::from_sat(sats)),
+                        )
                     })
                 })
                 .collect();

@@ -1,6 +1,6 @@
-use bitcoin::Amount;
 use std::any::Any;
 
+use bitcoin::Amount;
 use rand::Rng;
 use strata_asm_bridge_types::{BridgeInitConfig, OperatorIdx, WithdrawalIntent};
 use strata_asm_common::{
@@ -17,8 +17,7 @@ use strata_asm_proto_bridge_txs::{
     unstake::{UnstakeInfo, UnstakeTxHeaderAux, parse_unstake_tx},
     withdrawal_fulfillment::{WithdrawalFulfillmentInfo, WithdrawalFulfillmentTxHeaderAux},
 };
-use strata_btc_types::RawBitcoinTx;
-use strata_btc_types::BitcoinAmount;
+use strata_btc_types::{BitcoinAmount, RawBitcoinTx};
 use strata_crypto::EvenSecretKey;
 use strata_identifiers::L1BlockCommitment;
 use strata_test_utils_arb::ArbitraryGenerator;

@@ -28,6 +28,9 @@ members = [
   "crates/subprotocols/bridge/msgs",
   "crates/subprotocols/bridge/types",
   "crates/subprotocols/checkpoint/subprotocol",
+  "crates/subprotocols/checkpoint/frozen-v0/msgs",
+  "crates/subprotocols/checkpoint/frozen-v0/subprotocol",
+  "crates/subprotocols/checkpoint/frozen-v0/verification",
   "crates/subprotocols/checkpoint/txs",
   "crates/subprotocols/checkpoint/msgs",
   "crates/subprotocols/checkpoint/types",
@@ -91,7 +94,9 @@ strata-asm-proto-bridge-txs = { path = "crates/subprotocols/bridge/txs" }
 strata-asm-proto-bridge-v0 = { path = "crates/subprotocols/bridge/frozen-v0/subprotocol" }
 strata-asm-proto-checkpoint = { path = "crates/subprotocols/checkpoint/subprotocol" }
 strata-asm-proto-checkpoint-msgs = { path = "crates/subprotocols/checkpoint/msgs" }
+strata-asm-proto-checkpoint-msgs-v0 = { path = "crates/subprotocols/checkpoint/frozen-v0/msgs" }
 strata-asm-proto-checkpoint-txs = { path = "crates/subprotocols/checkpoint/txs" }
+strata-asm-proto-checkpoint-v0 = { path = "crates/subprotocols/checkpoint/frozen-v0/subprotocol" }
 strata-asm-proto-txs-test-utils = { path = "crates/subprotocols/txs-test-utils" }
 strata-asm-prover-storage = { path = "crates/extensions/prover/storage" }
 strata-asm-prover-types = { path = "crates/extensions/prover/types" }
@@ -103,6 +108,7 @@ strata-asm-stf = { path = "crates/stf" }
 strata-asm-worker = { path = "crates/worker" }
 strata-btc-verification = { path = "crates/btc-verification" }
 strata-checkpoint-verification = { path = "crates/subprotocols/checkpoint/verification" }
+strata-checkpoint-verification-v0 = { path = "crates/subprotocols/checkpoint/frozen-v0/verification" }
 strata-test-utils-arb = { path = "crates/test-utils/arb" }
 strata-test-utils-btc = { path = "crates/test-utils/btc" }
 strata-test-utils-btcio = { path = "crates/test-utils/btcio" }
