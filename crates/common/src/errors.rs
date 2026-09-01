@@ -6,7 +6,7 @@ use strata_l1_txfmt::SubprotocolId;
 use strata_merkle::MerkleError;
 use thiserror::Error;
 
-use crate::aux_input::AuxError;
+use crate::{StateValidationError, aux_input::AuxError};
 
 /// Convenience result wrapper.
 pub type AsmResult<T> = Result<T, AsmError>;
@@ -66,4 +66,29 @@ pub enum AsmError {
     /// Too many sections to fit into the anchor state (`MAX_SECTIONS`).
     #[error("too many sections: {0}")]
     TooManySections(#[source] ssz_types::Error),
+
+    /// The anchor state envelope or a spec's section schema was violated.
+    #[error(transparent)]
+    StateValidation(#[from] StateValidationError),
+
+    /// A section's codec version is not the one this subprotocol version reads.
+    ///
+    /// On the boundary block this is expected and drives the migration; seen
+    /// anywhere else it means state was routed to the wrong specification.
+    #[error("subprotocol {id} section has codec version {actual}, this version reads {expected}")]
+    SectionVersionMismatch {
+        /// Stable subprotocol identifier.
+        id: SubprotocolId,
+        /// Version this implementation reads.
+        expected: u8,
+        /// Version found in the section.
+        actual: u8,
+    },
+
+    /// A section payload was not the canonical encoding of its own value.
+    #[error("subprotocol {id} section encoding is not canonical")]
+    NonCanonicalSectionEncoding {
+        /// Stable subprotocol identifier.
+        id: SubprotocolId,
+    },
 }

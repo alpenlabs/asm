@@ -323,8 +323,8 @@ pub(crate) mod fixtures {
     use bitcoind_async_client::{Client, traits::Reader};
     use corepc_node::Node;
     use strata_asm_common::{
-        AnchorState, AsmHistoryAccumulatorState, AsmSpec, ChainViewState, HeaderVerificationState,
-        Stage,
+        ANCHOR_STATE_VERSION, AnchorState, AsmHistoryAccumulatorState, AsmSpec, ChainViewState,
+        HeaderVerificationState, Stage,
     };
     use strata_btc_types::BlockHashExt;
     use strata_btc_verification::L1Anchor;
@@ -363,6 +363,7 @@ pub(crate) mod fixtures {
                 pow_state: HeaderVerificationState::init(params.anchor.clone()),
             };
             AnchorState {
+                version: ANCHOR_STATE_VERSION,
                 magic: AnchorState::magic_ssz(params.magic),
                 chain_view,
                 sections: Vec::new()

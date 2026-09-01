@@ -1,8 +1,8 @@
 //! Genesis anchor state construction from [`StrataGenesisConfig`].
 
 use strata_asm_common::{
-    AnchorState, AsmHistoryAccumulatorState, ChainViewState, HeaderVerificationState, SectionState,
-    SectionStateExt,
+    ANCHOR_STATE_VERSION, AnchorState, AsmHistoryAccumulatorState, ChainViewState,
+    HeaderVerificationState, SectionState, SectionStateExt,
 };
 use strata_asm_params::StrataGenesisConfig;
 use strata_asm_proto_admin::{AdministrationSubprotoState, AdministrationSubprotocol};
@@ -36,6 +36,7 @@ pub fn construct_genesis_state(config: &StrataGenesisConfig) -> AnchorState {
     };
 
     AnchorState {
+        version: ANCHOR_STATE_VERSION,
         magic: AnchorState::magic_ssz(config.magic),
         chain_view,
         sections: vec![

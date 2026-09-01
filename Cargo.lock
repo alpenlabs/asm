@@ -8378,6 +8378,7 @@ dependencies = [
  "strata-identifiers",
  "strata-l1-txfmt",
  "strata-merkle",
+ "thiserror 2.0.18",
  "tree_hash",
  "tree_hash_derive",
 ]

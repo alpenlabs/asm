@@ -97,6 +97,10 @@ pub fn compute_asm_transition<S: AsmSpec>(
         history_accumulator,
     };
     let state = AnchorState {
+        // The container codec version carries forward untouched: this spec
+        // reads and writes the same container layout. Reshaping the container
+        // itself is a migration, not a transition.
+        version: pre_state.version,
         magic: pre_state.magic,
         chain_view,
         sections: VariableList::new(sections).map_err(AsmError::TooManySections)?,
