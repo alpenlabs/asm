@@ -7956,6 +7956,53 @@ dependencies = [
 ]
 
 [[package]]
+name = "strata-asm-proto-admin-txs-v0"
+version = "0.1.0"
+dependencies = [
+ "arbitrary",
+ "bitcoin",
+ "bitcoin-bosd",
+ "hex",
+ "rand 0.8.6",
+ "ssz",
+ "ssz_derive",
+ "strata-asm-admin-types",
+ "strata-asm-bridge-types",
+ "strata-asm-common",
+ "strata-asm-proto-txs-test-utils",
+ "strata-crypto",
+ "strata-identifiers",
+ "strata-l1-envelope-fmt",
+ "strata-l1-txfmt",
+ "strata-predicate",
+ "strata-test-utils-arb",
+ "thiserror 2.0.18",
+]
+
+[[package]]
+name = "strata-asm-proto-admin-v0"
+version = "0.1.0"
+dependencies = [
+ "arbitrary",
+ "bitcoin",
+ "rand 0.8.6",
+ "ssz",
+ "ssz_derive",
+ "strata-asm-admin-types",
+ "strata-asm-bridge-types",
+ "strata-asm-common",
+ "strata-asm-logs",
+ "strata-asm-proto-admin-txs-v0",
+ "strata-asm-proto-bridge-msgs",
+ "strata-asm-proto-checkpoint-msgs-v0",
+ "strata-crypto",
+ "strata-identifiers",
+ "strata-predicate",
+ "strata-test-utils-arb",
+ "thiserror 2.0.18",
+]
+
+[[package]]
 name = "strata-asm-proto-bridge"
 version = "0.1.0"
 dependencies = [
