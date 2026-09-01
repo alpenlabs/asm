@@ -4,6 +4,7 @@ use anyhow::{Context, Result};
 use bitcoind_async_client::{Auth, Client};
 use strata_asm_moho_worker::MohoWorkerBuilder;
 use strata_asm_params::StrataGenesisConfig;
+use strata_asm_prover_types::MohoProofJobIdentity;
 use strata_asm_prover_worker::{InputBuilder, ProofBackend, ProverWorkerBuilder};
 use strata_asm_spec::{StrataAsmTarget, StrataAsmTargets, build_v0_bootstrap};
 use strata_asm_worker::AsmWorkerBuilder;
@@ -100,7 +101,7 @@ pub(crate) async fn bootstrap(
         AsmWorkerBuilder::new()
             .with_context(worker_context)
             .with_targets(targets)
-            .with_genesis_predicate(genesis_predicate)
+            .with_genesis_predicate(genesis_predicate.clone())
             .with_bootstrap(bootstrap)
             .launch(&executor)
     })?;
@@ -110,11 +111,17 @@ pub(crate) async fn bootstrap(
     // 6. Finish orchestrator wiring if it was configured.
     let proof_rpc_deps = if let Some((orch_config, proof_db, backend)) = orch_prep {
         let ProofBackend {
-            asm_host,
+            asm,
             moho_host,
-            asm_predicate,
             moho_predicate,
+            moho_artifact_id,
         } = backend;
+        // Moho's own program identity travels with its jobs, so a completed
+        // proof is decoded through the artifact that produced it.
+        let moho_identity = MohoProofJobIdentity {
+            predicate: moho_predicate.clone(),
+            artifact_id: moho_artifact_id,
+        };
 
         // Spin the Moho worker off onto its own service task, driven by the ASM
         // worker's per-block commit stream. It derives each block's MohoState
@@ -136,7 +143,7 @@ pub(crate) async fn bootstrap(
             .with_context(moho_context)
             .with_subscription(asm_worker.subscribe_blocks())
             .with_genesis_block(params.anchor.block)
-            .with_asm_predicate(asm_predicate.clone())
+            .with_asm_predicate(genesis_predicate.clone())
             .launch(&executor)
             .await?;
 
@@ -153,7 +160,7 @@ pub(crate) async fn bootstrap(
             aux_db.clone(),
             bitcoin_client.clone(),
         );
-        let input_builder = InputBuilder::new(params.anchor.block, asm_predicate, moho_predicate);
+        let input_builder = InputBuilder::new(params.anchor.block, moho_predicate);
 
         // Drive the prover from the *Moho* worker's commit stream, not the ASM
         // worker's: the Moho worker emits a block only after it has persisted
@@ -170,7 +177,7 @@ pub(crate) async fn bootstrap(
 
         let prover_handle = ProverWorkerBuilder::new()
             .with_context(prover_ctx)
-            .with_hosts(asm_host, moho_host)
+            .with_hosts(asm, moho_host, moho_identity)
             .with_config(orch_config)
             .with_input_builder(input_builder)
             .with_block_subscription(block_subscription)

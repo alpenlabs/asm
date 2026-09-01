@@ -16,6 +16,7 @@ strata-asm-proof-impl.workspace = true
 strata-asm-prover-storage.workspace = true
 strata-asm-prover-types.workspace = true
 strata-asm-rpc = { workspace = true, features = ["client"] }
+strata-asm-spec = { workspace = true, optional = true }
 strata-asm-worker.workspace = true
 strata-btc-types.workspace = true
 strata-btc-verification.workspace = true
@@ -32,6 +33,7 @@ hex.workspace = true
 jsonrpsee = { workspace = true, features = ["http-client"] }
 k256 = { workspace = true, features = ["schnorr"] }
 serde.workspace = true
+sha2.workspace = true
 ssz.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
@@ -46,12 +48,14 @@ zkaleido-sp1-groth16-verifier = { workspace = true, optional = true }
 zkaleido-sp1-host = { workspace = true, optional = true }
 
 [dev-dependencies]
+sled.workspace = true
 tokio.workspace = true
 toml.workspace = true
 
 [features]
 default = []
 sp1 = [
+  "dep:strata-asm-spec",
   "dep:zkaleido-sp1-host",
   "dep:zkaleido-sp1-groth16-verifier",
   "dep:sp1-verifier",

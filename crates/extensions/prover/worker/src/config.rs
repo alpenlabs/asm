@@ -4,6 +4,7 @@ use std::{fmt, path::PathBuf, time::Duration};
 
 use k256::schnorr::SigningKey;
 use serde::{Deserialize, Serialize};
+use strata_asm_common::{AsmSpecId, GuestArtifactId};
 
 /// Configuration for the proof orchestrator.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -71,6 +72,49 @@ fn default_max_peer_failures() -> u32 {
     3
 }
 
+/// One release-qualified SP1 guest and its local files.
+///
+/// The operator selects an immutable artifact identity, never a semantic spec.
+/// Startup resolves the identity through the compiled release registry, hashes
+/// both files, parses the VK, derives the ELF predicate, and rejects any
+/// disagreement before a proof can be scheduled.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AsmGuestConfig {
+    /// Qualified artifact statement to load.
+    pub artifact_id: GuestArtifactId,
+
+    /// Path to the guest ELF.
+    pub elf_path: PathBuf,
+
+    /// Path to the JSON-encoded predicate/VK asset published with the ELF.
+    pub vk_path: PathBuf,
+}
+
+/// One native ASM proving key and the specification it stands for.
+///
+/// See [`BackendConfig::NativeDevelopment`] for why a key fixes a predicate
+/// identity.
+#[derive(Clone, Serialize, Deserialize)]
+pub struct NativeAsmGuestConfig {
+    /// The specification this key's host executes, as its numeric id.
+    pub spec: AsmSpecId,
+
+    /// BIP-340 Schnorr signing key whose verifying key becomes this host's
+    /// predicate identity.
+    #[serde(with = "hex_signing_key")]
+    pub schnorr_signing_key: SigningKey,
+}
+
+impl fmt::Debug for NativeAsmGuestConfig {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("NativeAsmGuestConfig")
+            .field("spec", &self.spec)
+            .field("schnorr_signing_key", &"<redacted>")
+            .finish()
+    }
+}
+
 /// Backend-specific orchestrator configuration.
 ///
 /// Tagged with `kind` so the same config schema is valid regardless of
@@ -78,17 +122,20 @@ fn default_max_peer_failures() -> u32 {
 /// not match the build (e.g. `sp1` requested in a binary built without the
 /// `sp1` feature), [`ProofBackend::new`](crate::ProofBackend::new) surfaces a
 /// startup error.
+///
+/// The ASM side is a *list*: one entry per specification this node can prove.
+/// Which entry proves a given block is decided per block, by the predicate the
+/// parent handed over, so a node that spans an upgrade boundary needs the
+/// artifacts for both sides of it. The Moho side stays singular — the recursive
+/// program is specification-independent.
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
-#[expect(
-    clippy::large_enum_variant,
-    reason = "BackendConfig is parsed once at startup; boxing a SigningKey to save a few bytes on a singleton value is not worth the indirection"
-)]
 pub enum BackendConfig {
-    /// SP1 backend. Loads the ASM and Moho guest ELFs from explicit paths at startup.
+    /// SP1 backend. Loads each ASM guest ELF, and the Moho guest ELF, from
+    /// explicit paths at startup.
     Sp1 {
-        asm_elf_path: PathBuf,
-        moho_elf_path: PathBuf,
+        asm_guests: Vec<AsmGuestConfig>,
+        moho_guest: AsmGuestConfig,
     },
 
     /// Native (in-process) backend. Each signing key fixes the predicate
@@ -97,9 +144,8 @@ pub enum BackendConfig {
     /// `PredicateKey`. Keys are parsed and validated as BIP-340 Schnorr
     /// signing keys at config load, so an invalid key fails startup rather
     /// than later in the proving path.
-    Native {
-        #[serde(with = "hex_signing_key")]
-        asm_schnorr_signing_key: SigningKey,
+    NativeDevelopment {
+        asm_guests: Vec<NativeAsmGuestConfig>,
         #[serde(with = "hex_signing_key")]
         moho_schnorr_signing_key: SigningKey,
     },
@@ -109,19 +155,27 @@ impl fmt::Debug for BackendConfig {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Sp1 {
-                asm_elf_path,
-                moho_elf_path,
+                asm_guests,
+                moho_guest,
             } => f
                 .debug_struct("Sp1")
-                .field("asm_elf_path", asm_elf_path)
-                .field("moho_elf_path", moho_elf_path)
+                .field("asm_guests", asm_guests)
+                .field("moho_guest", moho_guest)
                 .finish(),
-            Self::Native { .. } => f
-                .debug_struct("Native")
-                .field("asm_schnorr_signing_key", &"<redacted>")
+            Self::NativeDevelopment { asm_guests, .. } => f
+                .debug_struct("NativeDevelopment")
+                .field("asm_guests", asm_guests)
                 .field("moho_schnorr_signing_key", &"<redacted>")
                 .finish(),
         }
+    }
+}
+
+impl BackendConfig {
+    /// Reports whether this backend bypasses cryptographic release artifacts.
+    /// The runner permits it only for regtest development chains.
+    pub const fn is_unqualified_development(&self) -> bool {
+        matches!(self, Self::NativeDevelopment { .. })
     }
 }
 
@@ -150,9 +204,12 @@ mod tests {
         proof_db_path = "/tmp/proof-db"
 
         [backend]
-        kind = "native"
-        asm_schnorr_signing_key = "0101010101010101010101010101010101010101010101010101010101010101"
+        kind = "native_development"
         moho_schnorr_signing_key = "0202020202020202020202020202020202020202020202020202020202020202"
+
+        [[backend.asm_guests]]
+        spec = 1
+        schnorr_signing_key = "0101010101010101010101010101010101010101010101010101010101010101"
     "#;
 
     // Pre-existing configs carry no `[mode]` table and must keep parsing as
@@ -187,5 +244,128 @@ mod tests {
         };
         assert_eq!(follower.max_lag, 100);
         assert_eq!(follower.max_peer_failures, 5);
+    }
+
+    /// A node spanning an upgrade boundary selects immutable artifact IDs; it
+    /// cannot relabel an ELF with an operator-provided semantic specification.
+    #[test]
+    fn several_asm_guests_parse_with_qualified_artifact_ids() {
+        let src = r#"
+            tick_interval = { secs = 1, nanos = 0 }
+            max_concurrent_proofs = 4
+            proof_db_path = "/tmp/proof-db"
+
+            [backend]
+            kind = "sp1"
+
+            [backend.moho_guest]
+            artifact_id = "sha256:3333333333333333333333333333333333333333333333333333333333333333"
+            elf_path = "/elfs/moho.elf"
+            vk_path = "/elfs/moho-vk.json"
+
+            [[backend.asm_guests]]
+            artifact_id = "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+            elf_path = "/elfs/asm-v0.elf"
+            vk_path = "/elfs/asm-v0-vk.json"
+
+            [[backend.asm_guests]]
+            artifact_id = "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+            elf_path = "/elfs/asm.elf"
+            vk_path = "/elfs/asm-vk.json"
+        "#;
+
+        let config: OrchestratorConfig = toml::from_str(src).expect("should parse");
+        let BackendConfig::Sp1 { asm_guests, .. } = config.backend else {
+            panic!("expected sp1 backend");
+        };
+        assert_eq!(asm_guests.len(), 2);
+        assert_eq!(asm_guests[0].artifact_id, GuestArtifactId::new([0x11; 32]));
+        assert_eq!(asm_guests[0].elf_path, PathBuf::from("/elfs/asm-v0.elf"));
+        assert_eq!(asm_guests[1].artifact_id, GuestArtifactId::new([0x22; 32]));
+        assert_eq!(asm_guests[1].elf_path, PathBuf::from("/elfs/asm.elf"));
+    }
+
+    /// The functional tests generate this config from Python dataclasses, and a
+    /// TOML writer may render a list of tables either as an array of tables or as
+    /// an inline array of inline tables. Both must parse, so the emitter's choice
+    /// of style cannot break the runner.
+    #[test]
+    fn asm_guests_parse_in_either_toml_style() {
+        let inline = r#"
+            tick_interval = { secs = 1, nanos = 0 }
+            max_concurrent_proofs = 4
+            proof_db_path = "/tmp/proof-db"
+
+            [backend]
+            kind = "sp1"
+            asm_guests = [
+              { artifact_id = "sha256:1111111111111111111111111111111111111111111111111111111111111111", elf_path = "/elfs/asm-v0.elf", vk_path = "/elfs/asm-v0-vk.json" },
+              { artifact_id = "sha256:2222222222222222222222222222222222222222222222222222222222222222", elf_path = "/elfs/asm.elf", vk_path = "/elfs/asm-vk.json" },
+            ]
+
+            [backend.moho_guest]
+            artifact_id = "sha256:3333333333333333333333333333333333333333333333333333333333333333"
+            elf_path = "/elfs/moho.elf"
+            vk_path = "/elfs/moho-vk.json"
+        "#;
+
+        let config: OrchestratorConfig = toml::from_str(inline).expect("should parse");
+        let BackendConfig::Sp1 { asm_guests, .. } = config.backend else {
+            panic!("expected sp1 backend");
+        };
+        assert_eq!(
+            asm_guests
+                .iter()
+                .map(|guest| (guest.artifact_id, guest.elf_path.clone()))
+                .collect::<Vec<_>>(),
+            vec![
+                (
+                    GuestArtifactId::new([0x11; 32]),
+                    PathBuf::from("/elfs/asm-v0.elf")
+                ),
+                (
+                    GuestArtifactId::new([0x22; 32]),
+                    PathBuf::from("/elfs/asm.elf")
+                ),
+            ],
+        );
+    }
+
+    /// The removed `spec` field is rejected, not silently ignored. Otherwise an
+    /// old config would appear to keep its label while startup ignored it.
+    #[test]
+    fn operator_provided_specification_label_fails_to_parse() {
+        let src = r#"
+            tick_interval = { secs = 1, nanos = 0 }
+            max_concurrent_proofs = 4
+            proof_db_path = "/tmp/proof-db"
+
+            [backend]
+            kind = "sp1"
+
+            [backend.moho_guest]
+            artifact_id = "sha256:3333333333333333333333333333333333333333333333333333333333333333"
+            elf_path = "/elfs/moho.elf"
+            vk_path = "/elfs/moho-vk.json"
+
+            [[backend.asm_guests]]
+            spec = 99
+            artifact_id = "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+            elf_path = "/elfs/asm-v99.elf"
+            vk_path = "/elfs/asm-v99-vk.json"
+        "#;
+
+        assert!(toml::from_str::<OrchestratorConfig>(src).is_err());
+    }
+
+    /// Secrets must not reach a log through the debug formatter.
+    #[test]
+    fn native_keys_are_redacted_in_debug_output() {
+        let config: OrchestratorConfig = toml::from_str(BASE).expect("should parse");
+        let rendered = format!("{:?}", config.backend);
+
+        assert!(rendered.contains("<redacted>"), "{rendered}");
+        assert!(!rendered.contains("010101"), "{rendered}");
+        assert!(!rendered.contains("020202"), "{rendered}");
     }
 }

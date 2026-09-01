@@ -1,6 +1,6 @@
 //! [`RemoteProofMappingDb`] implementation for [`SledProofDb`].
 
-use std::{error::Error, fmt};
+use std::{collections::BTreeSet, error::Error, fmt};
 
 use borsh::BorshDeserialize;
 use strata_asm_prover_types::{ProofId, RemoteProofId};
@@ -64,6 +64,23 @@ impl From<sled::Error> for RemoteProofMappingError {
 impl SledProofDb {
     /// Returns the remote proof ID mapped to local `id`, if any.
     pub fn get_remote(&self, id: ProofId) -> Result<Option<RemoteProofId>, sled::Error> {
+        if let Some(job) = self
+            .active_remote_job(id)
+            .map_err(|error| sled::Error::Unsupported(error.to_string()))?
+        {
+            return Ok(Some(job.remote_id));
+        }
+        // A terminal authoritative job deliberately has no active mapping.
+        // Do not let its retained legacy forward row resurrect it for offline
+        // tooling after migration.
+        if self
+            .list_remote_jobs()
+            .map_err(|error| sled::Error::Unsupported(error.to_string()))?
+            .iter()
+            .any(|job| job.proof_id == id)
+        {
+            return Ok(None);
+        }
         let key = borsh::to_vec(&id).expect("borsh serialization should not fail");
         Ok(self
             .proof_to_remote
@@ -73,9 +90,34 @@ impl SledProofDb {
 
     /// Returns the local proof ID mapped to `remote_id`, if any.
     pub fn get_local(&self, remote_id: &RemoteProofId) -> Result<Option<ProofId>, sled::Error> {
+        if let Some(job) = self
+            .remote_job(remote_id)
+            .map_err(|error| sled::Error::Unsupported(error.to_string()))?
+        {
+            return Ok(Some(job.proof_id));
+        }
         Ok(self.remote_to_proof.get(&remote_id.0)?.map(|v| {
             BorshDeserialize::try_from_slice(&v).expect("stored ProofId should be valid borsh")
         }))
+    }
+
+    /// Clears `remote_id` from the active forward mapping for `id`.
+    ///
+    /// The compare-and-swap makes a late terminal update harmless after a
+    /// replacement job has already become active. The reverse mapping is kept
+    /// as append-only audit history.
+    pub fn deactivate_remote(
+        &self,
+        id: ProofId,
+        remote_id: &RemoteProofId,
+    ) -> Result<(), sled::Error> {
+        let proof_key = borsh::to_vec(&id).expect("borsh serialization should not fail");
+        let _ = self.proof_to_remote.compare_and_swap(
+            proof_key,
+            Some(remote_id.0.as_slice()),
+            None as Option<&[u8]>,
+        )?;
+        Ok(())
     }
 
     /// Lists every stored mapping as `(local, remote)` pairs.
@@ -84,15 +126,24 @@ impl SledProofDb {
     /// remote id; the forward index can point several proof ids at the latest
     /// remote id on resubmission, so it is not authoritative for enumeration.
     pub fn list_mappings(&self) -> Result<Vec<(ProofId, RemoteProofId)>, sled::Error> {
-        self.remote_to_proof
-            .iter()
-            .map(|entry| {
-                let (remote_bytes, local_bytes) = entry?;
-                let local: ProofId = BorshDeserialize::try_from_slice(&local_bytes)
-                    .expect("stored ProofId should be valid borsh");
-                Ok((local, RemoteProofId(remote_bytes.to_vec())))
-            })
-            .collect()
+        let mut mappings: BTreeSet<_> = self
+            .list_remote_jobs()
+            .map_err(|error| sled::Error::Unsupported(error.to_string()))?
+            .into_iter()
+            .map(|job| (job.proof_id, job.remote_id))
+            .collect();
+        mappings.extend(
+            self.remote_to_proof
+                .iter()
+                .map(|entry| {
+                    let (remote_bytes, local_bytes) = entry?;
+                    let local: ProofId = BorshDeserialize::try_from_slice(&local_bytes)
+                        .expect("stored ProofId should be valid borsh");
+                    Ok((local, RemoteProofId(remote_bytes.to_vec())))
+                })
+                .collect::<Result<BTreeSet<_>, sled::Error>>()?,
+        );
+        Ok(mappings.into_iter().collect())
     }
 }
 
@@ -117,26 +168,57 @@ impl RemoteProofMappingDb for SledProofDb {
     ) -> Result<(), Self::Error> {
         let proof_key = borsh::to_vec(&id).expect("borsh serialization should not fail");
 
-        // Check if this remote ID is already mapped to a different proof ID.
-        if let Some(existing_bytes) = self.remote_to_proof.get(&remote_id.0)? {
-            let existing: ProofId = BorshDeserialize::try_from_slice(&existing_bytes)
-                .expect("stored ProofId should be valid borsh");
-            if existing != id {
-                return Err(RemoteProofMappingError::DuplicateRemoteId {
-                    remote_id,
-                    existing,
-                    attempted: id,
-                });
+        // Claim the globally unique remote ID first. If this is a historical
+        // ID for the same proof, it may reactivate an absent forward mapping,
+        // but must never replace a newer retry that is already active.
+        let reverse = self.remote_to_proof.compare_and_swap(
+            remote_id.0.as_slice(),
+            None as Option<&[u8]>,
+            Some(proof_key.as_slice()),
+        )?;
+        match reverse {
+            Ok(()) => {
+                // A genuinely new remote job becomes the latest active job.
+                // If the process stops before this insert, retrying the same
+                // pair takes the historical-ID branch below and repairs the
+                // absent forward row.
+                self.proof_to_remote
+                    .insert(proof_key.as_slice(), remote_id.0.as_slice())?;
             }
-            // Same proof ID → same mapping, nothing to do.
-            return Ok(());
-        }
+            Err(conflict) => {
+                let existing_bytes = conflict
+                    .current
+                    .expect("compare-and-swap conflict must contain the existing reverse row");
+                let existing: ProofId = BorshDeserialize::try_from_slice(&existing_bytes)
+                    .expect("stored ProofId should be valid borsh");
+                if existing != id {
+                    return Err(RemoteProofMappingError::DuplicateRemoteId {
+                        remote_id,
+                        existing,
+                        attempted: id,
+                    });
+                }
 
-        self.proof_to_remote
-            .insert(proof_key.as_slice(), remote_id.0.as_slice())?;
-        self.remote_to_proof
-            .insert(remote_id.0.as_slice(), proof_key.as_slice())?;
+                // The same remote ID is being replayed after deactivation (or
+                // after a crash between the reverse and forward writes). It
+                // may fill an empty forward slot, but a different current ID
+                // is a newer retry and wins.
+                let _ = self.proof_to_remote.compare_and_swap(
+                    proof_key.as_slice(),
+                    None as Option<&[u8]>,
+                    Some(remote_id.0.as_slice()),
+                )?;
+            }
+        }
         Ok(())
+    }
+
+    async fn deactivate_remote_proof_id(
+        &self,
+        id: ProofId,
+        remote_id: &RemoteProofId,
+    ) -> Result<(), Self::Error> {
+        Ok(self.deactivate_remote(id, remote_id)?)
     }
 }
 
@@ -146,10 +228,12 @@ mod tests {
 
     use proptest::{collection::vec, prelude::*};
     use strata_asm_prover_types::ProofId;
+    use strata_identifiers::{L1BlockCommitment, L1BlockId};
     use tokio::runtime::Runtime;
+    use zkaleido::RemoteProofStatus;
 
     use super::*;
-    use crate::sled::test_util::*;
+    use crate::{RemoteProofStatusDb, sled::test_util::*};
 
     /// Generates an arbitrary [`ProofId`].
     fn arb_proof_id() -> impl Strategy<Value = ProofId> {
@@ -338,5 +422,110 @@ mod tests {
                 Ok(())
             })?;
         }
+    }
+
+    #[tokio::test]
+    async fn failed_job_becomes_resubmittable_without_losing_reverse_history() {
+        let (db, _dir) = temp_db();
+        let proof_id = ProofId::Moho(L1BlockCommitment::new(42, L1BlockId::default()));
+        let failed_remote = RemoteProofId(vec![0xfa]);
+        let retry_remote = RemoteProofId(vec![0xfb]);
+
+        // requested
+        db.put_remote_proof_id(proof_id, failed_remote.clone())
+            .await
+            .unwrap();
+        db.put_status(&failed_remote, RemoteProofStatus::Requested)
+            .await
+            .unwrap();
+
+        // failed: release deduplication first, then remove active tracking.
+        db.deactivate_remote_proof_id(proof_id, &failed_remote)
+            .await
+            .unwrap();
+        db.remove(&failed_remote).await.unwrap();
+
+        assert_eq!(db.get_remote_proof_id(proof_id).await.unwrap(), None);
+        assert_eq!(
+            db.get_proof_id(&failed_remote).await.unwrap(),
+            Some(proof_id),
+            "the reverse row remains available for audit",
+        );
+        assert_eq!(db.get_status(&failed_remote).await.unwrap(), None);
+        assert!(db.get_all_in_progress().await.unwrap().is_empty());
+
+        // retry: the same local proof accepts a new active remote job.
+        db.put_remote_proof_id(proof_id, retry_remote.clone())
+            .await
+            .unwrap();
+        db.put_status(&retry_remote, RemoteProofStatus::Requested)
+            .await
+            .unwrap();
+
+        assert_eq!(
+            db.get_remote_proof_id(proof_id).await.unwrap(),
+            Some(retry_remote.clone()),
+        );
+        assert_eq!(
+            db.get_proof_id(&retry_remote).await.unwrap(),
+            Some(proof_id),
+        );
+        assert_eq!(
+            db.get_all_in_progress().await.unwrap(),
+            vec![(retry_remote.clone(), RemoteProofStatus::Requested)],
+        );
+
+        // A late duplicate failure event for the old job cannot clear the
+        // replacement mapping.
+        db.deactivate_remote_proof_id(proof_id, &failed_remote)
+            .await
+            .unwrap();
+        assert_eq!(
+            db.get_remote_proof_id(proof_id).await.unwrap(),
+            Some(retry_remote),
+        );
+    }
+
+    #[tokio::test]
+    async fn reusing_a_deactivated_remote_id_reactivates_only_an_empty_forward_slot() {
+        let (db, _dir) = temp_db();
+        let proof_id = ProofId::Moho(L1BlockCommitment::new(42, L1BlockId::default()));
+        let old_remote = RemoteProofId(vec![0xfa]);
+        let replacement = RemoteProofId(vec![0xfb]);
+
+        db.put_remote_proof_id(proof_id, old_remote.clone())
+            .await
+            .unwrap();
+        db.deactivate_remote_proof_id(proof_id, &old_remote)
+            .await
+            .unwrap();
+
+        // Replaying the exact pair repairs an absent forward mapping.
+        db.put_remote_proof_id(proof_id, old_remote.clone())
+            .await
+            .unwrap();
+        assert_eq!(
+            db.get_remote_proof_id(proof_id).await.unwrap(),
+            Some(old_remote.clone()),
+        );
+
+        db.deactivate_remote_proof_id(proof_id, &old_remote)
+            .await
+            .unwrap();
+        db.put_remote_proof_id(proof_id, replacement.clone())
+            .await
+            .unwrap();
+
+        // Replaying the old pair after a replacement is active is harmless.
+        db.put_remote_proof_id(proof_id, old_remote.clone())
+            .await
+            .unwrap();
+        db.deactivate_remote_proof_id(proof_id, &old_remote)
+            .await
+            .unwrap();
+        assert_eq!(
+            db.get_remote_proof_id(proof_id).await.unwrap(),
+            Some(replacement),
+        );
     }
 }

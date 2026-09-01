@@ -18,10 +18,12 @@ use moho_types::MohoState;
 use strata_asm_common::{AnchorState, AuxData};
 use strata_asm_moho_storage::{MohoStateDb, SledMohoStateDb};
 use strata_asm_prover_storage::{
-    ProofDb, RemoteProofMappingDb, RemoteProofMappingError, RemoteProofStatusDb,
-    RemoteProofStatusError, SledProofDb,
+    ProofDb, RemoteProofJobDb, RemoteProofJobError, RemoteProofMappingDb, RemoteProofMappingError,
+    RemoteProofStatusDb, RemoteProofStatusError, SledProofDb,
 };
-use strata_asm_prover_types::{AsmProof, L1Range, MohoProof, ProofId, RemoteProofId};
+use strata_asm_prover_types::{
+    AsmProof, L1Range, MohoProof, ProofId, ProofJobIdentity, RemoteProofId, RemoteProofJob,
+};
 use strata_asm_prover_worker::{
     AnchorStateReader, AuxDataReader, L1BlockProvider, ProverError, ProverResult,
 };
@@ -124,6 +126,16 @@ impl RemoteProofMappingDb for AsmProverContext {
     ) -> Result<(), Self::Error> {
         self.proof_db.put_remote_proof_id(id, remote_id).await
     }
+
+    async fn deactivate_remote_proof_id(
+        &self,
+        id: ProofId,
+        remote_id: &RemoteProofId,
+    ) -> Result<(), Self::Error> {
+        self.proof_db
+            .deactivate_remote_proof_id(id, remote_id)
+            .await
+    }
 }
 
 impl RemoteProofStatusDb for AsmProverContext {
@@ -163,6 +175,64 @@ impl RemoteProofStatusDb for AsmProverContext {
     }
 }
 
+impl RemoteProofJobDb for AsmProverContext {
+    type Error = RemoteProofJobError;
+
+    async fn get_active_remote_proof_job(
+        &self,
+        proof_id: ProofId,
+    ) -> Result<Option<RemoteProofJob>, Self::Error> {
+        self.proof_db.get_active_remote_proof_job(proof_id).await
+    }
+
+    async fn get_remote_proof_job(
+        &self,
+        remote_id: &RemoteProofId,
+    ) -> Result<Option<RemoteProofJob>, Self::Error> {
+        self.proof_db.get_remote_proof_job(remote_id).await
+    }
+
+    async fn create_remote_proof_job(&self, job: RemoteProofJob) -> Result<(), Self::Error> {
+        self.proof_db.create_remote_proof_job(job).await
+    }
+
+    async fn bind_legacy_remote_proof_job(
+        &self,
+        remote_id: &RemoteProofId,
+        identity: ProofJobIdentity,
+    ) -> Result<RemoteProofJob, Self::Error> {
+        self.proof_db
+            .bind_legacy_remote_proof_job(remote_id, identity)
+            .await
+    }
+
+    async fn update_remote_proof_job_status(
+        &self,
+        remote_id: &RemoteProofId,
+        expected: RemoteProofStatus,
+        status: RemoteProofStatus,
+    ) -> Result<(), Self::Error> {
+        self.proof_db
+            .update_remote_proof_job_status(remote_id, expected, status)
+            .await
+    }
+
+    async fn finish_remote_proof_job(
+        &self,
+        remote_id: &RemoteProofId,
+        expected: RemoteProofStatus,
+        status: RemoteProofStatus,
+    ) -> Result<(), Self::Error> {
+        self.proof_db
+            .finish_remote_proof_job(remote_id, expected, status)
+            .await
+    }
+
+    async fn get_all_active_remote_proof_jobs(&self) -> Result<Vec<RemoteProofJob>, Self::Error> {
+        self.proof_db.get_all_active_remote_proof_jobs().await
+    }
+}
+
 // ---- Moho-state reads: delegate to the sled moho-state store --------------
 
 impl MohoStateDb for AsmProverContext {
@@ -189,10 +259,6 @@ impl MohoStateDb for AsmProverContext {
         self.moho_state_db.get_latest_moho_state().await
     }
 
-    /// Reports the store's ready-view generation.
-    ///
-    /// Historical reads use it to tell a complete view from one being rebuilt,
-    /// so it is read through rather than tracked here.
     async fn view_generation(&self) -> Result<u64, Self::Error> {
         self.moho_state_db.view_generation()
     }
