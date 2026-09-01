@@ -46,6 +46,30 @@ pub struct AdministrationSubprotoState {
 }
 
 impl AdministrationSubprotoState {
+    /// Assembles state from its parts.
+    ///
+    /// Exists for the conversion from the released layout in
+    /// [`migrate`](crate::migrate), which must set every field including
+    /// `ol_transition_pending`. Crate-private so the fields stay private and
+    /// this stays the single documented way to build state from outside `new`.
+    pub(crate) fn from_parts(
+        authorities: Vec<MultisigAuthority>,
+        queued: Vec<QueuedUpdate>,
+        next_update_id: UpdateId,
+        confirmation_depths: ConfirmationDepths,
+        max_seqno_gap: NonZero<u8>,
+        ol_transition_pending: bool,
+    ) -> Self {
+        Self {
+            authorities,
+            queued,
+            next_update_id,
+            confirmation_depths,
+            max_seqno_gap,
+            ol_transition_pending,
+        }
+    }
+
     pub fn new(config: &AdministrationInitConfig) -> Self {
         let authorities = config
             .clone()
