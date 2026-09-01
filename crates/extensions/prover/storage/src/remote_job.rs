@@ -10,7 +10,7 @@
 //! write, so a mapping can never become visible without its status and
 //! provenance.
 //!
-//! TODO(ASM-UP-017): a submission is accepted remotely before the local record
+//! Known gap: a submission is accepted remotely before the local record
 //! is written, so a crash in between can leave an attempt that exists remotely
 //! and not locally. Closing that needs a prepared / acceptance-unknown /
 //! accepted lifecycle in place of the `status` plus `remote_id` pair, which is

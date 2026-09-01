@@ -10,11 +10,19 @@
 //!   [`AsmBootstrap`](strata_asm_common::AsmBootstrap) for the worker.
 
 mod genesis;
+mod release_manifest;
+mod release_targets;
 mod spec;
 mod targets;
 
 pub use genesis::{
     build_v0_bootstrap, build_v1_bootstrap, construct_v0_genesis_state, construct_v1_genesis_state,
 };
+pub use release_manifest::{
+    ArtifactFile, GuestArtifact, GuestProgram, QualifiedGuestArtifacts, ReleaseManifest,
+    ReleaseManifestError, ReleaseQualification, Sha256Digest, SourceProvenance,
+    ToolchainProvenance, VerifiedArtifactFiles, qualified_guest_artifacts,
+};
+pub use release_targets::{ReleaseTargetError, qualified_release_targets};
 pub use spec::{StrataAsmSpecV0, StrataAsmSpecV1};
 pub use targets::{StrataAsmTarget, StrataAsmTargets, TargetTableError};

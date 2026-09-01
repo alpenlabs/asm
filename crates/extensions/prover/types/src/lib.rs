@@ -179,7 +179,7 @@ pub enum ProofJobIdentity {
 /// transaction, so a mapping can never become visible without its status and
 /// provenance.
 ///
-/// TODO(ASM-UP-017): submission still writes local state after the remote call
+/// Known gap: submission still writes local state after the remote call
 /// accepts, so a crash in between can leave an attempt that exists remotely and
 /// not locally. The fix is a prepared/acceptance-unknown/accepted lifecycle
 /// replacing `status` and `remote_id` with a single state enum, so the two can

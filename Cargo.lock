@@ -8221,8 +8221,10 @@ dependencies = [
  "borsh",
  "proptest",
  "sled",
+ "strata-asm-common",
  "strata-asm-prover-types",
  "strata-identifiers",
+ "strata-predicate",
  "tempfile",
  "tokio",
  "zkaleido",
@@ -8234,7 +8236,9 @@ version = "0.1.0"
 dependencies = [
  "borsh",
  "serde",
+ "strata-asm-common",
  "strata-identifiers",
+ "strata-predicate",
  "zkaleido",
 ]
 
@@ -8253,6 +8257,8 @@ dependencies = [
  "moho-runtime-impl",
  "moho-types",
  "serde",
+ "sha2 0.10.9",
+ "sled",
  "sp1-sdk",
  "sp1-verifier",
  "ssz",
@@ -8262,6 +8268,7 @@ dependencies = [
  "strata-asm-prover-storage",
  "strata-asm-prover-types",
  "strata-asm-rpc",
+ "strata-asm-spec",
  "strata-asm-worker",
  "strata-btc-types",
  "strata-btc-verification",
@@ -8363,6 +8370,10 @@ name = "strata-asm-spec"
 version = "0.1.0"
 dependencies = [
  "bitcoin",
+ "hex",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
  "strata-asm-common",
  "strata-asm-params",
  "strata-asm-proto-admin",

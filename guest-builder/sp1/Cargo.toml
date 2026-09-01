@@ -8,7 +8,7 @@ default = []
 docker-build = []
 
 [build-dependencies]
-sp1-build = "6.2.0"
+sp1-build = "=6.3.0"
 anyhow = { workspace = true }
 borsh = { workspace = true }
 serde_json = { workspace = true }
