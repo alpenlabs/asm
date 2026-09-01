@@ -22,6 +22,7 @@ members = [
   "crates/subprotocols/admin/txs",
   "crates/subprotocols/admin/types",
   "crates/subprotocols/bridge/subprotocol",
+  "crates/subprotocols/bridge/frozen-v0/subprotocol",
   "crates/subprotocols/bridge/state",
   "crates/subprotocols/bridge/txs",
   "crates/subprotocols/bridge/msgs",
@@ -87,6 +88,7 @@ strata-asm-proto-bridge = { path = "crates/subprotocols/bridge/subprotocol" }
 strata-asm-proto-bridge-msgs = { path = "crates/subprotocols/bridge/msgs" }
 strata-asm-proto-bridge-state = { path = "crates/subprotocols/bridge/state" }
 strata-asm-proto-bridge-txs = { path = "crates/subprotocols/bridge/txs" }
+strata-asm-proto-bridge-v0 = { path = "crates/subprotocols/bridge/frozen-v0/subprotocol" }
 strata-asm-proto-checkpoint = { path = "crates/subprotocols/checkpoint/subprotocol" }
 strata-asm-proto-checkpoint-msgs = { path = "crates/subprotocols/checkpoint/msgs" }
 strata-asm-proto-checkpoint-txs = { path = "crates/subprotocols/checkpoint/txs" }

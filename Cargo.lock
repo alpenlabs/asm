@@ -8078,6 +8078,33 @@ dependencies = [
 ]
 
 [[package]]
+name = "strata-asm-proto-bridge-v0"
+version = "0.1.0"
+dependencies = [
+ "arbitrary",
+ "bitcoin",
+ "bitcoin-bosd",
+ "proptest",
+ "rand 0.8.6",
+ "rand_chacha 0.9.0",
+ "serde",
+ "ssz",
+ "ssz_derive",
+ "strata-asm-bridge-types",
+ "strata-asm-common",
+ "strata-asm-logs",
+ "strata-asm-proto-bridge-msgs",
+ "strata-asm-proto-bridge-txs",
+ "strata-asm-proto-checkpoint-msgs-v0",
+ "strata-btc-types",
+ "strata-codec",
+ "strata-crypto",
+ "strata-identifiers",
+ "strata-test-utils-arb",
+ "thiserror 2.0.18",
+]
+
+[[package]]
 name = "strata-asm-proto-checkpoint"
 version = "0.1.0"
 dependencies = [
