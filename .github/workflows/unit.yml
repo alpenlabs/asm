@@ -75,7 +75,7 @@ jobs:
       # action for why).
       - name: Pre-build SP1 core runner binary
         id: sp1-runner
-        uses: ./.github/actions/prebuild-sp1-runner
+        uses: $/.github/actions/prebuild-sp1-runner
 
       - name: Run tests with coverage
         run: |
@@ -123,7 +123,7 @@ jobs:
       # `sp1-core-executor-runner`; pre-build its helper and pass the override.
       - name: Pre-build SP1 core runner binary
         id: sp1-runner
-        uses: ./.github/actions/prebuild-sp1-runner
+        uses: $/.github/actions/prebuild-sp1-runner
 
       - name: Run doctests
         run: cargo test --doc --all-features
