@@ -6,12 +6,14 @@ use strata_asm_bridge_types::BridgeInitConfig;
 use strata_asm_checkpoint_types::CheckpointInitConfig;
 use strata_btc_verification::L1Anchor;
 use strata_l1_txfmt::MagicBytes;
+use strata_predicate::PredicateKey;
 
 /// Genesis configuration for a Strata ASM chain.
 ///
 /// Consumed by the STF only when constructing the chain's initial state. The
 /// runner may retain and expose it for inspection, but does not consult it for
-/// later subprotocol dispatch.
+/// later subprotocol dispatch; revisions obtain authenticated upgrade parameters
+/// through the upgrade mechanism rather than from configuration.
 ///
 /// Each subprotocol config is a required, named field rather than an entry in a
 /// list. Which subprotocols run is fixed by the specification's pipeline, so a
@@ -39,6 +41,24 @@ pub struct StrataGenesisConfig {
     /// [`HeaderVerificationState`](strata_btc_verification::HeaderVerificationState) and
     /// begin validating subsequent L1 headers.
     pub anchor: L1Anchor,
+
+    /// Predicate authorizing the first block after the genesis anchor.
+    ///
+    /// A chain fact, not a node setting: it is the value the genesis Moho state
+    /// commits to as `next_predicate`, so two nodes that disagree about it
+    /// execute different rules and diverge. It seeds the handover chain, after
+    /// which every predicate is carried or enacted by the blocks themselves.
+    ///
+    /// Optional because a node with exactly one ASM proving artifact can only
+    /// have started under that artifact's predicate, so the runner derives it
+    /// rather than making every single-specification deployment restate a value
+    /// it cannot compute by hand. Pinning it is required as soon as that is
+    /// ambiguous — a node carrying artifacts for both sides of an upgrade
+    /// boundary — and is worth doing regardless: a derived value follows whatever
+    /// artifact this build happens to carry, while the chain's genesis predicate
+    /// is a fixed historical fact.
+    #[serde(default)]
+    pub genesis_asm_predicate: Option<PredicateKey>,
 
     /// Initial Administration subprotocol configuration.
     pub admin: AdministrationInitConfig,
@@ -74,6 +94,7 @@ impl<'a> Arbitrary<'a> for StrataGenesisConfig {
         Ok(Self {
             magic: MagicBytes::new(*b"ALPN"),
             anchor,
+            genesis_asm_predicate: Some(PredicateKey::always_accept()),
             admin: AdministrationInitConfig::arbitrary(u)?,
             checkpoint: CheckpointInitConfig::arbitrary(u)?,
             bridge: BridgeInitConfig::arbitrary(u)?,
@@ -100,6 +121,7 @@ mod tests {
     "epoch_start_timestamp": 724183336,
     "network": "regtest"
   },
+  "genesis_asm_predicate": "AlwaysAccept",
   "admin": {
     "strata_administrator": {
       "keys": [
@@ -164,6 +186,15 @@ mod tests {
             serde_json::from_str(raw_json).expect("deserialization from raw JSON should succeed");
     }
 
+    /// The genesis predicate is the one optional field; omitting it must keep the
+    /// file valid, because a single-artifact deployment lets the runner derive it.
+    #[test]
+    fn genesis_predicate_may_be_omitted() {
+        let config: StrataGenesisConfig = serde_json::from_value(minimal_json())
+            .expect("a file without the genesis predicate is valid");
+        assert_eq!(config.genesis_asm_predicate, None);
+    }
+
     /// A stray field is refused and named, so a `subprotocols` key left over from
     /// the old shape cannot ride along unnoticed. A file that actually lacks the
     /// named configs is caught by the test below, not by this one.
@@ -219,8 +250,8 @@ mod tests {
         );
     }
 
-    /// A valid config as a mutable `Value` the tests above perturb one field at
-    /// a time.
+    /// A valid config with no genesis predicate, as a mutable `Value` the tests
+    /// above perturb one field at a time.
     fn minimal_json() -> serde_json::Value {
         serde_json::json!({
             "magic": "ALPN",

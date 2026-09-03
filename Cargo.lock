@@ -878,6 +878,7 @@ dependencies = [
  "strata-identifiers",
  "strata-merkle",
  "strata-merkle-node-store",
+ "strata-predicate",
  "tempfile",
 ]
 
@@ -3702,6 +3703,8 @@ dependencies = [
  "rand_chacha 0.9.0",
  "sled",
  "ssz",
+ "ssz_derive",
+ "ssz_types",
  "strata-asm-admin-types",
  "strata-asm-bridge-types",
  "strata-asm-checkpoint-types",
@@ -7759,6 +7762,9 @@ version = "0.1.0"
 dependencies = [
  "bitcoin",
  "borsh",
+ "hex",
+ "serde",
+ "serde_json",
  "ssz",
  "ssz_derive",
  "ssz_types",
@@ -7836,7 +7842,6 @@ name = "strata-asm-moho-worker"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "moho-runtime-interface",
  "moho-types",
  "serde",
  "strata-asm-common",
@@ -7869,6 +7874,7 @@ dependencies = [
  "strata-btc-verification",
  "strata-identifiers",
  "strata-l1-txfmt",
+ "strata-predicate",
 ]
 
 [[package]]
@@ -7914,6 +7920,7 @@ dependencies = [
  "strata-asm-logs",
  "strata-asm-proto-admin-msgs",
  "strata-asm-proto-admin-txs",
+ "strata-asm-proto-admin-v0",
  "strata-asm-proto-bridge-msgs",
  "strata-asm-proto-checkpoint-msgs",
  "strata-crypto",
@@ -8328,6 +8335,7 @@ dependencies = [
  "strata-identifiers",
  "strata-logging",
  "strata-merkle",
+ "strata-predicate",
  "strata-retry",
  "strata-tasks",
  "tokio",
@@ -8354,11 +8362,22 @@ dependencies = [
 name = "strata-asm-spec"
 version = "0.1.0"
 dependencies = [
+ "bitcoin",
  "strata-asm-common",
  "strata-asm-params",
  "strata-asm-proto-admin",
+ "strata-asm-proto-admin-v0",
  "strata-asm-proto-bridge",
+ "strata-asm-proto-bridge-v0",
  "strata-asm-proto-checkpoint",
+ "strata-asm-proto-checkpoint-v0",
+ "strata-asm-stf",
+ "strata-btc-verification",
+ "strata-checkpoint-verification",
+ "strata-checkpoint-verification-v0",
+ "strata-predicate",
+ "strata-test-utils-arb",
+ "thiserror 2.0.18",
 ]
 
 [[package]]
@@ -8378,6 +8397,7 @@ dependencies = [
  "strata-identifiers",
  "strata-l1-txfmt",
  "strata-merkle",
+ "thiserror 2.0.18",
  "tree_hash",
  "tree_hash_derive",
 ]
@@ -8392,6 +8412,7 @@ dependencies = [
  "strata-btc-verification",
  "strata-identifiers",
  "strata-l1-txfmt",
+ "strata-predicate",
 ]
 
 [[package]]
@@ -8407,12 +8428,14 @@ dependencies = [
  "serde",
  "sled",
  "strata-asm-common",
+ "strata-asm-logs",
  "strata-asm-stf",
  "strata-btc-types",
  "strata-btc-verification",
  "strata-identifiers",
  "strata-l1-txfmt",
  "strata-merkle",
+ "strata-predicate",
  "strata-service",
  "strata-tasks",
  "strata-test-utils-btcio",
@@ -8471,6 +8494,7 @@ dependencies = [
 name = "strata-checkpoint-verification"
 version = "0.1.0"
 dependencies = [
+ "bitcoin",
  "bitcoin-bosd",
  "ssz",
  "ssz_codegen",
@@ -8481,6 +8505,7 @@ dependencies = [
  "strata-asm-checkpoint-types",
  "strata-asm-manifest-types",
  "strata-btc-types",
+ "strata-checkpoint-verification-v0",
  "strata-crypto",
  "strata-identifiers",
  "strata-msg-fmt",
@@ -8692,6 +8717,7 @@ version = "0.1.0"
 source = "git+https://github.com/alpenlabs/strata-common?tag=v0.4.0-rc.2#4e9dedf044e84e78cb3d2c9fbce262777735de09"
 dependencies = [
  "arbitrary",
+ "borsh",
  "hex",
  "k256",
  "serde",

@@ -11,7 +11,6 @@ use std::marker::PhantomData;
 
 use moho_types::MohoState;
 use serde::{Deserialize, Serialize};
-use strata_asm_worker::{SyncError, plan_sync};
 use strata_identifiers::L1BlockCommitment;
 use strata_service::{AsyncService, Response, Service};
 use tracing::info;
@@ -51,10 +50,11 @@ where
         state: &mut Self::State,
         input: L1BlockCommitment,
     ) -> anyhow::Result<Response> {
-        // The store is synchronous (sled), so the fold runs to completion
-        // without yielding. A processing error exits the worker — the commit
-        // stream cannot be skipped without leaving a gap.
-        process_block(state, input)?;
+        // The input is the ASM worker's authoritative active tip. Usually it is
+        // one child and this folds one block; after a shorter reorg it can be an
+        // already-stored ancestor, which must re-anchor rather than be folded as
+        // a new child.
+        let changed = sync_to_block(state, input)?;
 
         // Notify subscribers only after the MohoState is durably committed, so
         // any consumer (the prover) that reads it for this block is guaranteed a
@@ -62,7 +62,9 @@ where
         // unbounded enqueue per subscriber. Startup catch-up (`sync_to_tip`)
         // deliberately does not emit — it runs before any subscriber attaches,
         // and the stream has no replay, matching the ASM commit stream.
-        state.subscribers.emit(input);
+        if changed {
+            state.subscribers.emit(input);
+        }
         Ok(Response::Continue)
     }
 }
@@ -130,12 +132,10 @@ pub(crate) fn process_block<W: MohoWorkerContext>(
 /// [`MissingMohoState`](MohoWorkerError::MissingMohoState).
 ///
 /// The catch-up source is the ASM store itself: every block to fold already has
-/// a committed anchor state. It reuses `strata-asm-worker`'s [`plan_sync`] to
-/// walk real parents (not heights) back from the ASM tip — staying correct across
-/// an L1 reorg during downtime — to the first block already folded (the in-memory
-/// `cur_block`, or any block whose Moho state is stored), then folds the gap
-/// forward with `process_block`. Genesis is always seeded, so the walk
-/// terminates at or above the genesis floor.
+/// a committed anchor state. It walks the ASM and Moho tips back to their common
+/// ancestor, then replays the ASM branch even when its Moho states were retained
+/// from an earlier visit. That replay is required to rebuild the single
+/// height-ordered export-entry index on the selected branch.
 ///
 /// Run once at startup, before the subscription stream is consumed; see
 /// [`MohoWorkerBuilder::launch`](crate::MohoWorkerBuilder::launch).
@@ -146,47 +146,90 @@ pub fn sync_to_tip<W: MohoWorkerContext>(
         return Ok(());
     };
 
-    // Plan under an immutable borrow of the context; the forward fold below takes
-    // `&mut state`, so the borrows must not overlap.
-    let plan = {
-        let cur_block = state.cur_block();
-        let cur_moho = state.cur_moho().clone();
-        let ctx = &state.context;
-        plan_sync(
-            asm_tip,
-            state.genesis_height(),
-            // The in-memory `cur_block` is the base when the tip builds on it;
-            // otherwise look it up in the store. A miss keeps the walk going; any
-            // other store error is real and propagates.
-            |block| {
-                if *block == cur_block {
-                    return Ok(Some(cur_moho.clone()));
-                }
-                match ctx.get_moho_state(block) {
-                    Ok(moho) => Ok(Some(moho)),
-                    Err(MohoWorkerError::MissingMohoState(_)) => Ok(None),
-                    Err(e) => Err(e),
-                }
-            },
-            |block| ctx.get_parent_block(block),
-        )
-        .map_err(|e| match e {
-            SyncError::ReachedFloor { .. } => MohoWorkerError::MissingMohoState(cur_block),
-            SyncError::Provider(e) => e,
-        })?
-    };
+    sync_to_block(state, asm_tip)?;
+    Ok(())
+}
 
-    if plan.pending.is_empty() {
-        return Ok(());
+/// Adopts `target` as the authoritative ASM tip, replaying its Moho suffix.
+///
+/// Returns whether the Moho active tip changed. A distinct ancestor target has
+/// an empty suffix but still changes the tip: its export-entry suffix is pruned,
+/// its retained state becomes active, and downstream receives one re-anchor
+/// notification on the live path.
+fn sync_to_block<W: MohoWorkerContext>(
+    state: &mut MohoWorkerServiceState<W>,
+    target: L1BlockCommitment,
+) -> MohoWorkerResult<bool> {
+    let current = state.cur_block();
+    let (base, pending) =
+        plan_target_branch(&state.context, target, current, state.genesis_height())?;
+
+    if base == current && pending.is_empty() {
+        return Ok(false);
     }
 
-    // `plan.base_state` is unused: `process_block` re-anchors from each block's
-    // parent (in memory or the store), so the fold needs only the block order.
-    info!(count = plan.pending.len(), %asm_tip, "syncing Moho state to ASM tip");
-    for block in plan.pending.into_iter().rev() {
+    if base != current {
+        let base_moho = state.context.get_moho_state(&base)?;
+
+        // External export-entry leaves are ordered by height rather than block
+        // id. Clear the abandoned suffix before the base state becomes the
+        // durable commit point. `process_block` repeats the first-height prune,
+        // which is intentionally idempotent for crash replay.
+        state.context.begin_moho_rebase(&base)?;
+        if let Some(first_suffix_height) = base.height().checked_add(1) {
+            state
+                .context
+                .prune_export_entries_from(first_suffix_height)?;
+        }
+        state.context.finish_moho_rebase(&base)?;
+        state.update_moho_state(base_moho, base);
+    }
+
+    info!(count = pending.len(), %target, "syncing Moho state to ASM tip");
+    for block in pending.into_iter().rev() {
         process_block(state, block)?;
     }
-    Ok(())
+    Ok(true)
+}
+
+/// Returns the target-branch suffix above its common ancestor with `current`.
+fn plan_target_branch<W: MohoWorkerContext>(
+    context: &W,
+    target: L1BlockCommitment,
+    current: L1BlockCommitment,
+    genesis_height: u64,
+) -> MohoWorkerResult<(L1BlockCommitment, Vec<L1BlockCommitment>)> {
+    let mut target_cursor = target;
+    let mut current_cursor = current;
+    let mut pending = Vec::new();
+
+    while target_cursor.height() > current_cursor.height() {
+        pending.push(target_cursor);
+        target_cursor = checked_parent(context, target_cursor, genesis_height, current)?;
+    }
+    while current_cursor.height() > target_cursor.height() {
+        current_cursor = checked_parent(context, current_cursor, genesis_height, current)?;
+    }
+
+    while target_cursor != current_cursor {
+        pending.push(target_cursor);
+        target_cursor = checked_parent(context, target_cursor, genesis_height, current)?;
+        current_cursor = checked_parent(context, current_cursor, genesis_height, current)?;
+    }
+
+    Ok((target_cursor, pending))
+}
+
+fn checked_parent<W: MohoWorkerContext>(
+    context: &W,
+    block: L1BlockCommitment,
+    genesis_height: u64,
+    current: L1BlockCommitment,
+) -> MohoWorkerResult<L1BlockCommitment> {
+    if u64::from(block.height()) <= genesis_height {
+        return Err(MohoWorkerError::MissingMohoState(current));
+    }
+    context.get_parent_block(&block)
 }
 
 /// Status information for the Moho worker service.

@@ -8,11 +8,13 @@ workspace = true
 
 [dependencies]
 strata-asm-common.workspace = true
+strata-asm-logs.workspace = true
 strata-asm-stf.workspace = true
 strata-btc-types.workspace = true
 strata-btc-verification.workspace = true
 strata-identifiers.workspace = true
 strata-merkle = { workspace = true, features = ["ssz"] }
+strata-predicate = { workspace = true, features = ["serde"] }
 strata-service.workspace = true
 strata-tasks.workspace = true
 

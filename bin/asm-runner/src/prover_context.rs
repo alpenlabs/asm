@@ -189,6 +189,14 @@ impl MohoStateDb for AsmProverContext {
         self.moho_state_db.get_latest_moho_state().await
     }
 
+    /// Reports the store's ready-view generation.
+    ///
+    /// Historical reads use it to tell a complete view from one being rebuilt,
+    /// so it is read through rather than tracked here.
+    async fn view_generation(&self) -> Result<u64, Self::Error> {
+        self.moho_state_db.view_generation()
+    }
+
     async fn prune(&self, before_height: u32) -> Result<(), Self::Error> {
         self.moho_state_db.prune(before_height).await
     }

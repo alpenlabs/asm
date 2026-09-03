@@ -1,11 +1,11 @@
 use std::sync::Arc;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use bitcoind_async_client::{Auth, Client};
 use strata_asm_moho_worker::MohoWorkerBuilder;
 use strata_asm_params::StrataGenesisConfig;
 use strata_asm_prover_worker::{InputBuilder, ProofBackend, ProverWorkerBuilder};
-use strata_asm_spec::StrataAsmSpec;
+use strata_asm_spec::{StrataAsmTarget, StrataAsmTargets, build_v0_bootstrap};
 use strata_asm_worker::AsmWorkerBuilder;
 use strata_tasks::TaskExecutor;
 use tokio::{runtime::Handle, task};
@@ -32,6 +32,7 @@ pub(crate) async fn bootstrap(
     let AsmStorage {
         state_db,
         aux_db,
+        handover_db,
         manifest_db,
         mmr_db,
     } = create_asm_storage(&config.database.asm_path)?;
@@ -68,6 +69,7 @@ pub(crate) async fn bootstrap(
         bitcoin_client.clone(),
         state_db.clone(),
         aux_db.clone(),
+        handover_db.clone(),
         manifest_db.clone(),
         mmr_db.clone(),
     );
@@ -78,11 +80,28 @@ pub(crate) async fn bootstrap(
     // anchor against L1 — which drives blocking `WorkerContext` RPC calls (`block_on`). We are
     // on a runtime worker thread here, so wrap the build in `block_in_place` to allow blocking;
     // the worker's own loop runs on a dedicated sync thread where blocking is already fine.
+    // The chain starts under the released rules and reaches the successor through
+    // the predicate handover, so genesis is built for v0.
+    //
+    // The genesis predicate is a chain fact rather than a node setting: two nodes
+    // that disagree about it execute different rules. It is therefore taken from
+    // the genesis config, not derived. Only the baseline binding is compiled in
+    // here; the successor's predicate is a property of its qualified artifact, so
+    // it is appended when that artifact exists. Until then this node halts at a
+    // successor handover rather than guessing which rules it authorizes.
+    let genesis_predicate = params
+        .genesis_asm_predicate
+        .clone()
+        .context("asm: genesis config must pin genesis_asm_predicate")?;
+    let targets = StrataAsmTargets::new(vec![(genesis_predicate.clone(), StrataAsmTarget::V0)])?;
+    let bootstrap = Arc::new(build_v0_bootstrap(&params)?);
+
     let asm_worker = task::block_in_place(|| {
         AsmWorkerBuilder::new()
             .with_context(worker_context)
-            .with_asm_spec(StrataAsmSpec)
-            .with_params(params.clone())
+            .with_targets(targets)
+            .with_genesis_predicate(genesis_predicate)
+            .with_bootstrap(bootstrap)
             .launch(&executor)
     })?;
 
