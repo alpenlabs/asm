@@ -4,7 +4,7 @@
 //! distinct subsystem in production:
 //!
 //! - Proof persistence and remote-job tracking — reused verbatim from `strata-asm-prover-storage`
-//!   ([`ProofDb`], [`RemoteProofMappingDb`], [`RemoteProofStatusDb`], [`MohoStateDb`]).
+//!   ([`ProofDb`], [`RemoteProofJobDb`], [`MohoStateDb`]).
 //! - [`AnchorStateReader`] — reads persisted ASM anchor states.
 //! - [`AuxDataReader`] — reads per-block auxiliary data captured during STF execution.
 //! - [`L1BlockProvider`] — reads L1 blocks/headers from the Bitcoin source.
@@ -19,7 +19,7 @@ use std::error::Error as StdError;
 use bitcoin::{Block, block::Header};
 use strata_asm_common::{AnchorState, AuxData};
 use strata_asm_moho_storage::MohoStateDb;
-use strata_asm_prover_storage::{ProofDb, RemoteProofMappingDb, RemoteProofStatusDb};
+use strata_asm_prover_storage::{ProofDb, RemoteProofJobDb};
 use strata_identifiers::{L1BlockCommitment, L1BlockId};
 
 use crate::errors::ProverResult;
@@ -75,8 +75,7 @@ pub trait L1BlockProvider {
 /// backend already satisfies them.
 pub trait ProverContext:
     ProofDb<Error: StdError + Send + Sync + 'static>
-    + RemoteProofMappingDb<Error: StdError + Send + Sync + 'static>
-    + RemoteProofStatusDb<Error: StdError + Send + Sync + 'static>
+    + RemoteProofJobDb<Error: StdError + Send + Sync + 'static>
     + MohoStateDb<Error: StdError + Send + Sync + 'static>
     + AnchorStateReader
     + AuxDataReader
@@ -86,8 +85,7 @@ pub trait ProverContext:
 
 impl<T> ProverContext for T where
     T: ProofDb<Error: StdError + Send + Sync + 'static>
-        + RemoteProofMappingDb<Error: StdError + Send + Sync + 'static>
-        + RemoteProofStatusDb<Error: StdError + Send + Sync + 'static>
+        + RemoteProofJobDb<Error: StdError + Send + Sync + 'static>
         + MohoStateDb<Error: StdError + Send + Sync + 'static>
         + AnchorStateReader
         + AuxDataReader

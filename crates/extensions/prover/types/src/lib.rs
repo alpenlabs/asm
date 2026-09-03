@@ -4,8 +4,10 @@ use std::{cmp::Ordering, fmt};
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use serde::{Deserialize, Serialize};
+use strata_asm_common::{AsmArtifactId, AsmSpecId, GuestArtifactId};
 use strata_identifiers::L1BlockCommitment;
-use zkaleido::ProofReceiptWithMetadata;
+use strata_predicate::PredicateKey;
+use zkaleido::{ProofReceiptWithMetadata, RemoteProofStatus};
 
 /// Status snapshot of a prover worker.
 ///
@@ -110,7 +112,7 @@ impl PartialOrd for ProofId {
 /// Wraps raw bytes since zkaleido's `ZkVmRemoteProver::ProofId` associated type
 /// has `Into<Vec<u8>> + TryFrom<Vec<u8>>` bounds, allowing any backend's ID
 /// to be stored generically.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, BorshSerialize, BorshDeserialize)]
 pub struct RemoteProofId(pub Vec<u8>);
 
 impl fmt::Display for RemoteProofId {
@@ -120,6 +122,84 @@ impl fmt::Display for RemoteProofId {
         }
         Ok(())
     }
+}
+
+/// Immutable identity of the qualified ASM artifact selected for a proof job.
+///
+/// The predicate says which program the recursive verifier authorizes, the
+/// specification names the native rules that program implements, and the
+/// artifact id commits to the canonical artifact entry plus the shared release
+/// provenance that qualified the exact ELF.
+/// Persisting all three prevents a restart or configuration change from
+/// silently reinterpreting an already-submitted remote job.
+#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+pub struct AsmProofJobIdentity {
+    /// Predicate committed by the parent Moho state.
+    pub predicate: PredicateKey,
+    /// Semantic ASM rules implemented by the selected artifact.
+    pub spec_id: AsmSpecId,
+    /// Digest of the canonical artifact entry plus shared release provenance.
+    pub artifact_id: AsmArtifactId,
+}
+
+/// Immutable identity of the qualified Moho artifact selected for a proof job.
+#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+pub struct MohoProofJobIdentity {
+    /// Predicate identifying the recursive program's verifying key.
+    pub predicate: PredicateKey,
+    /// Digest of the canonical artifact entry plus shared release provenance.
+    pub artifact_id: GuestArtifactId,
+}
+
+/// Program identity durably attached to a remote proof job.
+#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+pub enum ProofJobIdentity {
+    /// A fully qualified ASM guest selection.
+    Asm(AsmProofJobIdentity),
+    /// A fully qualified Moho recursive guest selection.
+    Moho(MohoProofJobIdentity),
+    /// An ASM job imported from the legacy mapping/status trees.
+    ///
+    /// Legacy rows did not record an artifact identity. The worker must bind
+    /// this marker to a qualified artifact using the proof's authenticated
+    /// parent predicate before it may retrieve the completed proof.
+    LegacyUnqualifiedAsm,
+    /// A Moho job imported from legacy storage without artifact provenance.
+    ///
+    /// The worker must bind this marker to its qualified recursive artifact
+    /// before it may retrieve the result.
+    LegacyUnqualifiedMoho,
+}
+
+/// One durable remote-proof lifecycle record.
+///
+/// The authoritative association between the logical task, the remote prover's
+/// id, its last observed status, and the exact program identity that produced
+/// it. The sled backend stores the record and its active index in one
+/// transaction, so a mapping can never become visible without its status and
+/// provenance.
+///
+/// Known gap: submission still writes local state after the remote call
+/// accepts, so a crash in between can leave an attempt that exists remotely and
+/// not locally. The fix is a prepared/acceptance-unknown/accepted lifecycle
+/// replacing `status` and `remote_id` with a single state enum, so the two can
+/// never disagree. Deferred: it is a crash-recovery change, independent of which
+/// artifact proved a block, and belongs with the prover reliability work rather
+/// than here. A drafted `RemoteProofJobDb` for it is not wired up.
+#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+pub struct RemoteProofJob {
+    /// Logical proof task requested by the worker.
+    pub proof_id: ProofId,
+    /// Exact program and artifact identity used for the submission.
+    ///
+    /// Recorded so a completed proof can be decoded through the host that made
+    /// it, and so a retry cannot silently reinterpret an attempt under a
+    /// different artifact.
+    pub identity: ProofJobIdentity,
+    /// Remote prover's id for this submission.
+    pub remote_id: RemoteProofId,
+    /// Last observed remote status.
+    pub status: RemoteProofStatus,
 }
 
 /// A range of L1 blocks defined by start and end commitments.

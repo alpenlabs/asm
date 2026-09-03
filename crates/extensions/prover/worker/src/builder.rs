@@ -1,6 +1,7 @@
 //! Builder for assembling and launching a prover worker.
 
 use jsonrpsee::http_client::{HttpClient, HttpClientBuilder};
+use strata_asm_prover_types::MohoProofJobIdentity;
 use strata_asm_worker::Subscription;
 use strata_identifiers::L1BlockCommitment;
 use strata_service::{ServiceBuilder, StreamInput, TickingInput};
@@ -13,6 +14,7 @@ use crate::{
     constants,
     errors::{ProverError, ProverResult},
     handle::ProverWorkerHandle,
+    hosts::AsmHosts,
     service::ProverService,
     state::ProverServiceState,
 };
@@ -35,8 +37,9 @@ use crate::{
 #[derive(Debug)]
 pub struct ProverWorkerBuilder<C, H> {
     ctx: Option<C>,
-    asm_host: Option<H>,
+    asm_hosts: Option<AsmHosts<H>>,
     moho_host: Option<H>,
+    moho_identity: Option<MohoProofJobIdentity>,
     config: Option<OrchestratorConfig>,
     input_builder: Option<InputBuilder>,
     subscription: Option<Subscription<L1BlockCommitment>>,
@@ -47,8 +50,9 @@ impl<C, H> ProverWorkerBuilder<C, H> {
     pub fn new() -> Self {
         Self {
             ctx: None,
-            asm_host: None,
+            asm_hosts: None,
             moho_host: None,
+            moho_identity: None,
             config: None,
             input_builder: None,
             subscription: None,
@@ -61,10 +65,20 @@ impl<C, H> ProverWorkerBuilder<C, H> {
         self
     }
 
-    /// Sets the `(asm, moho)` remote host pair.
-    pub fn with_hosts(mut self, asm_host: H, moho_host: H) -> Self {
-        self.asm_host = Some(asm_host);
+    /// Sets the ASM artifact set and the Moho remote host.
+    ///
+    /// The ASM side is a set rather than a single host: one artifact implements
+    /// one specification, and which one proves a block is decided per block from
+    /// the parent's handover.
+    pub fn with_hosts(
+        mut self,
+        asm_hosts: AsmHosts<H>,
+        moho_host: H,
+        moho_identity: MohoProofJobIdentity,
+    ) -> Self {
+        self.asm_hosts = Some(asm_hosts);
         self.moho_host = Some(moho_host);
+        self.moho_identity = Some(moho_identity);
         self
     }
 
@@ -104,12 +118,15 @@ where
     /// returns a handle to it.
     pub async fn launch(self, executor: &TaskExecutor) -> ProverResult<ProverWorkerHandle> {
         let ctx = self.ctx.ok_or(ProverError::MissingDependency("context"))?;
-        let asm_host = self
-            .asm_host
-            .ok_or(ProverError::MissingDependency("asm_host"))?;
+        let asm_hosts = self
+            .asm_hosts
+            .ok_or(ProverError::MissingDependency("asm_hosts"))?;
         let moho_host = self
             .moho_host
             .ok_or(ProverError::MissingDependency("moho_host"))?;
+        let moho_identity = self
+            .moho_identity
+            .ok_or(ProverError::MissingDependency("moho_identity"))?;
         let config = self
             .config
             .ok_or(ProverError::MissingDependency("config"))?;
@@ -136,8 +153,16 @@ where
 
         // State construction seeds the pending queue from durable state; a
         // failure fails the launch, matching the ASM worker's startup reads.
-        let state =
-            ProverServiceState::new(ctx, asm_host, moho_host, config, input_builder, peer).await?;
+        let state = ProverServiceState::new(
+            ctx,
+            asm_hosts,
+            moho_host,
+            moho_identity,
+            config,
+            input_builder,
+            peer,
+        )
+        .await?;
 
         // The Moho worker's commit subscription is a `Stream`; wrap it as a
         // service input and overlay the periodic wakeup tick.

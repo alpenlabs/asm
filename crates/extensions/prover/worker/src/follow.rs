@@ -87,7 +87,7 @@ where
             fetch_with(&mut state.queue, &mut fetcher, up_to).await;
             let fetched = fetcher.fetched;
             for proof_id in &fetched {
-                state.advance_proven(proof_id);
+                state.advance_proven(proof_id).await?;
             }
         }
         FollowAction::Fallback(reason) => {

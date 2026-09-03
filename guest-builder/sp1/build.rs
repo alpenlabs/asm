@@ -1,6 +1,13 @@
-//! Build script for SP1 guest artifacts (`guest-asm`, `guest-moho`) used by ASM proof workflows.
+//! Build script for SP1 guest artifacts (`guest-asm-v0`, `guest-asm`, `guest-moho`) used by ASM
+//! proof workflows.
 //!
-//! Compiled ELFs are emitted to `<crate>/elfs/{asm,moho}.elf` regardless of the `docker-build`
+//! There is one ASM guest per specification, not one in total. A guest bakes in the rules it
+//! executes, so proving a block requires the artifact for the rules that block ran under — and
+//! since the recursive chain re-verifies every step from genesis, every specification the chain has
+//! ever run under stays buildable.
+//!
+//! Compiled ELFs are emitted to `<crate>/elfs/{asm-v0,asm,moho}.elf` regardless of the
+//! `docker-build`
 //! feature, so consumers can reference a stable path that survives `cargo clean`. Alongside each
 //! ELF, the SP1 Groth16 [`PredicateKey`] is derived and written to `<crate>/elfs/<name>-vk.json`
 //! as a JSON-encoded `"Sp1Groth16:<hex>"` string — the form the bridge consumes as a trust
@@ -16,6 +23,9 @@
 //!   clippy`, which only needs the crate to typecheck.
 //! - **`BUILD_VKEY`** — set to `1`/`true` to derive each guest's vk and write the `*-vk.json`
 //!   files. Requires the ELFs to exist, so it implies `BUILD_ELF`.
+//! - **`SP1_DOCKER_IMAGE`** — when `docker-build` is enabled, release automation sets this to the
+//!   digest-pinned SP1 v6.3.0 builder recorded in the release manifest. A tag-only local build is
+//!   useful for development but is not release-qualified.
 //!
 //! # Features
 //!
@@ -34,9 +44,14 @@ use strata_predicate::{PredicateKey, PredicateTypeId};
 use zkaleido_sp1_groth16_verifier::SP1Groth16Verifier;
 
 const ELFS_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/elfs");
+const SP1_BUILD_TAG: &str = "v6.3.0";
 
 /// `(guest_crate_dir, elf_name, vk_json_name)` for every guest this builder produces.
+///
+/// Entries are added, never edited or removed: an ASM specification the chain has already run under
+/// must stay provable forever, so its artifact keeps its place and its name.
 const GUESTS: &[(&str, &str, &str)] = &[
+    ("guest-asm-v0", "asm-v0.elf", "asm-v0-vk.json"),
     ("guest-asm", "asm.elf", "asm-vk.json"),
     ("guest-moho", "moho.elf", "moho-vk.json"),
 ];
@@ -44,6 +59,7 @@ const GUESTS: &[(&str, &str, &str)] = &[
 fn main() {
     println!("cargo:rerun-if-env-changed=BUILD_ELF");
     println!("cargo:rerun-if-env-changed=BUILD_VKEY");
+    println!("cargo:rerun-if-env-changed=SP1_DOCKER_IMAGE");
 
     // clippy only needs the crate to typecheck, so it never builds guests whatever is set.
     if is_clippy() {
@@ -83,6 +99,8 @@ fn build_guest(guest_dir: &str, elf_name: &str) {
     let build_args = BuildArgs {
         output_directory: Some(ELFS_DIR.to_owned()),
         elf_name: Some(elf_name.to_owned()),
+        tag: SP1_BUILD_TAG.to_owned(),
+        locked: true,
         #[cfg(feature = "docker-build")]
         docker: true,
         #[cfg(feature = "docker-build")]

@@ -1,6 +1,6 @@
 //! [`RemoteProofStatusDb`] implementation for [`SledProofDb`].
 
-use std::{error::Error, fmt};
+use std::{collections::BTreeMap, error::Error, fmt};
 
 use borsh::BorshDeserialize;
 use strata_asm_prover_types::RemoteProofId;
@@ -60,6 +60,12 @@ impl SledProofDb {
         &self,
         remote_id: &RemoteProofId,
     ) -> Result<Option<RemoteProofStatus>, sled::Error> {
+        if let Some(job) = self
+            .remote_job(remote_id)
+            .map_err(|error| sled::Error::Unsupported(error.to_string()))?
+        {
+            return Ok(Some(job.status));
+        }
         Ok(self.remote_proof_status.get(&remote_id.0)?.map(|v| {
             BorshDeserialize::try_from_slice(&v)
                 .expect("stored RemoteProofStatus should be valid borsh")
@@ -68,29 +74,63 @@ impl SledProofDb {
 
     /// Lists every tracked `(remote_id, status)` pair.
     pub fn list_status(&self) -> Result<Vec<(RemoteProofId, RemoteProofStatus)>, sled::Error> {
-        self.remote_proof_status
-            .iter()
-            .map(|entry| {
-                let (k, v) = entry?;
-                let status: RemoteProofStatus = BorshDeserialize::try_from_slice(&v)
-                    .expect("stored RemoteProofStatus should be valid borsh");
-                Ok((RemoteProofId(k.to_vec()), status))
-            })
-            .collect()
+        let mut statuses: BTreeMap<_, _> = self
+            .list_remote_jobs()
+            .map_err(|error| sled::Error::Unsupported(error.to_string()))?
+            .into_iter()
+            .map(|job| (job.remote_id, job.status))
+            .collect();
+        for entry in &self.remote_proof_status {
+            let (key, value) = entry?;
+            let status = RemoteProofStatus::try_from_slice(&value)
+                .expect("stored RemoteProofStatus should be valid borsh");
+            statuses
+                .entry(RemoteProofId(key.to_vec()))
+                .or_insert(status);
+        }
+        Ok(statuses.into_iter().collect())
     }
 
     /// Lists the currently active (`Requested` or `InProgress`) jobs.
     pub fn in_progress(&self) -> Result<Vec<(RemoteProofId, RemoteProofStatus)>, sled::Error> {
-        Ok(self
-            .list_status()?
+        let mut statuses: BTreeMap<_, _> = self
+            .active_remote_jobs()
+            .map_err(|error| sled::Error::Unsupported(error.to_string()))?
             .into_iter()
-            .filter(|(_, status)| {
+            .filter(|job| {
                 matches!(
-                    status,
+                    job.status,
                     RemoteProofStatus::Requested | RemoteProofStatus::InProgress
                 )
             })
-            .collect())
+            .map(|job| (job.remote_id, job.status))
+            .collect();
+        for (remote_id, status) in self
+            .remote_proof_status
+            .iter()
+            .map(|entry| {
+                let (key, value) = entry?;
+                let status = RemoteProofStatus::try_from_slice(&value)
+                    .expect("stored RemoteProofStatus should be valid borsh");
+                Ok((RemoteProofId(key.to_vec()), status))
+            })
+            .collect::<Result<Vec<_>, sled::Error>>()?
+        {
+            if self
+                .remote_job(&remote_id)
+                .map_err(|error| sled::Error::Unsupported(error.to_string()))?
+                .is_some()
+            {
+                continue;
+            }
+            if matches!(
+                status,
+                RemoteProofStatus::Requested | RemoteProofStatus::InProgress
+            ) {
+                statuses.entry(remote_id).or_insert(status);
+            }
+        }
+        Ok(statuses.into_iter().collect())
     }
 
     /// Removes the status entry for `remote_id`, returning whether one was present.

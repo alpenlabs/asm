@@ -119,6 +119,77 @@ pub enum ProverError {
     /// framework's builder returns `anyhow::Error`, carried here as the cause.
     #[error("failed to launch prover service: {0}")]
     Launch(#[source] anyhow::Error),
+
+    /// A prover was configured with no ASM guest artifact, so it could prove no
+    /// block at all.
+    #[error("no ASM guest artifact configured; a prover needs at least one")]
+    NoAsmArtifacts,
+
+    /// Two ASM artifacts claim the same predicate, which would make the artifact
+    /// that proves a block depend on lookup order.
+    #[error("predicate {predicate} is claimed by more than one ASM guest artifact")]
+    AmbiguousAsmArtifact {
+        /// The repeated predicate.
+        predicate: String,
+    },
+
+    /// Two loaded artifacts claimed the same immutable artifact identity.
+    #[error("ASM artifact id {artifact_id} is configured more than once")]
+    DuplicateAsmArtifactId {
+        /// Repeated artifact identity.
+        artifact_id: String,
+    },
+
+    /// Configuration named an artifact absent from the compiled release registry.
+    #[error("guest artifact {artifact_id} is not qualified by this release")]
+    UnknownQualifiedArtifact {
+        /// Requested artifact identity.
+        artifact_id: String,
+    },
+
+    /// A qualified artifact was configured in the wrong guest role.
+    #[error("guest artifact {artifact_id} is {actual}, expected {expected}")]
+    ArtifactRoleMismatch {
+        /// Requested artifact identity.
+        artifact_id: String,
+        /// Required role.
+        expected: &'static str,
+        /// Manifest role.
+        actual: &'static str,
+    },
+
+    /// The predicate derived from an ELF disagreed with its qualified manifest.
+    #[error("guest artifact {artifact_id} derives predicate {actual}, expected {expected}")]
+    ArtifactPredicateMismatch {
+        /// Requested artifact identity.
+        artifact_id: String,
+        /// Qualified predicate.
+        expected: String,
+        /// Predicate derived from the loaded ELF.
+        actual: String,
+    },
+
+    /// No loaded ASM artifact proves statements authorized by the requested
+    /// predicate.
+    #[error("no ASM guest artifact configured for predicate {predicate}")]
+    MissingAsmArtifact {
+        /// The predicate for which no artifact was loaded.
+        predicate: String,
+    },
+
+    /// A durable job was created for a different artifact than the one the
+    /// authenticated chain state and this release select for the same task.
+    #[error(
+        "remote proof job identity mismatch for {proof_id}: stored {stored}, expected {expected}"
+    )]
+    ProofJobIdentityMismatch {
+        /// Logical proof task whose identity changed.
+        proof_id: String,
+        /// Identity persisted when the job was submitted.
+        stored: String,
+        /// Identity derived from authenticated state and qualified artifacts.
+        expected: String,
+    },
 }
 
 impl ProverError {

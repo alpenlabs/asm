@@ -35,6 +35,8 @@ pub trait RemoteProofMappingDb {
     /// (e.g. when a proof is resubmitted), so calling this with the same
     /// `id` but a different `remote_id` is allowed — only the forward lookup
     /// (`ProofId → RemoteProofId`) is updated to point to the latest remote ID.
+    /// Replaying a previously deactivated `(id, remote_id)` pair reactivates it
+    /// only when no forward mapping exists; it never replaces a newer retry.
     ///
     /// However, a [`RemoteProofId`] must map to exactly one [`ProofId`].
     /// If `remote_id` is already associated with a **different** proof ID,
@@ -43,5 +45,19 @@ pub trait RemoteProofMappingDb {
         &self,
         id: ProofId,
         remote_id: RemoteProofId,
+    ) -> impl Future<Output = Result<(), Self::Error>> + Send;
+
+    /// Deactivates `remote_id` as the current remote job for `id`.
+    ///
+    /// The forward (`ProofId → RemoteProofId`) entry is removed only when it
+    /// still points to `remote_id`. A newer replacement mapping is left intact.
+    /// The reverse (`RemoteProofId → ProofId`) entry is retained as job
+    /// history, so the old remote job remains attributable after deactivation.
+    ///
+    /// This operation is idempotent when the mapping is already inactive.
+    fn deactivate_remote_proof_id(
+        &self,
+        id: ProofId,
+        remote_id: &RemoteProofId,
     ) -> impl Future<Output = Result<(), Self::Error>> + Send;
 }

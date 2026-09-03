@@ -60,7 +60,7 @@ where
         match input {
             // A newly committed block: record the proofs it requires. Scheduling
             // happens on the next tick.
-            TickMsg::Msg(block) => state.enqueue_block_proofs(block),
+            TickMsg::Msg(block) => state.enqueue_block_proofs(block).await,
 
             // Periodic wakeup: drive reconcile + schedule. Transient failures are
             // logged and swallowed so the service keeps running, matching the
@@ -85,6 +85,13 @@ where
     C: ProverContext + Send + Sync,
     H: ZkVmRemoteHost + Send + Sync,
 {
+    if let Err(error) = state.refresh_proven_frontier().await {
+        // Frontier observability stays safely cleared while dirty, but remote
+        // job cleanup and scheduling must continue; they have their own
+        // retries and may restore the very proof the refresh is looking for.
+        error!(?error, "failed to refresh canonical proven frontier");
+    }
+
     if !state.queue.is_empty() {
         debug!(pending = state.queue.len(), "prover tick");
     }

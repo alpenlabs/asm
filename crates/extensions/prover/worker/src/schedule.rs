@@ -8,14 +8,18 @@
 use async_trait::async_trait;
 use moho_recursive_proof::MohoRecursiveProgram;
 use strata_asm_proof_impl::program::AsmStfProofProgram;
-use strata_asm_prover_types::{ProofId, RemoteProofId};
-use tracing::{debug, info, warn};
+use strata_asm_prover_types::{
+    AsmProofJobIdentity, ProofId, ProofJobIdentity, RemoteProofId, RemoteProofJob,
+};
+use tracing::{debug, error, info, warn};
 use zkaleido::{RemoteProofStatus, ZkVmRemoteHost, ZkVmRemoteProgram};
 
 use crate::{
     ProverContext,
     errors::{ProverError, ProverResult},
-    input::{InputBuilder, MohoInput},
+    hosts::AsmHosts,
+    input::{AsmProofInput, InputBuilder, MohoInput},
+    job_identity::validate_or_bind_job_identity,
     proof_store,
     queue::PendingProofQueue,
     state::ProverServiceState,
@@ -33,7 +37,7 @@ where
 {
     let in_flight = state
         .ctx
-        .get_all_in_progress()
+        .get_all_active_remote_proof_jobs()
         .await
         .map_err(|e| ProverError::storage("failed to query in-progress proofs", e))?
         .len();
@@ -49,6 +53,7 @@ where
         ctx: &state.ctx,
         asm: &state.asm,
         moho: &state.moho,
+        moho_identity: &state.moho_identity,
         input_builder: &state.input_builder,
     };
     schedule_with(&mut state.queue, &mut submitter, capacity).await;
@@ -70,6 +75,14 @@ enum SubmitOutcome {
     /// Prerequisite proofs not yet available; caller should re-enqueue the
     /// proof and pull the missing prerequisites into the queue.
     Deferred { missing: Vec<ProofId> },
+    /// The block is authorized by a predicate this node ships no ASM artifact
+    /// for, so no proof it could produce would verify.
+    ///
+    /// Distinct from [`Deferred`](Self::Deferred) and from a submission error:
+    /// waiting cannot fix it and retrying cannot either, so the proof is dropped
+    /// from the queue rather than spun on. The proven frontier then stops
+    /// advancing, which is the symptom an operator sees alongside the log.
+    Unprovable { predicate: String },
 }
 
 /// Why a proof required no submission.
@@ -142,6 +155,13 @@ async fn schedule_with<S: ProofSubmitter>(
                 }
                 deferred.push(proof_id);
             }
+            Ok(SubmitOutcome::Unprovable { predicate }) => {
+                error!(
+                    ?proof_id,
+                    %predicate,
+                    "no ASM guest artifact for this block's predicate; this release cannot prove it",
+                );
+            }
             Err(e) => {
                 warn!(?proof_id, %e, "failed to submit proof, re-enqueuing");
                 deferred.push(proof_id);
@@ -159,8 +179,9 @@ async fn schedule_with<S: ProofSubmitter>(
 /// scheduling cycle.
 struct StateSubmitter<'a, C, H> {
     ctx: &'a C,
-    asm: &'a H,
+    asm: &'a AsmHosts<H>,
     moho: &'a H,
+    moho_identity: &'a strata_asm_prover_types::MohoProofJobIdentity,
     input_builder: &'a InputBuilder,
 }
 
@@ -171,14 +192,23 @@ where
     H: ZkVmRemoteHost + Send + Sync,
 {
     async fn try_submit(&mut self, proof_id: ProofId) -> ProverResult<SubmitOutcome> {
-        // Skip if already submitted.
-        if self
+        // Skip only after proving that the durable job still names the exact
+        // artifact selected by authenticated state and this release. A restart
+        // with different configuration must not reinterpret an old remote id.
+        if let Some(job) = self
             .ctx
-            .get_remote_proof_id(proof_id)
+            .get_active_remote_proof_job(proof_id)
             .await
-            .map_err(|e| ProverError::storage("failed to check remote proof mapping", e))?
-            .is_some()
+            .map_err(|e| ProverError::storage("failed to check active remote proof job", e))?
         {
+            validate_or_bind_job_identity(
+                self.ctx,
+                self.input_builder,
+                self.asm,
+                self.moho_identity,
+                job,
+            )
+            .await?;
             return Ok(SubmitOutcome::Skipped(SkipReason::AlreadySubmitted));
         }
 
@@ -190,17 +220,37 @@ where
         // Build input and submit to remote prover, dispatching by proof type.
         // `ZkVmRemoteProgram::start_proving` returns a `Send` future, so it drives
         // directly on the multi-threaded async framework.
-        let typed_id = match &proof_id {
+        let (typed_id, identity) = match &proof_id {
             // ASM step proofs depend only on worker-persisted state, never on
             // another proof, so there is nothing to defer on.
             ProofId::Asm(range) => {
-                let runtime_input = self
+                let AsmProofInput {
+                    runtime_input,
+                    predicate,
+                } = self
                     .input_builder
                     .build_asm_runtime_input(self.ctx, range)
                     .await?;
-                AsmStfProofProgram::start_proving(&runtime_input, self.asm)
+
+                // The artifact is selected by the predicate the block's parent
+                // handed over, never by which artifact happens to be loaded: a
+                // proof from the wrong artifact does not verify, so submitting
+                // one would burn a proving job and report success.
+                let Some(artifact) = self.asm.resolve_artifact(&predicate) else {
+                    return Ok(SubmitOutcome::Unprovable {
+                        predicate: format!("{predicate:?}"),
+                    });
+                };
+
+                let typed_id = AsmStfProofProgram::start_proving(&runtime_input, &artifact.host)
                     .await
-                    .map_err(ProverError::RemoteSubmit)?
+                    .map_err(ProverError::RemoteSubmit)?;
+                let identity = ProofJobIdentity::Asm(AsmProofJobIdentity {
+                    predicate,
+                    spec_id: artifact.spec_id,
+                    artifact_id: artifact.artifact_id,
+                });
+                (typed_id, identity)
             }
             ProofId::Moho(block) => {
                 let input = match self
@@ -213,24 +263,29 @@ where
                         return Ok(SubmitOutcome::Deferred { missing });
                     }
                 };
-                MohoRecursiveProgram::start_proving(&input, self.moho)
+                let typed_id = MohoRecursiveProgram::start_proving(&input, self.moho)
                     .await
-                    .map_err(ProverError::RemoteSubmit)?
+                    .map_err(ProverError::RemoteSubmit)?;
+                (typed_id, ProofJobIdentity::Moho(self.moho_identity.clone()))
             }
         };
 
         let remote_id = RemoteProofId(typed_id.into());
 
-        // Store mapping and initial status.
+        // Persist mapping, status, and artifact provenance atomically. There is
+        // necessarily a narrow external-system gap between remote acceptance
+        // and this local transaction: without a remote idempotency key a crash
+        // there can waste duplicate proving work. It cannot suppress retry,
+        // because no local active index exists until this transaction commits.
         self.ctx
-            .put_remote_proof_id(proof_id, remote_id.clone())
+            .create_remote_proof_job(RemoteProofJob {
+                proof_id,
+                remote_id: remote_id.clone(),
+                identity,
+                status: RemoteProofStatus::Requested,
+            })
             .await
-            .map_err(|e| ProverError::storage("failed to store proof mapping", e))?;
-
-        self.ctx
-            .put_status(&remote_id, RemoteProofStatus::Requested)
-            .await
-            .map_err(|e| ProverError::storage("failed to store initial proof status", e))?;
+            .map_err(|e| ProverError::storage("failed to store remote proof job", e))?;
 
         Ok(SubmitOutcome::Submitted(remote_id))
     }
@@ -271,6 +326,12 @@ mod tests {
 
     fn deferred_missing(missing: Vec<ProofId>) -> SubmitOutcome {
         SubmitOutcome::Deferred { missing }
+    }
+
+    fn unprovable() -> SubmitOutcome {
+        SubmitOutcome::Unprovable {
+            predicate: "Sp1Groth16:ff".to_owned(),
+        }
     }
 
     /// One scripted reply for [`FakeSubmitter`].
@@ -395,6 +456,31 @@ mod tests {
         assert_eq!(submitter.call_log, vec![asm(3), asm(4)]);
         assert_eq!(queue.len(), 1);
         assert_eq!(queue.dequeue_one(), Some(asm(3)));
+    }
+
+    /// A block this release cannot prove is dropped, not re-enqueued.
+    ///
+    /// Retrying cannot help — no artifact this node has produces a proof that
+    /// verifies — so re-enqueuing would spin the queue and re-log every tick
+    /// forever. Dropping lets the queue drain; the proven frontier then stops
+    /// advancing, which is the symptom the operator sees alongside the error.
+    ///
+    /// Contrast `err_treated_like_defer`: a submission *error* may be transient
+    /// and is retried.
+    #[tokio::test]
+    async fn unprovable_is_dropped_rather_than_retried() {
+        let mut queue = PendingProofQueue::new();
+        queue.enqueue(asm(3));
+        queue.enqueue(asm(4));
+
+        let mut submitter = FakeSubmitter::default().with(asm(3), vec![unprovable()]);
+
+        schedule_with(&mut queue, &mut submitter, 1).await;
+
+        // `asm(3)` was refused and consumed no capacity, so `asm(4)` still got
+        // its submission within the same tick.
+        assert_eq!(submitter.call_log, vec![asm(3), asm(4)]);
+        assert_eq!(queue.len(), 0, "a refused proof must not be re-enqueued");
     }
 
     #[tokio::test]

@@ -29,13 +29,37 @@ const NEXT_PREDICATE_LEAF_INDEX: usize = 1;
 /// Builds [`RuntimeInput`] for proof generation, dispatching by proof type.
 ///
 /// Holds only the values that are fixed for the lifetime of the prover (the
-/// genesis commitment and the two predicate keys); all per-block data is read
-/// from the [`ProverContext`] passed to each method.
+/// genesis commitment and the Moho predicate); all per-block data is read from
+/// the [`ProverContext`] passed to each method.
+///
+/// It deliberately holds no ASM predicate. Which predicate authorizes a block is
+/// a property of that block's parent — `next_predicate` in the parent's
+/// [`MohoState`] — and on a chain that has upgraded it differs from block to
+/// block. A fixed value here would be wrong for every block on the far side of a
+/// boundary, and wrong in the worst way: the recursive verifier checks the step
+/// predicate against the parent state's committed `next_predicate`, so the two
+/// must come from the same place. They now do.
 #[derive(Debug)]
 pub struct InputBuilder {
     genesis: L1BlockCommitment,
-    asm_predicate: PredicateKey,
     moho_predicate: PredicateKey,
+}
+
+/// An assembled ASM step-proof input together with the predicate that authorizes
+/// the block it proves.
+///
+/// The predicate travels with the input because it selects the artifact that must
+/// produce the proof: an ASM guest bakes in one specification, and only the
+/// artifact whose own predicate is this value produces a proof the recursive
+/// verifier accepts.
+#[derive(Debug)]
+pub struct AsmProofInput {
+    /// The ZkVM input for the block.
+    pub runtime_input: RuntimeInput,
+
+    /// The predicate authorizing this block, read from the parent's
+    /// [`MohoState`].
+    pub predicate: PredicateKey,
 }
 
 /// Result of assembling a Moho recursive proof input: either the input, ready
@@ -56,19 +80,14 @@ pub enum MohoInput {
 
 impl InputBuilder {
     /// Creates a new input builder.
-    pub fn new(
-        genesis: L1BlockCommitment,
-        asm_predicate: PredicateKey,
-        moho_predicate: PredicateKey,
-    ) -> Self {
+    pub fn new(genesis: L1BlockCommitment, moho_predicate: PredicateKey) -> Self {
         Self {
             genesis,
-            asm_predicate,
             moho_predicate,
         }
     }
 
-    async fn get_parent_commitment<C: ProverContext>(
+    pub(crate) async fn parent_commitment<C: ProverContext>(
         &self,
         ctx: &C,
         l1_ref: L1BlockCommitment,
@@ -104,6 +123,20 @@ impl InputBuilder {
         self.genesis
     }
 
+    /// Returns the predicate that authorizes the ASM proof for `range`.
+    ///
+    /// The predicate is committed by the parent block's Moho state. Besides
+    /// selecting the artifact at submission time, it is used after restart to
+    /// select the same artifact when a completed remote proof is retrieved.
+    pub(crate) async fn asm_predicate<C: ProverContext>(
+        &self,
+        ctx: &C,
+        range: &L1Range,
+    ) -> ProverResult<PredicateKey> {
+        let parent = self.parent_commitment(ctx, range.start()).await?;
+        Ok(self.get_moho_state(ctx, parent).await?.next_predicate)
+    }
+
     /// Builds the [`RuntimeInput`] for a single-block ASM proof.
     ///
     /// This fetches the Bitcoin block and auxiliary data, reconstructs the
@@ -112,7 +145,7 @@ impl InputBuilder {
         &self,
         ctx: &C,
         range: &L1Range,
-    ) -> ProverResult<RuntimeInput> {
+    ) -> ProverResult<AsmProofInput> {
         let commitment = range.start();
 
         // 1. Fetch the Bitcoin block.
@@ -129,21 +162,30 @@ impl InputBuilder {
         let step_input = AsmStepInput::new(block, aux_data, coinbase_inclusion_proof);
 
         // 4. Fetch the pre-state (anchor state for the parent block).
-        let parent_commitment = self.get_parent_commitment(ctx, commitment).await?;
+        let parent_commitment = self.parent_commitment(ctx, commitment).await?;
 
         let anchor_state = ctx.get_anchor_state(&parent_commitment)?;
 
         // 5. Compute the Moho pre-state from the anchor state.
         let moho_pre_state = self.get_moho_state(ctx, parent_commitment).await?;
 
-        // 6. Build RuntimeInput.
+        // 6. Read the predicate authorizing this block. It is the parent's
+        // committed `next_predicate` — the value the recursive verifier checks
+        // the step proof against — so the artifact selected by it is the only one
+        // whose proof can be accepted for this block.
+        let predicate = moho_pre_state.next_predicate.clone();
+
+        // 7. Build RuntimeInput.
         let runtime_input = RuntimeInput::new(
             moho_pre_state,
             anchor_state.as_ssz_bytes(),
             step_input.as_ssz_bytes(),
         );
 
-        Ok(runtime_input)
+        Ok(AsmProofInput {
+            runtime_input,
+            predicate,
+        })
     }
 
     /// Assembles the [`MohoRecursiveInput`] for a Moho recursive proof at
@@ -170,7 +212,7 @@ impl InputBuilder {
             .await
             .map_err(|e| ProverError::storage("failed to fetch ASM step proof", e))?;
 
-        let parent = self.get_parent_commitment(ctx, l1_ref).await?;
+        let parent = self.parent_commitment(ctx, l1_ref).await?;
         let requires_prev = parent != self.genesis;
         let prev_moho = if requires_prev {
             ctx.get_moho_proof(parent)
@@ -225,10 +267,14 @@ impl InputBuilder {
 
         let moho_predicate = self.moho_predicate.clone();
 
-        // The inner step proof is the ASM STF proof, so the step predicate is
-        // the ASM predicate.
-        let step_predicate = self.asm_predicate.clone();
         let parent_state = self.get_moho_state(ctx, parent).await?;
+
+        // The inner step proof is the ASM STF proof, and the predicate that
+        // authorizes it is the parent state's `next_predicate` — the very leaf
+        // the inclusion proof below commits to. Reading it from the state rather
+        // than from a value held here is what keeps the two in agreement across
+        // an upgrade boundary.
+        let step_predicate = parent_state.next_predicate.clone();
 
         let leaves = [
             <_ as TreeHash>::tree_hash_root::<TreeSha256Hasher>(&parent_state.inner_state)

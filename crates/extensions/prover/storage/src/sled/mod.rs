@@ -1,5 +1,6 @@
 //! [Sled](https://docs.rs/sled)-backed implementation of [`super::ProofDb`],
-//! [`super::RemoteProofMappingDb`], and [`super::RemoteProofStatusDb`].
+//! [`super::RemoteProofJobDb`], plus the legacy
+//! [`super::RemoteProofMappingDb`] and [`super::RemoteProofStatusDb`].
 //!
 //! All data is stored in a single sled database with separate trees for each
 //! concern. Keys use big-endian height encoding so that sled's lexicographic
@@ -9,15 +10,19 @@ use strata_asm_prover_types::L1Range;
 use strata_identifiers::{Buf32, L1BlockCommitment, L1BlockId};
 
 mod proof_db;
+mod remote_job;
 mod remote_mapping;
 mod remote_status;
 
-pub use self::{remote_mapping::RemoteProofMappingError, remote_status::RemoteProofStatusError};
+pub use self::{
+    remote_job::RemoteProofJobError, remote_mapping::RemoteProofMappingError,
+    remote_status::RemoteProofStatusError,
+};
 
 /// Sled-backed proof database.
 ///
-/// Implements [`super::ProofDb`], [`super::RemoteProofMappingDb`], and
-/// [`super::RemoteProofStatusDb`] using five sled trees within a single database.
+/// Implements [`super::ProofDb`] and [`super::RemoteProofJobDb`], plus the
+/// legacy mapping/status interfaces, using six sled trees within one database.
 /// Proof keys are encoded with big-endian heights so that sled's lexicographic
 /// ordering matches block-height ordering.
 #[derive(Debug, Clone)]
@@ -32,17 +37,21 @@ pub struct SledProofDb {
     pub(crate) remote_to_proof: sled::Tree,
     /// Status tracking: `RemoteProofId` (raw bytes) → `RemoteProofStatus` (borsh-encoded).
     pub(crate) remote_proof_status: sled::Tree,
+    /// Authoritative remote job records and active-task indices.
+    pub(crate) remote_proof_jobs: sled::Tree,
 }
 
 impl SledProofDb {
     /// Tree names the store occupies within its sled database.
-    const TREE_NAMES: [&'static str; 5] = [
+    const LEGACY_TREE_NAMES: [&'static str; 5] = [
         "asm_proofs",
         "moho_proofs",
         "proof_to_remote",
         "remote_to_proof",
         "remote_proof_status",
     ];
+
+    const REMOTE_PROOF_JOBS_TREE: &'static str = "remote_proof_jobs_v1";
 
     /// Opens the proof trees on an already-open sled database.
     ///
@@ -56,14 +65,17 @@ impl SledProofDb {
             proof_to_remote,
             remote_to_proof,
             remote_proof_status,
-        ] = Self::TREE_NAMES;
-        Ok(Self {
+        ] = Self::LEGACY_TREE_NAMES;
+        let store = Self {
             asm_proofs: db.open_tree(asm_proofs)?,
             moho_proofs: db.open_tree(moho_proofs)?,
             proof_to_remote: db.open_tree(proof_to_remote)?,
             remote_to_proof: db.open_tree(remote_to_proof)?,
             remote_proof_status: db.open_tree(remote_proof_status)?,
-        })
+            remote_proof_jobs: db.open_tree(Self::REMOTE_PROOF_JOBS_TREE)?,
+        };
+        store.migrate_legacy_remote_jobs()?;
+        Ok(store)
     }
 
     /// Whether `db` already contains the proof trees.
@@ -73,7 +85,9 @@ impl SledProofDb {
     /// operator-supplied path — check this before opening.
     pub fn exists_in(db: &sled::Db) -> bool {
         let names = db.tree_names();
-        Self::TREE_NAMES
+        // The five original trees are enough to identify a proof database.
+        // `open` adds the atomic job tree and migrates any active legacy rows.
+        Self::LEGACY_TREE_NAMES
             .iter()
             .all(|tree| names.iter().any(|name| name.as_ref() == tree.as_bytes()))
     }

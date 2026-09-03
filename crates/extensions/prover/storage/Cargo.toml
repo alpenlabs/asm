@@ -13,6 +13,8 @@ zkaleido.workspace = true
 
 [dev-dependencies]
 proptest.workspace = true
+strata-asm-common.workspace = true
+strata-predicate.workspace = true
 tempfile.workspace = true
 tokio.workspace = true
 

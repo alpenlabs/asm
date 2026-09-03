@@ -22,7 +22,9 @@ mod constants;
 mod errors;
 mod follow;
 mod handle;
+mod hosts;
 mod input;
+mod job_identity;
 mod message;
 mod proof_store;
 mod queue;
@@ -34,10 +36,14 @@ mod traits;
 
 pub use backend::{ProofBackend, ProofHost};
 pub use builder::ProverWorkerBuilder;
-pub use config::{BackendConfig, FollowerConfig, OrchestratorConfig, ProverMode};
+pub use config::{
+    AsmGuestConfig, BackendConfig, FollowerConfig, NativeAsmGuestConfig, OrchestratorConfig,
+    ProverMode,
+};
 pub use errors::{ProverError, ProverResult};
 pub use handle::ProverWorkerHandle;
-pub use input::{InputBuilder, MohoInput};
+pub use hosts::{ArtifactQualification, AsmHost, AsmHosts};
+pub use input::{AsmProofInput, InputBuilder, MohoInput};
 pub use message::ProverMessage;
 pub use service::ProverService;
 pub use state::ProverServiceState;

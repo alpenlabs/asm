@@ -7,6 +7,12 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
+  # Pin every SP1 identity that can affect guest bytes. `sp1-build` honors
+  # SP1_DOCKER_IMAGE instead of constructing a mutable tag when this is set.
+  SP1_VERSION: v6.3.0
+  SP1UP_COMMIT: ca8700effe99ef7331872cbb4f71f8e29be98c7a
+  SP1UP_SHA256: 55d4f6ef8e79e04a7ccd064f75c6a6b44a1694b21cd41aa8e7d0d53eb880a71d
+  SP1_DOCKER_IMAGE: ghcr.io/succinctlabs/sp1@sha256:73535ed4e9071f2b8923874121c94ac8ff5f2efa66c7b5247169fe5ef26d44cb
 
 concurrency:
   group: release-${{ github.ref_name }}
@@ -25,6 +31,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          fetch-depth: 0
           persist-credentials: false
 
       - name: Install Rust toolchain
@@ -35,17 +42,108 @@ jobs:
 
       - name: Install SP1 toolchain
         run: |
-          curl -fsSL --proto '=https' --tlsv1.2 https://sp1.succinct.xyz | bash
-          ~/.sp1/bin/sp1up
+          set -euo pipefail
+          SP1UP=/tmp/sp1up
+          curl -fsSL --proto '=https' --tlsv1.2 \
+            "https://raw.githubusercontent.com/succinctlabs/sp1/${SP1UP_COMMIT}/sp1up/sp1up" \
+            -o "$SP1UP"
+          echo "${SP1UP_SHA256}  ${SP1UP}" | sha256sum -c -
+          bash "$SP1UP" --version "$SP1_VERSION"
           echo "$HOME/.sp1/bin" >> "$GITHUB_PATH"
 
       - name: Check SP1 toolchain
-        run: cargo prove --version
+        run: |
+          set -euo pipefail
+          ACTUAL="$(cargo prove --version)"
+          echo "$ACTUAL"
+          [[ "$ACTUAL" == *"${SP1_VERSION#v}"* ]] || {
+            echo "::error::cargo-prove does not report required version $SP1_VERSION"
+            exit 1
+          }
+
+      - name: Require a qualified release manifest
+        env:
+          TAG: ${{ github.ref_name }}
+          SOURCE_REVISION: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          MANIFEST="crates/spec/release/${TAG}/guest-artifacts.json"
+          [ -f "$MANIFEST" ] || {
+            echo "::error::missing pre-qualified release manifest: $MANIFEST"
+            exit 1
+          }
+          RUST_TOOLCHAIN="$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)"
+          jq -e \
+            --arg tag "$TAG" \
+            --arg rust "$RUST_TOOLCHAIN" \
+            --arg sp1 "$SP1_VERSION" \
+            --arg image "$SP1_DOCKER_IMAGE" \
+            '.format_version == 1
+              and .release == $tag
+              and .qualification == "qualified"
+              and .source.repository == "https://github.com/alpenlabs/asm"
+              and (.source.revision | test("^[0-9a-f]{40}$"))
+              and .toolchain.host_rust == $rust
+              and .toolchain.sp1_cli == $sp1
+              and .toolchain.sp1up_commit == env.SP1UP_COMMIT
+              and .toolchain.sp1up_sha256 == env.SP1UP_SHA256
+              and .toolchain.sp1_build == "6.3.0"
+              and .toolchain.sp1_sdk == "6.3.0"
+              and .toolchain.sp1_verifier == "6.3.0"
+              and .toolchain.guest_zkvm == "6.2.4"
+              and .toolchain.builder_image == $image' \
+            "$MANIFEST" >/dev/null
+          QUALIFIED_SOURCE="$(jq -r .source.revision "$MANIFEST")"
+          git cat-file -e "${QUALIFIED_SOURCE}^{commit}"
+          git merge-base --is-ancestor "$QUALIFIED_SOURCE" "$SOURCE_REVISION"
+          echo "QUALIFIED_SOURCE=$QUALIFIED_SOURCE" >> "$GITHUB_ENV"
+          echo "RELEASE_MANIFEST_PATH=$GITHUB_WORKSPACE/$MANIFEST" >> "$GITHUB_ENV"
+
+      - name: Check out the qualified guest source
+        run: |
+          set -euo pipefail
+          SOURCE_DIR="$RUNNER_TEMP/qualified-guest-source"
+          git worktree add --detach "$SOURCE_DIR" "$QUALIFIED_SOURCE"
+          echo "QUALIFIED_SOURCE_DIR=$SOURCE_DIR" >> "$GITHUB_ENV"
 
       - name: Install protoc
         uses: arduino/setup-protoc@c65c819552d16ad3c9b72d9dfd5ba5237b9c906b # v3.0.0
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Verify locked SP1 dependency versions
+        run: |
+          set -euo pipefail
+          assert_version() {
+            local metadata="$1" package="$2" expected="$3"
+            local actual
+            actual="$(jq -r --arg package "$package" \
+              '[.packages[] | select(.name == $package) | .version] | unique | join(",")' \
+              "$metadata")"
+            [ "$actual" = "$expected" ] || {
+              echo "::error::$package resolves to '$actual', manifest requires '$expected'"
+              exit 1
+            }
+          }
+
+          ROOT_METADATA="$RUNNER_TEMP/root-metadata.json"
+          cargo metadata --locked --format-version 1 \
+            --manifest-path "$QUALIFIED_SOURCE_DIR/Cargo.toml" > "$ROOT_METADATA"
+          assert_version "$ROOT_METADATA" sp1-build \
+            "$(jq -r .toolchain.sp1_build "$RELEASE_MANIFEST_PATH")"
+          assert_version "$ROOT_METADATA" sp1-sdk \
+            "$(jq -r .toolchain.sp1_sdk "$RELEASE_MANIFEST_PATH")"
+          assert_version "$ROOT_METADATA" sp1-verifier \
+            "$(jq -r .toolchain.sp1_verifier "$RELEASE_MANIFEST_PATH")"
+
+          for guest in guest-asm-v0 guest-asm guest-moho; do
+            GUEST_METADATA="$RUNNER_TEMP/$guest-metadata.json"
+            cargo metadata --locked --format-version 1 \
+              --manifest-path "$QUALIFIED_SOURCE_DIR/guest-builder/sp1/$guest/Cargo.toml" \
+              > "$GUEST_METADATA"
+            assert_version "$GUEST_METADATA" sp1-zkvm \
+              "$(jq -r .toolchain.guest_zkvm "$RELEASE_MANIFEST_PATH")"
+          done
 
       - name: Build guest ELFs and vk JSONs
         # The guest build and vk derivation are both opt-in (see the crate's build.rs).
@@ -53,18 +151,32 @@ jobs:
         env:
           BUILD_ELF: "1"
           BUILD_VKEY: "1"
-        run: cargo build --locked -p strata-asm-sp1-guest-builder --features docker-build
+        run: |
+          cargo build --locked \
+            --manifest-path "$QUALIFIED_SOURCE_DIR/Cargo.toml" \
+            -p strata-asm-sp1-guest-builder --features docker-build
 
       - name: Stage release artifacts
+        env:
+          TAG: ${{ github.ref_name }}
         run: |
           set -euo pipefail
           mkdir -p dist
-          ELF_DIR=guest-builder/sp1/elfs
-          for prog in asm moho; do
-            cp "$ELF_DIR/$prog.elf" "dist/$prog.elf"
-            cp "$ELF_DIR/$prog-vk.json" "dist/$prog-vk.json"
-            (cd dist && sha256sum "$prog-vk.json" > "$prog-vk.json.sha256")
-          done
+          ELF_DIR="$QUALIFIED_SOURCE_DIR/guest-builder/sp1/elfs"
+          MANIFEST="$RELEASE_MANIFEST_PATH"
+
+          RELEASE_MANIFEST_PATH="$MANIFEST" \
+          RELEASE_ARTIFACT_DIR="$ELF_DIR" \
+            cargo test --locked -p strata-asm-spec \
+              release_manifest::tests::requested_release_files_match_an_embedded_manifest \
+              -- --exact
+
+          while IFS= read -r filename; do
+            cp "$ELF_DIR/$filename" "dist/$filename"
+            (cd dist && sha256sum "$filename" > "$filename.sha256")
+          done < <(jq -r '.artifacts[] | .elf.file, .verifying_key.file' "$MANIFEST")
+          cp "$MANIFEST" dist/guest-artifacts.json
+          (cd dist && sha256sum guest-artifacts.json > guest-artifacts.json.sha256)
           ls -la dist/
 
       - name: Publish to GitHub Release
@@ -75,23 +187,24 @@ jobs:
           set -euo pipefail
           # All expected assets must exist locally before any upload — failing here keeps
           # us from publishing a partial release if a prior step silently produced nothing.
-          assets=(
-            dist/asm.elf dist/asm-vk.json dist/asm-vk.json.sha256
-            dist/moho.elf dist/moho-vk.json dist/moho-vk.json.sha256
-          )
+          assets=(dist/guest-artifacts.json dist/guest-artifacts.json.sha256)
+          while IFS= read -r file; do
+            assets+=("dist/$file" "dist/$file.sha256")
+          done < <(jq -r '.artifacts[] | .elf.file, .verifying_key.file' dist/guest-artifacts.json)
           for f in "${assets[@]}"; do
             [ -f "$f" ] || { echo "::error::missing artifact: $f"; exit 1; }
           done
-          # Create the release as a draft so the assets can be attached, then publish.
+          # A tag gets one publication attempt. Even an empty draft is pre-existing
+          # mutable state whose provenance this run cannot establish, so do not
+          # resume it or attach anything to it.
           if gh release view "$TAG" >/dev/null 2>&1; then
-            if [ "$(gh release view "$TAG" --json isDraft --jq .isDraft)" != "true" ]; then
-              echo "::error::release $TAG is already published; assets cannot be attached to an immutable release"
-              exit 1
-            fi
-          else
-            prerelease_flag=""
-            case "$TAG" in *-*) prerelease_flag="--prerelease" ;; esac
-            gh release create "$TAG" --draft $prerelease_flag --title "$TAG" --generate-notes
+            echo "::error::release $TAG already exists (draft or published); refusing to mutate it"
+            exit 1
           fi
-          gh release upload "$TAG" --clobber "${assets[@]}"
+          prerelease_flag=""
+          case "$TAG" in *-*) prerelease_flag="--prerelease" ;; esac
+          gh release create "$TAG" --draft $prerelease_flag --title "$TAG" --generate-notes
+          # No --clobber: an asset-name collision is a hard failure. A release
+          # tag never changes the bytes it names, including while it is a draft.
+          gh release upload "$TAG" "${assets[@]}"
           gh release edit "$TAG" --draft=false
