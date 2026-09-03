@@ -17,7 +17,7 @@ use bitcoin::{
     TxMerkleNode,
 };
 use strata_asm_common::{AnchorState, AuxData};
-use strata_asm_params::AsmParams;
+use strata_asm_params::StrataGenesisConfig;
 use strata_asm_proto_bridge_txs::{
     deposit::DepositTxHeaderAux,
     test_utils::{create_dummy_tx, TEST_MAGIC_BYTES},
@@ -41,7 +41,7 @@ fn target() -> CompactTarget {
 /// A genesis anchor state whose chain tip is `parent`, so a block built on
 /// `parent` is the next block the STF expects.
 fn genesis_state(parent: BlockHash) -> AnchorState {
-    let mut params: AsmParams = ArbitraryGenerator::new().generate();
+    let mut params: StrataGenesisConfig = ArbitraryGenerator::new().generate();
     params.magic = TEST_MAGIC_BYTES;
     params.anchor = L1Anchor {
         block: L1BlockCommitment::new(GENESIS_HEIGHT, parent.to_l1_block_id()),

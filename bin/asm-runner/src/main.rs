@@ -17,7 +17,7 @@ use std::{fs::read_to_string, path::PathBuf, time::Duration};
 
 use anyhow::Result;
 use clap::Parser;
-use strata_asm_params::AsmParams;
+use strata_asm_params::StrataGenesisConfig;
 use strata_logging::{LoggingInitConfig, finalize};
 use strata_tasks::TaskManager;
 use tokio::runtime::{Builder, Handle};
@@ -89,10 +89,10 @@ fn main() {
     }
 }
 
-/// Load ASM parameters
-fn load_params(params_path: &PathBuf) -> Result<AsmParams> {
+/// Load the ASM genesis configuration.
+fn load_params(params_path: &PathBuf) -> Result<StrataGenesisConfig> {
     let contents = read_to_string(params_path)?;
-    let params: AsmParams = serde_json::from_str(&contents)?;
+    let params: StrataGenesisConfig = serde_json::from_str(&contents)?;
     Ok(params)
 }
 
