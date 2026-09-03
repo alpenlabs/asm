@@ -33,8 +33,20 @@ pub(crate) fn run(db: &sled::Db, resource: ProofResource, write: bool) -> Result
         ProofResource::Status { verb } => status(&store, verb, write),
         ProofResource::Prune { before } => {
             ensure_write(write)?;
-            store.prune_before(before)?;
-            Ok(json!({ "pruned": "before", "height": before }))
+            let counts = store.prune_before(before)?;
+            Ok(json!({
+                "pruned": "before",
+                "height": before,
+                "removed": {
+                    "asm_proofs": counts.asm_proofs,
+                    "moho_proofs": counts.moho_proofs,
+                    "mappings": counts.mappings,
+                    "statuses": counts.statuses,
+                },
+                // Status rows no mapping could place at a height. Left alone,
+                // and reported so they are not mistaken for a clean sweep.
+                "orphan_statuses": counts.orphan_statuses,
+            }))
         }
     }
 }

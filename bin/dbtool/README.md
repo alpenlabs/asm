@@ -131,6 +131,10 @@ Nothing deduplicates entry hashes: a hash may appear as several leaves, and
 A `<range>` is `<commitment>` (single block) or `<commitment>..<commitment>`
 (inclusive); a `<proof_id>` is `asm:<range>` or `moho:<commitment>`; a
 `<remote_id>` is the opaque remote id as hex. All three round-trip: the string
-each verb prints copies straight back into the next command. `proof prune`
-drops ASM and Moho proofs only — the mapping and status bookkeeping are left
-untouched.
+each verb prints copies straight back into the next command.
+
+`proof prune` clears every tree below the height: the ASM and Moho proofs, the
+local↔remote id mappings, and the status rows of the jobs that produced them. It
+reports what it removed per tree. A status row whose remote id has no mapping
+cannot be placed at a height, so it is left alone and counted under
+`orphan_statuses`.

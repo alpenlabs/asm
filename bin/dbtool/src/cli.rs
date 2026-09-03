@@ -92,8 +92,9 @@ pub(crate) enum ProofResource {
         #[command(subcommand)]
         verb: ProofStatusVerb,
     },
-    /// Bulk-remove ASM and Moho proofs below a height. Leaves the mapping and
-    /// status bookkeeping untouched.
+    /// Bulk-remove everything held below a height: ASM and Moho proofs, their
+    /// local↔remote id mappings, and the status rows of the jobs that produced
+    /// them.
     Prune {
         /// Remove proofs with (start) height strictly below this.
         #[arg(long)]

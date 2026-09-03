@@ -4,7 +4,9 @@ use borsh::BorshDeserialize;
 use strata_asm_prover_types::{AsmProof, L1Range, MohoProof};
 use strata_identifiers::L1BlockCommitment;
 
-use super::{SledProofDb, decode_asm_key, decode_moho_key, encode_asm_key, encode_moho_key};
+use super::{
+    PruneCounts, SledProofDb, decode_asm_key, decode_moho_key, encode_asm_key, encode_moho_key,
+};
 use crate::ProofDb;
 
 /// Synchronous proof accessors.
@@ -61,23 +63,50 @@ impl SledProofDb {
         }))
     }
 
-    /// Removes both ASM and Moho proofs for blocks below `before_height`.
-    pub fn prune_before(&self, before_height: u32) -> Result<(), sled::Error> {
+    /// Removes every trace of the proofs for blocks below `before_height`: the
+    /// ASM and Moho proofs themselves, the status rows of the remote jobs that
+    /// produced them, and both directions of their id mapping.
+    ///
+    /// The bookkeeping goes too because a mapping row outliving its proof is
+    /// not merely stale: the row records that the proof was submitted, so a
+    /// pruned block would still read as submitted with no proof to show for it.
+    /// This is the store's own invariant, not the [`ProofDb`] contract — that
+    /// trait covers the proof trees alone, and a store holding only those has
+    /// nothing else to clear.
+    ///
+    /// Status rows are cleared before mapping rows, and not the other way
+    /// round: a status row carries no height of its own and is placed through
+    /// the reverse mapping, so tearing the mapping down first would strand
+    /// every status row below the cutoff as an unplaceable orphan. The same
+    /// order makes a crash midway harmless — a re-run recomputes the same set
+    /// and finishes the job.
+    pub fn prune_before(&self, before_height: u32) -> Result<PruneCounts, sled::Error> {
         let upper: &[u8] = &before_height.to_be_bytes();
+        let mut counts = PruneCounts::default();
 
         // Remove all moho proofs with height < before_height.
         for entry in self.moho_proofs.range(..upper) {
             let (key, _) = entry?;
-            self.moho_proofs.remove(&key)?;
+            if self.moho_proofs.remove(&key)?.is_some() {
+                counts.moho_proofs += 1;
+            }
         }
 
         // Remove all ASM proofs with start_height < before_height.
         for entry in self.asm_proofs.range(..upper) {
             let (key, _) = entry?;
-            self.asm_proofs.remove(&key)?;
+            if self.asm_proofs.remove(&key)?.is_some() {
+                counts.asm_proofs += 1;
+            }
         }
 
-        Ok(())
+        let (statuses, orphan_statuses) = self.prune_status_before(before_height)?;
+        counts.statuses = statuses;
+        counts.orphan_statuses = orphan_statuses;
+
+        counts.mappings = self.prune_mappings_before(before_height)?;
+
+        Ok(counts)
     }
 
     /// Lists every stored ASM proof key, in ascending range order.
@@ -152,7 +181,11 @@ impl ProofDb for SledProofDb {
     }
 
     async fn prune(&self, before_height: u32) -> Result<(), Self::Error> {
-        self.prune_before(before_height)
+        // Sweeps the mapping and status trees as well, which is more than the
+        // trait asks for: this store owns them, so it keeps them consistent
+        // with the proofs. The per-tree counts serve the offline tooling that
+        // reports them; a caller of the trait only needs the success.
+        self.prune_before(before_height).map(|_| ())
     }
 }
 
@@ -161,11 +194,19 @@ mod tests {
     use std::collections::BTreeSet;
 
     use proptest::{collection::vec, prelude::*};
+    use strata_asm_prover_types::{ProofId, RemoteProofId};
     use strata_identifiers::{Buf32, L1BlockId};
     use tokio::runtime::Runtime;
+    use zkaleido::RemoteProofStatus;
 
     use super::*;
-    use crate::sled::test_util::*;
+    use crate::{RemoteProofMappingDb, RemoteProofStatusDb, sled::test_util::*};
+
+    /// A commitment at `height` with a fixed block id, for the tests that care
+    /// about heights rather than identity.
+    fn commitment(height: u32) -> L1BlockCommitment {
+        L1BlockCommitment::new(height, L1BlockId::from(Buf32::new([0; 32])))
+    }
 
     proptest! {
         #![proptest_config(ProptestConfig::with_cases(50))]
@@ -437,5 +478,54 @@ mod tests {
                 Ok(())
             })?;
         }
+    }
+
+    /// One prune clears every tree: the proofs and the remote-prover
+    /// bookkeeping that would otherwise mark a pruned block as already
+    /// submitted and keep it from ever being proven again.
+    #[test]
+    fn prune_before_sweeps_bookkeeping_with_the_proofs() {
+        let (db, _dir) = temp_db();
+        let (low, high) = (commitment(4), commitment(6));
+        let (low_remote, high_remote) = (RemoteProofId(vec![1; 8]), RemoteProofId(vec![2; 8]));
+
+        Runtime::new().unwrap().block_on(async {
+            for block in [low, high] {
+                db.store_moho_proof(block, MohoProof(fixed_proof_receipt()))
+                    .await
+                    .unwrap();
+                db.store_asm_proof(L1Range::single(block), AsmProof(fixed_proof_receipt()))
+                    .await
+                    .unwrap();
+            }
+            for (block, remote) in [(low, &low_remote), (high, &high_remote)] {
+                db.put_remote_proof_id(ProofId::Moho(block), remote.clone())
+                    .await
+                    .unwrap();
+                db.put_status(remote, RemoteProofStatus::Requested)
+                    .await
+                    .unwrap();
+            }
+        });
+
+        let counts = db.prune_before(5).unwrap();
+        assert_eq!(counts.asm_proofs, 1);
+        assert_eq!(counts.moho_proofs, 1);
+        assert_eq!(counts.statuses, 1);
+        // Forward and reverse row for the one pruned proof id.
+        assert_eq!(counts.mappings, 2);
+        assert_eq!(counts.orphan_statuses, 0);
+
+        // Nothing below the cutoff survives in any tree.
+        assert!(db.get_moho(&low).unwrap().is_none());
+        assert!(db.get_asm(&L1Range::single(low)).unwrap().is_none());
+        assert!(db.get_remote(ProofId::Moho(low)).unwrap().is_none());
+        assert!(db.status(&low_remote).unwrap().is_none());
+
+        // Everything at or above it is untouched.
+        assert!(db.get_moho(&high).unwrap().is_some());
+        assert!(db.get_asm(&L1Range::single(high)).unwrap().is_some());
+        assert!(db.get_remote(ProofId::Moho(high)).unwrap().is_some());
+        assert!(db.status(&high_remote).unwrap().is_some());
     }
 }
