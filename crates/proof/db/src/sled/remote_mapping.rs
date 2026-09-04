@@ -168,7 +168,7 @@ mod tests {
     use std::collections::HashSet;
 
     use proptest::{collection::vec, prelude::*};
-    use strata_asm_prover_types::ProofId;
+    use strata_asm_proof_types::ProofId;
     use strata_identifiers::{Buf32, L1BlockCommitment, L1BlockId};
     use tokio::runtime::Runtime;
 

@@ -72,9 +72,10 @@ class AsmDbtoolMappingHealTest(flexitest.Test):
 
         # ---- Get the tip stuck: delete its Moho proof, leave the mapping ----
         #
-        # The highest proof specifically, so the restart has work to rediscover:
-        # the queue is seeded from the latest committed block and skips when it
-        # is already proven, so removing a lower proof would leave nothing to do.
+        # The highest proof specifically, so the restart has work to rediscover.
+        # Startup recovery walks down from the tip and stops at the first block
+        # that still has a Moho proof, so a lower victim would sit below the
+        # stopping point and never be re-enqueued.
         asm_service.stop()
         latest = run_dbtool_json(proof_db, "proof", "moho", "latest")
         assert latest["found"] is True, latest
@@ -128,7 +129,9 @@ class AsmDbtoolMappingHealTest(flexitest.Test):
         wait_until_asm_ready(asm_rpc)
 
         # The deleted proof is regenerated, and the backlog above it drains:
-        # the prerequisite cascade walks the newer block back to the victim.
+        # startup recovery re-enqueues every processed block above the last Moho
+        # proof, and with the mapping gone the victim is submitted rather than
+        # skipped.
         wait_until_moho_proof_exists(asm_rpc, victim_hash, timeout=120)
         wait_until_moho_proof_exists(asm_rpc, next_hash, timeout=120)
 
