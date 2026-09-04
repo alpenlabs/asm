@@ -852,13 +852,18 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "asm-storage",
+ "borsh",
  "clap",
  "hex",
  "serde_json",
  "sled",
  "ssz",
  "strata-asm-common",
+ "strata-asm-moho-storage",
+ "strata-asm-prover-storage",
+ "strata-asm-prover-types",
  "strata-identifiers",
+ "zkaleido",
 ]
 
 [[package]]

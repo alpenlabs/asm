@@ -9,7 +9,31 @@ use std::path::PathBuf;
 
 use anyhow::{Context, Result, bail};
 
-/// Opens the ASM storage sled DB at the required `--db` path.
+/// Opens the ASM sled DB at the required `--db` path.
+///
+/// Backs the `asm` commands (anchor state, aux data, manifests, and the
+/// manifest-hash MMR).
+pub(crate) fn open_asm(path: Option<PathBuf>) -> Result<sled::Db> {
+    open_at(path, "ASM")
+}
+
+/// Opens the Moho sled DB at the required `--db` path.
+///
+/// Backs the `moho` commands (state snapshots and the export-entry index
+/// share one directory).
+pub(crate) fn open_moho(path: Option<PathBuf>) -> Result<sled::Db> {
+    open_at(path, "Moho")
+}
+
+/// Opens the proof sled DB at the required `--db` path.
+///
+/// Backs the `proof` commands (proofs and the remote-prover bookkeeping share
+/// one directory).
+pub(crate) fn open_proof(path: Option<PathBuf>) -> Result<sled::Db> {
+    open_at(path, "proof")
+}
+
+/// Opens an existing sled DB at `path`, rejecting a missing directory.
 ///
 /// `dbtool` only ever inspects or maintains a database the runner already
 /// created, so a missing path is an operator mistake (a typo, the wrong

@@ -10,12 +10,12 @@ The binary is `dbtool` (crate `asm-dbtool`).
 
 The runner persists into two independent sled databases:
 
-- **Storage DB** — anchor state, aux data, full manifests, and the
-  manifest-hash MMR. Backed by the `asm-storage` crate. Targeted by `asm`
-  commands.
-- **Proof DB** — ASM/Moho proofs, Moho state, and the remote-prover bookkeeping.
-  Backed by `strata-asm-proof-db`. Targeted by the planned `moho`/`proof`
-  commands.
+- **ASM DB** — anchor state, aux data, full manifests, and the manifest-hash
+  MMR. Backed by the `asm-storage` crate. Targeted by `asm` commands.
+- **Moho DB** — Moho state snapshots and the per-container export-entry MMR.
+  Backed by `strata-asm-moho-storage`. Targeted by `moho` commands.
+- **Proof DB** — ASM/Moho proofs and the remote-prover bookkeeping. Backed by
+  `strata-asm-prover-storage`. Targeted by `proof` commands.
 
 Each invocation opens exactly the one database its command needs, so both are
 selected with a single `--db <path>` flag — point it at whichever directory the
@@ -40,7 +40,8 @@ dbtool [--db <path>] [--pretty] [--write] <domain> <resource> <verb> [args]
   plus an `ssz_hex` blob carrying the canonical bytes losslessly. `put` consumes
   those same bytes from `--file` (raw SSZ, not the hex text), so get → put
   round-trips once you hex-decode `ssz_hex` back to bytes — see the round-trip
-  example below.
+  example below. `proof` records are borsh-encoded instead, so they carry a
+  `borsh_hex` blob in place of `ssz_hex`.
 
 ### Examples
 
@@ -66,6 +67,22 @@ dbtool --db ./data/asm --write asm state prune --after 1234
 dbtool --db ./data/asm asm manifest get 1234:6f1a...ee \
   | jq -r .ssz_hex | xxd -r -p > manifest.ssz
 dbtool --db ./data/asm --write asm manifest put --file manifest.ssz
+
+# Moho state: highest snapshot and one by commitment
+dbtool --db ./data/moho --pretty moho state latest
+dbtool --db ./data/moho moho state get 1234:6f1a...ee
+
+# Export-entry MMR: a container's size, a leaf, and its proof
+dbtool --db ./data/moho moho export-entries count 0
+dbtool --db ./data/moho moho export-entries proof 0 5 --at 100
+
+# Proofs (proof DB): latest Moho proof, and the ASM proof for a block range
+dbtool --db ./data/proof --pretty proof moho latest
+dbtool --db ./data/proof proof asm get 1234:6f1a...ee..1240:9c2b...af
+
+# Remote-prover bookkeeping: in-flight jobs and one mapping
+dbtool --db ./data/proof proof status in-progress
+dbtool --db ./data/proof proof mapping get-remote moho:1234:6f1a...ee
 ```
 
 ## Command surface
@@ -84,11 +101,33 @@ height-indexed, so the `<index>` read by `leaf`/`proof` and the `<height>`
 written by `put-leaf` are the same value — the leaf for the block at height `h`
 is leaf index `h`.
 
-### Planned (proof DB) — not yet implemented
+### `moho` (Moho DB) — implemented
 
-These share the proof DB and the `strata-asm-proof-db` crate and land in a
-follow-up:
+| Resource | Verbs |
+|---|---|
+| `moho state` | `get <commitment>` · `latest` · `list` · `put <commitment> --file F` (w) · `delete <commitment>` (w) · `prune (--before\|--after) <h>` (w) |
+| `moho export-entries` | `get <container> <index>` · `find <container> <hash>` · `height <container> <index>` · `count <container>` · `range <container> <height>` · `proof <container> <index> [--at <n>]` · `append <container> <height> --file F` (w) · `prune --from <height>` (w) |
 
-- `asm proof get/list/delete` (ASM step proofs)
-- `moho state` · `moho export-entries[-mmr]` · `moho proof`
-- `proof mapping` · `proof status` · `proof prune` (remote-prover bookkeeping)
+`moho state put` takes the commitment explicitly — a `MohoState` does not carry
+its own key. `moho export-entries` addresses each leaf by its `mmr_index`
+within a container; `append` reads a file of concatenated raw 32-byte hashes,
+and `prune --from` drops every leaf at or above a height across all containers.
+Nothing deduplicates entry hashes: a hash may appear as several leaves, and
+`find` resolves to the most recently appended one.
+
+### `proof` (proof DB) — implemented
+
+| Resource | Verbs |
+|---|---|
+| `proof asm` | `get <range>` · `list` · `delete <range>` (w) |
+| `proof moho` | `get <commitment>` · `latest` · `list` · `delete <commitment>` (w) |
+| `proof mapping` | `get-remote <proof_id>` · `get-local <remote_id>` · `list` |
+| `proof status` | `get <remote_id>` · `list` · `in-progress` · `delete <remote_id>` (w) |
+| `proof prune` | `--before <h>` (w) |
+
+A `<range>` is `<commitment>` (single block) or `<commitment>..<commitment>`
+(inclusive); a `<proof_id>` is `asm:<range>` or `moho:<commitment>`; a
+`<remote_id>` is the opaque remote id as hex. All three round-trip: the string
+each verb prints copies straight back into the next command. `proof prune`
+drops ASM and Moho proofs only — the mapping and status bookkeeping are left
+untouched.

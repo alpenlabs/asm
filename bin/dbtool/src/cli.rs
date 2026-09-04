@@ -39,6 +39,118 @@ pub(crate) enum Domain {
         #[command(subcommand)]
         resource: AsmResource,
     },
+    /// Moho state snapshots and the per-container export-entry MMR.
+    Moho {
+        #[command(subcommand)]
+        resource: MohoResource,
+    },
+    /// Proofs and remote-prover bookkeeping (proof DB).
+    Proof {
+        #[command(subcommand)]
+        resource: ProofResource,
+    },
+}
+
+/// Resources within the `moho` domain. Both live in the Moho DB, so `--db`
+/// points at the same directory for either resource.
+#[derive(Subcommand, Debug)]
+pub(crate) enum MohoResource {
+    /// Moho state snapshots, keyed by L1 block commitment.
+    State {
+        #[command(subcommand)]
+        verb: MohoStateVerb,
+    },
+    /// Per-container export-entry MMR mirroring the ExportState leaves.
+    #[command(name = "export-entries")]
+    ExportEntries {
+        #[command(subcommand)]
+        verb: ExportEntriesVerb,
+    },
+}
+
+/// Resources within the `proof` domain — all in the proof DB.
+#[derive(Subcommand, Debug)]
+pub(crate) enum ProofResource {
+    /// ASM step proofs, keyed by L1 block range.
+    Asm {
+        #[command(subcommand)]
+        verb: ProofAsmVerb,
+    },
+    /// Moho recursive proofs, keyed by L1 block commitment.
+    Moho {
+        #[command(subcommand)]
+        verb: ProofMohoVerb,
+    },
+    /// Bidirectional local↔remote proof-id mapping.
+    Mapping {
+        #[command(subcommand)]
+        verb: ProofMappingVerb,
+    },
+    /// Execution status of in-flight remote proof jobs.
+    Status {
+        #[command(subcommand)]
+        verb: ProofStatusVerb,
+    },
+    /// Bulk-remove ASM and Moho proofs below a height. Leaves the mapping and
+    /// status bookkeeping untouched.
+    Prune {
+        /// Remove proofs with (start) height strictly below this.
+        #[arg(long)]
+        before: u32,
+    },
+}
+
+/// Verbs for `proof asm`. A `<range>` is `<commitment>` (single block) or
+/// `<commitment>..<commitment>` (inclusive start..end).
+#[derive(Subcommand, Debug)]
+pub(crate) enum ProofAsmVerb {
+    /// Dump the ASM proof for a range.
+    Get { range: String },
+    /// List every stored ASM proof range, in ascending order.
+    List,
+    /// Delete the ASM proof for a range.
+    Delete { range: String },
+}
+
+/// Verbs for `proof moho`.
+#[derive(Subcommand, Debug)]
+pub(crate) enum ProofMohoVerb {
+    /// Dump the Moho proof anchored at a commitment `<height>:<blkid_hex>`.
+    Get { commitment: String },
+    /// Dump the highest-height Moho proof.
+    Latest,
+    /// List every stored Moho proof anchor, in height order.
+    List,
+    /// Delete the Moho proof for a commitment `<height>:<blkid_hex>`.
+    Delete { commitment: String },
+}
+
+/// Verbs for `proof mapping`.
+///
+/// A `<proof_id>` is `asm:<range>` or `moho:<commitment>`; a `<remote_id>` is
+/// the opaque remote id as hex.
+#[derive(Subcommand, Debug)]
+pub(crate) enum ProofMappingVerb {
+    /// Resolve the remote id a local proof id maps to.
+    GetRemote { proof_id: String },
+    /// Resolve the local proof id a remote id maps to.
+    GetLocal { remote_id: String },
+    /// List every stored `(local, remote)` mapping.
+    List,
+}
+
+/// Verbs for `proof status`. A `<remote_id>` is the opaque remote id as hex.
+#[derive(Subcommand, Debug)]
+pub(crate) enum ProofStatusVerb {
+    /// Dump the tracked status of a remote proof.
+    Get { remote_id: String },
+    /// List every tracked `(remote_id, status)`.
+    List,
+    /// List only the active (`Requested` / `InProgress`) jobs.
+    #[command(name = "in-progress")]
+    InProgress,
+    /// Delete the status entry for a remote proof.
+    Delete { remote_id: String },
 }
 
 /// Resources within the `asm` domain.
