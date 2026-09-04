@@ -1,4 +1,6 @@
 import logging
+import os
+import tempfile
 
 import flexitest
 
@@ -70,6 +72,19 @@ class AsmDbtoolProofTest(flexitest.Test):
         # dbtool doesn't own (and then reading them back as an empty store).
         code, _out, err = run_dbtool(db_path, "proof", "asm", "list")
         assert code != 0 and "proof DB" in err, (code, err)
+
+        # A directory that is not a database at all must be refused before it is
+        # opened. sled creates a database wherever it is pointed, so checking
+        # only that the path exists would leave sled files in an unrelated
+        # directory even though the command then fails and writes nothing else.
+        with tempfile.TemporaryDirectory() as stranger:
+            marker = os.path.join(stranger, "not-a-db.txt")
+            with open(marker, "w") as fh:
+                fh.write("unrelated\n")
+
+            code, _out, err = run_dbtool(stranger, "proof", "asm", "list")
+            assert code != 0 and "no sled DB" in err, (code, err)
+            assert os.listdir(stranger) == ["not-a-db.txt"], os.listdir(stranger)
 
         # proof asm: list has entries; a listed range round-trips through get.
         asm_list = run_dbtool_json(proof_db, "proof", "asm", "list")
