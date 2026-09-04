@@ -23,8 +23,10 @@ class AsmDbtoolProofTest(flexitest.Test):
     """`proof` domain reads the proofs and bookkeeping the prover persisted.
 
     Runs under the `prover` env so the orchestrator populates the proof DB with
-    ASM and Moho proofs. The native backend proves locally, so the remote
-    mapping/status trees stay empty — those get negative-path coverage.
+    ASM and Moho proofs. Native proving still goes through the remote-host
+    interface, so it writes mapping rows like any other backend; status rows are
+    cleared as each proof completes, so that tree is normally empty by the time
+    the runner stops.
     """
 
     def __init__(self, ctx: flexitest.InitContext):
@@ -93,10 +95,13 @@ class AsmDbtoolProofTest(flexitest.Test):
         moho_missing = run_dbtool_json(proof_db, "proof", "moho", "get", f"999999:{'00' * 32}")
         assert moho_missing["found"] is False, moho_missing
 
-        # mapping / status: local (native) proving leaves the remote bookkeeping
-        # empty, so lists work and return zero and lookups miss.
+        # mapping: one row per submitted proof, and nothing ever removes them,
+        # so every proof above is represented here.
         mapping_list = run_dbtool_json(proof_db, "proof", "mapping", "list")
-        assert mapping_list["count"] >= 0, mapping_list
+        assert mapping_list["count"] > 0, mapping_list
+
+        # status: rows are dropped once reconcile stores the finished proof, so
+        # the tree drains rather than staying empty. Lists work either way.
         status_list = run_dbtool_json(proof_db, "proof", "status", "list")
         assert status_list["count"] >= 0, status_list
         in_progress = run_dbtool_json(proof_db, "proof", "status", "in-progress")

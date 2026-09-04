@@ -138,6 +138,9 @@ pub(crate) enum ProofMappingVerb {
     GetLocal { remote_id: String },
     /// List every stored `(local, remote)` mapping.
     List,
+    /// Forget that a local proof id was submitted, freeing it to be sent to
+    /// the remote prover again. The remote ids it already used stay listed.
+    Delete { proof_id: String },
 }
 
 /// Verbs for `proof status`. A `<remote_id>` is the opaque remote id as hex.

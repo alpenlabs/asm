@@ -26,9 +26,9 @@ pub struct SledProofDb {
     pub(crate) asm_proofs: sled::Tree,
     /// Moho recursive proofs, keyed by `[height‖blkid]` (36 bytes).
     pub(crate) moho_proofs: sled::Tree,
-    /// Forward mapping: `ProofId` (borsh-encoded) → `RemoteProofId` (raw bytes).
+    /// A proof's latest remote job: `ProofId` (borsh-encoded) → `RemoteProofId` (raw bytes).
     pub(crate) proof_to_remote: sled::Tree,
-    /// Reverse mapping: `RemoteProofId` (raw bytes) → `ProofId` (borsh-encoded).
+    /// Each remote job's proof: `RemoteProofId` (raw bytes) → `ProofId` (borsh-encoded).
     pub(crate) remote_to_proof: sled::Tree,
     /// Status tracking: `RemoteProofId` (raw bytes) → `RemoteProofStatus` (borsh-encoded).
     pub(crate) remote_proof_status: sled::Tree,
