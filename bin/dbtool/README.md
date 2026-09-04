@@ -124,7 +124,7 @@ Nothing deduplicates entry hashes: a hash may appear as several leaves, and
 |---|---|
 | `proof asm` | `get <range>` · `list` · `delete <range>` (w) |
 | `proof moho` | `get <commitment>` · `latest` · `list` · `delete <commitment>` (w) |
-| `proof mapping` | `get-remote <proof_id>` · `get-local <remote_id>` · `list` |
+| `proof mapping` | `get-remote <proof_id>` · `get-local <remote_id>` · `list` · `delete <proof_id>` (w) |
 | `proof status` | `get <remote_id>` · `list` · `in-progress` · `delete <remote_id>` (w) |
 | `proof prune` | `--before <h>` (w) |
 
@@ -134,3 +134,12 @@ A `<range>` is `<commitment>` (single block) or `<commitment>..<commitment>`
 each verb prints copies straight back into the next command. `proof prune`
 drops ASM and Moho proofs only — the mapping and status bookkeeping are left
 untouched.
+
+`proof mapping delete` is the repair for a stuck block. A mapping records that
+a proof was submitted to the remote prover, and the scheduler skips any proof
+that has one. Nothing in the worker ever clears it, so deleting a proof on its
+own leaves a block that can never be proven again: the proof is gone, the
+scheduler still reads it as submitted, and a restart reaches the same
+conclusion. Deleting the mapping is what puts the proof back in the queue.
+`proof mapping list` keeps showing the remote ids that proof has already used —
+only the record of it being submitted goes.
