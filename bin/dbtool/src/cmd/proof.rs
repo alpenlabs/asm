@@ -6,8 +6,8 @@
 
 use anyhow::{Result, bail};
 use serde_json::{Value, json};
-use strata_asm_prover_storage::SledProofDb;
-use strata_asm_prover_types::{AsmProof, L1Range, MohoProof, ProofId, RemoteProofId};
+use strata_asm_proof_db::SledProofDb;
+use strata_asm_proof_types::{AsmProof, L1Range, MohoProof, ProofId, RemoteProofId};
 use strata_identifiers::L1BlockCommitment;
 use zkaleido::RemoteProofStatus;
 

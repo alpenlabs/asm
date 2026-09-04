@@ -7,7 +7,7 @@
 
 use anyhow::Result;
 use serde_json::{Value, json};
-use strata_asm_prover_types::{L1Range, ProofId};
+use strata_asm_proof_types::{L1Range, ProofId};
 use strata_identifiers::L1BlockCommitment;
 
 /// The `<height>:<blkid_hex>` string the keyed verbs (`get`, `delete`) take as

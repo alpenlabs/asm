@@ -39,32 +39,10 @@ pub(crate) enum Domain {
         #[command(subcommand)]
         resource: AsmResource,
     },
-    /// Moho state snapshots and the per-container export-entry MMR.
-    Moho {
-        #[command(subcommand)]
-        resource: MohoResource,
-    },
     /// Proofs and remote-prover bookkeeping (proof DB).
     Proof {
         #[command(subcommand)]
         resource: ProofResource,
-    },
-}
-
-/// Resources within the `moho` domain. Both live in the Moho DB, so `--db`
-/// points at the same directory for either resource.
-#[derive(Subcommand, Debug)]
-pub(crate) enum MohoResource {
-    /// Moho state snapshots, keyed by L1 block commitment.
-    State {
-        #[command(subcommand)]
-        verb: MohoStateVerb,
-    },
-    /// Per-container export-entry MMR mirroring the ExportState leaves.
-    #[command(name = "export-entries")]
-    ExportEntries {
-        #[command(subcommand)]
-        verb: ExportEntriesVerb,
     },
 }
 

@@ -12,10 +12,8 @@ The runner persists into two independent sled databases:
 
 - **ASM DB** — anchor state, aux data, full manifests, and the manifest-hash
   MMR. Backed by the `asm-storage` crate. Targeted by `asm` commands.
-- **Moho DB** — Moho state snapshots and the per-container export-entry MMR.
-  Backed by `strata-asm-moho-storage`. Targeted by `moho` commands.
-- **Proof DB** — ASM/Moho proofs and the remote-prover bookkeeping. Backed by
-  `strata-asm-prover-storage`. Targeted by `proof` commands.
+- **Proof DB** — ASM/Moho proofs, Moho state, and the remote-prover bookkeeping.
+  Backed by `strata-asm-proof-db`. Targeted by `proof` commands.
 
 Each invocation opens exactly the one database its command needs, so both are
 selected with a single `--db <path>` flag — point it at whichever directory the
@@ -68,14 +66,6 @@ dbtool --db ./data/asm asm manifest get 1234:6f1a...ee \
   | jq -r .ssz_hex | xxd -r -p > manifest.ssz
 dbtool --db ./data/asm --write asm manifest put --file manifest.ssz
 
-# Moho state: highest snapshot and one by commitment
-dbtool --db ./data/moho --pretty moho state latest
-dbtool --db ./data/moho moho state get 1234:6f1a...ee
-
-# Export-entry MMR: a container's size, a leaf, and its proof
-dbtool --db ./data/moho moho export-entries count 0
-dbtool --db ./data/moho moho export-entries proof 0 5 --at 100
-
 # Proofs (proof DB): latest Moho proof, and the ASM proof for a block range
 dbtool --db ./data/proof --pretty proof moho latest
 dbtool --db ./data/proof proof asm get 1234:6f1a...ee..1240:9c2b...af
@@ -100,20 +90,6 @@ dbtool --db ./data/proof proof mapping get-remote moho:1234:6f1a...ee
 height-indexed, so the `<index>` read by `leaf`/`proof` and the `<height>`
 written by `put-leaf` are the same value — the leaf for the block at height `h`
 is leaf index `h`.
-
-### `moho` (Moho DB) — implemented
-
-| Resource | Verbs |
-|---|---|
-| `moho state` | `get <commitment>` · `latest` · `list` · `put <commitment> --file F` (w) · `delete <commitment>` (w) · `prune (--before\|--after) <h>` (w) |
-| `moho export-entries` | `get <container> <index>` · `find <container> <hash>` · `height <container> <index>` · `count <container>` · `range <container> <height>` · `proof <container> <index> [--at <n>]` · `append <container> <height> --file F` (w) · `prune --from <height>` (w) |
-
-`moho state put` takes the commitment explicitly — a `MohoState` does not carry
-its own key. `moho export-entries` addresses each leaf by its `mmr_index`
-within a container; `append` reads a file of concatenated raw 32-byte hashes,
-and `prune --from` drops every leaf at or above a height across all containers.
-Nothing deduplicates entry hashes: a hash may appear as several leaves, and
-`find` resolves to the most recently appended one.
 
 ### `proof` (proof DB) — implemented
 

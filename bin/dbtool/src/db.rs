@@ -17,18 +17,10 @@ pub(crate) fn open_asm(path: Option<PathBuf>) -> Result<sled::Db> {
     open_at(path, "ASM")
 }
 
-/// Opens the Moho sled DB at the required `--db` path.
-///
-/// Backs the `moho` commands (state snapshots and the export-entry index
-/// share one directory).
-pub(crate) fn open_moho(path: Option<PathBuf>) -> Result<sled::Db> {
-    open_at(path, "Moho")
-}
-
 /// Opens the proof sled DB at the required `--db` path.
 ///
-/// Backs the `proof` commands (proofs and the remote-prover bookkeeping share
-/// one directory).
+/// Backs the `proof` commands. The runner points this at its own
+/// `proof_db_path`, which it shares with the Moho state store.
 pub(crate) fn open_proof(path: Option<PathBuf>) -> Result<sled::Db> {
     open_at(path, "proof")
 }
@@ -39,14 +31,14 @@ pub(crate) fn open_proof(path: Option<PathBuf>) -> Result<sled::Db> {
 /// created, so a missing path is an operator mistake (a typo, the wrong
 /// directory). We reject it up front rather than let `sled::open` materialize a
 /// fresh empty DB — which would make reads report `found: false` and writes
-/// mutate the wrong place.
-pub(crate) fn open_storage(path: Option<PathBuf>) -> Result<sled::Db> {
-    let path = path.context("--db <path> is required for asm commands")?;
+/// mutate the wrong place. `purpose` names the database in the diagnostics.
+fn open_at(path: Option<PathBuf>, purpose: &str) -> Result<sled::Db> {
+    let path = path.with_context(|| format!("--db <path> is required for {purpose} commands"))?;
     if !path.is_dir() {
         bail!(
             "no sled DB at {}: expected an existing directory (dbtool never creates one)",
             path.display()
         );
     }
-    sled::open(&path).with_context(|| format!("failed to open storage DB at {}", path.display()))
+    sled::open(&path).with_context(|| format!("failed to open {purpose} DB at {}", path.display()))
 }

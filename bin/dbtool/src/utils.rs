@@ -1,7 +1,7 @@
 //! CLI argument parsing and the shared `--write` gate.
 
 use anyhow::{Context, Result, anyhow, bail};
-use strata_asm_prover_types::{L1Range, ProofId, RemoteProofId};
+use strata_asm_proof_types::{L1Range, ProofId, RemoteProofId};
 use strata_identifiers::{Buf32, L1BlockCommitment, L1BlockId};
 
 /// Parses an L1 block commitment formatted as `<height>:<blkid_hex>`.

@@ -859,9 +859,8 @@ dependencies = [
  "sled",
  "ssz",
  "strata-asm-common",
- "strata-asm-moho-storage",
- "strata-asm-prover-storage",
- "strata-asm-prover-types",
+ "strata-asm-proof-db",
+ "strata-asm-proof-types",
  "strata-identifiers",
  "zkaleido",
 ]

@@ -4,9 +4,8 @@
 //! databases, modeled on alpen's `strata-dbtool` but built in the layered
 //! grammar STR-3564 recommends rather than a flat verb-prefixed surface.
 //!
-//! Covers the `asm` domain (ASM DB: anchor state, aux data, manifests, and the
-//! manifest-hash MMR), the `moho` domain (Moho DB: state snapshots and the
-//! export-entry index), and the `proof` domain (proof DB: ASM/Moho proofs and
+//! Covers the `asm` domain (storage DB: anchor state, aux data, manifests, and
+//! the manifest-hash MMR) and the `proof` domain (proof DB: ASM/Moho proofs and
 //! the remote-prover bookkeeping). See `README.md`.
 //!
 //! Output is JSON on stdout; errors go to stderr. The tool opens sled read-only
@@ -48,12 +47,8 @@ fn run() -> anyhow::Result<()> {
 
     let value = match domain {
         Domain::Asm { resource } => {
-            let db = db::open_storage(db)?;
+            let db = db::open_asm(db)?;
             cmd::run_asm(&db, resource, write)?
-        }
-        Domain::Moho { resource } => {
-            let db = db::open_moho(db)?;
-            cmd::run_moho(&db, resource, write)?
         }
         Domain::Proof { resource } => {
             let db = db::open_proof(db)?;
