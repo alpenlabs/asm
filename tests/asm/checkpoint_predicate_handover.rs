@@ -18,6 +18,7 @@ use harness::{
     test_harness::{AsmTestHarnessBuilder, Setup},
 };
 use integration_tests::harness;
+use strata_asm_admin_types::Role;
 use strata_asm_checkpoint_types::CheckpointTip;
 use strata_asm_logs::CheckpointPredicateEnacted;
 use strata_identifiers::{OLBlockCommitment, OLBlockId};
@@ -65,8 +66,9 @@ async fn test_full_predicate_handover_selects_key_by_l1_range() {
         .unwrap()
         .expect("predicate rotation should emit an enactment log");
     let boundary = harness
-        .pending_predicate_transition()
+        .pending_predicate_transitions()
         .unwrap()
+        .first()
         .expect("enactment should record a pending transition")
         .boundary();
     assert_eq!(enactment.new_predicate(), &new_predicate);
@@ -120,7 +122,7 @@ async fn test_full_predicate_handover_selects_key_by_l1_range() {
         "a straddling checkpoint must not advance the verified tip"
     );
     assert!(
-        harness.pending_predicate_transition().unwrap().is_some(),
+        !harness.pending_predicate_transitions().unwrap().is_empty(),
         "the transition must remain pending after a straddling rejection"
     );
 
@@ -142,7 +144,7 @@ async fn test_full_predicate_handover_selects_key_by_l1_range() {
     let checkpoint_state = harness.checkpoint_state().unwrap();
     assert_eq!(checkpoint_state.checkpoint_predicate(), &old_predicate);
     assert!(
-        harness.pending_predicate_transition().unwrap().is_some(),
+        !harness.pending_predicate_transitions().unwrap().is_empty(),
         "a checkpoint ending at B must not promote the transition"
     );
 
@@ -160,7 +162,7 @@ async fn test_full_predicate_handover_selects_key_by_l1_range() {
     harness.submit_and_mine_tx(&successor_tx).await.unwrap();
     checkpoint_harness.update_verified_tip(successor_tip);
 
-    // Assert: the pending predicate becomes active and the slot is freed.
+    // Assert: the pending predicate becomes active and the queue is emptied.
     assert_eq!(
         harness.checkpoint_tip_update_logs().unwrap(),
         vec![successor_tip],
@@ -169,20 +171,14 @@ async fn test_full_predicate_handover_selects_key_by_l1_range() {
     let checkpoint_state = harness.checkpoint_state().unwrap();
     assert_eq!(checkpoint_state.checkpoint_predicate(), &new_predicate);
     assert!(
-        harness.pending_predicate_transition().unwrap().is_none(),
-        "promoting the transition should free the pending slot"
+        harness.pending_predicate_transitions().unwrap().is_empty(),
+        "promoting the transition should empty the pending queue"
     );
 }
 
-/// Verifies the one-rotation-at-a-time rule through the full worker.
-///
-/// A second rotation is refused while the first is still outstanding, and only becomes
-/// authorizable again once a checkpoint promotes the first and administration observes the
-/// acknowledgement. Driving it through the worker is what makes this meaningful: the refusal
-/// spans the PROCESS-phase enactment and the FINISH-phase acknowledgement, which the
-/// subprotocol unit tests exercise only in isolation.
+/// Enacts two rotations before checkpoint progress and verifies every resulting territory.
 #[tokio::test(flavor = "multi_thread")]
-async fn test_second_rotation_refused_until_checkpoint_promotes_the_first() {
+async fn test_multiple_rotations_select_old_intermediate_and_latest_keys() {
     let Setup {
         harness,
         admin: mut admin_ctx,
@@ -193,133 +189,254 @@ async fn test_second_rotation_refused_until_checkpoint_promotes_the_first() {
         .build()
         .await;
 
-    // Arrange: enact the first rotation immediately, at boundary B.
+    let old_predicate = checkpoint_harness.checkpoint_predicate();
     let first_signer = CheckpointTestHarness::mint_checkpoint_signer();
     let first_predicate = first_signer.predicate();
-    let enactment_block = harness
+    let first_enactment_block = harness
         .submit_admin_action(&mut admin_ctx, ol_stf_vk_update(first_predicate.clone()))
         .await
         .unwrap();
-    let boundary = harness
-        .commitment_of(enactment_block)
+    let first_boundary = harness
+        .commitment_of(first_enactment_block)
         .await
         .unwrap()
         .height();
-    let enactment = harness
-        .find_log_in_blocks::<CheckpointPredicateEnacted>(&[enactment_block])
-        .await
-        .unwrap()
-        .expect("the first rotation should emit an enactment log");
-    assert_eq!(enactment.new_predicate(), &first_predicate);
-    assert_eq!(
-        harness
-            .pending_predicate_transition()
-            .unwrap()
-            .map(|transition| transition.boundary()),
-        Some(boundary)
-    );
 
-    // Act: authorize a second rotation while the first still awaits activation.
     let second_signer = CheckpointTestHarness::mint_checkpoint_signer();
     let second_predicate = second_signer.predicate();
-    let rejected_block = harness
+    let second_enactment_block = harness
         .submit_admin_action(&mut admin_ctx, ol_stf_vk_update(second_predicate.clone()))
         .await
         .unwrap();
+    let second_boundary = harness
+        .commitment_of(second_enactment_block)
+        .await
+        .unwrap()
+        .height();
 
-    // Assert: nothing was announced, recorded, or queued for later.
+    let enactments = harness.pending_predicate_transitions().unwrap();
+    assert_eq!(enactments.len(), 2);
+    assert_eq!(enactments[0].boundary(), first_boundary);
+    assert_eq!(enactments[0].predicate(), &first_predicate);
+    assert_eq!(enactments[1].boundary(), second_boundary);
+    assert_eq!(enactments[1].predicate(), &second_predicate);
+    assert_eq!(
+        harness.admin_state().unwrap().ol_pending_transition_count(),
+        2
+    );
+    assert_eq!(
+        harness
+            .find_log_in_blocks::<CheckpointPredicateEnacted>(&[first_enactment_block])
+            .await
+            .unwrap()
+            .unwrap()
+            .new_predicate(),
+        &first_predicate
+    );
+    assert_eq!(
+        harness
+            .find_log_in_blocks::<CheckpointPredicateEnacted>(&[second_enactment_block])
+            .await
+            .unwrap()
+            .unwrap()
+            .new_predicate(),
+        &second_predicate
+    );
+
+    // A checkpoint spanning the first boundary is rejected under both adjacent keys.
+    harness.mine_block(None).await.unwrap();
+    let initial_tip = *checkpoint_harness.verified_tip();
+    let straddling_tip = next_checkpoint_tip(&checkpoint_harness, first_boundary + 1);
+    let old_key_straddle = harness
+        .build_checkpoint_tx_for_tip(&checkpoint_harness, straddling_tip, vec![])
+        .await
+        .unwrap();
+    harness.submit_and_mine_tx(&old_key_straddle).await.unwrap();
+    let first_key_straddle = harness
+        .build_checkpoint_tx_for_tip_signed_by(
+            &checkpoint_harness,
+            straddling_tip,
+            vec![],
+            &first_signer,
+        )
+        .await
+        .unwrap();
+    harness
+        .submit_and_mine_tx(&first_key_straddle)
+        .await
+        .unwrap();
+    assert_eq!(
+        harness.checkpoint_state().unwrap().verified_tip(),
+        &initial_tip,
+        "straddling proofs under either adjacent key must be rejected"
+    );
+
+    // The old key governs through the first boundary.
+    let old_tip = next_checkpoint_tip(&checkpoint_harness, first_boundary);
+    let old_tx = harness
+        .build_checkpoint_tx_for_tip(&checkpoint_harness, old_tip, vec![])
+        .await
+        .unwrap();
+    harness.submit_and_mine_tx(&old_tx).await.unwrap();
+    checkpoint_harness.update_verified_tip(old_tip);
+    assert_eq!(
+        harness.checkpoint_state().unwrap().checkpoint_predicate(),
+        &old_predicate
+    );
+    assert_eq!(harness.pending_predicate_transitions().unwrap().len(), 2);
+
+    // The first key governs the intermediate territory through the second boundary.
+    let intermediate_tip = next_checkpoint_tip(&checkpoint_harness, second_boundary);
+    let intermediate_tx = harness
+        .build_checkpoint_tx_for_tip_signed_by(
+            &checkpoint_harness,
+            intermediate_tip,
+            vec![],
+            &first_signer,
+        )
+        .await
+        .unwrap();
+    harness.submit_and_mine_tx(&intermediate_tx).await.unwrap();
+    checkpoint_harness.update_verified_tip(intermediate_tip);
+    assert_eq!(
+        harness.checkpoint_state().unwrap().checkpoint_predicate(),
+        &first_predicate
+    );
+    let remaining = harness.pending_predicate_transitions().unwrap();
+    assert_eq!(remaining.len(), 1);
+    assert_eq!(remaining[0].predicate(), &second_predicate);
+
+    // The latest key governs after the second boundary and clears the queue on promotion.
+    let latest_tip = next_checkpoint_tip(&checkpoint_harness, second_boundary + 1);
+    let latest_tx = harness
+        .build_checkpoint_tx_for_tip_signed_by(
+            &checkpoint_harness,
+            latest_tip,
+            vec![],
+            &second_signer,
+        )
+        .await
+        .unwrap();
+    harness.submit_and_mine_tx(&latest_tx).await.unwrap();
+    checkpoint_harness.update_verified_tip(latest_tip);
+    assert_eq!(
+        harness.checkpoint_state().unwrap().checkpoint_predicate(),
+        &second_predicate
+    );
+    assert!(harness.pending_predicate_transitions().unwrap().is_empty());
+
+    // Checkpoint emits the acknowledgement during PROCESS. Administration consumes it in the
+    // subsequent FINISH stage of the same transition, before the state sections are exported.
+    assert_eq!(
+        harness.admin_state().unwrap().ol_pending_transition_count(),
+        0
+    );
+}
+
+/// The full worker persists exactly 32 delayed OL rotations and rejects the next action
+/// without advancing administration replay state.
+#[tokio::test(flavor = "multi_thread")]
+async fn test_delayed_ol_rotation_queue_admits_32_and_rejects_33rd() {
+    const DELAY: u16 = 100;
+    let Setup {
+        harness,
+        admin: mut admin_ctx,
+        ..
+    } = AsmTestHarnessBuilder::default()
+        .customize_admin(|config| config.confirmation_depths.ol_stf_vk_update = DELAY)
+        .build()
+        .await;
+
+    for _ in 0..32 {
+        let predicate = CheckpointTestHarness::mint_checkpoint_signer().predicate();
+        harness
+            .submit_admin_action(&mut admin_ctx, ol_stf_vk_update(predicate))
+            .await
+            .unwrap();
+    }
+    let admitted_state = harness.admin_state().unwrap();
+    assert_eq!(admitted_state.pending_ol_stf_vk_update_count(), 32);
+    let next_update_id = admitted_state.next_update_id();
+    let last_seqno = admitted_state
+        .authority(Role::StrataAdministrator)
+        .unwrap()
+        .last_seqno();
+
+    let rejected_predicate = CheckpointTestHarness::mint_checkpoint_signer().predicate();
+    harness
+        .submit_admin_action(&mut admin_ctx, ol_stf_vk_update(rejected_predicate))
+        .await
+        .unwrap();
+    let rejected_state = harness.admin_state().unwrap();
+    assert_eq!(rejected_state.pending_ol_stf_vk_update_count(), 32);
+    assert_eq!(rejected_state.next_update_id(), next_update_id);
+    assert_eq!(
+        rejected_state
+            .authority(Role::StrataAdministrator)
+            .unwrap()
+            .last_seqno(),
+        last_seqno
+    );
+}
+
+/// The full worker rejects a distinct 33rd rotation before it consumes replay state, so every
+/// accepted update is guaranteed to reach checkpoint and emit an enactment log.
+#[tokio::test(flavor = "multi_thread")]
+async fn test_full_checkpoint_capacity_rejects_33rd_before_enactment() {
+    let Setup {
+        harness,
+        admin: mut admin_ctx,
+        ..
+    } = AsmTestHarnessBuilder::default()
+        .customize_admin(|config| config.confirmation_depths.ol_stf_vk_update = 0)
+        .build()
+        .await;
+
+    for _ in 0..32 {
+        let predicate = CheckpointTestHarness::mint_checkpoint_signer().predicate();
+        harness
+            .submit_admin_action(&mut admin_ctx, ol_stf_vk_update(predicate))
+            .await
+            .unwrap();
+    }
+
+    let admitted_transitions = harness.pending_predicate_transitions().unwrap();
+    assert_eq!(admitted_transitions.len(), 32);
+    let admitted_admin_state = harness.admin_state().unwrap();
+    assert_eq!(admitted_admin_state.ol_pending_transition_count(), 32);
+    let next_update_id = admitted_admin_state.next_update_id();
+    let last_seqno = admitted_admin_state
+        .authority(Role::StrataAdministrator)
+        .unwrap()
+        .last_seqno();
+
+    let rejected_predicate = CheckpointTestHarness::mint_checkpoint_signer().predicate();
+    let rejected_block = harness
+        .submit_admin_action(&mut admin_ctx, ol_stf_vk_update(rejected_predicate))
+        .await
+        .unwrap();
+
+    assert_eq!(
+        harness.pending_predicate_transitions().unwrap(),
+        admitted_transitions,
+        "the rejected update must not reach checkpoint state"
+    );
     assert!(
         harness
             .find_log_in_blocks::<CheckpointPredicateEnacted>(&[rejected_block])
             .await
             .unwrap()
             .is_none(),
-        "a refused rotation must not announce an enactment"
+        "the rejected update must not emit an enactment log"
     );
+    let rejected_admin_state = harness.admin_state().unwrap();
+    assert_eq!(rejected_admin_state.ol_pending_transition_count(), 32);
+    assert_eq!(rejected_admin_state.next_update_id(), next_update_id);
     assert_eq!(
-        harness
-            .pending_predicate_transition()
+        rejected_admin_state
+            .authority(Role::StrataAdministrator)
             .unwrap()
-            .map(|transition| transition.predicate().clone()),
-        Some(first_predicate.clone()),
-        "the pending slot must still hold the first rotation"
-    );
-    let admin_state = harness.admin_state().unwrap();
-    assert!(
-        admin_state.queued().is_empty(),
-        "a refused rotation must not linger in the admin queue"
-    );
-    assert!(
-        admin_state.ol_transition_pending(),
-        "the first rotation should still be marked outstanding"
-    );
-
-    // Arrange: walk the verified tip up to exactly B under the active key. Without this the
-    // promoting checkpoint below would cover genesis+1..=B+1 and be rejected as a straddle.
-    harness.mine_block(None).await.unwrap();
-    let preceding_tip = next_checkpoint_tip(&checkpoint_harness, boundary);
-    let preceding_tx = harness
-        .build_checkpoint_tx_for_tip(&checkpoint_harness, preceding_tip, vec![])
-        .await
-        .unwrap();
-    harness.submit_and_mine_tx(&preceding_tx).await.unwrap();
-    checkpoint_harness.update_verified_tip(preceding_tip);
-    assert!(
-        harness.pending_predicate_transition().unwrap().is_some(),
-        "a checkpoint ending at B must not promote the transition"
-    );
-
-    // Act: accept a checkpoint starting at B+1 so the first rotation is promoted.
-    let promoting_tip = next_checkpoint_tip(&checkpoint_harness, boundary + 1);
-    let promoting_tx = harness
-        .build_checkpoint_tx_for_tip_signed_by(
-            &checkpoint_harness,
-            promoting_tip,
-            vec![],
-            &first_signer,
-        )
-        .await
-        .unwrap();
-    harness.submit_and_mine_tx(&promoting_tx).await.unwrap();
-    checkpoint_harness.update_verified_tip(promoting_tip);
-
-    assert_eq!(
-        harness.checkpoint_state().unwrap().checkpoint_predicate(),
-        &first_predicate
-    );
-    assert!(
-        harness.pending_predicate_transition().unwrap().is_none(),
-        "promotion should free the pending slot"
-    );
-
-    // Act: the same second rotation is now authorizable.
-    let admission_block = harness
-        .submit_admin_action(&mut admin_ctx, ol_stf_vk_update(second_predicate.clone()))
-        .await
-        .unwrap();
-
-    // Assert: it enacts at a strictly later boundary than the first.
-    let admitted = harness
-        .find_log_in_blocks::<CheckpointPredicateEnacted>(&[admission_block])
-        .await
-        .unwrap()
-        .expect("the second rotation should enact once the slot is free");
-    assert_eq!(admitted.new_predicate(), &second_predicate);
-    let later_boundary = harness
-        .pending_predicate_transition()
-        .unwrap()
-        .expect("the second rotation should occupy the pending slot")
-        .boundary();
-    assert_eq!(
-        later_boundary,
-        harness
-            .commitment_of(admission_block)
-            .await
-            .unwrap()
-            .height()
-    );
-    assert!(
-        later_boundary > boundary,
-        "the second boundary {later_boundary} must be later than the first {boundary}"
+            .last_seqno(),
+        last_seqno
     );
 }

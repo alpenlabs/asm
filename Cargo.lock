@@ -7927,6 +7927,7 @@ dependencies = [
 name = "strata-asm-proto-admin-msgs"
 version = "0.1.0"
 dependencies = [
+ "strata-asm-checkpoint-types",
  "strata-asm-common",
  "strata-asm-proto-admin-txs",
 ]

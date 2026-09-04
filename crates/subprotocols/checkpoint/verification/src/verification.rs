@@ -270,8 +270,9 @@ mod tests {
     use ssz_types::VariableList;
     use strata_asm_bridge_types::{BRIDGE_GATEWAY_ACCT_SERIAL, WithdrawalIntent};
     use strata_asm_checkpoint_types::{
-        CheckpointInitConfig, CheckpointPayload, CheckpointTip, OLLog, PendingPredicateTransition,
-        SimpleWithdrawalIntentLogData, TerminalHeaderComplement,
+        CheckpointInitConfig, CheckpointPayload, CheckpointTip, MAX_PENDING_PREDICATE_TRANSITIONS,
+        OLLog, PendingPredicateTransition, PendingTransitionCount, SimpleWithdrawalIntentLogData,
+        TerminalHeaderComplement,
     };
     use strata_asm_manifest_types::AsmManifestRangeHash;
     use strata_btc_types::BitcoinAmount;
@@ -310,7 +311,7 @@ mod tests {
         current_l1_height: u32,
         payload: &CheckpointPayload,
         asm_manifests_hash: AsmManifestRangeHash,
-    ) -> CheckpointValidationResult<(Vec<WithdrawalIntent>, bool)> {
+    ) -> CheckpointValidationResult<(Vec<WithdrawalIntent>, PendingTransitionCount)> {
         let coverage =
             verify_progression(state.verified_tip(), payload.new_tip(), current_l1_height)?;
         let selection = state.select_predicate(&coverage)?;
@@ -508,38 +509,44 @@ mod tests {
 
     // --- Predicate selection and activation ---
 
+    /// With three ordered boundaries queued, each range strictly between two boundaries must
+    /// select the predicate governing its territory by index, and a range containing a boundary
+    /// must be rejected as a straddle that names the offending boundary.
     #[test]
-    fn test_select_predicate_for_each_range_branch() {
+    fn test_multiple_boundaries_select_ordered_predicates_and_reject_straddles() {
         let (mut state, harness) = test_setup();
-        let boundary = harness.verified_tip().l1_height() + 20;
-        state.queue_predicate_transition(PendingPredicateTransition::new(
-            PredicateKey::always_accept(),
-            boundary,
-        ));
+        let first = harness.verified_tip().l1_height() + 20;
+        let second = first + 20;
+        let third = second + 20;
+        for (predicate, boundary) in [
+            (PredicateKey::always_accept(), first),
+            (PredicateKey::never_accept(), second),
+            (PredicateKey::always_accept(), third),
+        ] {
+            state.queue_predicate_transition(PendingPredicateTransition::new(predicate, boundary));
+        }
 
-        assert_eq!(
-            state
-                .select_predicate(&CheckpointL1Range::Range {
-                    start_height: boundary - 5,
-                    end_height: boundary,
-                })
-                .unwrap(),
-            PredicateSelection::Active
-        );
-        assert_eq!(
-            state
-                .select_predicate(&CheckpointL1Range::Range {
-                    start_height: boundary + 1,
-                    end_height: boundary + 5,
-                })
-                .unwrap(),
-            PredicateSelection::Pending
-        );
+        for (start_height, end_height, expected) in [
+            (first - 5, first, PredicateSelection::Active),
+            (first + 1, second, PredicateSelection::Pending(0)),
+            (second + 1, third, PredicateSelection::Pending(1)),
+            (third + 1, third + 5, PredicateSelection::Pending(2)),
+        ] {
+            assert_eq!(
+                state
+                    .select_predicate(&CheckpointL1Range::Range {
+                        start_height,
+                        end_height,
+                    })
+                    .unwrap(),
+                expected
+            );
+        }
 
         let err = state
             .select_predicate(&CheckpointL1Range::Range {
-                start_height: boundary,
-                end_height: boundary + 1,
+                start_height: second,
+                end_height: second + 1,
             })
             .unwrap_err();
         assert!(matches!(
@@ -548,111 +555,194 @@ mod tests {
                 InvalidCheckpointPayload::RangeStraddlesPredicateBoundary {
                     start,
                     end,
-                    boundary: reported,
+                    boundary,
                 }
-            ) if start == boundary && end == boundary + 1 && reported == boundary
+            ) if start == second && end == second + 1 && boundary == second
         ));
     }
 
     #[test]
-    fn test_empty_range_selects_by_verified_tip() {
-        let boundary = 100;
+    fn test_empty_range_selects_by_verified_tip_across_multiple_boundaries() {
+        let first = 100;
+        let second = 200;
         for (verified_height, expected) in [
-            (boundary - 1, PredicateSelection::Active),
-            (boundary, PredicateSelection::Pending),
-            (boundary + 1, PredicateSelection::Pending),
+            (first - 1, PredicateSelection::Active),
+            (first, PredicateSelection::Pending(0)),
+            (second - 1, PredicateSelection::Pending(0)),
+            (second, PredicateSelection::Pending(1)),
         ] {
-            let (mut state, harness) = test_setup();
+            let (mut state, _) = test_setup();
             state.verified_tip.l1_height = verified_height;
             state.queue_predicate_transition(PendingPredicateTransition::new(
                 PredicateKey::always_accept(),
-                boundary,
+                first,
+            ));
+            state.queue_predicate_transition(PendingPredicateTransition::new(
+                PredicateKey::never_accept(),
+                second,
             ));
             assert_eq!(
                 state.select_predicate(&CheckpointL1Range::Empty).unwrap(),
                 expected,
                 "unexpected selection for verified height {verified_height}"
             );
-
-            // Keep the harness alive through the assertion so its randomly generated
-            // predicates cannot be optimized out of the state setup.
-            assert_eq!(state.sequencer_predicate(), &harness.sequencer_predicate());
         }
     }
 
     #[test]
-    fn test_empty_range_at_u32_max_selects_pending_without_successor_arithmetic() {
+    fn test_empty_range_at_u32_max_selects_latest_pending_without_successor_arithmetic() {
         let (mut state, _) = test_setup();
         state.verified_tip.l1_height = u32::MAX;
         state.queue_predicate_transition(PendingPredicateTransition::new(
             PredicateKey::always_accept(),
+            u32::MAX - 1,
+        ));
+        state.queue_predicate_transition(PendingPredicateTransition::new(
+            PredicateKey::never_accept(),
             u32::MAX,
         ));
 
         assert_eq!(
             state.select_predicate(&CheckpointL1Range::Empty).unwrap(),
-            PredicateSelection::Pending
+            PredicateSelection::Pending(1)
         );
     }
 
-    /// A checkpoint accepted under the pending key promotes it and empties the slot.
+    /// Two enactments at the same boundary must coalesce into a single list entry holding the
+    /// later predicate — the admin-side accounting assumes same-boundary relays never grow
+    /// checkpoint's occupancy.
     #[test]
-    fn test_acceptance_under_pending_key_promotes_and_clears_slot() {
-        let (mut state, mut harness) = test_setup();
-        let signer = CheckpointTestHarness::mint_checkpoint_signer();
-        let active_predicate = state.checkpoint_predicate().clone();
-        let boundary = harness.verified_tip().l1_height() + 10;
-        let mut baseline = *harness.verified_tip();
-        baseline.l1_height = boundary;
-        harness.update_verified_tip(baseline);
-        state.verified_tip = baseline;
+    fn test_same_boundary_coalesces_to_latest_predicate() {
+        let (mut state, harness) = test_setup();
+        let boundary = harness.verified_tip().l1_height() + 20;
         state.queue_predicate_transition(PendingPredicateTransition::new(
-            signer.predicate(),
+            PredicateKey::never_accept(),
             boundary,
         ));
-        assert_ne!(active_predicate, signer.predicate());
+        state.queue_predicate_transition(PendingPredicateTransition::new(
+            PredicateKey::always_accept(),
+            boundary,
+        ));
+
+        assert_eq!(state.pending_transitions().len(), 1);
+        assert_eq!(
+            state.pending_transitions()[0].predicate(),
+            &PredicateKey::always_accept()
+        );
+    }
+
+    /// The transition list must hold exactly its capacity, and a same-boundary replacement at
+    /// full capacity must still succeed by overwriting the tail entry rather than appending —
+    /// the case admin relies on when it relays a coalesced enactment without a free slot.
+    #[test]
+    fn test_pending_transition_list_accepts_exact_capacity_and_same_boundary_replacement() {
+        let (mut state, _) = test_setup();
+        for boundary in 0..MAX_PENDING_PREDICATE_TRANSITIONS as u32 {
+            state.queue_predicate_transition(PendingPredicateTransition::new(
+                PredicateKey::never_accept(),
+                boundary,
+            ));
+        }
+        state.queue_predicate_transition(PendingPredicateTransition::new(
+            PredicateKey::always_accept(),
+            MAX_PENDING_PREDICATE_TRANSITIONS as u32 - 1,
+        ));
+
+        assert_eq!(
+            state.pending_transitions().len(),
+            MAX_PENDING_PREDICATE_TRANSITIONS
+        );
+        assert_eq!(
+            state.pending_transitions().last().unwrap().predicate(),
+            &PredicateKey::always_accept()
+        );
+    }
+
+    /// Accepting a checkpoint governed by the middle of three queued keys must promote that key
+    /// to active and prune every transition up to and including it — reporting the exact count
+    /// so admin's occupancy stays in sync — while boundaries beyond it stay queued.
+    #[test]
+    fn test_acceptance_under_intermediate_key_promotes_and_prunes_through_selection() {
+        let (mut state, mut harness) = test_setup();
+        let first_signer = CheckpointTestHarness::mint_checkpoint_signer();
+        let selected_signer = CheckpointTestHarness::mint_checkpoint_signer();
+        let latest_signer = CheckpointTestHarness::mint_checkpoint_signer();
+        let first_boundary = harness.verified_tip().l1_height() + 10;
+        let selected_boundary = first_boundary + 10;
+        let latest_boundary = selected_boundary + 10;
+        for (signer, boundary) in [
+            (&first_signer, first_boundary),
+            (&selected_signer, selected_boundary),
+            (&latest_signer, latest_boundary),
+        ] {
+            state.queue_predicate_transition(PendingPredicateTransition::new(
+                signer.predicate(),
+                boundary,
+            ));
+        }
+        let mut baseline = *harness.verified_tip();
+        baseline.l1_height = selected_boundary;
+        harness.update_verified_tip(baseline);
+        state.verified_tip = baseline;
 
         let new_tip = CheckpointTip {
-            l1_height: boundary + 5,
+            l1_height: selected_boundary + 5,
             ..harness.gen_new_tip()
         };
-        let payload = harness.build_payload_with_tip_and_signer(new_tip, &signer);
+        let payload = harness.build_payload_with_tip_and_signer(new_tip, &selected_signer);
         let hash = harness.gen_asm_manifests_hash(&new_tip);
-        let (_, promoted) = run_proof_pipeline(&mut state, boundary + 6, &payload, hash).unwrap();
+        let (_, pruned) =
+            run_proof_pipeline(&mut state, selected_boundary + 6, &payload, hash).unwrap();
 
-        assert!(promoted);
-        assert_eq!(state.checkpoint_predicate(), &signer.predicate());
-        assert!(state.pending_transition().is_none());
+        assert_eq!(pruned, 2);
+        assert_eq!(state.checkpoint_predicate(), &selected_signer.predicate());
+        assert_eq!(state.pending_transitions().len(), 1);
+        assert_eq!(
+            state.pending_transitions()[0].predicate(),
+            &latest_signer.predicate()
+        );
     }
 
     #[test]
-    fn test_selected_predicate_failure_leaves_state_unchanged() {
+    fn test_selected_predicate_failure_leaves_active_predicate_and_queue_unchanged() {
         let (mut state, mut harness) = test_setup();
-        let signer = CheckpointTestHarness::mint_checkpoint_signer();
-        let boundary = harness.verified_tip().l1_height() + 10;
+        let first_signer = CheckpointTestHarness::mint_checkpoint_signer();
+        let selected_signer = CheckpointTestHarness::mint_checkpoint_signer();
+        let latest_signer = CheckpointTestHarness::mint_checkpoint_signer();
+        let first_boundary = harness.verified_tip().l1_height() + 10;
+        let selected_boundary = first_boundary + 10;
+        let latest_boundary = selected_boundary + 10;
+        for (signer, boundary) in [
+            (&first_signer, first_boundary),
+            (&selected_signer, selected_boundary),
+            (&latest_signer, latest_boundary),
+        ] {
+            state.queue_predicate_transition(PendingPredicateTransition::new(
+                signer.predicate(),
+                boundary,
+            ));
+        }
         let mut baseline = *harness.verified_tip();
-        baseline.l1_height = boundary;
+        baseline.l1_height = selected_boundary;
         harness.update_verified_tip(baseline);
         state.verified_tip = baseline;
         state.record_deposit(
             BitcoinAmount::try_from(100_000)
                 .expect("test amount must be within the Bitcoin money supply"),
         );
-        state.queue_predicate_transition(PendingPredicateTransition::new(
-            signer.predicate(),
-            boundary,
-        ));
         let previous_tip = *state.verified_tip();
         let previous_deposits = state.available_deposit_sum();
-        let previous_transition = state.pending_transition().cloned();
+        let previous_predicate = state.checkpoint_predicate().clone();
+        let previous_transitions = state.pending_transitions().to_vec();
 
         let new_tip = CheckpointTip {
-            l1_height: boundary + 1,
+            l1_height: selected_boundary + 1,
             ..harness.gen_new_tip()
         };
         let payload = harness.build_payload_with_tip(new_tip);
         let hash = harness.gen_asm_manifests_hash(&new_tip);
-        let err = run_proof_pipeline(&mut state, boundary + 2, &payload, hash).unwrap_err();
+        let err =
+            run_proof_pipeline(&mut state, selected_boundary + 2, &payload, hash).unwrap_err();
 
         assert!(matches!(
             err,
@@ -662,7 +752,8 @@ mod tests {
         ));
         assert_eq!(state.verified_tip(), &previous_tip);
         assert_eq!(state.available_deposit_sum(), previous_deposits);
-        assert_eq!(state.pending_transition().cloned(), previous_transition);
+        assert_eq!(state.checkpoint_predicate(), &previous_predicate);
+        assert_eq!(state.pending_transitions(), previous_transitions);
     }
 
     #[test]
@@ -706,10 +797,10 @@ mod tests {
         let payload = harness.build_payload_with_tip(new_tip);
         let hash = harness.gen_asm_manifests_hash(&new_tip);
 
-        let (_, promoted) = run_proof_pipeline(&mut state, boundary + 2, &payload, hash).unwrap();
-        assert!(!promoted);
+        let (_, pruned) = run_proof_pipeline(&mut state, boundary + 2, &payload, hash).unwrap();
+        assert_eq!(pruned, 0);
         assert_eq!(state.verified_tip(), &new_tip);
-        assert_eq!(state.pending_transition(), Some(&transition));
+        assert_eq!(state.pending_transitions(), &[transition]);
     }
 
     #[test]
@@ -728,7 +819,7 @@ mod tests {
             state.checkpoint_predicate(),
             &harness.checkpoint_predicate()
         );
-        assert!(state.pending_transition().is_none());
+        assert!(state.pending_transitions().is_empty());
     }
 
     // --- Proof verification + withdrawal extraction ---

@@ -75,9 +75,9 @@ impl Subprotocol for AdministrationSubprotocol {
     ) {
         for msg in msgs {
             match msg {
-                AdministrationIncomingMsg::OlTransitionPromoted => {
-                    state.acknowledge_ol_transition_promoted();
-                    info!("accounted for promoted checkpoint predicate transition");
+                AdministrationIncomingMsg::OlTransitionsPruned(pruned) => {
+                    state.acknowledge_ol_transitions_pruned(*pruned);
+                    info!(%pruned, "accounted for pruned checkpoint predicate transitions");
                 }
             }
         }

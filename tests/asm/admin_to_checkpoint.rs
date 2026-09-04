@@ -203,7 +203,8 @@ async fn test_predicate_update_propagates_to_checkpoint() {
         "enactment must not immediately replace the active checkpoint predicate"
     );
     let transition = checkpoint_state
-        .pending_transition()
+        .pending_transitions()
+        .first()
         .expect("enactment must record a pending transition");
     assert_eq!(transition.predicate(), &new_predicate);
     let enactment = harness
@@ -308,7 +309,8 @@ async fn test_zero_and_nonzero_depth_updates_both_apply() {
         "predicate enactment must not immediately replace the active predicate"
     );
     let transition = final_checkpoint_state
-        .pending_transition()
+        .pending_transitions()
+        .first()
         .expect("enactment must record a pending transition");
     assert_eq!(transition.predicate(), &new_predicate);
     assert_eq!(u64::from(transition.boundary()), activation_height);
@@ -580,7 +582,8 @@ async fn test_predicate_immediate_update_same_block_checkpoint_validates() {
         "enactment must not immediately replace the active checkpoint predicate"
     );
     let transition = cp_state
-        .pending_transition()
+        .pending_transitions()
+        .first()
         .expect("enactment must record a pending transition");
     assert_eq!(transition.predicate(), &new_predicate);
     assert_eq!(u64::from(transition.boundary()), activation_height);
@@ -649,7 +652,8 @@ async fn test_queued_predicate_update_activation_same_block_checkpoint_validates
         "enactment must not immediately replace the active checkpoint predicate"
     );
     let transition = cp_state
-        .pending_transition()
+        .pending_transitions()
+        .first()
         .expect("enactment must record a pending transition");
     assert_eq!(transition.predicate(), &new_predicate);
     assert_eq!(u64::from(transition.boundary()), activation);
