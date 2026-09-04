@@ -29,7 +29,7 @@ pub(crate) fn run(db: &sled::Db, resource: ProofResource, write: bool) -> Result
     match resource {
         ProofResource::Asm { verb } => asm(&store, verb, write),
         ProofResource::Moho { verb } => moho(&store, verb, write),
-        ProofResource::Mapping { verb } => mapping(&store, verb),
+        ProofResource::Mapping { verb } => mapping(&store, verb, write),
         ProofResource::Status { verb } => status(&store, verb, write),
         ProofResource::Prune { before } => {
             ensure_write(write)?;
@@ -93,7 +93,7 @@ fn moho(store: &SledProofDb, verb: ProofMohoVerb, write: bool) -> Result<Value> 
     }
 }
 
-fn mapping(store: &SledProofDb, verb: ProofMappingVerb) -> Result<Value> {
+fn mapping(store: &SledProofDb, verb: ProofMappingVerb, write: bool) -> Result<Value> {
     match verb {
         ProofMappingVerb::GetRemote { proof_id } => {
             let id = parse_proof_id(&proof_id)?;
@@ -126,6 +126,12 @@ fn mapping(store: &SledProofDb, verb: ProofMappingVerb) -> Result<Value> {
                     .map(|(local, remote)| mapping_json(local, remote))
                     .collect::<Vec<_>>(),
             }))
+        }
+        ProofMappingVerb::Delete { proof_id } => {
+            ensure_write(write)?;
+            let id = parse_proof_id(&proof_id)?;
+            let deleted = store.delete_mapping(id)?;
+            Ok(json!({ "deleted": deleted, "proof_id": proof_id_str(&id) }))
         }
     }
 }

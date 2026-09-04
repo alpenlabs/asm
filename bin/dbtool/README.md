@@ -124,7 +124,7 @@ Nothing deduplicates entry hashes: a hash may appear as several leaves, and
 |---|---|
 | `proof asm` | `get <range>` · `list` · `delete <range>` (w) |
 | `proof moho` | `get <commitment>` · `latest` · `list` · `delete <commitment>` (w) |
-| `proof mapping` | `get-remote <proof_id>` · `get-local <remote_id>` · `list` |
+| `proof mapping` | `get-remote <proof_id>` · `get-local <remote_id>` · `list` · `delete <proof_id>` (w) |
 | `proof status` | `get <remote_id>` · `list` · `in-progress` · `delete <remote_id>` (w) |
 | `proof prune` | `--before <h>` (w) |
 
