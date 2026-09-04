@@ -126,8 +126,8 @@ pub(crate) fn process_block<W: MohoWorkerContext>(
 /// it, so a crash in that window leaves anchor states with no derived Moho
 /// state — the Moho store trails the ASM store. The subscription does not
 /// replay, so without this catch-up the next live commit would fold onto a
-/// parent whose Moho state is missing and the worker would wedge on
-/// [`MissingMohoState`](MohoWorkerError::MissingMohoState).
+/// parent whose Moho state is missing and the worker would get stuck, failing
+/// with [`MissingMohoState`](MohoWorkerError::MissingMohoState) on every block.
 ///
 /// The catch-up source is the ASM store itself: every block to fold already has
 /// a committed anchor state. It reuses `strata-asm-worker`'s [`plan_sync`] to
