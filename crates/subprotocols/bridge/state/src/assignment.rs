@@ -28,6 +28,82 @@ use crate::{
     operator::{NnScriptHistory, NnScriptIdx},
 };
 
+/// Whether a withdrawal assignment can still be handled by an active operator from its notary set.
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Arbitrary, Serialize, Deserialize)]
+#[repr(u8)]
+pub enum AssignmentStatus {
+    /// The assignment is eligible for deadline-based reassignment.
+    Active = 0,
+    /// None of the deposit's historical notary operators remain active.
+    Unassignable = 1,
+}
+
+impl SszEncode for AssignmentStatus {
+    fn is_ssz_fixed_len() -> bool {
+        true
+    }
+
+    fn ssz_fixed_len() -> usize {
+        <u8 as SszEncode>::ssz_fixed_len()
+    }
+
+    fn ssz_append(&self, buf: &mut Vec<u8>) {
+        (*self as u8).ssz_append(buf);
+    }
+
+    fn ssz_bytes_len(&self) -> usize {
+        <u8 as SszEncode>::ssz_fixed_len()
+    }
+}
+
+impl SszDecode for AssignmentStatus {
+    fn is_ssz_fixed_len() -> bool {
+        true
+    }
+
+    fn ssz_fixed_len() -> usize {
+        <u8 as SszDecode>::ssz_fixed_len()
+    }
+
+    fn from_ssz_bytes(bytes: &[u8]) -> Result<Self, DecodeError> {
+        match u8::from_ssz_bytes(bytes)? {
+            0 => Ok(Self::Active),
+            1 => Ok(Self::Unassignable),
+            value => Err(DecodeError::BytesInvalid(format!(
+                "invalid assignment status {value}"
+            ))),
+        }
+    }
+}
+
+/// Result of attempting to reassign one expired withdrawal.
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum ReassignmentOutcome {
+    /// The assignment moved to an eligible operator.
+    Reassigned,
+    /// The assignment has no active operator from its historical notary set.
+    Unassignable,
+}
+
+/// Deposit indices affected by one expired-assignment pass.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct ReassignmentReport {
+    reassigned: Vec<u32>,
+    newly_unassignable: Vec<u32>,
+}
+
+impl ReassignmentReport {
+    /// Deposit indices that moved to another operator.
+    pub fn reassigned(&self) -> &[u32] {
+        &self.reassigned
+    }
+
+    /// Deposit indices marked unassignable during this pass.
+    pub fn newly_unassignable(&self) -> &[u32] {
+        &self.newly_unassignable
+    }
+}
+
 /// Links a deposit UTXO to the operator responsible for fulfilling its withdrawal.
 #[derive(Clone, Debug, Eq, PartialEq, Arbitrary, Serialize, Deserialize, Encode, Decode)]
 pub struct AssignmentEntry {
@@ -63,6 +139,9 @@ pub struct AssignmentEntry {
     /// [`ClaimUnlock`](strata_asm_bridge_types::OperatorClaimUnlock). An assignment made at height
     /// `H` with an assignment duration of `D` is therefore fulfillable in blocks `H+1..=H+D`.
     fulfillment_deadline: L1Height,
+
+    /// Whether this assignment can still be reassigned within its historical notary set.
+    status: AssignmentStatus,
 }
 
 impl PartialOrd for AssignmentEntry {
@@ -123,6 +202,7 @@ impl AssignmentEntry {
             current_assignee,
             previous_assignees,
             fulfillment_deadline,
+            status: AssignmentStatus::Active,
         })
     }
 
@@ -165,20 +245,36 @@ impl AssignmentEntry {
         self.fulfillment_deadline
     }
 
-    /// Reassigns the withdrawal to a different operator and updates the fulfillment deadline.
+    /// Returns the assignment's reassignment status.
+    pub fn status(&self) -> AssignmentStatus {
+        self.status
+    }
+
+    /// Returns whether no active operator can handle this deposit.
+    pub fn is_unassignable(&self) -> bool {
+        self.status == AssignmentStatus::Unassignable
+    }
+
+    /// Attempts to reassign the withdrawal to a different operator.
     ///
     /// Marks the current assignee as tried and selects a new operator from those not yet tried.
     /// Once every operator has been tried, the history is cleared and selection draws from the
-    /// full active set again.
+    /// full active set again. If no historical notary remains active, marks the assignment
+    /// unassignable without changing its assignee, history, or deadline.
     pub fn reassign(
         &mut self,
         new_deadline: L1Height,
         seed: L1BlockId,
         notary_operators: &OperatorBitmap,
         current_active_operators: &OperatorBitmap,
-    ) -> Result<(), WithdrawalAssignmentError> {
-        // Mark the current assignee as tried so we don't immediately reselect it.
-        self.previous_assignees
+    ) -> Result<ReassignmentOutcome, WithdrawalAssignmentError> {
+        if self.is_unassignable() {
+            return Ok(ReassignmentOutcome::Unassignable);
+        }
+
+        // Work on a copy so errors do not leave a partially updated assignment behind.
+        let mut previous_assignees = self.previous_assignees.clone();
+        previous_assignees
             .try_set(self.current_assignee, true)
             .map_err(WithdrawalAssignmentError::BitmapError)?;
 
@@ -188,27 +284,34 @@ impl AssignmentEntry {
         // reset the history and reselect from the full active set.
         let eligible = filter_eligible_operators(
             notary_operators,
-            &self.previous_assignees,
+            &previous_assignees,
             current_active_operators,
         )?;
         let new_assignee = match select_random_operator(&eligible, seed, deposit_idx) {
             Ok(operator) => operator,
             Err(WithdrawalAssignmentError::NoEligibleOperators { .. }) => {
-                self.previous_assignees =
-                    OperatorBitmap::new_with_size(notary_operators.len(), false);
+                previous_assignees = OperatorBitmap::new_with_size(notary_operators.len(), false);
                 let eligible = filter_eligible_operators(
                     notary_operators,
-                    &self.previous_assignees,
+                    &previous_assignees,
                     current_active_operators,
                 )?;
-                select_random_operator(&eligible, seed, deposit_idx)?
+                match select_random_operator(&eligible, seed, deposit_idx) {
+                    Ok(operator) => operator,
+                    Err(WithdrawalAssignmentError::NoEligibleOperators { .. }) => {
+                        self.status = AssignmentStatus::Unassignable;
+                        return Ok(ReassignmentOutcome::Unassignable);
+                    }
+                    Err(err) => return Err(err),
+                }
             }
             Err(err) => return Err(err),
         };
 
+        self.previous_assignees = previous_assignees;
         self.current_assignee = new_assignee;
         self.fulfillment_deadline = new_deadline;
-        Ok(())
+        Ok(ReassignmentOutcome::Reassigned)
     }
 }
 
@@ -363,29 +466,21 @@ impl AssignmentTable {
         }
     }
 
-    /// Reassigns every assignment whose deadline has passed as of `l1_block`, returning references
-    /// to the reassigned entries.
+    /// Reassigns every active assignment whose deadline has passed as of `l1_block`.
     ///
     /// Keeps withdrawals from stalling on unresponsive operators.
     ///
-    /// A `Vec` is returned rather than an iterator because reassignment is an eager, fallible,
-    /// in-place mutation: every expired entry has to be reassigned (or the call aborted) before
-    /// any result is meaningful, so there is nothing to lazily defer.
-    ///
     /// # Errors
     ///
-    /// Returns [`WithdrawalAssignmentError`] on the first expired assignment with no eligible
-    /// operator to take it, and does not attempt the remaining ones. Since
-    /// [`AssignmentEntry::reassign`] mutates in
-    /// place, entries processed before the failure are already reassigned — this is not rolled
-    /// back.
+    /// Returns [`WithdrawalAssignmentError`] for malformed assignment state. A deposit with no
+    /// active historical notary is marked unassignable instead of failing the pass.
     pub fn reassign_expired_assignments(
         &mut self,
         nn_history: &NnScriptHistory,
         current_active_operators: &OperatorBitmap,
         l1_block: &L1BlockCommitment,
-    ) -> Result<Vec<&AssignmentEntry>, WithdrawalAssignmentError> {
-        let mut reassigned = Vec::new();
+    ) -> Result<ReassignmentReport, WithdrawalAssignmentError> {
+        let mut report = ReassignmentReport::default();
 
         let current_height = l1_block.height();
         let seed = *l1_block.blkid();
@@ -395,22 +490,28 @@ impl AssignmentTable {
         for assignment in self
             .assignments
             .iter_mut()
-            .filter(|e| e.fulfillment_deadline <= current_height)
+            .filter(|e| !e.is_unassignable() && e.fulfillment_deadline <= current_height)
         {
             let notary_operators = nn_history
                 .get(assignment.notary_set())
                 .expect("assignment references a known N/N configuration")
                 .operators();
-            assignment.reassign(
+            match assignment.reassign(
                 new_deadline,
                 seed,
                 notary_operators,
                 current_active_operators,
-            )?;
-            reassigned.push(&*assignment);
+            )? {
+                ReassignmentOutcome::Reassigned => {
+                    report.reassigned.push(assignment.deposit_idx());
+                }
+                ReassignmentOutcome::Unassignable => {
+                    report.newly_unassignable.push(assignment.deposit_idx());
+                }
+            }
         }
 
-        Ok(reassigned)
+        Ok(report)
     }
 
     /// Builds an assignment entry for `deposit_entry` (see [`AssignmentEntry::create`]), deriving
@@ -481,8 +582,19 @@ mod tests {
         );
         assert_eq!(assignment.operator_fee(), operator_fee);
         assert_eq!(assignment.fulfillment_deadline(), fulfillment_deadline);
+        assert_eq!(assignment.status(), AssignmentStatus::Active);
         assert!(current_active_operators.is_active(assignment.current_assignee()));
         assert_eq!(assignment.previous_assignees.active_count(), 0);
+    }
+
+    #[test]
+    fn test_assignment_status_ssz_roundtrip() {
+        for status in [AssignmentStatus::Active, AssignmentStatus::Unassignable] {
+            let encoded = status.as_ssz_bytes();
+            assert_eq!(AssignmentStatus::from_ssz_bytes(&encoded).unwrap(), status);
+        }
+
+        assert!(AssignmentStatus::from_ssz_bytes(&[2]).is_err());
     }
 
     #[test]
@@ -674,6 +786,55 @@ mod tests {
     }
 
     #[test]
+    fn test_reassign_marks_assignment_unassignable_when_notary_set_is_inactive() {
+        let mut arb = ArbitraryGenerator::new();
+        let deposit_entry: DepositEntry = arb.generate();
+        let withdrawal_intent: WithdrawalIntent = arb.generate();
+        let operator_fee: BitcoinAmount = arb.generate();
+        let initial_deadline: L1Height = 100;
+        let initial_seed: L1BlockId = arb.generate();
+        let reassign_seed: L1BlockId = arb.generate();
+
+        let notary_operators = OperatorBitmap::new_with_size(1, true);
+        let mut replacement_operators = OperatorBitmap::new_with_size(2, false);
+        replacement_operators.try_set(1, true).unwrap();
+
+        let mut assignment = AssignmentEntry::create(
+            deposit_entry,
+            withdrawal_intent,
+            operator_fee,
+            initial_deadline,
+            &notary_operators,
+            &notary_operators,
+            initial_seed,
+        )
+        .unwrap();
+        let original_assignee = assignment.current_assignee();
+        let original_previous_assignees = assignment.previous_assignees.clone();
+
+        let outcome = assignment
+            .reassign(
+                200,
+                reassign_seed,
+                &notary_operators,
+                &replacement_operators,
+            )
+            .unwrap();
+
+        assert_eq!(outcome, ReassignmentOutcome::Unassignable);
+        assert_eq!(assignment.status(), AssignmentStatus::Unassignable);
+        assert_eq!(assignment.current_assignee(), original_assignee);
+        assert_eq!(assignment.previous_assignees, original_previous_assignees);
+        assert_eq!(assignment.fulfillment_deadline(), initial_deadline);
+
+        let encoded = assignment.as_ssz_bytes();
+        assert_eq!(
+            AssignmentEntry::from_ssz_bytes(&encoded).unwrap(),
+            assignment
+        );
+    }
+
+    #[test]
     fn test_reassign_updates_deadline() {
         let mut arb = ArbitraryGenerator::new();
 
@@ -859,6 +1020,48 @@ mod tests {
         );
     }
 
+    #[test]
+    fn test_reassign_expired_assignment_marks_and_then_skips_unassignable_deposit() {
+        let mut table = AssignmentTable::new(100);
+        let mut arb = ArbitraryGenerator::new();
+        let initial_seed: L1BlockId = arb.generate();
+
+        let notary_operators = OperatorBitmap::new_with_size(1, true);
+        let nn_history = NnScriptHistory::single_for_test(notary_operators.clone());
+        let mut replacement_operators = OperatorBitmap::new_with_size(2, false);
+        replacement_operators.try_set(1, true).unwrap();
+
+        let arb_entry: DepositEntry = arb.generate();
+        let deposit_entry = DepositEntry::new(arb_entry.idx(), 0, arb_entry.amt());
+        let deposit_idx = deposit_entry.idx();
+        let assignment = AssignmentEntry::create(
+            deposit_entry,
+            arb.generate(),
+            arb.generate(),
+            100,
+            &notary_operators,
+            &notary_operators,
+            initial_seed,
+        )
+        .unwrap();
+        table.insert(assignment);
+
+        let first_block = L1BlockCommitment::new(150, arb.generate());
+        let first_report = table
+            .reassign_expired_assignments(&nn_history, &replacement_operators, &first_block)
+            .unwrap();
+        assert!(first_report.reassigned().is_empty());
+        assert_eq!(first_report.newly_unassignable(), &[deposit_idx]);
+        assert!(table.get_assignment(deposit_idx).unwrap().is_unassignable());
+
+        let next_block = L1BlockCommitment::new(151, arb.generate());
+        let next_report = table
+            .reassign_expired_assignments(&nn_history, &replacement_operators, &next_block)
+            .unwrap();
+        assert!(next_report.reassigned().is_empty());
+        assert!(next_report.newly_unassignable().is_empty());
+    }
+
     /// An assignment whose deadline is exactly the current height is reassigned by this pass,
     /// rather than being left for the next block.
     #[test]
@@ -897,7 +1100,8 @@ mod tests {
         let reassigned = table
             .reassign_expired_assignments(&nn_history, &current_active_operators, &l1_block)
             .expect("reassignment should succeed");
-        assert_eq!(reassigned.len(), 1);
+        assert_eq!(reassigned.reassigned().len(), 1);
+        assert!(reassigned.newly_unassignable().is_empty());
 
         let after = table.get_assignment(deposit_idx).unwrap();
         assert!(
@@ -960,7 +1164,8 @@ mod tests {
         let reassigned = table
             .reassign_expired_assignments(&nn_history, &current_active_operators, &l1_block)
             .unwrap();
-        assert_eq!(reassigned.len(), num_assignments as usize);
+        assert_eq!(reassigned.reassigned().len(), num_assignments as usize);
+        assert!(reassigned.newly_unassignable().is_empty());
 
         let assignees: Vec<OperatorIdx> = deposit_indices
             .iter()

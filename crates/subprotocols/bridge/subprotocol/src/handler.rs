@@ -182,21 +182,25 @@ pub(crate) fn preprocess_parsed_tx(
 
 #[cfg(test)]
 mod tests {
+    use strata_asm_bridge_types::WithdrawalIntent;
     use strata_asm_proto_bridge_txs::{
         deposit_request::DrtHeaderAux,
         parser::ParsedTx,
-        test_utils::{create_test_withdrawal_fulfillment_tx, parse_sps50_tx},
+        test_utils::{
+            create_test_operators, create_test_withdrawal_fulfillment_tx, parse_sps50_tx,
+        },
         withdrawal_fulfillment::parse_withdrawal_fulfillment_tx,
     };
+    use strata_identifiers::L1BlockCommitment;
     use strata_test_utils_arb::ArbitraryGenerator;
 
     use super::{
         BRIDGE_SUBPROTOCOL_ID, Buf32, NewExportEntry, OperatorClaimUnlock, handle_parsed_tx,
     };
     use crate::test_utils::{
-        MockMsgRelayer, add_deposits_and_assignments, create_test_state, create_verified_aux_data,
-        create_withdrawal_info_from_assignment, setup_deposit_test, setup_slash_test,
-        setup_unstake_test,
+        MockMsgRelayer, add_deposits, add_deposits_and_assignments, create_test_state,
+        create_verified_aux_data, create_withdrawal_info_from_assignment, setup_deposit_test,
+        setup_slash_test, setup_unstake_test,
     };
 
     #[test]
@@ -294,6 +298,54 @@ mod tests {
             assert_eq!(export.container_id(), BRIDGE_SUBPROTOCOL_ID);
             assert_eq!(export.entry_data(), &expected_leaf);
         }
+    }
+
+    #[test]
+    fn test_handle_withdrawal_fulfillment_for_unassignable_assignment() {
+        let (mut state, _) = create_test_state();
+        let creation_block = L1BlockCommitment::new(0, ArbitraryGenerator::new().generate());
+        add_deposits(&mut state, 1);
+
+        let mut intent: WithdrawalIntent = ArbitraryGenerator::new().generate();
+        intent.amt = *state.denomination();
+        let assignment = state
+            .create_withdrawal_assignment(&intent, &creation_block)
+            .unwrap();
+        let deposit_idx = assignment.deposit_idx();
+        state.insert_withdrawal_assignment(assignment);
+
+        let initial_operator_count = state.operators().len();
+        let (_, replacement_operators) = create_test_operators(2);
+        let removed_operators: Vec<_> = (0..initial_operator_count).collect();
+        state.apply_operator_set_update(&replacement_operators, &removed_operators);
+
+        let expired_block = L1BlockCommitment::new(500, ArbitraryGenerator::new().generate());
+        let report = state.reassign_expired_assignments(&expired_block).unwrap();
+        assert_eq!(report.newly_unassignable(), &[deposit_idx]);
+
+        let assignment = state
+            .assignments()
+            .get_assignment(deposit_idx)
+            .unwrap()
+            .clone();
+        assert!(assignment.is_unassignable());
+
+        let withdrawal_info = create_withdrawal_info_from_assignment(&assignment);
+        let tx = create_test_withdrawal_fulfillment_tx(&withdrawal_info);
+        let tx_input = parse_sps50_tx(&tx);
+        let parsed_info = parse_withdrawal_fulfillment_tx(&tx_input).unwrap();
+        let parsed_tx = ParsedTx::WithdrawalFulfillment(parsed_info);
+
+        let mut relayer = MockMsgRelayer::default();
+        handle_parsed_tx(
+            &mut state,
+            parsed_tx,
+            &create_verified_aux_data(vec![]),
+            &mut relayer,
+        )
+        .expect("the existing assignee may still fulfill a marked assignment");
+
+        assert!(state.assignments().get_assignment(deposit_idx).is_none());
     }
 
     #[test]
