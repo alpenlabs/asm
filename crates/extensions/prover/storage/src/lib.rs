@@ -28,5 +28,5 @@ pub use self::{
     proof_db::ProofDb,
     remote_mapping::RemoteProofMappingDb,
     remote_status::RemoteProofStatusDb,
-    sled::{RemoteProofMappingError, RemoteProofStatusError, SledProofDb},
+    sled::{PruneCounts, RemoteProofMappingError, RemoteProofStatusError, SledProofDb},
 };

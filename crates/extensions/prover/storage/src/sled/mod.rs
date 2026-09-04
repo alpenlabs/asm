@@ -2,8 +2,11 @@
 //! [`super::RemoteProofMappingDb`], and [`super::RemoteProofStatusDb`].
 //!
 //! All data is stored in a single sled database with separate trees for each
-//! concern. Keys use big-endian height encoding so that sled's lexicographic
-//! ordering matches block-height ordering.
+//! concern. The proof trees use big-endian height encoding so that sled's
+//! lexicographic ordering matches block-height ordering, which is what lets
+//! them be pruned by range scan. The mapping and status trees do not: their
+//! keys are a borsh proof id (variant tag first, heights little-endian) and an
+//! opaque remote id, so height-based pruning sweeps them in full instead.
 
 use strata_asm_prover_types::L1Range;
 use strata_identifiers::{Buf32, L1BlockCommitment, L1BlockId};
@@ -77,6 +80,27 @@ impl SledProofDb {
             .iter()
             .all(|tree| names.iter().any(|name| name.as_ref() == tree.as_bytes()))
     }
+}
+
+/// What [`SledProofDb::prune_before`] removed, broken down by tree.
+///
+/// Reported rather than discarded because a prune now spans every tree in the
+/// store: an operator needs to see that the bookkeeping went with the proofs,
+/// and that nothing was left behind.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct PruneCounts {
+    /// ASM proof rows removed.
+    pub asm_proofs: usize,
+    /// Moho proof rows removed.
+    pub moho_proofs: usize,
+    /// Status rows removed.
+    pub statuses: usize,
+    /// Mapping rows removed, counting both directions.
+    pub mappings: usize,
+    /// Status rows left in place because no mapping row places them at a
+    /// height. Whether they sit below the cutoff is unknowable, so they are
+    /// surfaced rather than guessed at.
+    pub orphan_statuses: usize,
 }
 
 // ── Key encoding ──────────────────────────────────────────────────────
@@ -182,6 +206,20 @@ pub(crate) mod test_util {
             );
             ProofReceiptWithMetadata::new(receipt, metadata)
         })
+    }
+
+    /// A fixed [`ProofReceiptWithMetadata`], for tests that need a proof value
+    /// but do not care what is in it.
+    pub(crate) fn fixed_proof_receipt() -> ProofReceiptWithMetadata {
+        let receipt =
+            ProofReceipt::new(Proof::new(vec![0xab; 8]), PublicValues::new(vec![0xcd; 8]));
+        let metadata = ProofMetadata::new(
+            ZkVm::Native,
+            ProgramId::default(),
+            "test",
+            ProofType::Groth16,
+        );
+        ProofReceiptWithMetadata::new(receipt, metadata)
     }
 
     pub(crate) fn arb_asm_proof() -> impl Strategy<Value = AsmProof> {

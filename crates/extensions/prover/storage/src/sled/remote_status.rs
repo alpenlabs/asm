@@ -3,7 +3,7 @@
 use std::{error::Error, fmt};
 
 use borsh::BorshDeserialize;
-use strata_asm_prover_types::RemoteProofId;
+use strata_asm_prover_types::{ProofId, RemoteProofId};
 use zkaleido::RemoteProofStatus;
 
 use super::SledProofDb;
@@ -53,7 +53,8 @@ impl From<sled::Error> for RemoteProofStatusError {
 ///
 /// The read/remove half of [`RemoteProofStatusDb`] delegates to these; the names
 /// differ from the trait's so a delegating call is unambiguous. `list_status`
-/// (every entry, not just active ones) has no async-trait counterpart.
+/// (every entry, not just active ones) has no async-trait counterpart, and
+/// `prune_status_before` is the status half of [`SledProofDb::prune_before`].
 impl SledProofDb {
     /// Returns the tracked status of `remote_id`, if any.
     pub fn status(
@@ -96,6 +97,45 @@ impl SledProofDb {
     /// Removes the status entry for `remote_id`, returning whether one was present.
     pub fn delete_status(&self, remote_id: &RemoteProofId) -> Result<bool, sled::Error> {
         Ok(self.remote_proof_status.remove(&remote_id.0)?.is_some())
+    }
+
+    /// Removes the status rows of proofs below `before_height`, returning how
+    /// many were removed and how many were left in place.
+    ///
+    /// A status row is keyed by remote id and carries no height, so its height
+    /// comes from the proof the reverse mapping resolves it to. A row whose
+    /// remote id has no mapping cannot be placed at any height, so it is left
+    /// alone and counted separately — the caller surfaces it rather than
+    /// guessing which side of the cutoff it belongs on.
+    ///
+    /// The count of orphans covers the whole tree, not just the pruned range,
+    /// for the same reason: their heights are exactly what is unknown.
+    pub(crate) fn prune_status_before(
+        &self,
+        before_height: u32,
+    ) -> Result<(usize, usize), sled::Error> {
+        let mut stale = Vec::new();
+        let mut orphans = 0;
+
+        for key in self.remote_proof_status.iter().keys() {
+            let key = key?;
+            match self.remote_to_proof.get(&key)? {
+                Some(local_bytes) => {
+                    let local: ProofId = BorshDeserialize::try_from_slice(&local_bytes)
+                        .expect("stored ProofId should be valid borsh");
+                    if local.height() < before_height {
+                        stale.push(key);
+                    }
+                }
+                None => orphans += 1,
+            }
+        }
+
+        let removed = stale.len();
+        for key in stale {
+            self.remote_proof_status.remove(key)?;
+        }
+        Ok((removed, orphans))
     }
 }
 
@@ -158,11 +198,18 @@ mod tests {
     use std::collections::HashSet;
 
     use proptest::{collection::vec, prelude::*};
+    use strata_identifiers::{Buf32, L1BlockCommitment, L1BlockId};
     use tokio::runtime::Runtime;
     use zkaleido::RemoteProofFailureReason;
 
     use super::*;
-    use crate::sled::test_util::*;
+    use crate::{RemoteProofMappingDb, sled::test_util::*};
+
+    /// A commitment at `height` with a fixed block id, for the tests that care
+    /// about heights rather than identity.
+    fn commitment(height: u32) -> L1BlockCommitment {
+        L1BlockCommitment::new(height, L1BlockId::from(Buf32::new([0; 32])))
+    }
 
     /// Generates an arbitrary [`RemoteProofId`].
     fn arb_remote_proof_id() -> impl Strategy<Value = RemoteProofId> {
@@ -399,5 +446,58 @@ mod tests {
         assert!(db.delete_status(&id).unwrap());
         assert!(!db.delete_status(&id).unwrap());
         assert!(db.list_status().unwrap().is_empty());
+    }
+
+    /// Status rows carry no height, so `prune_status_before` places each one
+    /// through the reverse mapping and takes only those below the cutoff.
+    #[test]
+    fn prune_status_before_places_rows_through_the_mapping() {
+        let (db, _dir) = temp_db();
+        let below = RemoteProofId(vec![1; 8]);
+        let above = RemoteProofId(vec![2; 8]);
+
+        Runtime::new().unwrap().block_on(async {
+            db.put_remote_proof_id(ProofId::Moho(commitment(4)), below.clone())
+                .await
+                .unwrap();
+            db.put_remote_proof_id(ProofId::Moho(commitment(6)), above.clone())
+                .await
+                .unwrap();
+            db.put_status(&below, RemoteProofStatus::Requested)
+                .await
+                .unwrap();
+            db.put_status(&above, RemoteProofStatus::InProgress)
+                .await
+                .unwrap();
+        });
+
+        let (removed, orphans) = db.prune_status_before(5).unwrap();
+        assert_eq!((removed, orphans), (1, 0));
+        assert_eq!(db.status(&below).unwrap(), None);
+        assert_eq!(
+            db.status(&above).unwrap(),
+            Some(RemoteProofStatus::InProgress)
+        );
+    }
+
+    /// A status row with no mapping cannot be placed at any height, so it is
+    /// left alone and reported rather than guessed at.
+    #[test]
+    fn prune_status_before_reports_unplaceable_rows() {
+        let (db, _dir) = temp_db();
+        let orphan = RemoteProofId(vec![9; 8]);
+
+        Runtime::new().unwrap().block_on(async {
+            db.put_status(&orphan, RemoteProofStatus::Requested)
+                .await
+                .unwrap();
+        });
+
+        let (removed, orphans) = db.prune_status_before(u32::MAX).unwrap();
+        assert_eq!((removed, orphans), (0, 1));
+        assert_eq!(
+            db.status(&orphan).unwrap(),
+            Some(RemoteProofStatus::Requested)
+        );
     }
 }

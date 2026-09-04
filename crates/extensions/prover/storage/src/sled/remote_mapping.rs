@@ -59,9 +59,10 @@ impl From<sled::Error> for RemoteProofMappingError {
 
 /// Synchronous mapping accessors, for offline tooling that stays synchronous.
 ///
-/// The read half of [`RemoteProofMappingDb`] delegates to these; `list_mappings`
+/// The read half of [`RemoteProofMappingDb`] delegates to these. `list_mappings`
 /// and `delete_mapping` have no async-trait counterpart and exist only for that
-/// tooling.
+/// tooling; `prune_mappings_before` is the mapping half of
+/// [`SledProofDb::prune_before`].
 impl SledProofDb {
     /// Returns the remote proof ID mapped to local `id`, if any.
     pub fn get_remote(&self, id: ProofId) -> Result<Option<RemoteProofId>, sled::Error> {
@@ -119,6 +120,56 @@ impl SledProofDb {
         let proof_key = borsh::to_vec(&id).expect("borsh serialization should not fail");
         Ok(self.proof_to_remote.remove(proof_key)?.is_some())
     }
+
+    /// Removes every mapping row, both directions, whose proof id sits below
+    /// `before_height`. Returns the number of rows removed across the two trees.
+    ///
+    /// Both trees are swept in full and filtered on the decoded height, rather
+    /// than range-scanned the way the proof trees are, because neither is
+    /// ordered by height. The forward key is a borsh [`ProofId`]: the variant
+    /// tag leads, so every `Asm` key sorts before every `Moho` one, and borsh
+    /// writes the height little-endian, so even within a variant height 256
+    /// sorts below height 1. The reverse key is the opaque remote id and holds
+    /// no height at all — its height is in the value, out of a scan's reach.
+    pub(crate) fn prune_mappings_before(&self, before_height: u32) -> Result<usize, sled::Error> {
+        let below = |bytes: &[u8]| {
+            let local: ProofId = BorshDeserialize::try_from_slice(bytes)
+                .expect("stored ProofId should be valid borsh");
+            local.height() < before_height
+        };
+
+        let mut stale_reverse = Vec::new();
+        for entry in self.remote_to_proof.iter() {
+            let (remote_key, local_bytes) = entry?;
+            if below(&local_bytes) {
+                stale_reverse.push(remote_key);
+            }
+        }
+
+        let mut stale_forward = Vec::new();
+        for key in self.proof_to_remote.iter().keys() {
+            let key = key?;
+            if below(&key) {
+                stale_forward.push(key);
+            }
+        }
+
+        // Reverse rows first, forward last: the forward row is what marks the
+        // proof as submitted, so a crash midway leaves it gated rather than
+        // pointing at a reverse row that is already gone.
+        let mut removed = 0;
+        for key in stale_reverse {
+            if self.remote_to_proof.remove(key)?.is_some() {
+                removed += 1;
+            }
+        }
+        for key in stale_forward {
+            if self.proof_to_remote.remove(key)?.is_some() {
+                removed += 1;
+            }
+        }
+        Ok(removed)
+    }
 }
 
 impl RemoteProofMappingDb for SledProofDb {
@@ -172,7 +223,7 @@ mod tests {
     use std::collections::HashSet;
 
     use proptest::{collection::vec, prelude::*};
-    use strata_asm_prover_types::ProofId;
+    use strata_asm_prover_types::{L1Range, ProofId};
     use strata_identifiers::{Buf32, L1BlockCommitment, L1BlockId};
     use tokio::runtime::Runtime;
 
@@ -439,5 +490,49 @@ mod tests {
 
         db.delete_mapping(target).unwrap();
         assert_eq!(db.get_remote(other).unwrap(), Some(other_remote));
+    }
+
+    /// `prune_mappings_before` drops rows below the cutoff and keeps the rest,
+    /// counting both directions.
+    #[test]
+    fn prune_mappings_before_removes_below_cutoff_only() {
+        let (db, _dir) = temp_db();
+        let below = ProofId::Moho(commitment(4));
+        let at = ProofId::Moho(commitment(5));
+        let above = ProofId::Asm(L1Range::single(commitment(6)));
+
+        Runtime::new().unwrap().block_on(async {
+            for (i, id) in [below, at, above].into_iter().enumerate() {
+                db.put_remote_proof_id(id, RemoteProofId(vec![i as u8; 8]))
+                    .await
+                    .unwrap();
+            }
+        });
+
+        // One forward row and one reverse row for the single proof below 5.
+        assert_eq!(db.prune_mappings_before(5).unwrap(), 2);
+        assert_eq!(db.get_remote(below).unwrap(), None);
+        assert!(db.get_remote(at).unwrap().is_some());
+        assert!(db.get_remote(above).unwrap().is_some());
+        assert_eq!(db.list_mappings().unwrap().len(), 2);
+    }
+
+    /// An ASM proof is placed by the start of its range, matching how
+    /// `prune_before` keys the proof trees.
+    #[test]
+    fn prune_mappings_before_places_asm_by_range_start() {
+        let (db, _dir) = temp_db();
+        let spanning =
+            ProofId::Asm(L1Range::new(commitment(4), commitment(9)).expect("end is above start"));
+
+        Runtime::new().unwrap().block_on(async {
+            db.put_remote_proof_id(spanning, RemoteProofId(vec![7; 8]))
+                .await
+                .unwrap();
+        });
+
+        // Starts at 4, so a cutoff of 5 takes it even though it reaches to 9.
+        assert_eq!(db.prune_mappings_before(5).unwrap(), 2);
+        assert_eq!(db.get_remote(spanning).unwrap(), None);
     }
 }
