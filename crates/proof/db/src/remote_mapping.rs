@@ -1,8 +1,5 @@
 //! Bidirectional mapping between local proof identifiers and remote prover
 //! identifiers.
-//!
-//! This mapping is used to prevent duplicate proof submissions and to recover
-//! the association between local and remote identifiers after restarts.
 
 use std::fmt::Debug;
 
@@ -31,14 +28,16 @@ pub trait RemoteProofMappingDb {
 
     /// Stores a mapping between a local proof ID and a remote proof ID.
     ///
-    /// A single [`ProofId`] may be associated with multiple [`RemoteProofId`]s
-    /// (e.g. when a proof is resubmitted), so calling this with the same
-    /// `id` but a different `remote_id` is allowed — only the forward lookup
-    /// (`ProofId → RemoteProofId`) is updated to point to the latest remote ID.
+    /// A proof may be submitted more than once. Each submission gets its own
+    /// remote ID, and the newest one wins [`Self::get_remote_proof_id`]; the
+    /// earlier ones keep resolving back to the proof.
     ///
-    /// However, a [`RemoteProofId`] must map to exactly one [`ProofId`].
-    /// If `remote_id` is already associated with a **different** proof ID,
-    /// this method returns an error.
+    /// A remote ID belongs to exactly one proof, so passing a `remote_id`
+    /// already mapped to a different `id` returns an error.
+    ///
+    /// Re-storing a pair that is already stored is not an error. It
+    /// re-establishes the mapping in full, so a mapping cleared out of band
+    /// comes back.
     fn put_remote_proof_id(
         &self,
         id: ProofId,
