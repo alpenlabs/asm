@@ -36,6 +36,11 @@ pub trait RemoteProofMappingDb {
     /// `id` but a different `remote_id` is allowed — only the forward lookup
     /// (`ProofId → RemoteProofId`) is updated to point to the latest remote ID.
     ///
+    /// Repeating an identical `(id, remote_id)` pair rewrites both rows rather
+    /// than resolving to a no-op. Callers rely on that: a forward row removed
+    /// on its own must be restored by the next submission, even when the
+    /// remote prover hands back the remote id it gave before.
+    ///
     /// However, a [`RemoteProofId`] must map to exactly one [`ProofId`].
     /// If `remote_id` is already associated with a **different** proof ID,
     /// this method returns an error.

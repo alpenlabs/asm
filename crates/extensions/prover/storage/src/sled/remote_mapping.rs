@@ -60,7 +60,8 @@ impl From<sled::Error> for RemoteProofMappingError {
 /// Synchronous mapping accessors, for offline tooling that stays synchronous.
 ///
 /// The read half of [`RemoteProofMappingDb`] delegates to these; `list_mappings`
-/// has no async-trait counterpart and exists only for that tooling.
+/// and `delete_mapping` have no async-trait counterpart and exist only for that
+/// tooling.
 impl SledProofDb {
     /// Returns the remote proof ID mapped to local `id`, if any.
     pub fn get_remote(&self, id: ProofId) -> Result<Option<RemoteProofId>, sled::Error> {
@@ -93,6 +94,30 @@ impl SledProofDb {
                 Ok((local, RemoteProofId(remote_bytes.to_vec())))
             })
             .collect()
+    }
+
+    /// Removes the forward row for `id`, returning whether one was present.
+    ///
+    /// Only the forward row. It alone records the proof as submitted, so
+    /// clearing it is what frees the proof to be sent to the remote prover
+    /// again; the reverse rows stay as a record of which remote jobs the proof
+    /// has had, and [`RemoteProofMappingDb::get_proof_id`] keeps resolving
+    /// them.
+    ///
+    /// Leaving them is only safe because
+    /// [`put_remote_proof_id`](RemoteProofMappingDb::put_remote_proof_id)
+    /// rewrites both rows unconditionally. A resubmission that draws the same
+    /// remote id — the native backend derives it from the receipt, so an
+    /// identical input gives an identical id — finds its reverse row already
+    /// there, and must still restore the forward row rather than treat the
+    /// mapping as already complete.
+    ///
+    /// Sweeping the reverse rows here instead would mean scanning that whole
+    /// tree, since they are keyed by remote id and can only be matched on
+    /// their value. Pruning does that once, in bulk, by height.
+    pub fn delete_mapping(&self, id: ProofId) -> Result<bool, sled::Error> {
+        let proof_key = borsh::to_vec(&id).expect("borsh serialization should not fail");
+        Ok(self.proof_to_remote.remove(proof_key)?.is_some())
     }
 }
 
@@ -128,8 +153,10 @@ impl RemoteProofMappingDb for SledProofDb {
                     attempted: id,
                 });
             }
-            // Same proof ID → same mapping, nothing to do.
-            return Ok(());
+            // Same proof ID: fall through and rewrite both rows. Returning
+            // early here would leave a deleted forward row deleted, so a
+            // resubmission that drew the same remote id could never restore
+            // it and would re-submit on every tick.
         }
 
         self.proof_to_remote
@@ -146,10 +173,17 @@ mod tests {
 
     use proptest::{collection::vec, prelude::*};
     use strata_asm_prover_types::ProofId;
+    use strata_identifiers::{Buf32, L1BlockCommitment, L1BlockId};
     use tokio::runtime::Runtime;
 
     use super::*;
     use crate::sled::test_util::*;
+
+    /// A commitment at `height` with a fixed block id, for the tests that care
+    /// about heights rather than identity.
+    fn commitment(height: u32) -> L1BlockCommitment {
+        L1BlockCommitment::new(height, L1BlockId::from(Buf32::new([0; 32])))
+    }
 
     /// Generates an arbitrary [`ProofId`].
     fn arb_proof_id() -> impl Strategy<Value = ProofId> {
@@ -338,5 +372,72 @@ mod tests {
                 Ok(())
             })?;
         }
+    }
+
+    /// `delete_mapping` clears the forward row and leaves the reverse rows, so
+    /// which remote jobs a proof has had stays resolvable.
+    #[test]
+    fn delete_mapping_clears_the_forward_row_only() {
+        let (db, _dir) = temp_db();
+        let id = ProofId::Moho(commitment(10));
+        let first = RemoteProofId(vec![1; 8]);
+        let second = RemoteProofId(vec![2; 8]);
+
+        Runtime::new().unwrap().block_on(async {
+            db.put_remote_proof_id(id, first.clone()).await.unwrap();
+            db.put_remote_proof_id(id, second.clone()).await.unwrap();
+        });
+
+        assert!(db.delete_mapping(id).unwrap());
+        assert_eq!(db.get_remote(id).unwrap(), None);
+        assert_eq!(db.get_local(&first).unwrap(), Some(id));
+        assert_eq!(db.get_local(&second).unwrap(), Some(id));
+
+        // A second delete finds no forward row to remove.
+        assert!(!db.delete_mapping(id).unwrap());
+    }
+
+    /// Re-putting an identical pair restores a forward row deleted on its own.
+    ///
+    /// The reverse row outlives the forward one, so a backend that derives the
+    /// remote id from the request hands back an id that is already mapped. That
+    /// must not read as "nothing to do": the proof would stay unmapped and
+    /// resubmit on every tick.
+    #[test]
+    fn put_restores_a_forward_row_deleted_on_its_own() {
+        let (db, _dir) = temp_db();
+        let id = ProofId::Moho(commitment(10));
+        let remote = RemoteProofId(vec![7; 8]);
+
+        Runtime::new().unwrap().block_on(async {
+            db.put_remote_proof_id(id, remote.clone()).await.unwrap();
+            db.delete_mapping(id).unwrap();
+            assert_eq!(db.get_remote(id).unwrap(), None);
+
+            // The same remote id comes back for the same input.
+            db.put_remote_proof_id(id, remote.clone()).await.unwrap();
+        });
+
+        assert_eq!(db.get_remote(id).unwrap(), Some(remote));
+    }
+
+    /// `delete_mapping` touches only the proof it names.
+    #[test]
+    fn delete_mapping_leaves_other_proofs_alone() {
+        let (db, _dir) = temp_db();
+        let target = ProofId::Moho(commitment(10));
+        let other = ProofId::Moho(commitment(11));
+        let target_remote = RemoteProofId(vec![1; 8]);
+        let other_remote = RemoteProofId(vec![2; 8]);
+
+        Runtime::new().unwrap().block_on(async {
+            db.put_remote_proof_id(target, target_remote).await.unwrap();
+            db.put_remote_proof_id(other, other_remote.clone())
+                .await
+                .unwrap();
+        });
+
+        db.delete_mapping(target).unwrap();
+        assert_eq!(db.get_remote(other).unwrap(), Some(other_remote));
     }
 }
