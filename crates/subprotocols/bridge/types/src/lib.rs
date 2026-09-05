@@ -25,13 +25,6 @@
 //! # Configuration
 //!
 //! - [`BridgeInitConfig`] — genesis configuration for the bridge subprotocol.
-//!
-//! # Bridge Gateway
-//!
-//! The crate also defines the [`BRIDGE_GATEWAY_ACCT_ID`] and [`BRIDGE_GATEWAY_ACCT_SERIAL`]
-//! constants that identify the bridge's special gateway account.
-
-use strata_identifiers::{AccountId, AccountSerial};
 
 mod config;
 mod operator;
@@ -44,11 +37,3 @@ pub use operator::{
 };
 pub use safe_harbour::{SafeHarbour, SafeHarbourAddress};
 pub use withdrawal::{OperatorClaimUnlock, WithdrawalIntent, WithdrawalOutput};
-
-const BRIDGE_GATEWAY_REF: u8 = 0x10;
-
-/// Account ID that we use for the bridge gateway account.
-pub const BRIDGE_GATEWAY_ACCT_ID: AccountId = AccountId::special(BRIDGE_GATEWAY_REF);
-
-/// Serial of the bridge gateway account.
-pub const BRIDGE_GATEWAY_ACCT_SERIAL: AccountSerial = AccountSerial::reserved(BRIDGE_GATEWAY_REF);
