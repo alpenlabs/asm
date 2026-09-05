@@ -17,7 +17,7 @@ use strata_asm_common::{
 use strata_asm_manifest_types::{AsmManifestHash, AsmManifestRangeHash};
 use strata_asm_proto_checkpoint_txs::EnvelopeCheckpoint;
 use strata_crypto::hash;
-use strata_identifiers::{OLBlockCommitment, OLBlockId};
+use strata_identifiers::{Buf32, OLBlockCommitment, OLBlockId};
 use strata_merkle::{Mmr, Mmr64B32, Sha256Hasher};
 use strata_predicate::{PredicateKey, PredicateTypeId};
 use strata_test_utils_arb::ArbitraryGenerator;
@@ -53,9 +53,9 @@ pub struct CheckpointTestHarness {
     /// Raw secret key bytes for the sequencer identity.
     ///
     /// Stored so integration tests can reconstruct a Bitcoin keypair for SPS-51
-    /// envelope signing where the envelope pubkey must match the sequencer predicate.
+    /// envelope signing where the envelope pubkey must match the sequencer key.
     sequencer_secret_key: [u8; 32],
-    sequencer_pubkey: Vec<u8>,
+    sequencer_pubkey: Buf32,
     checkpoint_predicate: SigningKey,
     verified_tip: CheckpointTip,
 }
@@ -76,7 +76,8 @@ impl CheckpointTestHarness {
 
         let sequencer_key = SigningKey::random(&mut rng);
         let sequencer_secret_key = sequencer_key.to_bytes().into();
-        let sequencer_pubkey = sequencer_key.verifying_key().to_bytes().to_vec();
+        let sequencer_pubkey =
+            Buf32::from(<[u8; 32]>::from(sequencer_key.verifying_key().to_bytes()));
         let checkpoint_predicate = SigningKey::random(&mut rng);
 
         let genesis_tip = CheckpointTip::new(0, genesis_l1_height, genesis_blk);
@@ -100,7 +101,8 @@ impl CheckpointTestHarness {
 
         let sequencer_key = SigningKey::random(&mut rng);
         let sequencer_secret_key = sequencer_key.to_bytes().into();
-        let sequencer_pubkey = sequencer_key.verifying_key().to_bytes().to_vec();
+        let sequencer_pubkey =
+            Buf32::from(<[u8; 32]>::from(sequencer_key.verifying_key().to_bytes()));
         let checkpoint_predicate = SigningKey::random(&mut rng);
 
         let genesis_tip = CheckpointTip::new(0, genesis_l1_height, genesis_blk);
@@ -113,12 +115,8 @@ impl CheckpointTestHarness {
         }
     }
 
-    pub fn sequencer_predicate(&self) -> PredicateKey {
-        PredicateKey::try_new(
-            PredicateTypeId::Bip340Schnorr,
-            self.sequencer_pubkey.clone(),
-        )
-        .expect("a 32-byte sequencer key is within the predicate condition limit")
+    pub fn sequencer_key(&self) -> Buf32 {
+        self.sequencer_pubkey
     }
 
     pub fn checkpoint_predicate(&self) -> PredicateKey {
@@ -141,13 +139,13 @@ impl CheckpointTestHarness {
 
     /// Returns the sequencer's x-only public key bytes (used as envelope pubkey).
     pub fn sequencer_pubkey(&self) -> &[u8] {
-        &self.sequencer_pubkey
+        self.sequencer_pubkey.as_ref()
     }
 
     /// Returns the sequencer's raw secret key bytes.
     ///
     /// Used by integration tests to construct a Bitcoin keypair for SPS-51 envelope
-    /// transactions where the taproot pubkey must match the sequencer predicate.
+    /// transactions where the taproot pubkey must match the sequencer key.
     pub fn sequencer_secret_key(&self) -> &[u8; 32] {
         &self.sequencer_secret_key
     }
@@ -381,7 +379,7 @@ impl CheckpointTestHarness {
     pub fn wrap_in_envelope(&self, payload: CheckpointPayload) -> EnvelopeCheckpoint {
         EnvelopeCheckpoint {
             payload,
-            envelope_pubkey: self.sequencer_pubkey.clone(),
+            envelope_pubkey: self.sequencer_pubkey.as_ref().to_vec(),
         }
     }
 }

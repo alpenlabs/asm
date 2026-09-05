@@ -11,7 +11,7 @@ use strata_asm_checkpoint_types::PendingPredicateTransition;
 use strata_asm_common::{InterprotoMsg, SubprotocolId};
 use strata_asm_proto_checkpoint_txs::CHECKPOINT_SUBPROTOCOL_ID;
 use strata_btc_types::BitcoinAmount;
-use strata_predicate::PredicateKey;
+use strata_identifiers::Buf32;
 
 /// Incoming messages for the checkpoint subprotocol.
 ///
@@ -20,11 +20,11 @@ use strata_predicate::PredicateKey;
 #[derive(Clone, Debug, Encode, Decode)]
 #[ssz(enum_behaviour = "union")]
 pub enum CheckpointIncomingMsg {
-    /// Update the Schnorr public key used to verify sequencer signatures embedded in checkpoints.
+    /// Update the x-only BIP340 Schnorr public key that authenticates checkpoint envelopes.
     ///
-    /// The canonical wire representation is the full predicate key so both checkpoint
-    /// subprotocols consume the same SSZ-native type.
-    UpdateSequencerKey(PredicateKey),
+    /// The envelope container fixes this key to BIP340, so it travels as bare key bytes
+    /// rather than a predicate.
+    UpdateSequencerKey(Buf32),
 
     /// Queue an enacted rollup proving-system predicate transition.
     QueueCheckpointPredicateTransition(PendingPredicateTransition),

@@ -317,7 +317,7 @@ pub fn create_test_checkpoint_setup(
     let harness = CheckpointTestHarness::new_with_genesis(genesis_l1_height, genesis_ol_blkid);
 
     let config = CheckpointInitConfig {
-        sequencer_predicate: harness.sequencer_predicate(),
+        sequencer_key: harness.sequencer_key(),
         checkpoint_predicate: harness.checkpoint_predicate(),
         genesis_l1_height,
         genesis_ol_blkid,
