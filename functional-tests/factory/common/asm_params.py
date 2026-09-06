@@ -76,16 +76,31 @@ class BridgeSubprotocol:
 
 
 @dataclass
-class AsmParams:
+class StrataGenesisConfig:
+    """Genesis configuration for an ASM chain.
+
+    Mirrors `StrataGenesisConfig` in crates/params/src/params.rs. Each
+    subprotocol config is a named field, matching the Rust side, which rejects
+    unknown fields — so a stale `subprotocols` list fails to load rather than
+    being ignored.
+
+    Only the named genesis fields consumed by the functional environment are
+    emitted here.
+    """
+
     magic: str
     anchor: L1Anchor
-    subprotocols: list[dict[str, Any]]
+    admin: dict[str, Any]
+    checkpoint: dict[str, Any]
+    bridge: dict[str, Any]
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "magic": self.magic,
             "anchor": asdict(self.anchor),
-            "subprotocols": self.subprotocols,
+            "admin": self.admin,
+            "checkpoint": self.checkpoint,
+            "bridge": self.bridge,
         }
 
 
@@ -139,60 +154,54 @@ def build_subprotocols(
     operator_fee: int = 100_000_000,
     recovery_delay: int = 1_008,
     safe_harbour_address: str = DEFAULT_SAFE_HARBOUR_ADDRESS,
-) -> list[dict[str, Any]]:
+) -> dict[str, dict[str, Any]]:
     compressed_keys = [f"02{key}" for key in musig2_keys]
     confirmation_depth = 144
 
-    admin = {
-        "Admin": asdict(
-            AdminSubprotocol(
-                alpen_administrator=ThresholdConfig(keys=compressed_keys, threshold=1),
-                strata_administrator=ThresholdConfig(keys=compressed_keys, threshold=1),
-                strata_sequencer_manager=ThresholdConfig(keys=compressed_keys, threshold=1),
-                strata_security_council=ThresholdConfig(keys=compressed_keys, threshold=1),
-                confirmation_depths=ConfirmationDepths(
-                    strata_admin_multisig_update=confirmation_depth,
-                    strata_seq_manager_multisig_update=confirmation_depth,
-                    alpen_admin_multisig_update=confirmation_depth,
-                    strata_security_council_multisig_update=confirmation_depth,
-                    operator_update=confirmation_depth,
-                    sequencer_update=confirmation_depth,
-                    ol_stf_vk_update=confirmation_depth,
-                    asm_stf_vk_update=confirmation_depth,
-                    ee_stf_vk_update=confirmation_depth,
-                    defcon3=confirmation_depth,
-                    safe_harbour_address_update=confirmation_depth,
-                ),
-                max_seqno_gap=10,
-            )
+    admin = asdict(
+        AdminSubprotocol(
+            alpen_administrator=ThresholdConfig(keys=compressed_keys, threshold=1),
+            strata_administrator=ThresholdConfig(keys=compressed_keys, threshold=1),
+            strata_sequencer_manager=ThresholdConfig(keys=compressed_keys, threshold=1),
+            strata_security_council=ThresholdConfig(keys=compressed_keys, threshold=1),
+            confirmation_depths=ConfirmationDepths(
+                strata_admin_multisig_update=confirmation_depth,
+                strata_seq_manager_multisig_update=confirmation_depth,
+                alpen_admin_multisig_update=confirmation_depth,
+                strata_security_council_multisig_update=confirmation_depth,
+                operator_update=confirmation_depth,
+                sequencer_update=confirmation_depth,
+                ol_stf_vk_update=confirmation_depth,
+                asm_stf_vk_update=confirmation_depth,
+                ee_stf_vk_update=confirmation_depth,
+                defcon3=confirmation_depth,
+                safe_harbour_address_update=confirmation_depth,
+            ),
+            max_seqno_gap=10,
         )
-    }
+    )
 
-    checkpoint = {
-        "Checkpoint": asdict(
-            CheckpointSubprotocol(
-                sequencer_predicate="AlwaysAccept",
-                checkpoint_predicate="AlwaysAccept",
-                genesis_l1_height=genesis_height,
-                genesis_ol_blkid="0" * 64,
-            )
+    checkpoint = asdict(
+        CheckpointSubprotocol(
+            sequencer_predicate="AlwaysAccept",
+            checkpoint_predicate="AlwaysAccept",
+            genesis_l1_height=genesis_height,
+            genesis_ol_blkid="0" * 64,
         )
-    }
+    )
 
-    bridge = {
-        "Bridge": asdict(
-            BridgeSubprotocol(
-                operators=compressed_keys,
-                denomination=denomination,
-                assignment_duration=assignment_duration,
-                operator_fee=operator_fee,
-                recovery_delay=recovery_delay,
-                safe_harbour_address=safe_harbour_address,
-            )
+    bridge = asdict(
+        BridgeSubprotocol(
+            operators=compressed_keys,
+            denomination=denomination,
+            assignment_duration=assignment_duration,
+            operator_fee=operator_fee,
+            recovery_delay=recovery_delay,
+            safe_harbour_address=safe_harbour_address,
         )
-    }
+    )
 
-    return [admin, checkpoint, bridge]
+    return {"admin": admin, "checkpoint": checkpoint, "bridge": bridge}
 
 
 def build_asm_params(
@@ -207,9 +216,9 @@ def build_asm_params(
     operator_fee: int = 100_000_000,
     recovery_delay: int = 1_008,
     safe_harbour_address: str = DEFAULT_SAFE_HARBOUR_ADDRESS,
-) -> AsmParams:
+) -> StrataGenesisConfig:
     anchor = build_l1_anchor(genesis_height, block_hash, header, epoch_start_header)
-    subprotocols = build_subprotocols(
+    subprotocol_configs = build_subprotocols(
         musig2_keys,
         genesis_height,
         denomination=denomination,
@@ -218,14 +227,14 @@ def build_asm_params(
         recovery_delay=recovery_delay,
         safe_harbour_address=safe_harbour_address,
     )
-    return AsmParams(
+    return StrataGenesisConfig(
         magic=magic,
         anchor=anchor,
-        subprotocols=subprotocols,
+        **subprotocol_configs,
     )
 
 
-def write_asm_params_json(output_path: str | Path, asm_params: AsmParams) -> str:
+def write_asm_params_json(output_path: str | Path, asm_params: StrataGenesisConfig) -> str:
     path = Path(output_path)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(asm_params.to_dict(), indent=4) + "\n")

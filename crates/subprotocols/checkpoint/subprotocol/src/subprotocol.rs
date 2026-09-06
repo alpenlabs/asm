@@ -28,6 +28,7 @@ pub struct CheckpointSubprotocol;
 
 impl Subprotocol for CheckpointSubprotocol {
     const ID: SubprotocolId = CHECKPOINT_SUBPROTOCOL_ID;
+    const STATE_VERSION: u8 = 1;
 
     type InitConfig = CheckpointInitConfig;
     type State = CheckpointState;

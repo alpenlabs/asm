@@ -338,8 +338,9 @@ pub(crate) mod fixtures {
     use crate::{AsmWorkerServiceState, Subscribers};
 
     /// Minimal [`AsmSpec::Params`] for the worker's own tests: just the L1 anchor
-    /// the genesis state pins to, plus a magic. The production `AsmParams` also
-    /// carries per-subprotocol configs, which [`TestAsmSpec`] has no use for.
+    /// the genesis state pins to, plus a magic. The production
+    /// `StrataGenesisConfig` carries per-subprotocol configs, which [`TestAsmSpec`]
+    /// has no use for.
     #[derive(Debug)]
     pub(crate) struct TestAsmParams {
         pub anchor: L1Anchor,

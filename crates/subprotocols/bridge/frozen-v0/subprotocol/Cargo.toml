@@ -1,0 +1,35 @@
+[package]
+name = "strata-asm-proto-bridge-v0"
+version = "0.1.0"
+edition = "2024"
+
+[lints]
+workspace = true
+
+[dependencies]
+arbitrary.workspace = true
+bitcoin.workspace = true
+rand_chacha.workspace = true
+serde.workspace = true
+ssz.workspace = true
+ssz_derive.workspace = true
+thiserror.workspace = true
+
+strata-asm-bridge-types.workspace = true
+strata-asm-common.workspace = true
+strata-asm-logs.workspace = true
+strata-asm-proto-bridge-msgs.workspace = true
+strata-asm-proto-bridge-txs.workspace = true
+strata-asm-proto-checkpoint-msgs-v0.workspace = true
+strata-btc-types.workspace = true
+strata-codec.workspace = true
+strata-crypto.workspace = true
+strata-identifiers.workspace = true
+
+[dev-dependencies]
+bitcoin-bosd.workspace = true
+strata-asm-bridge-types = { workspace = true, features = ["arbitrary"] }
+strata-test-utils-arb.workspace = true
+strata-asm-proto-bridge-txs = { workspace = true, features = ["test-utils"] }
+proptest.workspace = true
+rand.workspace = true

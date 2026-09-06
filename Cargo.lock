@@ -7956,6 +7956,53 @@ dependencies = [
 ]
 
 [[package]]
+name = "strata-asm-proto-admin-txs-v0"
+version = "0.1.0"
+dependencies = [
+ "arbitrary",
+ "bitcoin",
+ "bitcoin-bosd",
+ "hex",
+ "rand 0.8.6",
+ "ssz",
+ "ssz_derive",
+ "strata-asm-admin-types",
+ "strata-asm-bridge-types",
+ "strata-asm-common",
+ "strata-asm-proto-txs-test-utils",
+ "strata-crypto",
+ "strata-identifiers",
+ "strata-l1-envelope-fmt",
+ "strata-l1-txfmt",
+ "strata-predicate",
+ "strata-test-utils-arb",
+ "thiserror 2.0.18",
+]
+
+[[package]]
+name = "strata-asm-proto-admin-v0"
+version = "0.1.0"
+dependencies = [
+ "arbitrary",
+ "bitcoin",
+ "rand 0.8.6",
+ "ssz",
+ "ssz_derive",
+ "strata-asm-admin-types",
+ "strata-asm-bridge-types",
+ "strata-asm-common",
+ "strata-asm-logs",
+ "strata-asm-proto-admin-txs-v0",
+ "strata-asm-proto-bridge-msgs",
+ "strata-asm-proto-checkpoint-msgs-v0",
+ "strata-crypto",
+ "strata-identifiers",
+ "strata-predicate",
+ "strata-test-utils-arb",
+ "thiserror 2.0.18",
+]
+
+[[package]]
 name = "strata-asm-proto-bridge"
 version = "0.1.0"
 dependencies = [
@@ -8031,6 +8078,33 @@ dependencies = [
 ]
 
 [[package]]
+name = "strata-asm-proto-bridge-v0"
+version = "0.1.0"
+dependencies = [
+ "arbitrary",
+ "bitcoin",
+ "bitcoin-bosd",
+ "proptest",
+ "rand 0.8.6",
+ "rand_chacha 0.9.0",
+ "serde",
+ "ssz",
+ "ssz_derive",
+ "strata-asm-bridge-types",
+ "strata-asm-common",
+ "strata-asm-logs",
+ "strata-asm-proto-bridge-msgs",
+ "strata-asm-proto-bridge-txs",
+ "strata-asm-proto-checkpoint-msgs-v0",
+ "strata-btc-types",
+ "strata-codec",
+ "strata-crypto",
+ "strata-identifiers",
+ "strata-test-utils-arb",
+ "thiserror 2.0.18",
+]
+
+[[package]]
 name = "strata-asm-proto-checkpoint"
 version = "0.1.0"
 dependencies = [
@@ -8059,6 +8133,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "strata-asm-proto-checkpoint-msgs-v0"
+version = "0.1.0"
+dependencies = [
+ "ssz",
+ "ssz_derive",
+ "strata-asm-common",
+ "strata-asm-proto-checkpoint-txs",
+ "strata-btc-types",
+ "strata-predicate",
+]
+
+[[package]]
 name = "strata-asm-proto-checkpoint-txs"
 version = "0.1.0"
 dependencies = [
@@ -8070,6 +8156,20 @@ dependencies = [
  "strata-l1-envelope-fmt",
  "strata-l1-txfmt",
  "thiserror 2.0.18",
+]
+
+[[package]]
+name = "strata-asm-proto-checkpoint-v0"
+version = "0.1.0"
+dependencies = [
+ "strata-asm-checkpoint-types",
+ "strata-asm-common",
+ "strata-asm-logs",
+ "strata-asm-proto-bridge-msgs",
+ "strata-asm-proto-checkpoint-msgs-v0",
+ "strata-asm-proto-checkpoint-txs",
+ "strata-checkpoint-verification-v0",
+ "strata-identifiers",
 ]
 
 [[package]]
@@ -8371,6 +8471,32 @@ dependencies = [
 name = "strata-checkpoint-verification"
 version = "0.1.0"
 dependencies = [
+ "bitcoin-bosd",
+ "ssz",
+ "ssz_codegen",
+ "ssz_derive",
+ "ssz_primitives",
+ "ssz_types",
+ "strata-asm-bridge-types",
+ "strata-asm-checkpoint-types",
+ "strata-asm-manifest-types",
+ "strata-btc-types",
+ "strata-crypto",
+ "strata-identifiers",
+ "strata-msg-fmt",
+ "strata-predicate",
+ "strata-test-utils-checkpoint",
+ "thiserror 2.0.18",
+ "tree_hash",
+ "tree_hash_derive",
+ "zkaleido-logging",
+]
+
+[[package]]
+name = "strata-checkpoint-verification-v0"
+version = "0.1.0"
+dependencies = [
+ "bitcoin",
  "bitcoin-bosd",
  "ssz",
  "ssz_codegen",

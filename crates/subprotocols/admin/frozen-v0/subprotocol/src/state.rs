@@ -1,0 +1,444 @@
+use std::{mem::take, num::NonZero};
+
+use ssz_derive::{Decode, Encode};
+use strata_asm_admin_types::{AdministrationInitConfig, ConfirmationDepths, Role, UpdateTxType};
+use strata_asm_proto_admin_txs_v0::actions::{MultisigAction, UpdateId};
+use strata_crypto::threshold_signature::ThresholdConfigUpdate;
+use strata_identifiers::L1Height;
+
+use crate::{
+    authority::MultisigAuthority, error::AdministrationError, queued_update::QueuedUpdate,
+};
+
+/// Holds the state for the Administration Subprotocol, including the various
+/// multisignature authorities and any actions still pending execution.
+#[derive(Clone, Debug, Eq, PartialEq, Encode, Decode)]
+pub struct AdministrationSubprotoState {
+    /// List of configurations for multisignature authorities.
+    /// Each entry specifies who the signers are and how many signatures
+    /// are required to approve an action.
+    authorities: Vec<MultisigAuthority>,
+
+    /// List of updates that have been queued for execution.
+    /// These remain in a queued state and can be cancelled via a CancelTx until execution. If not
+    /// cancelled, they are executed automatically once their activation height is reached.
+    queued: Vec<QueuedUpdate>,
+
+    /// UpdateId for the next update.
+    next_update_id: UpdateId,
+
+    /// Per-variant confirmation depths (CD) for queued admin updates.
+    confirmation_depths: ConfirmationDepths,
+
+    /// Maximum allowed gap between consecutive sequence numbers for a given authority.
+    ///
+    /// A payload with `seqno > last_seqno + max_seqno_gap` is rejected.
+    #[ssz(with = "non_zero_u8")]
+    max_seqno_gap: NonZero<u8>,
+}
+
+impl AdministrationSubprotoState {
+    pub fn new(config: &AdministrationInitConfig) -> Self {
+        let authorities = config
+            .clone()
+            .get_all_authorities()
+            .into_iter()
+            .map(|(role, config)| MultisigAuthority::new(role, config))
+            .collect();
+
+        Self {
+            authorities,
+            queued: Vec::new(),
+            next_update_id: 0,
+            confirmation_depths: config.confirmation_depths.clone(),
+            max_seqno_gap: config.max_seqno_gap,
+        }
+    }
+
+    /// Returns the confirmation depth (in L1 blocks) configured for the given update
+    /// transaction type, or `None` if the update is configured to bypass the queue and
+    /// apply immediately. See [`ConfirmationDepths::get`].
+    pub fn confirmation_depth(&self, tx_type: UpdateTxType) -> Option<u16> {
+        self.confirmation_depths.get(tx_type)
+    }
+
+    pub fn max_seqno_gap(&self) -> NonZero<u8> {
+        self.max_seqno_gap
+    }
+
+    /// Resolves which role must authorize the provided action.
+    ///
+    /// Both action variants are self-describing: updates carry their type directly, and cancels
+    /// embed the `UpdateAction` they target so the role can be derived without queue context.
+    pub fn resolve_action_role(&self, action: &MultisigAction) -> Role {
+        match action {
+            MultisigAction::Update(update) => update.required_role(),
+            MultisigAction::Cancel(cancel) => cancel.update().required_role(),
+        }
+    }
+
+    /// Get a reference to the authority for the given role.
+    pub fn authority(&self, role: Role) -> Option<&MultisigAuthority> {
+        self.authorities.get(role as usize)
+    }
+
+    /// Get a mutable reference to the authority for the given role.
+    pub fn authority_mut(&mut self, role: Role) -> Option<&mut MultisigAuthority> {
+        self.authorities.get_mut(role as usize)
+    }
+
+    /// Apply a threshold config update for the specified role.
+    pub fn apply_multisig_update(
+        &mut self,
+        role: Role,
+        update: &ThresholdConfigUpdate,
+    ) -> Result<(), AdministrationError> {
+        if let Some(auth) = self.authority_mut(role) {
+            auth.config_mut().apply_update(update)?;
+            Ok(())
+        } else {
+            Err(AdministrationError::UnknownRole)
+        }
+    }
+
+    // DEVIATION: two accessors added for the conversion into the current
+    // layout, which needs every field. Additive only -- no field, type, order,
+    // or behaviour is touched, so the encoding is unaffected.
+
+    /// Returns every multisig authority.
+    pub fn authorities(&self) -> &[MultisigAuthority] {
+        &self.authorities
+    }
+
+    /// Returns the per-variant confirmation depths.
+    pub fn confirmation_depths(&self) -> &ConfirmationDepths {
+        &self.confirmation_depths
+    }
+
+    pub fn queued(&self) -> &[QueuedUpdate] {
+        &self.queued
+    }
+
+    /// Find a queued update by its ID.
+    pub fn find_queued(&self, id: &UpdateId) -> Option<&QueuedUpdate> {
+        self.queued.iter().find(|u| u.id() == id)
+    }
+
+    /// Queue a new update.
+    pub fn enqueue(&mut self, update: QueuedUpdate) {
+        self.queued.push(update);
+    }
+
+    /// Remove a queued update by swapping it out.
+    pub fn remove_queued(&mut self, id: &UpdateId) {
+        if let Some(i) = self.queued.iter().position(|u| u.id() == id) {
+            self.queued.swap_remove(i);
+        }
+    }
+
+    /// Get the next global update id.
+    pub fn next_update_id(&self) -> UpdateId {
+        self.next_update_id
+    }
+
+    /// Increment the next global update id.
+    pub fn increment_next_update_id(&mut self) {
+        self.next_update_id += 1;
+    }
+
+    /// Process all queued updates and remove any whose `activation_height` equals `current_height`
+    /// from `queued`.
+    pub fn process_queued(&mut self, current_height: L1Height) -> Vec<QueuedUpdate> {
+        let (ready, rest): (Vec<_>, Vec<_>) = take(&mut self.queued)
+            .into_iter()
+            .partition(|u| u.activation_height() <= current_height);
+        self.queued = rest;
+        ready
+    }
+}
+
+#[expect(unreachable_pub, reason = "used by ssz_derive field adapters")]
+mod non_zero_u8 {
+    pub mod encode {
+        use std::num::NonZero;
+
+        use ssz::Encode as SszEncode;
+
+        pub fn is_ssz_fixed_len() -> bool {
+            <u8 as SszEncode>::is_ssz_fixed_len()
+        }
+
+        pub fn ssz_fixed_len() -> usize {
+            <u8 as SszEncode>::ssz_fixed_len()
+        }
+
+        pub fn ssz_bytes_len(value: &NonZero<u8>) -> usize {
+            value.get().ssz_bytes_len()
+        }
+
+        pub fn ssz_append(value: &NonZero<u8>, buf: &mut Vec<u8>) {
+            value.get().ssz_append(buf);
+        }
+    }
+
+    pub mod decode {
+        use std::num::NonZero;
+
+        use ssz::{Decode as SszDecode, DecodeError};
+
+        pub fn is_ssz_fixed_len() -> bool {
+            <u8 as SszDecode>::is_ssz_fixed_len()
+        }
+
+        pub fn ssz_fixed_len() -> usize {
+            <u8 as SszDecode>::ssz_fixed_len()
+        }
+
+        pub fn from_ssz_bytes(bytes: &[u8]) -> Result<NonZero<u8>, DecodeError> {
+            let value = u8::from_ssz_bytes(bytes)?;
+            NonZero::new(value)
+                .ok_or_else(|| DecodeError::BytesInvalid("max_seqno_gap must be non-zero".into()))
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::num::NonZero;
+
+    use bitcoin::secp256k1::{PublicKey, Secp256k1, SecretKey};
+    use rand::rngs::OsRng;
+    use strata_asm_admin_types::{AdministrationInitConfig, ConfirmationDepths, Role};
+    use strata_asm_proto_admin_txs_v0::actions::UpdateAction;
+    use strata_crypto::{
+        keys::compressed::CompressedPublicKey,
+        threshold_signature::{ThresholdConfig, ThresholdConfigUpdate},
+    };
+    use strata_identifiers::L1Height;
+    use strata_test_utils_arb::ArbitraryGenerator;
+
+    use crate::{queued_update::QueuedUpdate, state::AdministrationSubprotoState};
+
+    fn create_test_config() -> AdministrationInitConfig {
+        let secp = Secp256k1::new();
+
+        // Create admin keys
+        let admin_sks: Vec<SecretKey> = (0..3).map(|_| SecretKey::new(&mut OsRng)).collect();
+        let admin_pks: Vec<CompressedPublicKey> = admin_sks
+            .iter()
+            .map(|sk| CompressedPublicKey::from(PublicKey::from_secret_key(&secp, sk)))
+            .collect();
+        let strata_administrator =
+            ThresholdConfig::try_new(admin_pks, NonZero::new(2).unwrap()).unwrap();
+
+        // Create seq manager keys
+        let seq_sks: Vec<SecretKey> = (0..3).map(|_| SecretKey::new(&mut OsRng)).collect();
+        let seq_pks: Vec<CompressedPublicKey> = seq_sks
+            .iter()
+            .map(|sk| CompressedPublicKey::from(PublicKey::from_secret_key(&secp, sk)))
+            .collect();
+        let strata_sequencer_manager =
+            ThresholdConfig::try_new(seq_pks, NonZero::new(2).unwrap()).unwrap();
+
+        // Create alpen administrator keys
+        let alpen_sks: Vec<SecretKey> = (0..3).map(|_| SecretKey::new(&mut OsRng)).collect();
+        let alpen_pks: Vec<CompressedPublicKey> = alpen_sks
+            .iter()
+            .map(|sk| CompressedPublicKey::from(PublicKey::from_secret_key(&secp, sk)))
+            .collect();
+        let alpen_administrator =
+            ThresholdConfig::try_new(alpen_pks, NonZero::new(2).unwrap()).unwrap();
+
+        // Create security council keys
+        let council_sks: Vec<SecretKey> = (0..3).map(|_| SecretKey::new(&mut OsRng)).collect();
+        let council_pks: Vec<CompressedPublicKey> = council_sks
+            .iter()
+            .map(|sk| CompressedPublicKey::from(PublicKey::from_secret_key(&secp, sk)))
+            .collect();
+        let strata_security_council =
+            ThresholdConfig::try_new(council_pks, NonZero::new(2).unwrap()).unwrap();
+
+        AdministrationInitConfig {
+            strata_administrator,
+            strata_sequencer_manager,
+            alpen_administrator,
+            strata_security_council,
+            confirmation_depths: uniform_confirmation_depths(2016),
+            max_seqno_gap: NonZero::new(10).unwrap(),
+        }
+    }
+
+    fn uniform_confirmation_depths(depth: u16) -> ConfirmationDepths {
+        ConfirmationDepths {
+            strata_admin_multisig_update: depth,
+            strata_seq_manager_multisig_update: depth,
+            alpen_admin_multisig_update: depth,
+            strata_security_council_multisig_update: depth,
+            operator_update: depth,
+            sequencer_update: depth,
+            ol_stf_vk_update: depth,
+            asm_stf_vk_update: depth,
+            ee_stf_vk_update: depth,
+            defcon3: depth,
+            safe_harbour_address_update: depth,
+        }
+    }
+
+    #[test]
+    fn test_initial_state() {
+        let config = create_test_config();
+        let state = AdministrationSubprotoState::new(&config);
+
+        assert_eq!(state.next_update_id(), 0);
+        assert_eq!(state.queued().len(), 0);
+    }
+
+    #[test]
+    fn test_enqueue_find_and_remove_queued() {
+        let mut arb = ArbitraryGenerator::new();
+        let config = create_test_config();
+        let mut state = AdministrationSubprotoState::new(&config);
+
+        // Use arbitrary action or fallback to guaranteed queueable action
+        let update: QueuedUpdate = arb.generate();
+        let update_id = *update.id();
+
+        state.enqueue(update.clone());
+
+        assert_eq!(state.find_queued(&update_id), Some(&update));
+        assert_eq!(state.find_queued(&(update_id + 1)), None);
+
+        state.remove_queued(&update_id);
+        assert_eq!(state.find_queued(&update_id), None);
+    }
+
+    /// Helper to seed queued updates with specific activation heights
+    fn seed_queued(ids: &[u32], activation_heights: &[L1Height]) -> AdministrationSubprotoState {
+        let mut arb = ArbitraryGenerator::new();
+        let config = create_test_config();
+        let mut state = AdministrationSubprotoState::new(&config);
+
+        for (&id, &activation_height) in ids.iter().zip(activation_heights.iter()) {
+            let update: UpdateAction = arb.generate();
+            let queued_update = QueuedUpdate::new(id, update, activation_height);
+            state.enqueue(queued_update);
+        }
+        state
+    }
+
+    #[test]
+    fn test_process_queued_table() {
+        struct Case {
+            current: u32,
+            want_queued: Vec<u32>,
+            want_ready: Vec<u32>,
+        }
+
+        let ids = &[1, 2, 3];
+        let activation_heights = &[5000, 5100, 5200];
+
+        let cases = vec![
+            Case {
+                current: 4999,
+                want_queued: vec![1, 2, 3],
+                want_ready: vec![],
+            },
+            Case {
+                current: 5000,
+                want_queued: vec![2, 3],
+                want_ready: vec![1],
+            },
+            Case {
+                current: 5100,
+                want_queued: vec![3],
+                want_ready: vec![1, 2],
+            },
+            Case {
+                current: 5200,
+                want_queued: vec![],
+                want_ready: vec![1, 2, 3],
+            },
+        ];
+
+        for case in cases {
+            let mut state = seed_queued(ids, activation_heights);
+            let ready_updates = state.process_queued(case.current);
+
+            let mut queued_ids: Vec<_> = state.queued.iter().map(|u| *u.id()).collect();
+            queued_ids.sort_unstable();
+
+            let mut ready_ids: Vec<_> = ready_updates.iter().map(|u| *u.id()).collect();
+            ready_ids.sort_unstable();
+
+            assert_eq!(
+                queued_ids, case.want_queued,
+                "at height {} queued mismatch",
+                case.current
+            );
+            assert_eq!(
+                ready_ids, case.want_ready,
+                "at height {} ready mismatch",
+                case.current
+            );
+        }
+    }
+
+    #[test]
+    fn test_apply_multisig_update() {
+        let secp = Secp256k1::new();
+        let config = create_test_config();
+        let mut state = AdministrationSubprotoState::new(&config);
+        let role = Role::StrataAdministrator;
+
+        let initial_auth = state.authority(role).unwrap().config();
+        let initial_members: Vec<CompressedPublicKey> = initial_auth.keys().to_vec();
+
+        // Generate new members to add
+        let add_sks: Vec<SecretKey> = (0..2).map(|_| SecretKey::new(&mut OsRng)).collect();
+        let add_members: Vec<CompressedPublicKey> = add_sks
+            .iter()
+            .map(|sk| CompressedPublicKey::from(PublicKey::from_secret_key(&secp, sk)))
+            .collect();
+
+        // Remove the first member
+        let remove_members = vec![initial_members[0]];
+
+        let new_size = initial_members.len() + add_members.len() - remove_members.len();
+        let new_threshold = NonZero::new(2).unwrap();
+
+        let update = ThresholdConfigUpdate::try_new(
+            add_members.clone(),
+            remove_members.clone(),
+            new_threshold,
+        )
+        .expect("valid threshold config");
+
+        state.apply_multisig_update(role, &update).unwrap();
+
+        let updated_auth = state.authority(role).unwrap().config();
+
+        // Verify threshold was updated
+        assert_eq!(updated_auth.threshold(), new_threshold.get());
+
+        // Verify size is correct
+        assert_eq!(updated_auth.keys().len(), new_size);
+
+        // Verify that specified members were removed
+        for member_to_remove in &remove_members {
+            assert!(
+                !updated_auth.keys().contains(member_to_remove),
+                "Member {:?} was not removed",
+                member_to_remove
+            );
+        }
+
+        // Verify that new members were added
+        for new_member in &add_members {
+            assert!(
+                updated_auth.keys().contains(new_member),
+                "New member {:?} was not added",
+                new_member
+            );
+        }
+    }
+}

@@ -124,7 +124,7 @@ mod tests {
 
     use moho_runtime_interface::MohoProgram;
     use strata_asm_common::{AnchorState, AsmLogEntry};
-    use strata_asm_params::AsmParams;
+    use strata_asm_params::StrataGenesisConfig;
     use strata_asm_proof_impl::moho_program::program::AsmStfProgram;
     use strata_asm_spec::construct_genesis_state;
     use strata_identifiers::{Buf32, L1BlockCommitment, L1BlockId};
@@ -256,7 +256,7 @@ mod tests {
 
     /// Builds a genesis anchor state and its commitment from arbitrary params.
     fn genesis_anchor() -> (L1BlockCommitment, AnchorState) {
-        let params: AsmParams = ArbitraryGenerator::new().generate();
+        let params: StrataGenesisConfig = ArbitraryGenerator::new().generate();
         let anchor = construct_genesis_state(&params);
         let commitment = anchor.chain_view.pow_state.last_verified_block;
         (commitment, anchor)
