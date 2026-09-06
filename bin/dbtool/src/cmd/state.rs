@@ -5,7 +5,7 @@ use std::fs;
 use anyhow::{Result, anyhow, bail};
 use asm_storage::SledAsmStateDb;
 use serde_json::{Value, json};
-use ssz::{Decode, Encode};
+use ssz::Encode;
 use strata_asm_common::AnchorState;
 use strata_identifiers::L1BlockCommitment;
 
@@ -33,7 +33,7 @@ pub(crate) fn run(db: &sled::Db, verb: StateVerb, write: bool) -> Result<Value> 
             })
         }
         StateVerb::Latest => Ok(match store.get_latest()? {
-            Some(state) => state_json(&state),
+            Some((_block, state)) => state_json(&state),
             None => json!({ "found": false }),
         }),
         StateVerb::List => {
@@ -46,8 +46,8 @@ pub(crate) fn run(db: &sled::Db, verb: StateVerb, write: bool) -> Result<Value> 
         StateVerb::Put { file } => {
             ensure_write(write)?;
             let bytes = fs::read(&file)?;
-            let state = AnchorState::from_ssz_bytes(&bytes)
-                .map_err(|e| anyhow!("invalid AnchorState SSZ: {e:?}"))?;
+            let state = AnchorState::decode_canonical(&bytes)
+                .map_err(|e| anyhow!("invalid canonical AnchorState SSZ: {e}"))?;
             store.put(&state)?;
             Ok(json!({ "stored": true, "block": commitment_json(block_of(&state)) }))
         }

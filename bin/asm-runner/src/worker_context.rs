@@ -7,15 +7,19 @@
 use std::sync::Arc;
 
 use anyhow::Context;
-use asm_storage::{SledAsmAuxDataDb, SledAsmManifestDb, SledAsmManifestMmrDb, SledAsmStateDb};
+use asm_storage::{
+    SledAsmAuxDataDb, SledAsmHandoverDb, SledAsmManifestDb, SledAsmManifestMmrDb, SledAsmStateDb,
+};
 use bitcoin::{Block, BlockHash, Network, block::Header};
 use strata_asm_common::{AnchorState, AsmManifest, AsmManifestHash, AuxData};
 use strata_asm_worker::{
-    AnchorStateStore, AuxDataStore, L1DataProvider, ManifestMmrStore, WorkerError, WorkerResult,
+    AnchorStateStore, AsmHandoverStore, AuxDataStore, L1DataProvider, ManifestMmrStore,
+    WorkerError, WorkerResult,
 };
 use strata_btc_types::{BitcoinTxid, L1BlockIdBitcoinExt, RawBitcoinTx};
 use strata_identifiers::{L1BlockCommitment, L1BlockId, L1Height};
 use strata_merkle::MerkleProofB32;
+use strata_predicate::PredicateKey;
 use tokio::runtime::Handle;
 
 use crate::bitcoin_client::RetryingBitcoinClient;
@@ -30,6 +34,7 @@ pub(crate) struct AsmWorkerContext {
     bitcoin_client: Arc<RetryingBitcoinClient>,
     state_db: Arc<SledAsmStateDb>,
     aux_db: Arc<SledAsmAuxDataDb>,
+    handover_db: Arc<SledAsmHandoverDb>,
     manifest_db: Arc<SledAsmManifestDb>,
     mmr_db: Arc<SledAsmManifestMmrDb>,
 }
@@ -40,6 +45,7 @@ impl AsmWorkerContext {
         bitcoin_client: Arc<RetryingBitcoinClient>,
         state_db: Arc<SledAsmStateDb>,
         aux_db: Arc<SledAsmAuxDataDb>,
+        handover_db: Arc<SledAsmHandoverDb>,
         manifest_db: Arc<SledAsmManifestDb>,
         mmr_db: Arc<SledAsmManifestMmrDb>,
     ) -> Self {
@@ -48,6 +54,7 @@ impl AsmWorkerContext {
             bitcoin_client,
             state_db,
             aux_db,
+            handover_db,
             manifest_db,
             mmr_db,
         }
@@ -122,7 +129,7 @@ impl AnchorStateStore for AsmWorkerContext {
     // in the manifest store and every consumer that needs them (the Moho
     // worker's `get_anchor_logs`, the checkpoint/bridge test harness) reads them
     // from there directly, keyed by block.
-    fn get_latest_anchor_state(&self) -> WorkerResult<Option<AnchorState>> {
+    fn get_latest_anchor_state(&self) -> WorkerResult<Option<(L1BlockCommitment, AnchorState)>> {
         self.state_db.get_latest().map_err(WorkerError::DbError)
     }
 
@@ -134,7 +141,7 @@ impl AnchorStateStore for AsmWorkerContext {
     }
 
     fn store_anchor_state(&self, state: &AnchorState) -> WorkerResult<()> {
-        self.state_db.put(state).map_err(WorkerError::DbError)?;
+        self.state_db.commit(state).map_err(WorkerError::DbError)?;
 
         Ok(())
     }
@@ -172,6 +179,22 @@ impl ManifestMmrStore for AsmWorkerContext {
             .get_leaf(index)
             .map_err(WorkerError::DbError)?
             .ok_or(WorkerError::ManifestHashNotFound { index })
+    }
+}
+
+impl AsmHandoverStore for AsmWorkerContext {
+    fn store_next_predicate(
+        &self,
+        block: &L1BlockCommitment,
+        predicate: &PredicateKey,
+    ) -> WorkerResult<()> {
+        self.handover_db
+            .put(block, predicate)
+            .map_err(WorkerError::DbError)
+    }
+
+    fn get_next_predicate(&self, block: &L1BlockCommitment) -> WorkerResult<Option<PredicateKey>> {
+        self.handover_db.get(block).map_err(WorkerError::DbError)
     }
 }
 

@@ -53,7 +53,12 @@ impl ZkVmProgram for AsmStfProofProgram {
 }
 
 impl AsmStfProofProgram {
-    /// Native host that can be used for testing
+    /// Native host executing the current rules, for testing.
+    ///
+    /// Only the *native* host bakes in a statement, so only it names a
+    /// specification. A remote host carries a built artifact instead, and the
+    /// artifact is what fixes the rules — which is why this program type is not
+    /// itself per-specification.
     pub fn native_host() -> NativeHost {
         NativeHost::new_with_random_key(process_asm_stf)
     }

@@ -63,6 +63,10 @@ pub trait L1ProviderContext {
 
 /// Persists and loads the derived per-block [`MohoState`].
 pub trait MohoStateStore {
+    /// Completes a journaled cross-tree rebase before startup selects a tip.
+    /// Idempotent when no rebase is pending.
+    fn recover_pending_rebase(&self) -> MohoWorkerResult<()>;
+
     /// Fetches the most recently committed [`MohoState`] and the block it is
     /// anchored to, or `None` if the store is empty. Used to resume across
     /// restarts.
@@ -74,12 +78,22 @@ pub trait MohoStateStore {
     /// when no Moho state exists for the block.
     fn get_moho_state(&self, blockid: &L1BlockCommitment) -> MohoWorkerResult<MohoState>;
 
-    /// Persists the [`MohoState`] derived for `blockid`.
+    /// Commits the [`MohoState`] derived for `blockid` and selects it as the
+    /// worker's durable active tip. This is not a historical backfill operation.
     fn store_moho_state(
         &self,
         blockid: &L1BlockCommitment,
         state: &MohoState,
     ) -> MohoWorkerResult<()>;
+
+    /// Durably closes external reads before pruning the export suffix for a
+    /// rebase to `base`.
+    fn begin_moho_rebase(&self, base: &L1BlockCommitment) -> MohoWorkerResult<()>;
+
+    /// Validates the retained export projection, atomically selects the
+    /// journaled `base`, and reopens external reads after its export suffix has
+    /// been pruned.
+    fn finish_moho_rebase(&self, base: &L1BlockCommitment) -> MohoWorkerResult<()>;
 }
 
 /// Persists the per-container export-entry leaves the derived state commits to.

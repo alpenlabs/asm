@@ -14,6 +14,7 @@ strata-asm-common.workspace = true
 strata-asm-logs.workspace = true
 strata-asm-proto-admin-msgs.workspace = true
 strata-asm-proto-admin-txs.workspace = true
+strata-asm-proto-admin-v0.workspace = true
 strata-asm-proto-bridge-msgs.workspace = true
 strata-asm-proto-checkpoint-msgs.workspace = true
 strata-crypto.workspace = true

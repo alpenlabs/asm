@@ -13,7 +13,7 @@ use strata_asm_proto_admin_txs::{constants::ADMINISTRATION_SUBPROTOCOL_ID, parse
 use strata_identifiers::L1BlockCommitment;
 
 use crate::{
-    handler::{handle_action, handle_pending_updates},
+    handler::{AsmEmissionGuard, handle_action, handle_pending_updates},
     state::AdministrationSubprotoState,
 };
 
@@ -27,6 +27,10 @@ pub struct AdministrationSubprotocol;
 
 impl Subprotocol for AdministrationSubprotocol {
     const ID: SubprotocolId = ADMINISTRATION_SUBPROTOCOL_ID;
+
+    // `7e0b873` appended `ol_transition_pending` to
+    // `AdministrationSubprotoState`, which changes the encoding, so this is
+    // not the released layout. See `strata-asm-proto-admin-v0` for that one.
     const STATE_VERSION: u8 = 1;
 
     type InitConfig = AdministrationInitConfig;
@@ -53,8 +57,12 @@ impl Subprotocol for AdministrationSubprotocol {
     ) {
         let current_height = header_vs.last_verified_block.height();
 
+        // A block has exactly one predicate handover. This execution-local guard is shared by
+        // queued enactments and immediate actions, then discarded with the transition context.
+        let mut asm_guard = AsmEmissionGuard::default();
+
         // Phase 1: Execute any pending updates that have reached their activation height
-        handle_pending_updates(state, relayer, current_height);
+        handle_pending_updates(state, relayer, current_height, &mut asm_guard);
 
         // Phase 2: Process incoming administration transactions. Unparseable txs are
         // logged and skipped inside `parse_tx` to maintain system resilience.
@@ -62,7 +70,13 @@ impl Subprotocol for AdministrationSubprotocol {
             let Some(signed_payload) = parse_tx(tx) else {
                 continue;
             };
-            if let Err(e) = handle_action(state, signed_payload, current_height, relayer) {
+            if let Err(e) = handle_action(
+                state,
+                signed_payload,
+                current_height,
+                relayer,
+                &mut asm_guard,
+            ) {
                 warn!(tx_id = %tx.tx().compute_txid(), error = %e, "Failed to handle admin action");
             }
         }

@@ -3,10 +3,11 @@
 //! Backed by [`strata_merkle_node_store`]: every MMR node is persisted, so a
 //! proof is `O(log n)` with no leaf replay. Containers share one node tree,
 //! namespaced by `container_id`. Alongside the nodes we keep two small indexes
-//! the MMR itself does not carry: a reverse `hash → index` map for lookups, and
-//! a `height → first index` map locating where each block's leaves begin. The
-//! latter doubles as the per-leaf height source: runs are contiguous, so the
-//! height of any leaf is the height whose run starts at or before its index.
+//! the MMR itself does not carry: a reverse `(hash, index)` occurrence set for
+//! current and historical lookups, and a `height → first index` map locating
+//! where each block's leaves begin. The latter doubles as the per-leaf height
+//! source: runs are contiguous, so the height of any leaf is the height whose
+//! run starts at or before its index.
 //!
 //! Appends are unconditional — the store does not deduplicate. A consumer that
 //! might reprocess a block (after a crash or an L1 reorg) prunes from the
@@ -14,9 +15,10 @@
 
 use std::ops::Range;
 
-use anyhow::{Context, Result};
-use strata_merkle::{MerkleProofB32, Sha256Hasher};
-use strata_merkle_node_store::{LeafPos, MmrNodeStore, NodePos, StoredMmr};
+use anyhow::{Context, Result, bail};
+use moho_types::ExportState;
+use strata_merkle::{MerkleProofB32, Mmr64B32, MmrState, Sha256Hasher};
+use strata_merkle_node_store::{LeafPos, MmrNodeStore, NodePos, StoredMmr, peak_positions};
 
 use crate::ExportEntriesDb;
 
@@ -74,7 +76,9 @@ struct ContainerView<'a> {
     /// MMR nodes, `node_pos → node`. Backs the [`StoredMmr`] that owns leaves,
     /// hashing, and the root.
     nodes: &'a sled::Tree,
-    /// Reverse index `entry_hash → mmr_index`, for looking a leaf up by its hash.
+    /// Reverse occurrence index `(entry_hash, mmr_index) → ()`. Keeping the
+    /// index in the ordered key lets current and historical lookups select the
+    /// newest eligible duplicate with one predecessor seek.
     index_by_hash: &'a sled::Tree,
     /// `height → first mmr_index`, the start of the contiguous run of leaves a
     /// height contributed; the run's end is the next populated height (or the
@@ -92,12 +96,37 @@ impl ContainerView<'_> {
         key
     }
 
-    /// `id || hash` — key into the reverse `hash → index` map.
-    fn hash_key(&self, hash: &[u8; 32]) -> [u8; 33] {
+    /// `id || hash` — prefix shared by every occurrence of one hash.
+    fn hash_prefix(&self, hash: &[u8; 32]) -> [u8; 33] {
         let mut key = [0u8; 33];
         key[0] = self.id;
         key[1..].copy_from_slice(hash);
         key
+    }
+
+    /// `id || hash || mmr_index` — one row per hash occurrence.
+    fn hash_index_key(&self, hash: &[u8; 32], index: u64) -> [u8; 41] {
+        let mut key = [0u8; 41];
+        key[..33].copy_from_slice(&self.hash_prefix(hash));
+        key[33..].copy_from_slice(&encode_idx(index));
+        key
+    }
+
+    /// Exclusive upper bound after every `id || hash || mmr_index` key.
+    fn hash_upper_bound(&self, hash: &[u8; 32]) -> [u8; 42] {
+        let mut key = [u8::MAX; 42];
+        key[..33].copy_from_slice(&self.hash_prefix(hash));
+        key
+    }
+
+    /// Extracts the index from an occurrence key for `hash`, or returns `None`
+    /// when a predecessor seek crossed into another hash's key range.
+    fn index_from_hash_key(&self, hash: &[u8; 32], key: &[u8]) -> Option<u64> {
+        if !key.starts_with(&self.hash_prefix(hash)) {
+            return None;
+        }
+        assert_eq!(key.len(), 41, "hash occurrence key must be 41 bytes");
+        Some(decode_idx(&key[33..]))
     }
 
     /// `id || height` — key into the `height → first index` map.
@@ -124,7 +153,7 @@ impl ContainerView<'_> {
         for entry in entries {
             let index = StoredMmr::<Sha256Hasher>::append_leaf(self, entry)?;
             self.index_by_hash
-                .insert(self.hash_key(&entry), &encode_idx(index))?;
+                .insert(self.hash_index_key(&entry, index), &[])?;
         }
         Ok(())
     }
@@ -139,6 +168,42 @@ impl ContainerView<'_> {
         Ok(StoredMmr::<Sha256Hasher>::leaf_count(self)?)
     }
 
+    /// Checks this stored MMR against the compact peaks committed by a Moho
+    /// state. Comparing every peak binds the full retained leaf prefix without
+    /// replaying it.
+    fn validate_mmr(&self, expected: &Mmr64B32) -> Result<()> {
+        let actual_count = self.num_entries()?;
+        let expected_count = expected.num_entries();
+        if actual_count != expected_count {
+            bail!(
+                "container {} has {actual_count} stored entries but the Moho state commits to \
+                 {expected_count}",
+                self.id,
+            );
+        }
+
+        for position in peak_positions(actual_count) {
+            let actual = self
+                .get_node(position)?
+                .with_context(|| format!("container {} is missing peak {position:?}", self.id))?;
+            let expected = expected.get_peak(position.height()).with_context(|| {
+                format!(
+                    "Moho state for container {} is missing peak at height {}",
+                    self.id,
+                    position.height(),
+                )
+            })?;
+            if actual != *expected {
+                bail!(
+                    "container {} peak at height {} does not match the Moho state",
+                    self.id,
+                    position.height(),
+                );
+            }
+        }
+        Ok(())
+    }
+
     /// See [`SledExportEntriesDb::generate_proof`].
     fn generate_proof(&self, mmr_index: u64, at_leaf_count: u64) -> Result<MerkleProofB32> {
         let proof =
@@ -148,10 +213,19 @@ impl ContainerView<'_> {
 
     /// See [`SledExportEntriesDb::find_index`].
     fn find_index(&self, hash: &[u8; 32]) -> Result<Option<u64>> {
-        let Some(idx_bytes) = self.index_by_hash.get(self.hash_key(hash))? else {
+        let Some((key, _)) = self.index_by_hash.get_lt(self.hash_upper_bound(hash))? else {
             return Ok(None);
         };
-        Ok(Some(decode_idx(idx_bytes.as_ref())))
+        Ok(self.index_from_hash_key(hash, &key))
+    }
+
+    /// See [`SledExportEntriesDb::find_index_before`].
+    fn find_index_before(&self, hash: &[u8; 32], before_index: u64) -> Result<Option<u64>> {
+        let bound = self.hash_index_key(hash, before_index);
+        let Some((key, _)) = self.index_by_hash.get_lt(bound)? else {
+            return Ok(None);
+        };
+        Ok(self.index_from_hash_key(hash, &key))
     }
 
     /// See [`SledExportEntriesDb::entry_height`].
@@ -194,11 +268,18 @@ impl ContainerView<'_> {
     /// or above `from_height`.
     ///
     /// The per-container half of [`SledExportEntriesDb::prune_from`]. The three
-    /// mutating steps run in a crash-safe order: drop the leaves, then the
-    /// reverse-index rows, and only then the height-start rows. Those rows are
-    /// both the source of the cutoff and the marker that a prune is pending, so
-    /// removing them last means a crash mid-prune recomputes the same cutoff and
-    /// re-runs to completion. See each step for its own invariants.
+    /// mutating steps run in a crash-safe order: drop the leaves, reconcile the
+    /// reverse index with the surviving prefix, and only then drop the
+    /// height-start rows. Those rows are both the source of the cutoff and the
+    /// marker that a prune is pending, so removing them last means a crash
+    /// mid-prune recomputes the same cutoff and re-runs to completion. See each
+    /// step for its own invariants.
+    ///
+    /// These are separate per-tree commits, not one atomic transaction across
+    /// the node, hash-index, and height-index trees. Callers that require a
+    /// cross-tree snapshot must serialize reads with pruning; the retained
+    /// height rows guarantee recovery by retry, not isolation for concurrent
+    /// readers during the operation.
     fn prune(&self, from_height: u32) -> Result<()> {
         let Some(first_dropped) = self.first_dropped_index(from_height)? else {
             return Ok(());
@@ -245,22 +326,20 @@ impl ContainerView<'_> {
         Ok(())
     }
 
-    /// Removes the reverse-index rows whose stored index is at or past
-    /// `first_dropped`, i.e. the entries [`Self::drop_leaves_from`] discarded.
-    ///
-    /// Scans by stored index rather than reading leaf hashes back out of the now
-    /// truncated MMR.
+    /// Removes occurrence rows whose stored index is at or past `first_dropped`.
+    /// Earlier duplicate rows remain, so the greatest surviving occurrence
+    /// becomes the natural predecessor returned by [`Self::find_index`].
     fn drop_hash_rows_from(&self, first_dropped: u64) -> Result<()> {
-        let mut stale = Vec::new();
+        let mut batch = sled::Batch::default();
         for kv in self.index_by_hash.scan_prefix([self.id]) {
-            let (key, idx) = kv?;
-            if decode_idx(idx.as_ref()) >= first_dropped {
-                stale.push(key);
+            let (key, _) = kv?;
+            assert_eq!(key.len(), 41, "hash occurrence key must be 41 bytes");
+            if decode_idx(&key[33..]) >= first_dropped {
+                batch.remove(key);
             }
         }
-        for key in stale {
-            self.index_by_hash.remove(key)?;
-        }
+
+        self.index_by_hash.apply_batch(batch)?;
         Ok(())
     }
 
@@ -419,6 +498,44 @@ impl SledExportEntriesDb {
         self.container(container_id).num_entries()
     }
 
+    /// Validates that the complete stored export projection matches the compact
+    /// MMRs committed by `expected`.
+    ///
+    /// This is the final guard for a journaled rebase. A retained Moho state can
+    /// belong to a different branch at the same height, so height-based pruning
+    /// alone cannot prove that its surviving export prefix is the right one.
+    pub fn validate_export_state(&self, expected: &ExportState) -> Result<()> {
+        let mut expected_by_id = [None; 256];
+        for container in expected.containers() {
+            let slot = &mut expected_by_id[usize::from(container.container_id())];
+            if slot.replace(container).is_some() {
+                bail!(
+                    "Moho export state contains duplicate container id {}",
+                    container.container_id(),
+                );
+            }
+        }
+
+        for container_id in 0..=u8::MAX {
+            let stored = self.container(container_id);
+            match expected_by_id[usize::from(container_id)] {
+                Some(expected) => stored
+                    .validate_mmr(expected.entries_mmr())
+                    .with_context(|| format!("validate export container {container_id}"))?,
+                None => {
+                    let actual_count = stored.num_entries()?;
+                    if actual_count != 0 {
+                        bail!(
+                            "container {container_id} has {actual_count} stored entries but is \
+                             absent from the Moho state"
+                        );
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
     /// Synchronous variant of [`ExportEntriesDb::entry_range_at_height`].
     ///
     /// Returns the half-open range of leaf indices `container_id` gained at
@@ -462,6 +579,17 @@ impl SledExportEntriesDb {
         self.container(container_id).find_index(hash)
     }
 
+    /// Synchronous variant of [`ExportEntriesDb::find_entry_index_before`].
+    pub fn find_index_before(
+        &self,
+        container_id: u8,
+        hash: &[u8; 32],
+        before_index: u64,
+    ) -> Result<Option<u64>> {
+        self.container(container_id)
+            .find_index_before(hash, before_index)
+    }
+
     /// Synchronous variant of [`ExportEntriesDb::get_entry`].
     pub fn get(&self, container_id: u8, mmr_index: u64) -> Result<Option<[u8; 32]>> {
         self.container(container_id).get(mmr_index)
@@ -503,6 +631,15 @@ impl ExportEntriesDb for SledExportEntriesDb {
 
     async fn find_entry_index(&self, container_id: u8, hash: [u8; 32]) -> Result<Option<u64>> {
         self.find_index(container_id, &hash)
+    }
+
+    async fn find_entry_index_before(
+        &self,
+        container_id: u8,
+        hash: [u8; 32],
+        before_index: u64,
+    ) -> Result<Option<u64>> {
+        self.find_index_before(container_id, &hash, before_index)
     }
 
     async fn get_entry(&self, container_id: u8, mmr_index: u64) -> Result<Option<[u8; 32]>> {
@@ -601,6 +738,35 @@ mod tests {
     }
 
     #[test]
+    fn export_state_validation_accepts_matching_compact_peaks() {
+        let db = test_db();
+        let store = SledExportEntriesDb::open(&db).unwrap();
+        let entries = vec![hash(0x11), hash(0x12), hash(0x13)];
+        store.append(7, 100, entries.clone()).unwrap();
+
+        let mut expected = ExportState::new(vec![]).unwrap();
+        for entry in entries {
+            expected.add_entry(7, entry).unwrap();
+        }
+
+        store.validate_export_state(&expected).unwrap();
+    }
+
+    #[test]
+    fn export_state_validation_rejects_an_equal_length_branch_prefix() {
+        let db = test_db();
+        let store = SledExportEntriesDb::open(&db).unwrap();
+        store.append(7, 100, vec![hash(0x11)]).unwrap();
+
+        let mut different_branch = ExportState::new(vec![]).unwrap();
+        different_branch.add_entry(7, hash(0x22)).unwrap();
+
+        let error = store.validate_export_state(&different_branch).unwrap_err();
+        assert!(error.to_string().contains("validate export container 7"));
+        assert!(format!("{error:#}").contains("does not match the Moho state"));
+    }
+
+    #[test]
     fn get_returns_none_for_unknown() {
         let db = test_db();
         let store = SledExportEntriesDb::open(&db).unwrap();
@@ -648,6 +814,24 @@ mod tests {
         assert_eq!(store.find_index(2, &hash(0xa1)).unwrap(), Some(0));
         assert_eq!(store.find_index(1, &hash(0xff)).unwrap(), None);
         assert_eq!(store.find_index(3, &hash(0xa1)).unwrap(), None);
+    }
+
+    #[test]
+    fn find_index_before_returns_greatest_occurrence_in_prefix() {
+        let db = test_db();
+        let store = SledExportEntriesDb::open(&db).unwrap();
+        let duplicate = hash(0xd0);
+        store.append(1, 10, vec![duplicate]).unwrap();
+        store.append(1, 11, vec![hash(0xa0)]).unwrap();
+        store.append(1, 12, vec![duplicate]).unwrap();
+        store.append(1, 13, vec![duplicate]).unwrap();
+
+        assert_eq!(store.find_index(1, &duplicate).unwrap(), Some(3));
+        assert_eq!(store.find_index_before(1, &duplicate, 0).unwrap(), None);
+        assert_eq!(store.find_index_before(1, &duplicate, 1).unwrap(), Some(0));
+        assert_eq!(store.find_index_before(1, &duplicate, 3).unwrap(), Some(2));
+        assert_eq!(store.find_index_before(1, &duplicate, 4).unwrap(), Some(3));
+        assert_eq!(store.find_index_before(1, &hash(0xff), 4).unwrap(), None);
     }
 
     #[test]
@@ -862,6 +1046,59 @@ mod tests {
     }
 
     #[test]
+    fn prune_restores_greatest_surviving_duplicate_index_and_proof() {
+        let db = test_db();
+        let store = SledExportEntriesDb::open(&db).unwrap();
+        let duplicate = hash(0xd0);
+
+        // The duplicate occurs twice in the surviving prefix and twice in the
+        // suffix. Before pruning, the reverse index points to the newest copy.
+        store
+            .append(1, 10, vec![duplicate, hash(0xa0), duplicate])
+            .unwrap();
+        store
+            .append(1, 11, vec![hash(0xb0), duplicate, duplicate])
+            .unwrap();
+        assert_eq!(store.find_index(1, &duplicate).unwrap(), Some(5));
+
+        store.prune_from(11).unwrap();
+
+        // Pruning the newest copies restores the greatest duplicate index in
+        // the surviving prefix, rather than making the hash unresolvable.
+        assert_eq!(store.num_entries(1).unwrap(), 3);
+        assert_eq!(store.find_index(1, &duplicate).unwrap(), Some(2));
+        assert_eq!(store.find_index(1, &hash(0xb0)).unwrap(), None);
+
+        let compact = rebuild_compact_mmr(&store, 1, 3);
+        let proof = store.generate_proof(1, 2, 3).unwrap();
+        assert!(compact.verify(&proof, &duplicate));
+    }
+
+    #[test]
+    fn prune_retry_after_leaf_truncation_repairs_duplicate_reverse_index() {
+        let db = test_db();
+        let store = SledExportEntriesDb::open(&db).unwrap();
+        let duplicate = hash(0xd1);
+        store.append(1, 10, vec![duplicate]).unwrap();
+        store.append(1, 11, vec![duplicate]).unwrap();
+
+        // Simulate interruption after the node-tree batch committed but before
+        // the reverse-index batch ran. The height row is deliberately retained
+        // as the pending-prune marker.
+        let container = store.container(1);
+        let first_dropped = container.first_dropped_index(11).unwrap().unwrap();
+        container.drop_leaves_from(first_dropped).unwrap();
+        assert_eq!(store.num_entries(1).unwrap(), 1);
+        assert_eq!(store.find_index(1, &duplicate).unwrap(), Some(1));
+
+        // Retrying sees the same cutoff, treats leaf truncation as a no-op, and
+        // repairs the stale duplicate row before clearing the height marker.
+        store.prune_from(11).unwrap();
+        assert_eq!(store.find_index(1, &duplicate).unwrap(), Some(0));
+        assert_eq!(store.leaf_range_at_height(1, 11).unwrap(), None);
+    }
+
+    #[test]
     fn prune_from_above_tip_is_noop() {
         let db = test_db();
         let store = SledExportEntriesDb::open(&db).unwrap();
@@ -945,18 +1182,20 @@ mod tests {
     }
 
     #[test]
-    fn drop_hash_rows_from_removes_rows_at_or_past_cutoff() {
+    fn drop_hash_rows_from_removes_suffix_and_preserves_duplicates() {
         let db = test_db();
         let store = SledExportEntriesDb::open(&db).unwrap();
-        store.append(1, 10, (0..4u8).map(hash).collect()).unwrap();
+        store
+            .append(1, 10, vec![hash(0), hash(1), hash(0), hash(3)])
+            .unwrap();
         store.append(2, 10, vec![hash(0xb0)]).unwrap();
 
         store.container(1).drop_hash_rows_from(2).unwrap();
 
-        // Rows below the cutoff survive; those at or past it are gone.
+        // Rows below the cutoff survive (including an earlier duplicate); those
+        // at or past it are gone.
         assert_eq!(store.find_index(1, &hash(0)).unwrap(), Some(0));
         assert_eq!(store.find_index(1, &hash(1)).unwrap(), Some(1));
-        assert_eq!(store.find_index(1, &hash(2)).unwrap(), None);
         assert_eq!(store.find_index(1, &hash(3)).unwrap(), None);
         // Another container's reverse index is untouched.
         assert_eq!(store.find_index(2, &hash(0xb0)).unwrap(), Some(0));
@@ -997,6 +1236,13 @@ mod tests {
             assert_eq!(store.num_entries(1).unwrap(), 2);
             assert_eq!(
                 store.find_entry_index(1, hash(0xa1)).await.unwrap(),
+                Some(0)
+            );
+            assert_eq!(
+                store
+                    .find_entry_index_before(1, hash(0xa1), 1)
+                    .await
+                    .unwrap(),
                 Some(0)
             );
             assert_eq!(store.get_entry(1, 0).await.unwrap(), Some(hash(0xa1)));

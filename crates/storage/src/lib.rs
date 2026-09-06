@@ -10,6 +10,8 @@
 //! - [`AsmAuxDataDb`] / [`SledAsmAuxDataDb`] — auxiliary data, keyed by block commitment
 //! - [`AsmManifestDb`] / [`SledAsmManifestDb`] — full manifests, keyed by block commitment
 //! - [`AsmManifestMmrDb`] / [`SledAsmManifestMmrDb`] — manifest hash MMR, keyed by L1 height
+//! - [`AsmHandoverDb`] / [`SledAsmHandoverDb`] — the predicate handover chain, keyed by the block
+//!   that hands over
 //!
 //! The commitment-keyed stores ([`AsmStateDb`], [`AsmAuxDataDb`],
 //! [`AsmManifestDb`]) key each entry by its [`L1BlockCommitment`] — height plus
@@ -27,13 +29,17 @@
 //! [`L1BlockCommitment`]: strata_identifiers::L1BlockCommitment
 
 mod aux_input;
+mod handover;
 mod manifest;
 mod manifest_mmr;
 mod sled;
 mod state;
 
 pub use aux_input::AsmAuxDataDb;
+pub use handover::AsmHandoverDb;
 pub use manifest::AsmManifestDb;
 pub use manifest_mmr::AsmManifestMmrDb;
-pub use sled::{SledAsmAuxDataDb, SledAsmManifestDb, SledAsmManifestMmrDb, SledAsmStateDb};
+pub use sled::{
+    SledAsmAuxDataDb, SledAsmHandoverDb, SledAsmManifestDb, SledAsmManifestMmrDb, SledAsmStateDb,
+};
 pub use state::AsmStateDb;
