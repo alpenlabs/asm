@@ -124,6 +124,10 @@ impl RemoteProofMappingDb for AsmProverContext {
     ) -> Result<(), Self::Error> {
         self.proof_db.put_remote_proof_id(id, remote_id).await
     }
+
+    async fn clear_remote_proof_id(&self, id: ProofId) -> Result<bool, Self::Error> {
+        self.proof_db.clear_remote_proof_id(id).await
+    }
 }
 
 impl RemoteProofStatusDb for AsmProverContext {
