@@ -1,0 +1,88 @@
+{
+    "magic": "ALPN",
+    "anchor": {
+        "block": {
+            "height": 15093,
+            "blkid": "00000002c1afede585cdd230627df8b45298d0331e716c0f9490569fec366602"
+        },
+        "next_target": 486830356,
+        "epoch_start_timestamp": 1787767356,
+        "network": "signet"
+    },
+    "subprotocols": [
+        {
+            "Admin": {
+                "strata_administrator": {
+                    "keys": [
+                        "02d3ea3534d9b155dc35f8b638a32ac57a7b920f0ea5d87071cfe128ad35f58b12",
+                        "020d4a37c7061a482f55a278f4a3ada5ce10718c32a01e9fd2c667622a90974d2e",
+                        "027aa835a31a9a0f6c7fd3c7bedc664aaee556d7a4ad464052e706542bdb6f8f18"
+                    ],
+                    "threshold": 2
+                },
+                "strata_sequencer_manager": {
+                    "keys": [
+                        "02d3ea3534d9b155dc35f8b638a32ac57a7b920f0ea5d87071cfe128ad35f58b12",
+                        "020d4a37c7061a482f55a278f4a3ada5ce10718c32a01e9fd2c667622a90974d2e",
+                        "027aa835a31a9a0f6c7fd3c7bedc664aaee556d7a4ad464052e706542bdb6f8f18"
+                    ],
+                    "threshold": 2
+                },
+                "alpen_administrator": {
+                    "keys": [
+                        "02d3ea3534d9b155dc35f8b638a32ac57a7b920f0ea5d87071cfe128ad35f58b12",
+                        "020d4a37c7061a482f55a278f4a3ada5ce10718c32a01e9fd2c667622a90974d2e",
+                        "027aa835a31a9a0f6c7fd3c7bedc664aaee556d7a4ad464052e706542bdb6f8f18"
+                    ],
+                    "threshold": 2
+                },
+                "strata_security_council": {
+                    "keys": [
+                        "02d3ea3534d9b155dc35f8b638a32ac57a7b920f0ea5d87071cfe128ad35f58b12",
+                        "020d4a37c7061a482f55a278f4a3ada5ce10718c32a01e9fd2c667622a90974d2e",
+                        "027aa835a31a9a0f6c7fd3c7bedc664aaee556d7a4ad464052e706542bdb6f8f18"
+                    ],
+                    "threshold": 2
+                },
+                "confirmation_depths": {
+                    "strata_admin_multisig_update": 144,
+                    "strata_seq_manager_multisig_update": 144,
+                    "alpen_admin_multisig_update": 144,
+                    "strata_security_council_multisig_update": 144,
+                    "operator_update": 144,
+                    "sequencer_update": 144,
+                    "ol_stf_vk_update": 144,
+                    "asm_stf_vk_update": 144,
+                    "ee_stf_vk_update": 144,
+                    "defcon3": 144,
+                    "safe_harbour_address_update": 144
+                },
+                "max_seqno_gap": 10
+            }
+        },
+        {
+            "Checkpoint": {
+                "sequencer_predicate": "AlwaysAccept",
+                "checkpoint_predicate": "AlwaysAccept",
+                "genesis_l1_height": 15093,
+                "genesis_ol_blkid": "0000000000000000000000000000000000000000000000000000000000000000"
+            }
+        },
+        {
+            "Bridge": {
+                "operators": [
+                    "02085aab0cd930db8cddf4ea08daf49b45ef28aefdd5b9591b87de3837ec54d1a6",
+                    "02c2d030ea3d8fe77b8d736e919b7e1cb503061d2c3a90d1d2a99d8dc3976e9098",
+                    "0275fd4aea03724f0b5b3d237ba5e5a4b2f1798976cfb846aa4aab5b75d7eaed0a",
+                    "02f4cb09f5b997018c280ef9423d5effb01cc83505b4bf76e17f98e1c8c6547eec",
+                    "02cfa0f8d5046a4e6782a6c0e0233f5d6664668b20d469796935e488b0e74ba867"
+                ],
+                "denomination": 200000000,
+                "assignment_duration": 536,
+                "operator_fee": 30000,
+                "recovery_delay": 6,
+                "safe_harbour_address": "040f0c8db753acbd17343a39c2f3f4e35e4be6da749f9e35137ab220e7b238a667"
+            }
+        }
+    ]
+}
