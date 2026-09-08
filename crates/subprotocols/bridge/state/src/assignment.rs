@@ -9,7 +9,7 @@ use std::cmp::Ordering;
 use arbitrary::Arbitrary;
 use bitcoin::Amount;
 use rand_chacha::{
-    ChaChaRng,
+    ChaCha20Rng,
     rand_core::{RngCore, SeedableRng},
 };
 use serde::{Deserialize, Serialize};
@@ -214,7 +214,7 @@ impl AssignmentEntry {
 
 /// Deterministically selects one operator from `eligible`, keyed by `(seed, deposit_idx)`.
 ///
-/// The L1 block id seeds `ChaChaRng` and the deposit index selects the ChaCha20 stream, so
+/// The L1 block id seeds `ChaCha20Rng` and the deposit index selects the ChaCha20 stream, so
 /// selections anchored to the same block draw from independent streams rather than collapsing
 /// onto a single operator.
 ///
@@ -227,7 +227,7 @@ fn select_random_operator(
     deposit_idx: u32,
 ) -> Result<OperatorIdx, WithdrawalAssignmentError> {
     let seed_bytes: [u8; 32] = Buf32::from(seed).into();
-    let mut rng = ChaChaRng::from_seed(seed_bytes);
+    let mut rng = ChaCha20Rng::from_seed(seed_bytes);
     rng.set_stream(deposit_idx as u64);
 
     (rng.next_u32() as usize)
