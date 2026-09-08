@@ -7,9 +7,10 @@
 //!
 //! - **Fetch** — the peer is healthy: pull every pending proof at or below the peer's proven
 //!   frontier.
-//! - **Fallback** — the peer is unreachable (too many consecutive failed probes) or its proven
-//!   frontier trails our committed tip beyond the configured lag: schedule pending proofs on the
-//!   local proving backend, exactly as in generator mode.
+//! - **Fallback** — the peer is unreachable (too many consecutive failed probes), its proven
+//!   frontier trails our committed tip beyond the configured lag, or it has served a receipt that
+//!   does not verify: schedule pending proofs on the local proving backend, exactly as in generator
+//!   mode.
 //! - **Wait** — the peer is healthy but has not proven what we need yet, or is flaky but still
 //!   within tolerance.
 //!
@@ -39,7 +40,7 @@ use crate::{
     proof_store::{self, ProofSource},
     queue::PendingProofQueue,
     schedule,
-    state::ProverServiceState,
+    state::{PeerHealth, ProverServiceState},
     verify::{self, ProofVerifier},
 };
 
@@ -59,17 +60,17 @@ where
 
     let status = match peer.client.get_prover_status().await {
         Ok(status) => {
-            peer.failures = 0;
+            peer.health.failures = 0;
             Some(status)
         }
         Err(e) => {
-            peer.failures = peer.failures.saturating_add(1);
-            warn!(%e, failures = peer.failures, "failed to probe peer prover status");
+            peer.health.failures = peer.health.failures.saturating_add(1);
+            warn!(%e, failures = peer.health.failures, "failed to probe peer prover status");
             None
         }
     };
     // Cheap handle clone, releasing the state borrow for the arms below.
-    let (client, peer_failures) = (peer.client.clone(), peer.failures);
+    let (client, health) = (peer.client.clone(), peer.health);
 
     let genesis_height = state.input_builder.genesis().height();
     match follow_action(
@@ -77,7 +78,7 @@ where
         state.last_committed,
         genesis_height,
         &config,
-        peer_failures,
+        health,
     ) {
         FollowAction::Fetch { up_to } => {
             let mut fetcher = StateFetcher {
@@ -86,24 +87,32 @@ where
                 verifier: state.input_builder.verifier(),
                 fetched: Vec::new(),
             };
-            fetch_with(&mut state.queue, &mut fetcher, up_to).await;
+            let served_invalid_proof = fetch_with(&mut state.queue, &mut fetcher, up_to).await;
             let fetched = fetcher.fetched;
             for proof_id in &fetched {
                 state.advance_proven(proof_id);
             }
+            if served_invalid_proof && let Some(peer) = state.peer.as_mut() {
+                peer.health.served_invalid_proof = true;
+            }
         }
         FollowAction::Fallback(reason) => {
             match reason {
-                FallbackReason::PeerUnavailable { failures } => {
+                FallbackReason::Unavailable { failures } => {
                     warn!(
                         failures,
                         "peer unreachable, falling back to local proof generation"
                     );
                 }
-                FallbackReason::PeerLagging { lag } => {
+                FallbackReason::Lagging { lag } => {
                     warn!(
                         lag,
                         "peer lagging excessively, falling back to local proof generation"
+                    );
+                }
+                FallbackReason::InvalidProofs => {
+                    warn!(
+                        "peer served a proof that does not verify, falling back to local proof generation"
                     );
                 }
             }
@@ -130,20 +139,26 @@ enum FollowAction {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum FallbackReason {
     /// Too many consecutive status probes failed.
-    PeerUnavailable { failures: u32 },
+    Unavailable { failures: u32 },
     /// The peer's proven frontier trails our committed tip beyond the
     /// configured tolerance.
-    PeerLagging { lag: u32 },
+    Lagging { lag: u32 },
+    /// The peer has served a receipt that does not verify locally.
+    InvalidProofs,
 }
 
 /// Decides the follower's action from the latest peer probe.
 ///
 /// `peer_status` is `None` when this tick's probe failed; the probe-failure
 /// count decides between waiting out a blip and declaring the peer
-/// unavailable. A reachable peer is judged on lag alone: how far its proven
+/// unavailable. A reachable peer is judged on lag: how far its proven
 /// frontier (or `genesis_height`, when it has proven nothing yet) trails our
 /// committed tip. A young chain therefore never trips the lag fallback, while
 /// a peer that never proves anything eventually does.
+///
+/// A peer that has served even one receipt this node cannot verify is given up
+/// on regardless of either, since it is by definition serving proofs this node
+/// cannot use.
 // TODO(STR-4062): a peer on a different fork passes both checks forever — probes
 // succeed and its proven frontier keeps pace — yet every hash-keyed fetch
 // misses, so proof acquisition silently stalls. Judge lag against the peer's
@@ -155,12 +170,19 @@ fn follow_action(
     last_committed: Option<L1BlockCommitment>,
     genesis_height: u32,
     config: &FollowerConfig,
-    peer_failures: u32,
+    health: PeerHealth,
 ) -> FollowAction {
+    // Checked before anything else, and against a flag that never clears: a
+    // peer proving under a different backend identity is reachable and keeping
+    // pace, so neither of the checks below would ever fire on it.
+    if health.served_invalid_proof {
+        return FollowAction::Fallback(FallbackReason::InvalidProofs);
+    }
+
     let Some(status) = peer_status else {
-        if peer_failures >= config.max_peer_failures {
-            return FollowAction::Fallback(FallbackReason::PeerUnavailable {
-                failures: peer_failures,
+        if health.failures >= config.max_peer_failures {
+            return FollowAction::Fallback(FallbackReason::Unavailable {
+                failures: health.failures,
             });
         }
         return FollowAction::Wait;
@@ -178,7 +200,7 @@ fn follow_action(
 
     let lag = committed.height().saturating_sub(peer_proven);
     if lag > config.max_lag {
-        return FollowAction::Fallback(FallbackReason::PeerLagging { lag });
+        return FollowAction::Fallback(FallbackReason::Lagging { lag });
     }
 
     FollowAction::Fetch { up_to: peer_proven }
@@ -194,7 +216,7 @@ enum FetchOutcome {
     /// The peer does not have this proof yet; caller should re-enqueue it.
     NotAvailable,
     /// The peer served a receipt that does not verify. It was not stored; the
-    /// caller re-enqueues the proof.
+    /// caller re-enqueues the proof and stops following the peer.
     Invalid,
 }
 
@@ -217,6 +239,10 @@ trait ProofFetcher {
 /// frontier implies the peer holds every ASM and Moho proof below it, so one
 /// pass drains all currently-servable work.
 ///
+/// Returns whether the peer served a receipt that did not verify. Such a proof
+/// is parked like the rest, since the fallback still has to prove it, but the
+/// flag is what converts a peer we cannot use into local proving.
+///
 /// After a restart the queue reseeds with only the committed tip's Moho
 /// proof, so proofs pending at shutdown are not refetched and the local
 /// history can keep holes below the proven frontier. That is deliberate:
@@ -230,8 +256,13 @@ trait ProofFetcher {
 // heights at or below the proven frontier could be evicted outright when
 // it advances — pending confirmation that the Moho worker re-commits blocks
 // on a reorg back, which would make eviction safe in generator mode too.
-async fn fetch_with<F: ProofFetcher>(queue: &mut PendingProofQueue, fetcher: &mut F, up_to: u32) {
+async fn fetch_with<F: ProofFetcher>(
+    queue: &mut PendingProofQueue,
+    fetcher: &mut F,
+    up_to: u32,
+) -> bool {
     let mut parked: Vec<ProofId> = Vec::new();
+    let mut served_invalid_proof = false;
 
     while let Some(proof_id) = queue.dequeue_one() {
         if proof_id.height() > up_to {
@@ -252,6 +283,7 @@ async fn fetch_with<F: ProofFetcher>(queue: &mut PendingProofQueue, fetcher: &mu
             // Already logged with its cause by the fetcher, which is the only
             // place that still has the verification error.
             Ok(FetchOutcome::Invalid) => {
+                served_invalid_proof = true;
                 parked.push(proof_id);
             }
             Err(e) => {
@@ -264,6 +296,8 @@ async fn fetch_with<F: ProofFetcher>(queue: &mut PendingProofQueue, fetcher: &mu
     for proof_id in parked {
         queue.enqueue(proof_id);
     }
+
+    served_invalid_proof
 }
 
 /// [`ProofFetcher`] backed by the service state's context and the peer's
@@ -362,6 +396,14 @@ mod tests {
         }
     }
 
+    /// A peer with `failures` failed probes that has served nothing invalid.
+    fn probes(failures: u32) -> PeerHealth {
+        PeerHealth {
+            failures,
+            served_invalid_proof: false,
+        }
+    }
+
     fn peer_status(last_proven: Option<u32>) -> ProverStatus {
         ProverStatus {
             pending: 0,
@@ -377,17 +419,17 @@ mod tests {
     #[test]
     fn probe_failures_below_threshold_wait() {
         let config = follower_config(6, 3);
-        let action = follow_action(None, Some(commitment(105)), GENESIS, &config, 2);
+        let action = follow_action(None, Some(commitment(105)), GENESIS, &config, probes(2));
         assert_eq!(action, FollowAction::Wait);
     }
 
     #[test]
     fn probe_failures_at_threshold_fall_back() {
         let config = follower_config(6, 3);
-        let action = follow_action(None, Some(commitment(105)), GENESIS, &config, 3);
+        let action = follow_action(None, Some(commitment(105)), GENESIS, &config, probes(3));
         assert_eq!(
             action,
-            FollowAction::Fallback(FallbackReason::PeerUnavailable { failures: 3 })
+            FollowAction::Fallback(FallbackReason::Unavailable { failures: 3 })
         );
     }
 
@@ -395,7 +437,7 @@ mod tests {
     fn nothing_committed_waits() {
         let config = follower_config(6, 3);
         let status = peer_status(Some(104));
-        let action = follow_action(Some(&status), None, GENESIS, &config, 0);
+        let action = follow_action(Some(&status), None, GENESIS, &config, probes(0));
         assert_eq!(action, FollowAction::Wait);
     }
 
@@ -403,7 +445,13 @@ mod tests {
     fn peer_within_lag_fetches_up_to_its_frontier() {
         let config = follower_config(6, 3);
         let status = peer_status(Some(104));
-        let action = follow_action(Some(&status), Some(commitment(106)), GENESIS, &config, 0);
+        let action = follow_action(
+            Some(&status),
+            Some(commitment(106)),
+            GENESIS,
+            &config,
+            probes(0),
+        );
         assert_eq!(action, FollowAction::Fetch { up_to: 104 });
     }
 
@@ -412,7 +460,13 @@ mod tests {
     fn lag_at_threshold_still_fetches() {
         let config = follower_config(6, 3);
         let status = peer_status(Some(100));
-        let action = follow_action(Some(&status), Some(commitment(106)), GENESIS, &config, 0);
+        let action = follow_action(
+            Some(&status),
+            Some(commitment(106)),
+            GENESIS,
+            &config,
+            probes(0),
+        );
         assert_eq!(action, FollowAction::Fetch { up_to: 100 });
     }
 
@@ -420,10 +474,16 @@ mod tests {
     fn lag_beyond_threshold_falls_back() {
         let config = follower_config(6, 3);
         let status = peer_status(Some(100));
-        let action = follow_action(Some(&status), Some(commitment(107)), GENESIS, &config, 0);
+        let action = follow_action(
+            Some(&status),
+            Some(commitment(107)),
+            GENESIS,
+            &config,
+            probes(0),
+        );
         assert_eq!(
             action,
-            FollowAction::Fallback(FallbackReason::PeerLagging { lag: 7 })
+            FollowAction::Fallback(FallbackReason::Lagging { lag: 7 })
         );
     }
 
@@ -433,8 +493,38 @@ mod tests {
     fn unproven_peer_on_young_chain_fetches() {
         let config = follower_config(6, 3);
         let status = peer_status(None);
-        let action = follow_action(Some(&status), Some(commitment(104)), GENESIS, &config, 0);
+        let action = follow_action(
+            Some(&status),
+            Some(commitment(104)),
+            GENESIS,
+            &config,
+            probes(0),
+        );
         assert_eq!(action, FollowAction::Fetch { up_to: GENESIS });
+    }
+
+    /// One invalid proof drops the peer, even though it answers every probe and
+    /// keeps pace with our tip — neither of the other two checks would ever
+    /// fire on it.
+    #[test]
+    fn one_invalid_proof_falls_back() {
+        let config = follower_config(6, 3);
+        let status = peer_status(Some(104));
+        let health = PeerHealth {
+            failures: 0,
+            served_invalid_proof: true,
+        };
+        let action = follow_action(
+            Some(&status),
+            Some(commitment(106)),
+            GENESIS,
+            &config,
+            health,
+        );
+        assert_eq!(
+            action,
+            FollowAction::Fallback(FallbackReason::InvalidProofs)
+        );
     }
 
     /// ...but a peer that never proves anything eventually does.
@@ -442,10 +532,16 @@ mod tests {
     fn unproven_peer_far_behind_falls_back() {
         let config = follower_config(6, 3);
         let status = peer_status(None);
-        let action = follow_action(Some(&status), Some(commitment(120)), GENESIS, &config, 0);
+        let action = follow_action(
+            Some(&status),
+            Some(commitment(120)),
+            GENESIS,
+            &config,
+            probes(0),
+        );
         assert_eq!(
             action,
-            FollowAction::Fallback(FallbackReason::PeerLagging { lag: 20 })
+            FollowAction::Fallback(FallbackReason::Lagging { lag: 20 })
         );
     }
 
@@ -510,8 +606,9 @@ mod tests {
 
         let mut fetcher = FakeFetcher::default();
 
-        fetch_with(&mut queue, &mut fetcher, 3).await;
+        let served_invalid_proof = fetch_with(&mut queue, &mut fetcher, 3).await;
 
+        assert!(!served_invalid_proof);
         assert_eq!(fetcher.call_log, vec![asm(3), moho(3)]);
         assert_eq!(queue.len(), 2);
         assert_eq!(queue.dequeue_one(), Some(asm(4)));
@@ -563,6 +660,24 @@ mod tests {
         assert_eq!(fetcher.call_log, vec![asm(3), moho(3)]);
         assert_eq!(queue.len(), 1);
         assert_eq!(queue.dequeue_one(), Some(asm(3)));
+    }
+
+    /// A receipt that does not verify is never stored: the proof goes back on
+    /// the queue and the peer is reported as having served an invalid proof.
+    #[tokio::test]
+    async fn invalid_proof_reenqueued_and_reported() {
+        let mut queue = PendingProofQueue::new();
+        queue.enqueue(asm(3));
+        queue.enqueue(moho(3));
+
+        let mut fetcher = FakeFetcher::default().with(moho(3), vec![FetchOutcome::Invalid]);
+
+        let served_invalid_proof = fetch_with(&mut queue, &mut fetcher, 3).await;
+
+        assert!(served_invalid_proof);
+        assert_eq!(fetcher.call_log, vec![asm(3), moho(3)]);
+        assert_eq!(queue.len(), 1);
+        assert_eq!(queue.dequeue_one(), Some(moho(3)));
     }
 
     /// A frontier below every queued item is a no-op: no peer round-trips,
