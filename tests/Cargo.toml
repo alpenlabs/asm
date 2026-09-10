@@ -48,7 +48,6 @@ anyhow.workspace = true
 bitcoin.workspace = true
 bitcoin-bosd.workspace = true
 bitcoind-async-client.workspace = true
-borsh.workspace = true
 corepc-node.workspace = true
 rand.workspace = true
 rand_chacha.workspace = true

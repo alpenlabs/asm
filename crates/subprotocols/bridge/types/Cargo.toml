@@ -18,7 +18,6 @@ strata-identifiers.workspace = true
 arbitrary.workspace = true
 bitcoin = { workspace = true, optional = true }
 bitvec.workspace = true
-borsh.workspace = true
 serde.workspace = true
 thiserror.workspace = true
 

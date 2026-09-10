@@ -2,7 +2,6 @@ use std::fmt::{self, Display, Formatter};
 
 use arbitrary::Arbitrary;
 use bitvec::prelude::*;
-use borsh::{BorshDeserialize, BorshSerialize};
 use serde::{Deserialize, Serialize};
 use ssz::{Decode as SszDecode, DecodeError, Encode as SszEncode};
 use ssz_derive::{Decode, Encode};
@@ -21,20 +20,7 @@ const NO_SELECTION_SENTINEL: u32 = u32::MAX;
 ///
 /// Wraps a [`u32`] where [`u32::MAX`] means "any operator" (random assignment)
 /// and any other value is a specific [`OperatorIdx`].
-#[derive(
-    Clone,
-    Copy,
-    Debug,
-    Eq,
-    PartialEq,
-    BorshSerialize,
-    BorshDeserialize,
-    Serialize,
-    Deserialize,
-    Arbitrary,
-    Encode,
-    Decode,
-)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize, Arbitrary, Encode, Decode)]
 pub struct OperatorSelection(u32);
 
 impl OperatorSelection {

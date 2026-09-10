@@ -13,10 +13,9 @@
 
 use std::{error::Error, fmt};
 
-use borsh::BorshDeserialize;
 use strata_asm_prover_types::{ProofId, RemoteProofId};
 
-use super::SledProofDb;
+use super::{SledProofDb, decode_cbor, encode_cbor};
 use crate::RemoteProofMappingDb;
 
 /// Errors returned by the sled-backed [`RemoteProofMappingDb`] implementation.
@@ -76,7 +75,7 @@ impl From<sled::Error> for RemoteProofMappingError {
 impl SledProofDb {
     /// Returns the remote proof ID mapped to local `id`, if any.
     pub fn get_remote(&self, id: ProofId) -> Result<Option<RemoteProofId>, sled::Error> {
-        let key = borsh::to_vec(&id).expect("borsh serialization should not fail");
+        let key = encode_cbor(&id)?;
         Ok(self
             .proof_to_remote
             .get(key)?
@@ -85,9 +84,10 @@ impl SledProofDb {
 
     /// Returns the local proof ID mapped to `remote_id`, if any.
     pub fn get_local(&self, remote_id: &RemoteProofId) -> Result<Option<ProofId>, sled::Error> {
-        Ok(self.remote_to_proof.get(&remote_id.0)?.map(|v| {
-            BorshDeserialize::try_from_slice(&v).expect("stored ProofId should be valid borsh")
-        }))
+        self.remote_to_proof
+            .get(&remote_id.0)?
+            .map(|v| decode_cbor(&v))
+            .transpose()
     }
 
     /// Lists every stored mapping as `(local, remote)` pairs.
@@ -100,8 +100,7 @@ impl SledProofDb {
             .iter()
             .map(|entry| {
                 let (remote_bytes, local_bytes) = entry?;
-                let local: ProofId = BorshDeserialize::try_from_slice(&local_bytes)
-                    .expect("stored ProofId should be valid borsh");
+                let local: ProofId = decode_cbor(&local_bytes)?;
                 Ok((local, RemoteProofId(remote_bytes.to_vec())))
             })
             .collect()
@@ -113,7 +112,7 @@ impl SledProofDb {
     /// The remote jobs it has already had stay resolvable; see the module
     /// docs for the split between the two trees.
     pub fn clear_remote_submission(&self, id: ProofId) -> Result<bool, sled::Error> {
-        let proof_key = borsh::to_vec(&id).expect("borsh serialization should not fail");
+        let proof_key = encode_cbor(&id)?;
         Ok(self.proof_to_remote.remove(proof_key)?.is_some())
     }
 }
@@ -137,12 +136,11 @@ impl RemoteProofMappingDb for SledProofDb {
         id: ProofId,
         remote_id: RemoteProofId,
     ) -> Result<(), Self::Error> {
-        let proof_key = borsh::to_vec(&id).expect("borsh serialization should not fail");
+        let proof_key = encode_cbor(&id)?;
 
         // Check if this remote ID is already mapped to a different proof ID.
         if let Some(existing_bytes) = self.remote_to_proof.get(&remote_id.0)? {
-            let existing: ProofId = BorshDeserialize::try_from_slice(&existing_bytes)
-                .expect("stored ProofId should be valid borsh");
+            let existing: ProofId = decode_cbor(&existing_bytes)?;
             if existing != id {
                 return Err(RemoteProofMappingError::DuplicateRemoteId {
                     remote_id,
