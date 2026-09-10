@@ -1,8 +1,8 @@
 //! `proof` — ASM/Moho proofs and the remote-prover bookkeeping (proof DB).
 //!
-//! Proof values are borsh-encoded (each wraps a `ProofReceiptWithMetadata`), so
-//! records carry a lossless `borsh_hex` blob rather than the `ssz_hex` the `asm`
-//! records use. Remote-prover ids are opaque bytes, rendered and parsed as hex.
+//! Proof values use zkaleido's native receipt encoding, so records carry a
+//! lossless `proof_hex` blob. Remote-prover ids are opaque bytes, rendered and
+//! parsed as hex.
 
 use anyhow::{Result, bail};
 use serde_json::{Value, json};
@@ -191,7 +191,7 @@ fn asm_proof_json(range: &L1Range, proof: &AsmProof) -> Value {
         "found": true,
         "range": range_json(range),
         "range_str": range_str(range),
-        "borsh_hex": hex::encode(borsh::to_vec(&proof.0).expect("borsh serialization should not fail")),
+        "proof_hex": hex::encode(proof.0.encode()),
     })
 }
 
@@ -200,6 +200,6 @@ fn moho_proof_json(commitment: &L1BlockCommitment, proof: &MohoProof) -> Value {
         "found": true,
         "block": commitment_json(commitment),
         "commitment": commitment_str(commitment),
-        "borsh_hex": hex::encode(borsh::to_vec(&proof.0).expect("borsh serialization should not fail")),
+        "proof_hex": hex::encode(proof.0.encode()),
     })
 }

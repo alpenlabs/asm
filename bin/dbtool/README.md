@@ -43,8 +43,8 @@ dbtool [--db <path>] [--pretty] [--write] <domain> <resource> <verb> [args]
   plus an `ssz_hex` blob carrying the canonical bytes losslessly. `put` consumes
   those same bytes from `--file` (raw SSZ, not the hex text), so get → put
   round-trips once you hex-decode `ssz_hex` back to bytes — see the round-trip
-  example below. `proof` records are borsh-encoded instead, so they carry a
-  `borsh_hex` blob in place of `ssz_hex`.
+  example below. `proof` records use zkaleido's native receipt encoding, so they
+  carry a `proof_hex` blob in place of `ssz_hex`.
 
 ### Examples
 

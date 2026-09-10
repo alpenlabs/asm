@@ -90,9 +90,6 @@ impl AuxData {
     }
 }
 
-// Keep Borsh only as a thin compatibility shim; SSZ remains the canonical aux-data encoding.
-strata_identifiers::impl_borsh_via_ssz!(AuxData);
-
 /// Manifest hash height range (inclusive).
 ///
 /// Represents a range of L1 block heights for which manifest hashes are requested.
