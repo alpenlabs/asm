@@ -1,7 +1,7 @@
 //! History accumulator for ASM.
 
 use strata_asm_manifest_types::{AsmManifest, AsmManifestHash};
-use strata_merkle::{MerkleError, Mmr, Mmr64B32, Sha256Hasher};
+use strata_identifiers::{L1_HEIGHT_MMR_PREFILL_LEAF, MerkleError, Mmr, Mmr64B32, Sha256Hasher};
 
 use crate::AsmHistoryAccumulatorState;
 
@@ -12,28 +12,17 @@ pub type AsmHasher = Sha256Hasher;
 
 pub type AsmMerkleProof = strata_merkle::MerkleProofB32;
 
-/// Sentinel leaf used to prefill the ASM manifest MMR for L1 heights at or
-/// before genesis.
-///
-/// The MMR is height-indexed; positions for blocks at heights
-/// `0..=genesis_l1_height` are filled with this constant so that the manifest
-/// for height `h` lands at MMR index `h`. The value is non-zero because the
-/// MMR encoding treats `[0; 32]` as "no peak present"; the specific bytes do
-/// not affect protocol semantics, since no real proof references an L1 block
-/// at or before genesis.
-pub const MMR_SENTINEL_DUMMY_LEAF: [u8; 32] = [0xffu8; 32];
-
 impl AsmHistoryAccumulatorState {
     /// Creates a new height-indexed manifest MMR for the given genesis height.
     ///
-    /// The MMR is prefilled with [`MMR_SENTINEL_DUMMY_LEAF`] for every L1 block
+    /// The MMR is prefilled with [`L1_HEIGHT_MMR_PREFILL_LEAF`] for every L1 block
     /// height up to and including `genesis_height`, so that the first appended
     /// real manifest (for height `genesis_height + 1`) lands at MMR leaf index
     /// `genesis_height + 1` — i.e. MMR leaf indices equal L1 block heights.
     pub fn new(genesis_height: u64) -> Self {
         let prefill_count = genesis_height + 1;
         let manifest_mmr =
-            <Mmr64B32 as Mmr<AsmHasher>>::new_repeated(MMR_SENTINEL_DUMMY_LEAF, prefill_count);
+            <Mmr64B32 as Mmr<AsmHasher>>::new_repeated(L1_HEIGHT_MMR_PREFILL_LEAF, prefill_count);
         Self { manifest_mmr }
     }
 
