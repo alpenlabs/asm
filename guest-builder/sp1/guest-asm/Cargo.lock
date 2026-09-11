@@ -2118,6 +2118,7 @@ dependencies = [
  "bitcoin",
  "borsh",
  "serde",
+ "sha2 0.10.9",
  "ssz",
  "ssz_codegen",
  "ssz_derive",

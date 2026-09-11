@@ -25,14 +25,15 @@
 
 use bitcoin::{
     Block, Transaction, TxMerkleNode, WitnessCommitment, WitnessMerkleNode, consensus::Encodable,
-    hashes::Hash,
+    hashes::Hash, io::Write,
 };
-use strata_crypto::hash::sha256d;
 use strata_identifiers::Buf32;
 
 use crate::{
-    compute_txid, compute_wtxid, errors::L1BodyError, inclusion_proof::TxidInclusionProof,
-    utils_btc::calculate_root,
+    compute_txid, compute_wtxid,
+    errors::L1BodyError,
+    inclusion_proof::TxidInclusionProof,
+    utils_btc::{Sha256dWriter, calculate_root},
 };
 
 /// Checks the integrity of a block using the provided coinbase inclusion proof.
@@ -96,12 +97,15 @@ pub fn check_block_integrity(
         let witness_root = compute_witness_root(txdata)?;
 
         // Verify the witness commitment using the computed witness root.
-        let mut vec = vec![];
+        let mut writer = Sha256dWriter::new();
         witness_root
-            .consensus_encode(&mut vec)
+            .consensus_encode(&mut writer)
             .expect("engines don’t error");
-        vec.extend(witness_vec[0]);
-        let computed_commitment = WitnessCommitment::from_byte_array(*sha256d(&vec).as_ref());
+        writer
+            .write_all(witness_vec[0])
+            .expect("engines don’t error");
+        let computed_commitment =
+            WitnessCommitment::from_byte_array(*writer.finalize_double().as_ref());
         if commitment != computed_commitment {
             return Err(L1BodyError::WitnessCommitmentMismatch);
         }

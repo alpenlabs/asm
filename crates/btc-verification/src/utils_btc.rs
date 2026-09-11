@@ -1,10 +1,47 @@
 use std::cmp;
 
 use bitcoin::{
-    BlockHash, Transaction, Txid, Wtxid, block::Header, consensus::Encodable, hashes::Hash,
+    BlockHash, Transaction, Txid, Wtxid,
+    block::Header,
+    consensus::Encodable,
+    hashes::Hash,
+    io::{Result as IoResult, Write},
 };
+use sha2::{Digest, Sha256};
 use strata_crypto::hash::sha256d;
 use strata_identifiers::Buf32;
+
+/// A [`Write`] sink that feeds everything written to it straight into a SHA-256 hasher.
+///
+/// Consensus encoding writes into any [`Write`], so encoding into this instead of a `Vec`
+/// hashes the bytes as they are produced and skips the intermediate buffer. That buffer is
+/// pure overhead inside the zkVM, where the transaction data is written once, copied once
+/// more into the hasher, and then dropped.
+pub(crate) struct Sha256dWriter(Sha256);
+
+impl Sha256dWriter {
+    pub(crate) fn new() -> Self {
+        Self(Sha256::new())
+    }
+
+    /// Returns `SHA256(SHA256(bytes written))`.
+    pub(crate) fn finalize_double(mut self) -> Buf32 {
+        let first = self.0.finalize_reset();
+        self.0.update(first);
+        Buf32::from(<[u8; 32]>::from(self.0.finalize()))
+    }
+}
+
+impl Write for Sha256dWriter {
+    fn write(&mut self, buf: &[u8]) -> IoResult<usize> {
+        self.0.update(buf);
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> IoResult<()> {
+        Ok(())
+    }
+}
 
 /// Returns the block hash.
 ///
@@ -31,14 +68,14 @@ pub fn compute_block_hash(header: &Header) -> BlockHash {
 /// bytes, and the witness fields themselves). For non-segwit transactions, which do not have any
 /// segwit data, this will be equal to [`compute_wtxid`].
 pub fn compute_txid(tx: &Transaction) -> Txid {
-    let mut vec = Vec::new();
+    let mut writer = Sha256dWriter::new();
 
-    tx.version.consensus_encode(&mut vec).unwrap();
-    tx.input.consensus_encode(&mut vec).unwrap();
-    tx.output.consensus_encode(&mut vec).unwrap();
-    tx.lock_time.consensus_encode(&mut vec).unwrap();
+    tx.version.consensus_encode(&mut writer).unwrap();
+    tx.input.consensus_encode(&mut writer).unwrap();
+    tx.output.consensus_encode(&mut writer).unwrap();
+    tx.lock_time.consensus_encode(&mut writer).unwrap();
 
-    Txid::from_byte_array(sha256d(&vec).0)
+    Txid::from_byte_array(writer.finalize_double().0)
 }
 
 /// Computes the [`Wtxid`] using [RustCrypto's SHA-2 crate](https://github.com/RustCrypto/hashes/tree/master/sha2)
@@ -49,9 +86,10 @@ pub fn compute_txid(tx: &Transaction) -> Txid {
 /// witness fields themselves). For non-segwit transactions which do not have any segwit data,
 /// this will be equal to [`compute_txid`].
 pub fn compute_wtxid(tx: &Transaction) -> Wtxid {
-    let mut vec = Vec::new();
-    tx.consensus_encode(&mut vec).expect("engines don't error");
-    Wtxid::from_byte_array(sha256d(&vec).0)
+    let mut writer = Sha256dWriter::new();
+    tx.consensus_encode(&mut writer)
+        .expect("engines don't error");
+    Wtxid::from_byte_array(writer.finalize_double().0)
 }
 
 /// Hashes two 32-byte nodes together (SHA-256d of their concatenation).
