@@ -1,4 +1,5 @@
 import strata_predicate
+import strata_identifiers
 import strata_btc_types
 import strata_asm_checkpoint_types
 
@@ -21,10 +22,9 @@ class DepositPool(Container):
 
 ### Checkpoint subprotocol state.
 class CheckpointState(Container):
-    ### Predicate for sequencer signature verification.
+    ### X-only BIP340 Schnorr key that must appear in the checkpoint envelope container.
     ### Updated via `UpdateSequencerKey` message from admin subprotocol.
-    #~# external_kind: container
-    sequencer_predicate: strata_predicate.PredicateKey
+    sequencer_key: strata_identifiers.Buf32
 
     ### Active predicate for checkpoint ZK proof verification.
     #~# external_kind: container
