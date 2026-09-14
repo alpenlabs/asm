@@ -2,8 +2,9 @@
 //!
 //! Each tick, the service polls every remote proof that was previously
 //! submitted and reacts to status changes: completed proofs are retrieved and
-//! persisted to the proof store, failed proofs are dropped so the scheduler can
-//! resubmit them, and everything else just has its stored status refreshed.
+//! persisted to the proof store, jobs that will not yield a proof are
+//! discarded so the scheduler can submit the block again, and everything else
+//! just has its stored status refreshed.
 
 use strata_asm_prover_types::RemoteProofId;
 use tracing::{debug, error, warn};
@@ -32,7 +33,7 @@ where
 
     for (remote_id, old_status) in in_progress {
         if let Err(e) = reconcile_one(state, &remote_id, &old_status).await {
-            warn!(?remote_id, ?e, "failed to reconcile remote proof");
+            warn!(%remote_id, ?e, "failed to reconcile remote proof");
         }
     }
     Ok(())
@@ -70,12 +71,8 @@ where
             handle_completed(state, remote_id, &typed_id).await?;
         }
         RemoteProofStatus::Failed(reason) => {
-            error!(?remote_id, %reason, "remote proof generation failed");
-            state
-                .ctx
-                .remove(remote_id)
-                .await
-                .map_err(|e| ProverError::storage("failed to remove failed proof status", e))?;
+            error!(%remote_id, %reason, "remote proof generation failed. discarding submission");
+            discard_submission(&state.ctx, remote_id).await?;
         }
         _ => {
             state
@@ -122,9 +119,38 @@ where
 
     state
         .ctx
-        .remove(remote_id)
+        .remove_status(remote_id)
         .await
         .map_err(|e| ProverError::storage("failed to remove completed proof status", e))?;
+
+    Ok(())
+}
+
+/// Forgets a remote job that will never yield a proof, so its proof can be
+/// submitted again.
+///
+/// Dropping the status entry alone is not enough. The proof's mapping is what
+/// [`schedule`](crate::schedule) reads to decide the proof is already in
+/// flight, and it is durable — leaving it behind means the block is never
+/// proven again, not even after a restart.
+async fn discard_submission<C: ProverContext>(
+    ctx: &C,
+    remote_id: &RemoteProofId,
+) -> ProverResult<()> {
+    let proof_id = ctx
+        .get_proof_id(remote_id)
+        .await
+        .map_err(|e| ProverError::storage("failed to look up proof ID from remote ID", e))?;
+
+    if let Some(proof_id) = proof_id {
+        ctx.clear_remote_proof_id(proof_id)
+            .await
+            .map_err(|e| ProverError::storage("failed to clear remote proof mapping", e))?;
+    }
+
+    ctx.remove_status(remote_id)
+        .await
+        .map_err(|e| ProverError::storage("failed to remove proof status", e))?;
 
     Ok(())
 }

@@ -70,9 +70,8 @@ impl From<sled::Error> for RemoteProofMappingError {
 
 /// Synchronous mapping accessors, for offline tooling that stays synchronous.
 ///
-/// The read half of [`RemoteProofMappingDb`] delegates to these;
-/// `list_mappings` and `clear_remote_submission` have no async-trait
-/// counterpart and exist only for that tooling.
+/// [`RemoteProofMappingDb`] delegates to these; `list_mappings` has no
+/// async-trait counterpart and exists only for that tooling.
 impl SledProofDb {
     /// Returns the remote proof ID mapped to local `id`, if any.
     pub fn get_remote(&self, id: ProofId) -> Result<Option<RemoteProofId>, sled::Error> {
@@ -160,6 +159,10 @@ impl RemoteProofMappingDb for SledProofDb {
         self.remote_to_proof
             .insert(remote_id.0.as_slice(), proof_key.as_slice())?;
         Ok(())
+    }
+
+    async fn clear_remote_proof_id(&self, id: ProofId) -> Result<bool, Self::Error> {
+        Ok(SledProofDb::clear_remote_submission(self, id)?)
     }
 }
 

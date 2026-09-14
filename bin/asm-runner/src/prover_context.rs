@@ -124,6 +124,10 @@ impl RemoteProofMappingDb for AsmProverContext {
     ) -> Result<(), Self::Error> {
         self.proof_db.put_remote_proof_id(id, remote_id).await
     }
+
+    async fn clear_remote_proof_id(&self, id: ProofId) -> Result<bool, Self::Error> {
+        self.proof_db.clear_remote_proof_id(id).await
+    }
 }
 
 impl RemoteProofStatusDb for AsmProverContext {
@@ -158,8 +162,8 @@ impl RemoteProofStatusDb for AsmProverContext {
         self.proof_db.get_all_in_progress().await
     }
 
-    async fn remove(&self, remote_id: &RemoteProofId) -> Result<(), Self::Error> {
-        self.proof_db.remove(remote_id).await
+    async fn remove_status(&self, remote_id: &RemoteProofId) -> Result<(), Self::Error> {
+        self.proof_db.remove_status(remote_id).await
     }
 }
 

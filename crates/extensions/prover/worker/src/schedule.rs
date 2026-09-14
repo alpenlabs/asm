@@ -171,6 +171,11 @@ where
     H: ZkVmRemoteHost + Send + Sync,
 {
     async fn try_submit(&mut self, proof_id: ProofId) -> ProverResult<SubmitOutcome> {
+        // Skip if proof already exists locally.
+        if proof_store::proof_exists(self.ctx, &proof_id).await? {
+            return Ok(SubmitOutcome::Skipped(SkipReason::ProofExists));
+        }
+
         // Skip if already submitted.
         if self
             .ctx
@@ -180,11 +185,6 @@ where
             .is_some()
         {
             return Ok(SubmitOutcome::Skipped(SkipReason::AlreadySubmitted));
-        }
-
-        // Skip if proof already exists locally.
-        if proof_store::proof_exists(self.ctx, &proof_id).await? {
-            return Ok(SubmitOutcome::Skipped(SkipReason::ProofExists));
         }
 
         // Build input and submit to remote prover, dispatching by proof type.
