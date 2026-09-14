@@ -33,7 +33,7 @@ where
 
     for (remote_id, old_status) in in_progress {
         if let Err(e) = reconcile_one(state, &remote_id, &old_status).await {
-            warn!(?remote_id, ?e, "failed to reconcile remote proof");
+            warn!(%remote_id, ?e, "failed to reconcile remote proof");
         }
     }
     Ok(())
@@ -71,7 +71,7 @@ where
             handle_completed(state, remote_id, &typed_id).await?;
         }
         RemoteProofStatus::Failed(reason) => {
-            error!(?remote_id, %reason, "remote proof generation failed");
+            error!(%remote_id, %reason, "remote proof generation failed. discarding submission");
             discard_submission(&state.ctx, remote_id).await?;
         }
         _ => {
