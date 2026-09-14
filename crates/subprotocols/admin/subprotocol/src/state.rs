@@ -2,6 +2,7 @@ use std::{mem::take, num::NonZero};
 
 use ssz_derive::{Decode, Encode};
 use strata_asm_admin_types::{AdministrationInitConfig, ConfirmationDepths, Role, UpdateTxType};
+use strata_asm_checkpoint_types::{MAX_PENDING_PREDICATE_TRANSITIONS, PendingTransitionCount};
 use strata_asm_proto_admin_txs::actions::{MultisigAction, UpdateAction, UpdateId};
 use strata_crypto::threshold_signature::ThresholdConfigUpdate;
 use strata_identifiers::L1Height;
@@ -9,6 +10,12 @@ use strata_identifiers::L1Height;
 use crate::{
     authority::MultisigAuthority, error::AdministrationError, queued_update::QueuedUpdate,
 };
+
+/// Maximum number of OL STF verifying-key updates across both lifecycle stages.
+///
+/// Every delayed update reserves room for the checkpoint transition it will create at enactment,
+/// so an authorized update can never be dropped after its confirmation window elapses.
+pub(crate) const MAX_OUTSTANDING_OL_STF_VK_UPDATES: usize = MAX_PENDING_PREDICATE_TRANSITIONS;
 
 /// Holds the state for the Administration Subprotocol, including the various
 /// multisignature authorities and any actions still pending execution.
@@ -36,13 +43,17 @@ pub struct AdministrationSubprotoState {
     #[ssz(with = "non_zero_u8")]
     max_seqno_gap: NonZero<u8>,
 
-    /// Whether an enacted OL predicate rotation is still awaiting activation by the
-    /// checkpoint subprotocol.
+    /// Number of distinct enacted OL predicate transitions still pending in checkpoint state.
     ///
-    /// Set when the rotation is relayed and announced, cleared when checkpoint reports it
-    /// promoted. Together with a queue scan this enforces the one-rotation-at-a-time rule
-    /// entirely from administration state.
-    ol_transition_pending: bool,
+    /// Incremented when a distinct boundary is relayed and decremented by checkpoint's counted
+    /// promotion acknowledgements.
+    ol_pending_transition_count: PendingTransitionCount,
+
+    /// Most recently relayed OL predicate boundary.
+    ///
+    /// Meaningful only while `ol_pending_transition_count` is nonzero. It lets same-boundary
+    /// enactments coalesce without consuming another post-enactment slot.
+    last_ol_transition_boundary: L1Height,
 }
 
 impl AdministrationSubprotoState {
@@ -60,7 +71,8 @@ impl AdministrationSubprotoState {
             next_update_id: 0,
             confirmation_depths: config.confirmation_depths.clone(),
             max_seqno_gap: config.max_seqno_gap,
-            ol_transition_pending: false,
+            ol_pending_transition_count: 0,
+            last_ol_transition_boundary: 0,
         }
     }
 
@@ -75,32 +87,67 @@ impl AdministrationSubprotoState {
         self.max_seqno_gap
     }
 
-    /// Returns whether an enacted OL predicate rotation is still awaiting activation.
-    pub fn ol_transition_pending(&self) -> bool {
-        self.ol_transition_pending
+    /// Returns the number of distinct enacted OL predicate transitions pending in checkpoint.
+    pub fn ol_pending_transition_count(&self) -> PendingTransitionCount {
+        self.ol_pending_transition_count
     }
 
-    /// Records that an OL predicate rotation has been relayed and announced.
-    pub(crate) fn set_ol_transition_pending(&mut self) {
-        self.ol_transition_pending = true;
-    }
-
-    /// Accounts for the checkpoint subprotocol promoting the pending predicate transition.
-    pub(crate) fn acknowledge_ol_transition_promoted(&mut self) {
-        self.ol_transition_pending = false;
-    }
-
-    /// Returns whether an OL STF verifying-key rotation is queued or awaiting activation.
+    /// Attempts to reserve post-enactment capacity for `boundary`.
     ///
-    /// At most one rotation may be outstanding at a time: the checkpoint subprotocol holds a
-    /// single pending-transition slot, so authorizing a second rotation could announce an
-    /// enactment that checkpoint state cannot record.
-    pub(crate) fn has_outstanding_ol_stf_vk_update(&self) -> bool {
-        self.ol_transition_pending
-            || self
-                .queued
-                .iter()
-                .any(|queued| matches!(queued.action(), UpdateAction::OlStfVk(_)))
+    /// Same-boundary enactments replace checkpoint's latest entry and do not grow occupancy.
+    /// Returns `false` only when a distinct boundary would exceed checkpoint's list capacity.
+    pub(crate) fn record_ol_transition_enactment(&mut self, boundary: L1Height) -> bool {
+        if self.ol_pending_transition_count > 0 {
+            assert!(
+                boundary >= self.last_ol_transition_boundary,
+                "OL predicate boundaries must enact in nondecreasing order"
+            );
+            if boundary == self.last_ol_transition_boundary {
+                return true;
+            }
+        }
+
+        if usize::from(self.ol_pending_transition_count) >= MAX_PENDING_PREDICATE_TRANSITIONS {
+            return false;
+        }
+
+        self.ol_pending_transition_count += 1;
+        self.last_ol_transition_boundary = boundary;
+        true
+    }
+
+    /// Accounts for checkpoint pruning transitions through a promoted predicate.
+    pub(crate) fn acknowledge_ol_transitions_pruned(&mut self, pruned: PendingTransitionCount) {
+        self.ol_pending_transition_count = self
+            .ol_pending_transition_count
+            .checked_sub(pruned)
+            .expect("checkpoint cannot prune more OL transitions than administration recorded");
+        if self.ol_pending_transition_count == 0 {
+            self.last_ol_transition_boundary = 0;
+        }
+    }
+
+    /// Returns the number of delayed OL STF verifying-key updates awaiting enactment.
+    pub fn pending_ol_stf_vk_update_count(&self) -> usize {
+        self.queued
+            .iter()
+            .filter(|queued| matches!(queued.action(), UpdateAction::OlStfVk(_)))
+            .count()
+    }
+
+    /// Returns the number of OL STF verifying-key updates awaiting enactment or promotion.
+    pub fn outstanding_ol_stf_vk_update_count(&self) -> usize {
+        self.pending_ol_stf_vk_update_count() + usize::from(self.ol_pending_transition_count)
+    }
+
+    /// Returns whether an OL STF verifying-key update can reserve its eventual transition.
+    ///
+    /// Delayed updates reserve one slot each. An immediate update at the latest enacted boundary
+    /// can still be accepted at capacity because checkpoint coalesces it into the existing entry.
+    pub(crate) fn can_authorize_ol_stf_vk_update(&self, activation_height: L1Height) -> bool {
+        self.outstanding_ol_stf_vk_update_count() < MAX_OUTSTANDING_OL_STF_VK_UPDATES
+            || (self.ol_pending_transition_count > 0
+                && activation_height == self.last_ol_transition_boundary)
     }
 
     /// Resolves which role must authorize the provided action.
@@ -236,6 +283,7 @@ mod tests {
 
     use bitcoin::secp256k1::{PublicKey, Secp256k1, SecretKey};
     use rand::rngs::OsRng;
+    use ssz::{Decode as _, Encode as _};
     use strata_asm_admin_types::{AdministrationInitConfig, ConfirmationDepths, Role};
     use strata_asm_proto_admin_txs::actions::UpdateAction;
     use strata_crypto::{
@@ -319,7 +367,18 @@ mod tests {
 
         assert_eq!(state.next_update_id(), 0);
         assert_eq!(state.queued().len(), 0);
-        assert!(!state.ol_transition_pending());
+        assert_eq!(state.ol_pending_transition_count(), 0);
+    }
+
+    #[test]
+    fn test_current_state_ssz_roundtrip() {
+        let config = create_test_config();
+        let mut state = AdministrationSubprotoState::new(&config);
+        assert!(state.record_ol_transition_enactment(42));
+
+        let decoded = AdministrationSubprotoState::from_ssz_bytes(&state.as_ssz_bytes()).unwrap();
+
+        assert_eq!(decoded, state);
     }
 
     #[test]

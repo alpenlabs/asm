@@ -12,6 +12,10 @@ use crate::constants::AsmLogTypeId;
 /// immediately. This log rides in the manifest at the L1 height where the
 /// rotation is enacted, so the enactment height is implicit.
 ///
+/// At most one such log appears per L1 block. Several rotations enacted in
+/// the same block share that block's boundary and coalesce, and the log
+/// carries the predicate that governs the territory after the boundary.
+///
 /// Nothing on the wire names the OL protocol-rules version the rotation
 /// activates: the OL derives it from where this log appears in its own input
 /// stream, the way the ASM derives its own spec version from `AsmStfUpdate`.

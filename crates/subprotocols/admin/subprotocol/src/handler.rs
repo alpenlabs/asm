@@ -16,8 +16,51 @@ use strata_identifiers::{AccountSerial, Buf32, L1Height, SYSTEM_RESERVED_ACCTS};
 use strata_predicate::{PredicateKey, PredicateTypeId};
 
 use crate::{
-    error::AdministrationError, queued_update::QueuedUpdate, state::AdministrationSubprotoState,
+    error::AdministrationError,
+    queued_update::QueuedUpdate,
+    state::{AdministrationSubprotoState, MAX_OUTSTANDING_OL_STF_VK_UPDATES},
 };
+
+/// Block-local collector for OL predicate enactments.
+///
+/// Every `OlStfVk` update enacted while processing one L1 block shares that block's height
+/// as its boundary `B`, and the checkpoint subprotocol keeps only the latest predicate for a
+/// boundary. Emitting a `CheckpointPredicateEnacted` log per enactment would therefore put
+/// several logs into block `B`'s manifest while only one key governs the territory after it.
+/// The batch defers relay and emission to [`Self::flush`], so a block relays exactly one
+/// transition and emits exactly one log, both carrying the governing predicate.
+///
+/// This is execution context, not consensus state: replaying a block reconstructs it from
+/// empty, and both the queue drain and incoming transactions record into the same instance.
+/// Capacity accounting still happens at enactment time in
+/// [`enact_checkpoint_predicate_transition`], because admission decisions later in the same
+/// block must observe it.
+#[derive(Debug, Default)]
+pub(crate) struct OlEnactmentBatch {
+    predicate: Option<PredicateKey>,
+}
+
+impl OlEnactmentBatch {
+    /// Records an enactment; a later enactment in the same block replaces an earlier one.
+    fn record(&mut self, predicate: PredicateKey) {
+        self.predicate = Some(predicate);
+    }
+
+    /// Relays the block's single pending transition and emits its enactment log, if any
+    /// enactment was recorded.
+    pub(crate) fn flush(self, relayer: &mut impl MsgRelayer, current_height: L1Height) {
+        let Some(predicate) = self.predicate else {
+            return;
+        };
+        let transition = PendingPredicateTransition::new(predicate.clone(), current_height);
+        let msg = CheckpointIncomingMsg::QueueCheckpointPredicateTransition(transition);
+        relayer.relay_msg(&msg);
+        let log_entry = AsmLogEntry::from_log(&CheckpointPredicateEnacted::new(predicate))
+            .expect("CheckpointPredicateEnacted encoding is infallible");
+        relayer.emit_log(log_entry);
+        info!(boundary = %current_height, "queued rollup verifying key transition and emitted enactment log");
+    }
+}
 
 /// Processes and applies all queued updates that are ready to be enacted at the current height.
 ///
@@ -31,6 +74,7 @@ pub(crate) fn handle_pending_updates(
     state: &mut AdministrationSubprotoState,
     relayer: &mut impl MsgRelayer,
     current_height: L1Height,
+    ol_batch: &mut OlEnactmentBatch,
 ) {
     // Get all the update actions that are ready to be enacted, in queue order. The queue
     // preserves insertion order across cancellations, so this drain is deterministic.
@@ -48,7 +92,7 @@ pub(crate) fn handle_pending_updates(
         let (update_id, action) = queued.into_id_and_action();
         let tx_type = action.update_tx_type();
         let role = action.required_role();
-        match handle_update(state, relayer, action, current_height) {
+        match handle_update(state, relayer, action, current_height, ol_batch) {
             Ok(()) => info!(%update_id, %tx_type, %role, "enacted queued admin update"),
             Err(e) => {
                 error!(%update_id, %tx_type, %role, error = %e, "failed to enact queued admin update")
@@ -77,6 +121,7 @@ pub(crate) fn handle_action(
     payload: SignedPayload,
     current_height: L1Height,
     relayer: &mut impl MsgRelayer,
+    ol_batch: &mut OlEnactmentBatch,
 ) -> Result<(), AdministrationError> {
     // Determine the required role; both update and cancel actions are self-describing.
     let role = state.resolve_action_role(&payload.action);
@@ -93,28 +138,30 @@ pub(crate) fn handle_action(
             // Generate a unique ID for this update
             let id = state.next_update_id();
             let tx_type = update.update_tx_type();
+            let confirmation_depth = state.confirmation_depth(tx_type);
+            let activation_height = match confirmation_depth {
+                Some(delay) => current_height.checked_add(u32::from(delay)).ok_or(
+                    AdministrationError::ActivationHeightOverflow {
+                        current_height,
+                        delay,
+                    },
+                )?,
+                None => current_height,
+            };
 
-            // At most one OL predicate rotation may be outstanding. Rejecting the second here
-            // — rather than deferring its enactment later — keeps the exit window that the
-            // first rotation's boundary fixed meaningful: a rotation that is authorized is a
-            // rotation that will enact at exactly `current_height + delay`.
             if matches!(update, UpdateAction::OlStfVk(_))
-                && state.has_outstanding_ol_stf_vk_update()
+                && !state.can_authorize_ol_stf_vk_update(activation_height)
             {
-                return Err(AdministrationError::OlStfVkUpdateAlreadyOutstanding);
+                return Err(AdministrationError::OlStfVkUpdateCapacityFull {
+                    capacity: MAX_OUTSTANDING_OL_STF_VK_UPDATES,
+                });
             }
 
             // Updates with a non-zero confirmation depth are queued and enacted only after
             // `delay` more L1 blocks; until then they remain cancellable. A depth of zero
             // (surfaced as `None`) means "apply immediately" and bypasses the queue.
-            match state.confirmation_depth(tx_type) {
+            match confirmation_depth {
                 Some(delay) => {
-                    let activation_height = current_height.checked_add(u32::from(delay)).ok_or(
-                        AdministrationError::ActivationHeightOverflow {
-                            current_height,
-                            delay,
-                        },
-                    )?;
                     let queued_update = QueuedUpdate::new(id, update, activation_height);
                     state.enqueue(queued_update);
                     info!(
@@ -133,7 +180,8 @@ pub(crate) fn handle_action(
                         %role,
                         "applying admin update immediately (zero confirmation depth)"
                     );
-                    if let Err(e) = handle_update(state, relayer, update, current_height) {
+                    if let Err(e) = handle_update(state, relayer, update, current_height, ol_batch)
+                    {
                         error!(update_id = %id, %tx_type, %role, error = %e, "failed to apply admin update");
                     }
                 }
@@ -178,6 +226,7 @@ fn handle_update(
     relayer: &mut impl MsgRelayer,
     update: UpdateAction,
     current_height: L1Height,
+    ol_batch: &mut OlEnactmentBatch,
 ) -> Result<(), AdministrationError> {
     match update {
         UpdateAction::StrataAdminMultisig(update) => {
@@ -203,7 +252,7 @@ fn handle_update(
         UpdateAction::OlStfVk(update) => {
             enact_checkpoint_predicate_transition(
                 state,
-                relayer,
+                ol_batch,
                 update.into_key(),
                 current_height,
             );
@@ -250,26 +299,22 @@ fn relay_checkpoint_sequencer_update(relayer: &mut impl MsgRelayer, new_key: Buf
 
 /// Enacts an OL predicate rotation at `current_height`, the boundary `B`.
 ///
-/// Infallible by construction: [`handle_action`] refuses to authorize a rotation while
-/// another is queued or awaiting activation, so checkpoint's single pending-transition slot
-/// is always free here. That matters because the announcement cannot be retracted — the
-/// enactment log rides in this block's manifest, and a rotation the checkpoint subprotocol
-/// failed to record would switch the OL onto rules the ASM holds no key for.
+/// Admission reserves checkpoint capacity before the update receives an ID or consumes a seqno,
+/// so every authorized update is guaranteed to be recorded here. The relay and the enactment
+/// log are deferred to [`OlEnactmentBatch::flush`] so that several enactments in one block
+/// collapse into the single transition the checkpoint subprotocol keeps for that boundary.
 fn enact_checkpoint_predicate_transition(
     state: &mut AdministrationSubprotoState,
-    relayer: &mut impl MsgRelayer,
+    ol_batch: &mut OlEnactmentBatch,
     predicate: PredicateKey,
     current_height: L1Height,
 ) {
     debug!(?predicate, boundary = %current_height, "enacting checkpoint predicate transition");
-    state.set_ol_transition_pending();
-    let transition = PendingPredicateTransition::new(predicate.clone(), current_height);
-    let msg = CheckpointIncomingMsg::QueueCheckpointPredicateTransition(transition);
-    relayer.relay_msg(&msg);
-    let log_entry = AsmLogEntry::from_log(&CheckpointPredicateEnacted::new(predicate))
-        .expect("CheckpointPredicateEnacted encoding is infallible");
-    relayer.emit_log(log_entry);
-    info!("queued rollup verifying key transition and emitted enactment log");
+    assert!(
+        state.record_ol_transition_enactment(current_height),
+        "authorized OL predicate transition must have reserved checkpoint capacity"
+    );
+    ol_batch.record(predicate);
 }
 
 fn relay_bridge_operator_set_update(
@@ -308,6 +353,7 @@ mod tests {
     use rand::{rngs::OsRng, seq::SliceRandom, thread_rng};
     use strata_asm_admin_types::{AdministrationInitConfig, ConfirmationDepths, Role};
     use strata_asm_bridge_types::SafeHarbourAddress;
+    use strata_asm_checkpoint_types::MAX_PENDING_PREDICATE_TRANSITIONS;
     use strata_asm_common::{AsmLogEntry, InterprotoMsg, MsgRelayer, Subprotocol};
     use strata_asm_logs::{AsmStfUpdate, CheckpointPredicateEnacted};
     use strata_asm_proto_admin_msgs::AdministrationIncomingMsg;
@@ -331,10 +377,15 @@ mod tests {
     use strata_predicate::{PredicateKey, PredicateTypeId};
     use strata_test_utils_arb::ArbitraryGenerator;
 
-    use super::{handle_action, handle_pending_updates};
+    use super::{
+        OlEnactmentBatch, handle_action as handle_action_in_block,
+        handle_pending_updates as handle_pending_updates_in_block,
+    };
     use crate::{
-        error::AdministrationError, queued_update::QueuedUpdate,
-        state::AdministrationSubprotoState, subprotocol::AdministrationSubprotocol,
+        error::AdministrationError,
+        queued_update::QueuedUpdate,
+        state::{AdministrationSubprotoState, MAX_OUTSTANDING_OL_STF_VK_UPDATES},
+        subprotocol::AdministrationSubprotocol,
     };
 
     struct MockRelayer<M> {
@@ -451,29 +502,43 @@ mod tests {
     }
 
     /// Draws `count` random updates authorized by the Strata administrator.
-    ///
-    /// Yields at most one `OlStfVk` action. Only one rotation may be outstanding at a time, so
-    /// a second draw would be refused at authorization and fail callers that expect every
-    /// action to queue. The rule has its own tests; these callers are about generic queueing.
     fn get_strata_administrator_update_actions(count: usize) -> Vec<UpdateAction> {
         let mut arb = ArbitraryGenerator::new();
         let mut actions = Vec::new();
-        let mut drew_ol_rotation = false;
 
         while actions.len() < count {
             let action: UpdateAction = arb.generate();
             if action.required_role() != Role::StrataAdministrator {
                 continue;
             }
-            if matches!(action, UpdateAction::OlStfVk(_)) {
-                if drew_ol_rotation {
-                    continue;
-                }
-                drew_ol_rotation = true;
-            }
             actions.push(action);
         }
         actions
+    }
+
+    /// Runs [`handle_action_in_block`] as its own block: a fresh batch that is flushed
+    /// immediately, so the relayer observes the enactment relay and log right away.
+    fn handle_action(
+        state: &mut AdministrationSubprotoState,
+        payload: SignedPayload,
+        current_height: L1Height,
+        relayer: &mut impl MsgRelayer,
+    ) -> Result<(), AdministrationError> {
+        let mut ol_batch = OlEnactmentBatch::default();
+        let result = handle_action_in_block(state, payload, current_height, relayer, &mut ol_batch);
+        ol_batch.flush(relayer, current_height);
+        result
+    }
+
+    /// Runs [`handle_pending_updates_in_block`] as its own block, flushing the batch.
+    fn handle_pending_updates(
+        state: &mut AdministrationSubprotoState,
+        relayer: &mut impl MsgRelayer,
+        current_height: L1Height,
+    ) {
+        let mut ol_batch = OlEnactmentBatch::default();
+        handle_pending_updates_in_block(state, relayer, current_height, &mut ol_batch);
+        ol_batch.flush(relayer, current_height);
     }
 
     fn test_predicate(tag: u8) -> PredicateKey {
@@ -481,7 +546,18 @@ mod tests {
             .expect("test predicate is within the condition limit")
     }
 
-    /// Signs and submits an `OlStfVk` rotation as the Strata administrator.
+    /// Signs an `OlStfVk` rotation as the Strata administrator.
+    fn ol_rotation_payload(
+        admin_sks: &[SecretKey],
+        predicate: PredicateKey,
+        seqno: u64,
+    ) -> SignedPayload {
+        let action = MultisigAction::Update(UpdateAction::OlStfVk(OlStfVkUpdate::new(predicate)));
+        let sig_set = create_signature_set(admin_sks, &[0, 2], &action, seqno);
+        SignedPayload::new(seqno, action, sig_set)
+    }
+
+    /// Signs and submits an `OlStfVk` rotation as the Strata administrator, as its own block.
     fn authorize_ol_rotation(
         state: &mut AdministrationSubprotoState,
         relayer: &mut MockRelayer<CheckpointIncomingMsg>,
@@ -490,10 +566,22 @@ mod tests {
         seqno: u64,
         current_height: L1Height,
     ) -> Result<(), AdministrationError> {
-        let action = MultisigAction::Update(UpdateAction::OlStfVk(OlStfVkUpdate::new(predicate)));
-        let sig_set = create_signature_set(admin_sks, &[0, 2], &action, seqno);
-        let payload = SignedPayload::new(seqno, action, sig_set);
+        let payload = ol_rotation_payload(admin_sks, predicate, seqno);
         handle_action(state, payload, current_height, relayer)
+    }
+
+    /// Signs and submits an `OlStfVk` rotation into an in-progress block's batch.
+    fn authorize_ol_rotation_in_block(
+        state: &mut AdministrationSubprotoState,
+        relayer: &mut MockRelayer<CheckpointIncomingMsg>,
+        admin_sks: &[SecretKey],
+        predicate: PredicateKey,
+        seqno: u64,
+        current_height: L1Height,
+        ol_batch: &mut OlEnactmentBatch,
+    ) -> Result<(), AdministrationError> {
+        let payload = ol_rotation_payload(admin_sks, predicate, seqno);
+        handle_action_in_block(state, payload, current_height, relayer, ol_batch)
     }
 
     /// Test that Strata Administrator update actions are properly handled:
@@ -749,115 +837,374 @@ mod tests {
         assert_eq!(enactment.new_predicate(), &predicate);
     }
 
-    /// Authorizing a second rotation while one is still queued must fail.
-    ///
-    /// The checkpoint subprotocol holds a single pending-transition slot, and the boundary a
-    /// rotation announces is fixed the moment its transaction lands. Rejecting here keeps both
-    /// facts true: the slot cannot be double-booked, and no authorized rotation ever has its
-    /// enactment height pushed out from under the exit window it promised.
+    /// The end-to-end cap must reject the 33rd delayed rotation atomically: no queue entry,
+    /// no `UpdateId` consumed, no seqno advanced, and nothing relayed or logged, so the same
+    /// signed payload stays resubmittable once a slot frees.
     #[test]
-    fn test_second_ol_rotation_rejected_while_one_is_queued() {
+    fn test_delayed_ol_rotation_queue_accepts_32_and_rejects_33_without_advancing() {
         let (params, admin_sks, _, _) = create_test_params();
         let mut state = AdministrationSubprotoState::new(&params);
         let mut relayer = MockRelayer::<CheckpointIncomingMsg>::new();
         let current_height = 1000;
 
-        let first = authorize_ol_rotation(
+        for seqno in 1..=MAX_OUTSTANDING_OL_STF_VK_UPDATES as u64 {
+            authorize_ol_rotation(
+                &mut state,
+                &mut relayer,
+                &admin_sks,
+                test_predicate(seqno as u8),
+                seqno,
+                current_height,
+            )
+            .unwrap();
+        }
+        assert_eq!(
+            state.pending_ol_stf_vk_update_count(),
+            MAX_OUTSTANDING_OL_STF_VK_UPDATES
+        );
+        assert_eq!(
+            state.outstanding_ol_stf_vk_update_count(),
+            MAX_OUTSTANDING_OL_STF_VK_UPDATES
+        );
+
+        let next_update_id = state.next_update_id();
+        let last_seqno = state
+            .authority(Role::StrataAdministrator)
+            .unwrap()
+            .last_seqno();
+        let rejected = authorize_ol_rotation(
+            &mut state,
+            &mut relayer,
+            &admin_sks,
+            test_predicate(33),
+            last_seqno + 1,
+            current_height,
+        );
+
+        assert_eq!(
+            rejected,
+            Err(AdministrationError::OlStfVkUpdateCapacityFull {
+                capacity: MAX_OUTSTANDING_OL_STF_VK_UPDATES,
+            })
+        );
+        assert_eq!(state.next_update_id(), next_update_id);
+        assert_eq!(
+            state
+                .authority(Role::StrataAdministrator)
+                .unwrap()
+                .last_seqno(),
+            last_seqno
+        );
+        assert_eq!(
+            state.pending_ol_stf_vk_update_count(),
+            MAX_OUTSTANDING_OL_STF_VK_UPDATES
+        );
+        assert!(relayer.messages().is_empty());
+        assert!(relayer.logs.is_empty());
+    }
+
+    /// Delayed updates reserve checkpoint capacity when they are authorized, so the limit is
+    /// shared with transitions that have already enacted and are waiting for promotion.
+    #[test]
+    fn test_delayed_and_enacted_ol_rotations_share_capacity() {
+        let (params, admin_sks, _, _) = create_test_params();
+        let mut state = AdministrationSubprotoState::new(&params);
+        assert!(state.record_ol_transition_enactment(42));
+        let mut relayer = MockRelayer::<CheckpointIncomingMsg>::new();
+        let current_height = 1000;
+
+        for seqno in 1..MAX_OUTSTANDING_OL_STF_VK_UPDATES as u64 {
+            authorize_ol_rotation(
+                &mut state,
+                &mut relayer,
+                &admin_sks,
+                test_predicate(seqno as u8),
+                seqno,
+                current_height,
+            )
+            .unwrap();
+        }
+
+        assert_eq!(
+            state.outstanding_ol_stf_vk_update_count(),
+            MAX_OUTSTANDING_OL_STF_VK_UPDATES
+        );
+        let rejected = authorize_ol_rotation(
+            &mut state,
+            &mut relayer,
+            &admin_sks,
+            test_predicate(32),
+            MAX_OUTSTANDING_OL_STF_VK_UPDATES as u64,
+            current_height,
+        );
+        assert_eq!(
+            rejected,
+            Err(AdministrationError::OlStfVkUpdateCapacityFull {
+                capacity: MAX_OUTSTANDING_OL_STF_VK_UPDATES,
+            })
+        );
+    }
+
+    /// Cancellation frees a reservation, while enactment moves it into checkpoint occupancy.
+    /// Same-boundary enactments coalesce there, so the unused reservations become available.
+    #[test]
+    fn test_cancellation_and_enactment_each_free_a_delayed_ol_queue_slot() {
+        let (params, admin_sks, _, _) = create_test_params();
+        let mut state = AdministrationSubprotoState::new(&params);
+        let mut relayer = MockRelayer::<CheckpointIncomingMsg>::new();
+        let current_height = 1000;
+        for seqno in 1..=MAX_OUTSTANDING_OL_STF_VK_UPDATES as u64 {
+            authorize_ol_rotation(
+                &mut state,
+                &mut relayer,
+                &admin_sks,
+                test_predicate(seqno as u8),
+                seqno,
+                current_height,
+            )
+            .unwrap();
+        }
+
+        let cancelled = state.find_queued(&0).unwrap().action().clone();
+        let cancel = MultisigAction::Cancel(CancelAction::new(0, cancelled));
+        let cancel_seqno = MAX_OUTSTANDING_OL_STF_VK_UPDATES as u64 + 1;
+        let signatures = create_signature_set(&admin_sks, &[0, 2], &cancel, cancel_seqno);
+        handle_action(
+            &mut state,
+            SignedPayload::new(cancel_seqno, cancel, signatures),
+            current_height,
+            &mut relayer,
+        )
+        .unwrap();
+        assert_eq!(
+            state.pending_ol_stf_vk_update_count(),
+            MAX_OUTSTANDING_OL_STF_VK_UPDATES - 1
+        );
+        authorize_ol_rotation(
+            &mut state,
+            &mut relayer,
+            &admin_sks,
+            test_predicate(33),
+            cancel_seqno + 1,
+            current_height,
+        )
+        .unwrap();
+        assert_eq!(
+            state.pending_ol_stf_vk_update_count(),
+            MAX_OUTSTANDING_OL_STF_VK_UPDATES
+        );
+
+        let activation_height =
+            current_height + u32::from(params.confirmation_depths.ol_stf_vk_update);
+        handle_pending_updates(&mut state, &mut relayer, activation_height);
+        assert_eq!(state.pending_ol_stf_vk_update_count(), 0);
+        assert_eq!(state.ol_pending_transition_count(), 1);
+        authorize_ol_rotation(
+            &mut state,
+            &mut relayer,
+            &admin_sks,
+            test_predicate(34),
+            cancel_seqno + 2,
+            activation_height,
+        )
+        .unwrap();
+        assert_eq!(state.pending_ol_stf_vk_update_count(), 1);
+    }
+
+    /// A zero confirmation depth enacts immediately. Updates in one block share a boundary and
+    /// coalesce, so they do not consume additional end-to-end capacity, and the block relays
+    /// exactly one transition and emits exactly one enactment log, both carrying the last
+    /// predicate enacted.
+    #[test]
+    fn test_depth_zero_ol_rotations_in_one_block_coalesce_to_one_enactment() {
+        let (mut params, admin_sks, _, _) = create_test_params();
+        params.confirmation_depths.ol_stf_vk_update = 0;
+        let mut state = AdministrationSubprotoState::new(&params);
+        let mut relayer = MockRelayer::<CheckpointIncomingMsg>::new();
+        let mut ol_batch = OlEnactmentBatch::default();
+        let current_height = 1000;
+        let last_seqno = MAX_OUTSTANDING_OL_STF_VK_UPDATES as u64 + 1;
+
+        for seqno in 1..=last_seqno {
+            authorize_ol_rotation_in_block(
+                &mut state,
+                &mut relayer,
+                &admin_sks,
+                test_predicate(seqno as u8),
+                seqno,
+                current_height,
+                &mut ol_batch,
+            )
+            .unwrap();
+        }
+        assert!(relayer.messages().is_empty());
+        assert!(relayer.logs.is_empty());
+        ol_batch.flush(&mut relayer, current_height);
+
+        assert_eq!(state.pending_ol_stf_vk_update_count(), 0);
+        assert_eq!(state.next_update_id(), 33);
+        assert_eq!(state.ol_pending_transition_count(), 1);
+
+        let governing = test_predicate(last_seqno as u8);
+        assert_eq!(relayer.messages().len(), 1);
+        match &relayer.messages()[0] {
+            CheckpointIncomingMsg::QueueCheckpointPredicateTransition(transition) => {
+                assert_eq!(transition.predicate(), &governing);
+                assert_eq!(transition.boundary(), current_height);
+            }
+            other => panic!("expected a queued predicate transition, got {other:?}"),
+        }
+        assert_eq!(relayer.logs.len(), 1);
+        let enactment = relayer.logs[0]
+            .try_into_log::<CheckpointPredicateEnacted>()
+            .expect("log should deserialize as CheckpointPredicateEnacted");
+        assert_eq!(enactment.new_predicate(), &governing);
+    }
+
+    /// A queued rotation draining at `B` and an immediate rotation submitted in block `B`
+    /// share the boundary. The block emits one enactment log, and the transaction, processed
+    /// after the drain, is the one that governs.
+    #[test]
+    fn test_queued_drain_and_immediate_rotation_in_one_block_emit_one_log() {
+        let (mut params, admin_sks, _, _) = create_test_params();
+        params.confirmation_depths.ol_stf_vk_update = 0;
+        let mut state = AdministrationSubprotoState::new(&params);
+        let mut relayer = MockRelayer::<CheckpointIncomingMsg>::new();
+        let boundary = 1000;
+
+        let queued_predicate = test_predicate(1);
+        let update = UpdateAction::OlStfVk(OlStfVkUpdate::new(queued_predicate));
+        state.enqueue(QueuedUpdate::new(state.next_update_id(), update, boundary));
+        state.increment_next_update_id();
+
+        let mut ol_batch = OlEnactmentBatch::default();
+        handle_pending_updates_in_block(&mut state, &mut relayer, boundary, &mut ol_batch);
+        let immediate_predicate = test_predicate(2);
+        authorize_ol_rotation_in_block(
+            &mut state,
+            &mut relayer,
+            &admin_sks,
+            immediate_predicate.clone(),
+            1,
+            boundary,
+            &mut ol_batch,
+        )
+        .unwrap();
+        ol_batch.flush(&mut relayer, boundary);
+
+        assert_eq!(state.ol_pending_transition_count(), 1);
+        assert_eq!(relayer.messages().len(), 1);
+        assert_eq!(relayer.logs.len(), 1);
+        let enactment = relayer.logs[0]
+            .try_into_log::<CheckpointPredicateEnacted>()
+            .expect("log should deserialize as CheckpointPredicateEnacted");
+        assert_eq!(enactment.new_predicate(), &immediate_predicate);
+    }
+
+    /// A block with no OL enactment relays nothing and emits no enactment log on flush.
+    #[test]
+    fn test_empty_enactment_batch_flush_is_silent() {
+        let mut relayer = MockRelayer::<CheckpointIncomingMsg>::new();
+        OlEnactmentBatch::default().flush(&mut relayer, 1000);
+        assert!(relayer.messages().is_empty());
+        assert!(relayer.logs.is_empty());
+    }
+
+    /// A distinct-boundary rotation is rejected before authorization when all checkpoint
+    /// transition capacity is already reserved. Its ID and seqno remain reusable.
+    #[test]
+    fn test_full_checkpoint_capacity_rejects_distinct_update_without_advancing() {
+        let (mut params, admin_sks, _, _) = create_test_params();
+        params.confirmation_depths.ol_stf_vk_update = 0;
+        let mut state = AdministrationSubprotoState::new(&params);
+        for boundary in 0..MAX_PENDING_PREDICATE_TRANSITIONS {
+            assert!(state.record_ol_transition_enactment(boundary as u32));
+        }
+        let mut relayer = MockRelayer::<CheckpointIncomingMsg>::new();
+        let result = authorize_ol_rotation(
             &mut state,
             &mut relayer,
             &admin_sks,
             test_predicate(1),
             1,
-            current_height,
-        );
-        assert!(first.is_ok());
-        assert_eq!(state.queued().len(), 1);
-
-        let second = authorize_ol_rotation(
-            &mut state,
-            &mut relayer,
-            &admin_sks,
-            test_predicate(2),
-            2,
-            current_height,
-        );
-
-        assert_eq!(
-            second,
-            Err(AdministrationError::OlStfVkUpdateAlreadyOutstanding)
-        );
-        assert_eq!(state.queued().len(), 1);
-    }
-
-    /// The rejection must outlive enactment: the rotation stops being queued at `B` but keeps
-    /// occupying checkpoint's pending slot until a checkpoint covering `B + 1` is accepted.
-    #[test]
-    fn test_second_ol_rotation_rejected_while_one_awaits_activation() {
-        let (params, admin_sks, _, _) = create_test_params();
-        let mut state = AdministrationSubprotoState::new(&params);
-        let mut relayer = MockRelayer::<CheckpointIncomingMsg>::new();
-        let activation_height = 42;
-
-        state.enqueue(QueuedUpdate::new(
-            0,
-            UpdateAction::OlStfVk(OlStfVkUpdate::new(test_predicate(1))),
-            activation_height,
-        ));
-        handle_pending_updates(&mut state, &mut relayer, activation_height);
-
-        assert!(state.queued().is_empty());
-        assert!(state.ol_transition_pending());
-
-        let result = authorize_ol_rotation(
-            &mut state,
-            &mut relayer,
-            &admin_sks,
-            test_predicate(2),
-            1,
-            activation_height,
+            3_000,
         );
 
         assert_eq!(
             result,
-            Err(AdministrationError::OlStfVkUpdateAlreadyOutstanding)
+            Err(AdministrationError::OlStfVkUpdateCapacityFull {
+                capacity: MAX_OUTSTANDING_OL_STF_VK_UPDATES,
+            })
         );
         assert!(state.queued().is_empty());
+        assert_eq!(
+            usize::from(state.ol_pending_transition_count()),
+            MAX_PENDING_PREDICATE_TRANSITIONS
+        );
+        assert_eq!(state.next_update_id(), 0);
+        assert_eq!(
+            state
+                .authority(Role::StrataAdministrator)
+                .unwrap()
+                .last_seqno(),
+            0
+        );
+        assert!(relayer.messages().is_empty());
+        assert!(relayer.logs.is_empty());
     }
 
-    /// Checkpoint's acknowledgement is what reopens authorization: the pending slot is not
-    /// observable from administration state, so nothing else can clear the flag.
+    /// A same-boundary immediate rotation stays admissible at capacity because checkpoint
+    /// coalesces it into the latest entry instead of appending.
     #[test]
-    fn test_ol_transition_ack_reopens_authorization() {
-        let (params, admin_sks, _, _) = create_test_params();
+    fn test_same_boundary_authorization_is_allowed_at_full_capacity() {
+        let (mut params, admin_sks, _, _) = create_test_params();
+        params.confirmation_depths.ol_stf_vk_update = 0;
         let mut state = AdministrationSubprotoState::new(&params);
+        let capacity = MAX_PENDING_PREDICATE_TRANSITIONS;
+        for boundary in 0..capacity {
+            assert!(state.record_ol_transition_enactment(boundary as u32));
+        }
         let mut relayer = MockRelayer::<CheckpointIncomingMsg>::new();
-        let activation_height = 42;
 
-        state.enqueue(QueuedUpdate::new(
-            0,
-            UpdateAction::OlStfVk(OlStfVkUpdate::new(test_predicate(1))),
-            activation_height,
-        ));
-        handle_pending_updates(&mut state, &mut relayer, activation_height);
-        assert!(state.ol_transition_pending());
-
-        AdministrationSubprotocol::process_msgs(
-            &mut state,
-            &[AdministrationIncomingMsg::OlTransitionPromoted],
-            &L1BlockCommitment::default(),
-        );
-
-        assert!(!state.ol_transition_pending());
-        let result = authorize_ol_rotation(
+        authorize_ol_rotation(
             &mut state,
             &mut relayer,
             &admin_sks,
             test_predicate(2),
             1,
-            activation_height,
+            capacity as u32 - 1,
+        )
+        .unwrap();
+
+        assert_eq!(usize::from(state.ol_pending_transition_count()), capacity);
+        assert_eq!(state.next_update_id(), 1);
+        assert_eq!(relayer.messages().len(), 1);
+        assert_eq!(relayer.logs.len(), 1);
+    }
+
+    /// Checkpoint's counted prune acknowledgements are the only thing that reopens
+    /// post-enactment capacity, and each ack must decrement occupancy by exactly the number of
+    /// transitions pruned so admin's over-estimate converges back to checkpoint's occupancy.
+    #[test]
+    fn test_counted_checkpoint_acknowledgements_decrement_post_enactment_occupancy() {
+        let (params, _, _, _) = create_test_params();
+        let mut state = AdministrationSubprotoState::new(&params);
+        for boundary in [10, 20, 30] {
+            assert!(state.record_ol_transition_enactment(boundary));
+        }
+
+        AdministrationSubprotocol::process_msgs(
+            &mut state,
+            &[AdministrationIncomingMsg::OlTransitionsPruned(2)],
+            &L1BlockCommitment::default(),
         );
-        assert!(result.is_ok());
-        assert_eq!(state.queued().len(), 1);
+        assert_eq!(state.ol_pending_transition_count(), 1);
+        AdministrationSubprotocol::process_msgs(
+            &mut state,
+            &[AdministrationIncomingMsg::OlTransitionsPruned(1)],
+            &L1BlockCommitment::default(),
+        );
+        assert_eq!(state.ol_pending_transition_count(), 0);
     }
 
     /// A cancellation must not reorder the updates that survive it.

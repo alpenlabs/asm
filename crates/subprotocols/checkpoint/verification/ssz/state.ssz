@@ -2,10 +2,8 @@ import strata_predicate
 import strata_btc_types
 import strata_asm_checkpoint_types
 
-### At most one OL predicate rotation may be outstanding at a time. Administration
-### refuses to authorize a rotation while another is queued or awaiting activation, so
-### this slot is always free when an enactment arrives.
-MAX_PENDING_PREDICATE_TRANSITIONS = 1
+### Enacted OL predicate rotations awaiting checkpoint-sequence activation.
+MAX_PENDING_PREDICATE_TRANSITIONS = 32
 
 ### Pool of bridge UTXOs available to honor withdrawals.
 ###
@@ -30,9 +28,9 @@ class CheckpointState(Container):
     #~# external_kind: container
     checkpoint_predicate: strata_predicate.PredicateKey
 
-    ### Enacted predicate transition awaiting checkpoint-sequence activation, if any.
+    ### Ordered enacted predicate transitions awaiting checkpoint-sequence activation.
     #~# external_kind: container
-    pending_transition: List[strata_asm_checkpoint_types.PendingPredicateTransition, MAX_PENDING_PREDICATE_TRANSITIONS]
+    pending_transitions: List[strata_asm_checkpoint_types.PendingPredicateTransition, MAX_PENDING_PREDICATE_TRANSITIONS]
 
     ### Last verified checkpoint tip position.
     ### Tracks the OL state that has been proven and verified by ASM.

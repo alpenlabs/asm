@@ -110,7 +110,7 @@ pub(crate) fn handle_checkpoint_tx(
 
     // Verify the ZK proof against the precomputed hash, extract withdrawal intents, and
     // atomically apply the resulting state changes.
-    let (withdrawal_intents, promoted_transition) = match state.advance(
+    let (withdrawal_intents, pruned_transitions) = match state.advance(
         &envelope.payload,
         asm_manifests_hash,
         selection,
@@ -136,8 +136,10 @@ pub(crate) fn handle_checkpoint_tx(
         .expect("CheckpointTipUpdate encoding is infallible for fixed-size SSZ");
     relayer.emit_log(log_entry);
 
-    if promoted_transition {
-        relayer.relay_msg(&AdministrationIncomingMsg::OlTransitionPromoted);
+    if pruned_transitions > 0 {
+        relayer.relay_msg(&AdministrationIncomingMsg::OlTransitionsPruned(
+            pruned_transitions,
+        ));
     }
 
     for intent in withdrawal_intents {

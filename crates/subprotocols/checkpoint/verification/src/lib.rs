@@ -20,6 +20,15 @@ mod ssz_generated {
     include!(concat!(env!("OUT_DIR"), "/generated.rs"));
 }
 
+// Admin sizes its post-enactment occupancy accounting from the hand-written constant while the
+// transition list's real capacity comes from the schema constant in `ssz/state.ssz`. A larger
+// Rust value would turn checkpoint's capacity check into a consensus-halting panic, so the two
+// must agree.
+const _: () = assert!(
+    ssz_generated::ssz::state::MAX_PENDING_PREDICATE_TRANSITIONS as usize
+        == strata_asm_checkpoint_types::MAX_PENDING_PREDICATE_TRANSITIONS
+);
+
 pub use errors::CheckpointValidationError;
 pub use ssz_generated::ssz::state::CheckpointState;
 pub(crate) use ssz_generated::ssz::state::DepositPool;

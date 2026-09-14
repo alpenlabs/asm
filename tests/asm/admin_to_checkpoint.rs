@@ -25,6 +25,8 @@
 //!   against the old key, then the new key takes effect
 //! - Depth-0 predicate update in the same block as a checkpoint → checkpoint validates against the
 //!   old predicate, then queues the new predicate by that block's boundary
+//! - Two depth-0 predicate updates in one block → one pending transition and one enactment log,
+//!   both carrying the later predicate
 //! - Queued predicate update activating in the same block as a checkpoint → checkpoint validates
 //!   against the old predicate, then queues the new predicate by that block's boundary
 //! - Checkpoint signed by the old sequencer key after the update fully takes effect → rejected, no
@@ -203,7 +205,8 @@ async fn test_predicate_update_propagates_to_checkpoint() {
         "enactment must not immediately replace the active checkpoint predicate"
     );
     let transition = checkpoint_state
-        .pending_transition()
+        .pending_transitions()
+        .first()
         .expect("enactment must record a pending transition");
     assert_eq!(transition.predicate(), &new_predicate);
     let enactment = harness
@@ -308,7 +311,8 @@ async fn test_zero_and_nonzero_depth_updates_both_apply() {
         "predicate enactment must not immediately replace the active predicate"
     );
     let transition = final_checkpoint_state
-        .pending_transition()
+        .pending_transitions()
+        .first()
         .expect("enactment must record a pending transition");
     assert_eq!(transition.predicate(), &new_predicate);
     assert_eq!(u64::from(transition.boundary()), activation_height);
@@ -580,7 +584,8 @@ async fn test_predicate_immediate_update_same_block_checkpoint_validates() {
         "enactment must not immediately replace the active checkpoint predicate"
     );
     let transition = cp_state
-        .pending_transition()
+        .pending_transitions()
+        .first()
         .expect("enactment must record a pending transition");
     assert_eq!(transition.predicate(), &new_predicate);
     assert_eq!(u64::from(transition.boundary()), activation_height);
@@ -590,6 +595,82 @@ async fn test_predicate_immediate_update_same_block_checkpoint_validates() {
         .unwrap()
         .expect("expected CheckpointPredicateEnacted in the enactment block");
     assert_eq!(enactment.new_predicate(), &new_predicate);
+}
+
+/// Two depth-0 checkpoint-predicate updates in one block share that block's boundary. The
+/// checkpoint subprotocol keeps a single pending transition carrying the later predicate, and
+/// the block's manifest carries exactly one `CheckpointPredicateEnacted` log with that same
+/// predicate, so an OL reading the manifest sees one boundary and one governing key.
+#[tokio::test(flavor = "multi_thread")]
+async fn test_two_immediate_predicate_updates_in_one_block_emit_one_enactment() {
+    let Setup {
+        harness,
+        admin: mut ctx,
+        ..
+    } = AsmTestHarnessBuilder::default()
+        .customize_admin(|c| c.confirmation_depths.ol_stf_vk_update = 0)
+        .build()
+        .await;
+
+    harness.mine_blocks(2).await.unwrap();
+
+    let initial_predicate = harness
+        .checkpoint_state()
+        .unwrap()
+        .checkpoint_predicate()
+        .clone();
+    let first_predicate = PredicateKey::try_new(PredicateTypeId::Sp1Groth16, vec![1])
+        .expect("test predicate is within the condition limit");
+    let second_predicate = PredicateKey::try_new(PredicateTypeId::Sp1Groth16, vec![2])
+        .expect("test predicate is within the condition limit");
+
+    let first_tx = harness
+        .build_admin_action_tx(&mut ctx, ol_stf_vk_update(first_predicate.clone()))
+        .await
+        .unwrap();
+    let second_tx = harness
+        .build_admin_action_tx(&mut ctx, ol_stf_vk_update(second_predicate.clone()))
+        .await
+        .unwrap();
+
+    let enactment_block = harness
+        .mine_block_with_ordered_txs(&[first_tx, second_tx])
+        .await
+        .unwrap();
+    let boundary = harness.get_processed_height().unwrap();
+
+    let cp_state = harness.checkpoint_state().unwrap();
+    assert_eq!(
+        cp_state.checkpoint_predicate(),
+        &initial_predicate,
+        "enactment must not immediately replace the active checkpoint predicate"
+    );
+    assert_eq!(
+        cp_state.pending_transitions().len(),
+        1,
+        "same-boundary enactments must coalesce into one pending transition"
+    );
+    let transition = &cp_state.pending_transitions()[0];
+    assert_eq!(transition.predicate(), &second_predicate);
+    assert_eq!(u64::from(transition.boundary()), boundary);
+    assert_eq!(
+        harness.admin_state().unwrap().ol_pending_transition_count(),
+        1,
+        "administration must account for a single occupied checkpoint slot"
+    );
+
+    let block = harness.commitment_of(enactment_block).await.unwrap();
+    let enactments: Vec<CheckpointPredicateEnacted> = harness
+        .get_logs_at(&block)
+        .iter()
+        .filter_map(|log| log.try_into_log::<CheckpointPredicateEnacted>().ok())
+        .collect();
+    assert_eq!(
+        enactments.len(),
+        1,
+        "a block must carry exactly one CheckpointPredicateEnacted log"
+    );
+    assert_eq!(enactments[0].new_predicate(), &second_predicate);
 }
 
 /// A queued checkpoint-predicate update that activates in the same block as a checkpoint still
@@ -649,7 +730,8 @@ async fn test_queued_predicate_update_activation_same_block_checkpoint_validates
         "enactment must not immediately replace the active checkpoint predicate"
     );
     let transition = cp_state
-        .pending_transition()
+        .pending_transitions()
+        .first()
         .expect("enactment must record a pending transition");
     assert_eq!(transition.predicate(), &new_predicate);
     assert_eq!(u64::from(transition.boundary()), activation);
