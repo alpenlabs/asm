@@ -20,7 +20,6 @@ tree_hash.workspace = true
 tree_hash_derive.workspace = true
 
 arbitrary = { workspace = true, optional = true }
-borsh.workspace = true
 proptest = { optional = true, workspace = true }
 serde.workspace = true
 thiserror.workspace = true

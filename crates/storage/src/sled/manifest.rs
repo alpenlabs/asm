@@ -1,6 +1,7 @@
 //! [`AsmManifestDb`] implementation backed by sled.
 
-use anyhow::{Context, Result};
+use anyhow::{Result, anyhow};
+use ssz::{Decode, Encode};
 use strata_asm_common::AsmManifest;
 use strata_identifiers::L1BlockCommitment;
 
@@ -9,7 +10,7 @@ use crate::AsmManifestDb;
 
 /// Sled-backed [`AsmManifestDb`] keyed by [`L1BlockCommitment`].
 ///
-/// Values are borsh-encoded; keys use the parent module's big-endian height
+/// Values are SSZ-encoded; keys use the parent module's big-endian height
 /// encoding so lexicographic ordering matches block-height ordering.
 #[derive(Debug, Clone)]
 pub struct SledAsmManifestDb {
@@ -43,7 +44,7 @@ impl SledAsmManifestDb {
     /// possible; calling this directly avoids that.
     pub fn put(&self, manifest: &AsmManifest) -> Result<()> {
         let block = L1BlockCommitment::new(manifest.height(), *manifest.blkid());
-        let value = borsh::to_vec(manifest)?;
+        let value = manifest.as_ssz_bytes();
         self.manifests
             .insert(encode_block_commitment(&block), value)?;
         Ok(())
@@ -53,8 +54,8 @@ impl SledAsmManifestDb {
     pub fn get(&self, block: &L1BlockCommitment) -> Result<Option<AsmManifest>> {
         match self.manifests.get(encode_block_commitment(block))? {
             Some(bytes) => {
-                let manifest = borsh::from_slice::<AsmManifest>(&bytes)
-                    .context("failed to deserialize AsmManifest")?;
+                let manifest = AsmManifest::from_ssz_bytes(&bytes)
+                    .map_err(|e| anyhow!("failed to deserialize AsmManifest: {e:?}"))?;
                 Ok(Some(manifest))
             }
             None => Ok(None),
@@ -145,10 +146,6 @@ mod tests {
         .unwrap()
     }
 
-    fn assert_manifest_eq(a: &AsmManifest, b: &AsmManifest) {
-        assert_eq!(borsh::to_vec(a).unwrap(), borsh::to_vec(b).unwrap());
-    }
-
     #[test]
     fn put_get_roundtrip() {
         let (db, _dir) = test_db();
@@ -157,8 +154,14 @@ mod tests {
         let manifest = make_manifest(100, 0xbb);
 
         store.put(&manifest).unwrap();
+        let stored = store
+            .manifests
+            .get(encode_block_commitment(&commitment))
+            .unwrap()
+            .unwrap();
+        assert_eq!(stored.as_ref(), manifest.as_ssz_bytes());
         let retrieved = store.get(&commitment).unwrap().unwrap();
-        assert_manifest_eq(&retrieved, &manifest);
+        assert_eq!(retrieved, manifest);
     }
 
     #[test]
