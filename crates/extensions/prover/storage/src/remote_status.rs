@@ -48,7 +48,7 @@ pub trait RemoteProofStatusDb {
     ) -> impl Future<Output = Result<Vec<(RemoteProofId, RemoteProofStatus)>, Self::Error>> + Send;
 
     /// Removes the status entry for the given remote proof ID.
-    fn remove(
+    fn remove_status(
         &self,
         remote_id: &RemoteProofId,
     ) -> impl Future<Output = Result<(), Self::Error>> + Send;

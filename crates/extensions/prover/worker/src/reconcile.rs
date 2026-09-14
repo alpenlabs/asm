@@ -119,7 +119,7 @@ where
 
     state
         .ctx
-        .remove(remote_id)
+        .remove_status(remote_id)
         .await
         .map_err(|e| ProverError::storage("failed to remove completed proof status", e))?;
 
@@ -148,7 +148,7 @@ async fn discard_submission<C: ProverContext>(
             .map_err(|e| ProverError::storage("failed to clear remote proof mapping", e))?;
     }
 
-    ctx.remove(remote_id)
+    ctx.remove_status(remote_id)
         .await
         .map_err(|e| ProverError::storage("failed to remove proof status", e))?;
 

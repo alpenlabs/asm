@@ -162,8 +162,8 @@ impl RemoteProofStatusDb for AsmProverContext {
         self.proof_db.get_all_in_progress().await
     }
 
-    async fn remove(&self, remote_id: &RemoteProofId) -> Result<(), Self::Error> {
-        self.proof_db.remove(remote_id).await
+    async fn remove_status(&self, remote_id: &RemoteProofId) -> Result<(), Self::Error> {
+        self.proof_db.remove_status(remote_id).await
     }
 }
 
