@@ -63,6 +63,10 @@ impl fmt::Display for ProofSource {
 }
 
 /// Stores a completed proof receipt in the appropriate proof-store table.
+///
+/// The receipt is expected to have been checked with a
+/// [`ProofVerifier`](crate::verify::ProofVerifier) first: what reaches the
+/// store is what later reads take at face value.
 pub(crate) async fn store_completed_proof<C: ProverContext>(
     ctx: &C,
     proof_id: ProofId,

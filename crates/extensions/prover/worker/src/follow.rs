@@ -40,6 +40,7 @@ use crate::{
     queue::PendingProofQueue,
     schedule,
     state::ProverServiceState,
+    verify::{self, ProofVerifier},
 };
 
 /// Probes the peer and either fetches available proofs or falls back to local
@@ -82,6 +83,7 @@ where
             let mut fetcher = StateFetcher {
                 ctx: &state.ctx,
                 peer: &client,
+                verifier: state.input_builder.verifier(),
                 fetched: Vec::new(),
             };
             fetch_with(&mut state.queue, &mut fetcher, up_to).await;
@@ -191,6 +193,9 @@ enum FetchOutcome {
     AlreadyStored,
     /// The peer does not have this proof yet; caller should re-enqueue it.
     NotAvailable,
+    /// The peer served a receipt that does not verify. It was not stored; the
+    /// caller re-enqueues the proof.
+    Invalid,
 }
 
 /// Fetches a single proof from the peer.
@@ -244,6 +249,11 @@ async fn fetch_with<F: ProofFetcher>(queue: &mut PendingProofQueue, fetcher: &mu
                 debug!(%proof_id, "proof not yet available on peer, re-enqueuing");
                 parked.push(proof_id);
             }
+            // Already logged with its cause by the fetcher, which is the only
+            // place that still has the verification error.
+            Ok(FetchOutcome::Invalid) => {
+                parked.push(proof_id);
+            }
             Err(e) => {
                 warn!(%proof_id, %e, "failed to fetch proof from peer, re-enqueuing");
                 parked.push(proof_id);
@@ -264,16 +274,14 @@ async fn fetch_with<F: ProofFetcher>(queue: &mut PendingProofQueue, fetcher: &mu
 /// tick and tolerates a configured number of consecutive failures before
 /// falling back to local proving, so the tick loop *is* the retry policy.
 ///
-/// Fetched receipts are stored unverified. That trusts the peer exactly as
-/// far as the generator path trusts its own proving backend, which holds for
-/// the same-operator HA setup this mode is built for.
-// TODO(STR-4011): if a follower is ever pointed at a third-party peer, verify fetched
-// receipts against the expected verification key and public values before
-// storing — hash-keyed lookups bind an *honest* peer's proofs to the right
-// block, but nothing checks the receipt itself.
+/// Every fetched receipt is verified before it is stored. Hash-keyed lookups
+/// bind an *honest* peer's proofs to the right block; the verification is what
+/// makes that hold for a peer that is buggy or compromised, and it keeps a
+/// poisoned entry out of the store this node also serves to its own followers.
 struct StateFetcher<'a, C> {
     ctx: &'a C,
     peer: &'a HttpClient,
+    verifier: ProofVerifier<'a>,
     /// Proofs fetched this cycle, for advancing the proven frontier once the
     /// loop's borrows are released.
     fetched: Vec<ProofId>,
@@ -312,6 +320,12 @@ where
         let Some(receipt) = receipt else {
             return Ok(FetchOutcome::NotAvailable);
         };
+
+        let expected_state = verify::expected_state_commitment(self.ctx, &proof_id).await?;
+        if let Err(e) = self.verifier.verify(&proof_id, &receipt, &expected_state) {
+            warn!(%proof_id, %e, "peer served a proof that does not verify, discarding it");
+            return Ok(FetchOutcome::Invalid);
+        }
 
         proof_store::store_completed_proof(self.ctx, proof_id, receipt, ProofSource::Peer).await?;
         self.fetched.push(proof_id);
