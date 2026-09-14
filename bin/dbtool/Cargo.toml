@@ -13,9 +13,14 @@ workspace = true
 [dependencies]
 asm-storage.workspace = true
 strata-asm-common.workspace = true
+strata-asm-proof-db.workspace = true
+strata-asm-proof-types.workspace = true
 strata-identifiers.workspace = true
 
+zkaleido.workspace = true
+
 anyhow.workspace = true
+borsh.workspace = true
 clap.workspace = true
 hex.workspace = true
 serde_json.workspace = true

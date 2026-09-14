@@ -49,6 +49,56 @@ impl From<sled::Error> for RemoteProofStatusError {
     }
 }
 
+/// Synchronous status accessors, for offline tooling that stays synchronous.
+///
+/// The read/remove half of [`RemoteProofStatusDb`] delegates to these; the names
+/// differ from the trait's so a delegating call is unambiguous. `list_status`
+/// (every entry, not just active ones) has no async-trait counterpart.
+impl SledProofDb {
+    /// Returns the tracked status of `remote_id`, if any.
+    pub fn status(
+        &self,
+        remote_id: &RemoteProofId,
+    ) -> Result<Option<RemoteProofStatus>, sled::Error> {
+        Ok(self.remote_proof_status.get(&remote_id.0)?.map(|v| {
+            BorshDeserialize::try_from_slice(&v)
+                .expect("stored RemoteProofStatus should be valid borsh")
+        }))
+    }
+
+    /// Lists every tracked `(remote_id, status)` pair.
+    pub fn list_status(&self) -> Result<Vec<(RemoteProofId, RemoteProofStatus)>, sled::Error> {
+        self.remote_proof_status
+            .iter()
+            .map(|entry| {
+                let (k, v) = entry?;
+                let status: RemoteProofStatus = BorshDeserialize::try_from_slice(&v)
+                    .expect("stored RemoteProofStatus should be valid borsh");
+                Ok((RemoteProofId(k.to_vec()), status))
+            })
+            .collect()
+    }
+
+    /// Lists the currently active (`Requested` or `InProgress`) jobs.
+    pub fn in_progress(&self) -> Result<Vec<(RemoteProofId, RemoteProofStatus)>, sled::Error> {
+        Ok(self
+            .list_status()?
+            .into_iter()
+            .filter(|(_, status)| {
+                matches!(
+                    status,
+                    RemoteProofStatus::Requested | RemoteProofStatus::InProgress
+                )
+            })
+            .collect())
+    }
+
+    /// Removes the status entry for `remote_id`, returning whether one was present.
+    pub fn delete_status(&self, remote_id: &RemoteProofId) -> Result<bool, sled::Error> {
+        Ok(self.remote_proof_status.remove(&remote_id.0)?.is_some())
+    }
+}
+
 impl RemoteProofStatusDb for SledProofDb {
     type Error = RemoteProofStatusError;
 
@@ -88,32 +138,17 @@ impl RemoteProofStatusDb for SledProofDb {
         &self,
         remote_id: &RemoteProofId,
     ) -> Result<Option<RemoteProofStatus>, Self::Error> {
-        Ok(self.remote_proof_status.get(&remote_id.0)?.map(|v| {
-            BorshDeserialize::try_from_slice(&v)
-                .expect("stored RemoteProofStatus should be valid borsh")
-        }))
+        Ok(self.status(remote_id)?)
     }
 
     async fn get_all_in_progress(
         &self,
     ) -> Result<Vec<(RemoteProofId, RemoteProofStatus)>, Self::Error> {
-        let mut results = Vec::new();
-        for entry in self.remote_proof_status.iter() {
-            let (k, v) = entry?;
-            let status: RemoteProofStatus = BorshDeserialize::try_from_slice(&v)
-                .expect("stored RemoteProofStatus should be valid borsh");
-            if matches!(
-                status,
-                RemoteProofStatus::Requested | RemoteProofStatus::InProgress
-            ) {
-                results.push((RemoteProofId(k.to_vec()), status));
-            }
-        }
-        Ok(results)
+        Ok(self.in_progress()?)
     }
 
     async fn remove(&self, remote_id: &RemoteProofId) -> Result<(), Self::Error> {
-        self.remote_proof_status.remove(&remote_id.0)?;
+        self.delete_status(remote_id)?;
         Ok(())
     }
 }
@@ -336,8 +371,33 @@ mod tests {
                     prop_assert_eq!(status, &expected.1);
                 }
 
+                // `list_status` returns every entry, active or terminal, and
+                // `in_progress` matches the async `get_all_in_progress`.
+                let all: HashSet<_> = db.list_status().unwrap().into_iter().map(|(r, _)| r).collect();
+                let expected_all: HashSet<_> =
+                    active.iter().chain(terminal.iter()).map(|(r, _)| r.clone()).collect();
+                prop_assert_eq!(all, expected_all);
+
+                let sync_active: HashSet<_> = db.in_progress().unwrap().into_iter().map(|(r, _)| r).collect();
+                prop_assert_eq!(sync_active, active.iter().map(|(r, _)| r.clone()).collect::<HashSet<_>>());
+
                 Ok(())
             })?;
         }
+    }
+
+    #[test]
+    fn delete_status_reports_presence() {
+        let (db, _dir) = temp_db();
+        let id = RemoteProofId(vec![0xaa, 0xbb]);
+        Runtime::new().unwrap().block_on(async {
+            db.put_status(&id, RemoteProofStatus::Completed)
+                .await
+                .unwrap();
+        });
+        // First delete removes it and reports true; the second finds nothing.
+        assert!(db.delete_status(&id).unwrap());
+        assert!(!db.delete_status(&id).unwrap());
+        assert!(db.list_status().unwrap().is_empty());
     }
 }
