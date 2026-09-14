@@ -1,0 +1,17 @@
+[package]
+name = "strata-asm-proto-checkpoint-v0"
+version = "0.1.0"
+edition = "2024"
+
+[lints]
+workspace = true
+
+[dependencies]
+strata-asm-checkpoint-types.workspace = true
+strata-asm-common.workspace = true
+strata-asm-logs.workspace = true
+strata-asm-proto-bridge-msgs.workspace = true
+strata-asm-proto-checkpoint-msgs-v0.workspace = true
+strata-asm-proto-checkpoint-txs.workspace = true
+strata-checkpoint-verification-v0.workspace = true
+strata-identifiers.workspace = true

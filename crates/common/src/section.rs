@@ -56,6 +56,7 @@ mod tests {
 
     impl Subprotocol for TestSubproto {
         const ID: SubprotocolId = TEST_ID;
+        const STATE_VERSION: u8 = 0;
         type InitConfig = ();
         type State = u64;
         type Msg = NullMsg<TEST_ID>;
@@ -81,6 +82,7 @@ mod tests {
 
     impl Subprotocol for OversizedSubproto {
         const ID: SubprotocolId = TEST_ID;
+        const STATE_VERSION: u8 = 0;
         type InitConfig = ();
         type State = OversizedState;
         type Msg = NullMsg<TEST_ID>;

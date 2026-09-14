@@ -40,6 +40,7 @@ use crate::{
 ///
 /// impl Subprotocol for MySubprotocol {
 ///     const ID: SubprotocolId = 42;
+///     const STATE_VERSION: u8 = 0;
 ///     type State = MyState;
 ///     type InitConfig = MyInitConfig;
 ///     type Msg = MyMessage;
@@ -74,6 +75,14 @@ use crate::{
 pub trait Subprotocol: 'static {
     /// The subprotocol ID used when searching for relevant transactions.
     const ID: SubprotocolId;
+
+    /// Codec version of the state this subprotocol reads and writes.
+    ///
+    /// Declared per implementation so a stored section carries the identity of
+    /// the format it was written in. Bump it whenever [`Self::State`] gains,
+    /// loses, reorders or retypes a field; leave it alone for changes that do
+    /// not alter the encoding.
+    const STATE_VERSION: u8;
 
     /// Configuration used to initialize the subprotocol's state.
     type InitConfig;

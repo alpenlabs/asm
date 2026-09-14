@@ -54,7 +54,7 @@ use rand::RngCore;
 use strata_asm_common::{AnchorState, AsmLogEntry};
 use strata_asm_manifest_types::AsmLog;
 use strata_asm_moho_worker::{MohoStateStore, MohoWorkerBuilder, MohoWorkerHandle};
-use strata_asm_params::{AdministrationInitConfig, AsmParams, SubprotocolInstance};
+use strata_asm_params::{AdministrationInitConfig, StrataGenesisConfig};
 use strata_asm_spec::StrataAsmSpec;
 use strata_asm_worker::{
     test_utils::{get_l1_anchor, TestAsmWorkerContext},
@@ -105,8 +105,8 @@ pub struct AsmTestHarness {
     pub moho_handle: MohoWorkerHandle,
     /// Moho worker context for querying derived Moho state.
     pub moho_context: TestMohoWorkerContext,
-    /// ASM-specific parameters
-    pub asm_params: Arc<AsmParams>,
+    /// ASM genesis configuration
+    pub asm_params: Arc<StrataGenesisConfig>,
     /// Task executor for spawning tasks
     pub executor: TaskExecutor,
     /// Genesis block height
@@ -824,16 +824,13 @@ impl AsmTestHarnessBuilder {
         let (checkpoint_config, checkpoint_harness) =
             create_test_checkpoint_setup(genesis_height as u32);
 
-        // 4. Build AsmParams (arbitrary for non-subprotocol fields) and install our configs.
-        let mut asm_params: AsmParams = ArbitraryGenerator::new().generate();
+        // 4. Build the genesis config (arbitrary for the L1 view) and install the
+        // named subprotocol configs.
+        let mut asm_params: StrataGenesisConfig = ArbitraryGenerator::new().generate();
         asm_params.anchor = genesis_view;
-        for instance in &mut asm_params.subprotocols {
-            match instance {
-                SubprotocolInstance::Admin(cfg) => *cfg = admin_config.clone(),
-                SubprotocolInstance::Bridge(cfg) => *cfg = bridge_config.clone(),
-                SubprotocolInstance::Checkpoint(cfg) => *cfg = checkpoint_config.clone(),
-            }
-        }
+        asm_params.admin = admin_config.clone();
+        asm_params.bridge = bridge_config.clone();
+        asm_params.checkpoint = checkpoint_config.clone();
         let asm_params = Arc::new(asm_params);
 
         // 5. Create worker context. The worker prefills the height-indexed MMR

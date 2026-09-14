@@ -3,7 +3,7 @@ use std::sync::Arc;
 use anyhow::Result;
 use bitcoind_async_client::{Auth, Client};
 use strata_asm_moho_worker::MohoWorkerBuilder;
-use strata_asm_params::AsmParams;
+use strata_asm_params::StrataGenesisConfig;
 use strata_asm_prover_worker::{InputBuilder, ProofBackend, ProverWorkerBuilder};
 use strata_asm_spec::StrataAsmSpec;
 use strata_asm_worker::AsmWorkerBuilder;
@@ -24,7 +24,7 @@ use crate::{
 };
 pub(crate) async fn bootstrap(
     config: AsmRpcConfig,
-    params: AsmParams,
+    params: StrataGenesisConfig,
     executor: TaskExecutor,
 ) -> Result<()> {
     // 1. Create storage. The ASM and Moho stores live in two separate sled DBs; the proof DB is
