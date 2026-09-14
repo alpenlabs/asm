@@ -10,6 +10,7 @@ workspace = true
 strata-asm-bridge-types.workspace = true
 strata-asm-checkpoint-types.workspace = true
 strata-asm-manifest-types.workspace = true
+strata-checkpoint-verification-v0.workspace = true
 
 bitcoin-bosd.workspace = true
 strata-btc-types.workspace = true
@@ -30,5 +31,6 @@ tree_hash_derive.workspace = true
 ssz_codegen.workspace = true
 
 [dev-dependencies]
+bitcoin.workspace = true
 strata-msg-fmt.workspace = true
 strata-test-utils-checkpoint.workspace = true

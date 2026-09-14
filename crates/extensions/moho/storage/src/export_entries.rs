@@ -45,6 +45,20 @@ pub trait ExportEntriesDb {
         hash: [u8; 32],
     ) -> impl Future<Output = Result<Option<u64>, Self::Error>> + Send;
 
+    /// Bounded reverse lookup: resolves to the greatest `mmr_index` of `hash`
+    /// that is strictly less than `before_index`, or `None` if the hash has no
+    /// occurrence in that prefix.
+    ///
+    /// This is the historical-state counterpart to [`Self::find_entry_index`]:
+    /// a later duplicate must not hide an earlier occurrence committed by the
+    /// queried state's smaller MMR.
+    fn find_entry_index_before(
+        &self,
+        container_id: u8,
+        hash: [u8; 32],
+        before_index: u64,
+    ) -> impl Future<Output = Result<Option<u64>, Self::Error>> + Send;
+
     /// Resolves to the entry hash at `(container_id, mmr_index)`, or `None` if
     /// absent.
     fn get_entry(

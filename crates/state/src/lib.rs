@@ -9,6 +9,7 @@
 use strata_identifiers as _;
 
 mod mmr;
+mod schema;
 mod state;
 
 #[allow(
@@ -23,6 +24,7 @@ mod ssz_generated {
 }
 
 pub use mmr::*;
+pub use schema::*;
 pub use ssz_generated::ssz::{
     self as ssz,
     state::{

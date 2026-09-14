@@ -1,4 +1,4 @@
-use strata_asm_common::AsmLog;
+use strata_asm_common::{AsmLog, AsmLogEntry};
 use strata_codec::{Codec, CodecError, Decoder, Encoder};
 use strata_codec_utils::CodecSsz;
 use strata_msg_fmt::TypeId;
@@ -87,5 +87,68 @@ mod tests {
         for log in cases {
             assert!(AsmLogEntry::from_log(&log).is_ok());
         }
+    }
+}
+
+/// Returns the predicate an ordered log list hands over, if it enacts one.
+///
+/// **This is the single definition of the handover.** Two components need the
+/// answer — the Moho program, whose result the proof chain authenticates, and
+/// the ASM worker, which must execute the next block under exactly those rules.
+/// They cannot each derive it: a block carrying two updates would make "first"
+/// and "last" disagree, and the worker would then execute under rules no proof
+/// authorizes. So both call this.
+///
+/// The *first* enacting log wins, because that is what the proof chain has
+/// always taken, and the proof chain is the authority.
+pub fn extract_next_predicate_from_logs(logs: &[AsmLogEntry]) -> Option<PredicateKey> {
+    logs.iter().find_map(|log| {
+        log.try_into_log::<AsmStfUpdate>()
+            .ok()
+            .map(|update| update.new_predicate().clone())
+    })
+}
+
+#[cfg(test)]
+mod handover_tests {
+    use strata_asm_common::AsmLogEntry;
+    use strata_predicate::{PredicateKey, PredicateTypeId};
+
+    use super::*;
+
+    fn predicate(seed: u8) -> PredicateKey {
+        PredicateKey::try_new(PredicateTypeId::Bip340Schnorr, vec![seed; 32])
+            .expect("valid predicate")
+    }
+
+    fn log(to: &PredicateKey) -> AsmLogEntry {
+        AsmLogEntry::from_log(&AsmStfUpdate::new(to.clone()))
+            .expect("AsmStfUpdate encoding is infallible")
+    }
+
+    #[test]
+    fn no_enacting_log_hands_over_nothing() {
+        assert_eq!(extract_next_predicate_from_logs(&[]), None);
+    }
+
+    #[test]
+    fn a_single_enacting_log_hands_over_its_predicate() {
+        assert_eq!(
+            extract_next_predicate_from_logs(&[log(&predicate(2))]),
+            Some(predicate(2)),
+        );
+    }
+
+    /// Pins the tie-break the two consumers must agree on. Were this to change,
+    /// the ASM worker and the proof chain would disagree about which rules the
+    /// next block runs under — silently, on a block carrying two updates.
+    #[test]
+    fn the_first_enacting_log_wins() {
+        let logs = [log(&predicate(2)), log(&predicate(3))];
+        assert_eq!(
+            extract_next_predicate_from_logs(&logs),
+            Some(predicate(2)),
+            "the proof chain takes the first; the worker must match",
+        );
     }
 }

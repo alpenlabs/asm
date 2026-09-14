@@ -16,7 +16,6 @@ strata-predicate.workspace = true
 strata-service.workspace = true
 strata-tasks.workspace = true
 
-moho-runtime-interface.workspace = true
 moho-types = { workspace = true, features = ["serde"] }
 
 anyhow.workspace = true

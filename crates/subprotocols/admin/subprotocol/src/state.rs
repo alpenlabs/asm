@@ -46,6 +46,30 @@ pub struct AdministrationSubprotoState {
 }
 
 impl AdministrationSubprotoState {
+    /// Assembles state from its parts.
+    ///
+    /// Exists for the conversion from the released layout in
+    /// [`migrate`](crate::migrate), which must set every field including
+    /// `ol_transition_pending`. Crate-private so the fields stay private and
+    /// this stays the single documented way to build state from outside `new`.
+    pub(crate) fn from_parts(
+        authorities: Vec<MultisigAuthority>,
+        queued: Vec<QueuedUpdate>,
+        next_update_id: UpdateId,
+        confirmation_depths: ConfirmationDepths,
+        max_seqno_gap: NonZero<u8>,
+        ol_transition_pending: bool,
+    ) -> Self {
+        Self {
+            authorities,
+            queued,
+            next_update_id,
+            confirmation_depths,
+            max_seqno_gap,
+            ol_transition_pending,
+        }
+    }
+
     pub fn new(config: &AdministrationInitConfig) -> Self {
         let authorities = config
             .clone()
@@ -101,6 +125,18 @@ impl AdministrationSubprotoState {
                 .queued
                 .iter()
                 .any(|queued| matches!(queued.action(), UpdateAction::OlStfVk(_)))
+    }
+
+    /// Returns whether an ASM STF verifying-key rotation is already scheduled for `height`.
+    ///
+    /// The handover chain has one predicate slot per block, not one slot for all future blocks.
+    /// Rotations at distinct activation heights are therefore safe and remain independently
+    /// cancellable; only two rotations targeting the same block conflict.
+    pub(crate) fn has_asm_stf_vk_update_at(&self, height: L1Height) -> bool {
+        self.queued.iter().any(|queued| {
+            queued.activation_height() == height
+                && matches!(queued.action(), UpdateAction::AsmStfVk(_))
+        })
     }
 
     /// Resolves which role must authorize the provided action.
@@ -320,6 +356,7 @@ mod tests {
         assert_eq!(state.next_update_id(), 0);
         assert_eq!(state.queued().len(), 0);
         assert!(!state.ol_transition_pending());
+        assert!(!state.has_asm_stf_vk_update_at(42));
     }
 
     #[test]

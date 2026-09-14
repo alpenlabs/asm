@@ -6,6 +6,7 @@
 
 mod deposit_pool;
 mod errors;
+mod migrate;
 mod state;
 mod verification;
 
@@ -21,6 +22,7 @@ mod ssz_generated {
 }
 
 pub use errors::CheckpointValidationError;
+pub use migrate::{CheckpointMigrationError, migrate_from_v0};
 pub use ssz_generated::ssz::state::CheckpointState;
 pub(crate) use ssz_generated::ssz::state::DepositPool;
 pub use state::PredicateSelection;

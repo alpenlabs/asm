@@ -65,6 +65,7 @@ impl<W: MohoWorkerContext> MohoWorkerServiceState<W> {
         asm_predicate: PredicateKey,
         subscribers: Subscribers<L1BlockCommitment>,
     ) -> MohoWorkerResult<Self> {
+        context.recover_pending_rebase()?;
         let (cur_block, cur_moho) = match context.get_latest_moho_state()? {
             Some((blk, moho)) => {
                 info!(%blk, "resuming Moho worker from stored state");
@@ -120,13 +121,13 @@ impl<W: MohoWorkerContext + Send + Sync + 'static> ServiceState for MohoWorkerSe
 
 #[cfg(test)]
 mod tests {
-    use std::{cell::RefCell, collections::HashMap};
+    use std::{cell::RefCell, collections::HashMap, io::Error};
 
-    use moho_runtime_interface::MohoProgram;
     use strata_asm_common::{AnchorState, AsmLogEntry};
+    use strata_asm_logs::NewExportEntry;
     use strata_asm_params::StrataGenesisConfig;
-    use strata_asm_proof_impl::moho_program::program::AsmStfProgram;
-    use strata_asm_spec::construct_genesis_state;
+    use strata_asm_proof_impl::moho_program::program::compute_anchor_state_commitment;
+    use strata_asm_spec::construct_v1_genesis_state;
     use strata_identifiers::{Buf32, L1BlockCommitment, L1BlockId};
     use strata_predicate::PredicateKey;
     use strata_test_utils_arb::ArbitraryGenerator;
@@ -145,6 +146,7 @@ mod tests {
         parents: RefCell<HashMap<L1BlockCommitment, L1BlockCommitment>>,
         moho: RefCell<HashMap<L1BlockCommitment, MohoState>>,
         latest: RefCell<Option<(L1BlockCommitment, MohoState)>>,
+        pending_rebase: RefCell<Option<L1BlockCommitment>>,
         asm_latest: RefCell<Option<L1BlockCommitment>>,
         export_entries: RefCell<Vec<(u8, u32, [u8; 32])>>,
     }
@@ -152,17 +154,19 @@ mod tests {
     impl MockContext {
         fn insert_anchor(&self, blk: L1BlockCommitment, state: AnchorState) {
             self.anchors.borrow_mut().insert(blk, state);
-            // Track the highest-height anchor as the ASM tip, mirroring the ASM
-            // store's `latest` pointer.
-            let mut latest = self.asm_latest.borrow_mut();
-            if latest.is_none_or(|b| blk.height() >= b.height()) {
-                *latest = Some(blk);
-            }
+            // The last adopted block is the active ASM tip. Retained higher
+            // anchors do not outrank a shorter reorg.
+            *self.asm_latest.borrow_mut() = Some(blk);
         }
 
         /// Registers `parent` as the parent of `blk` for parent resolution.
         fn link_parent(&self, blk: L1BlockCommitment, parent: L1BlockCommitment) {
             self.parents.borrow_mut().insert(blk, parent);
+        }
+
+        fn set_asm_tip(&self, blk: L1BlockCommitment) {
+            assert!(self.anchors.borrow().contains_key(&blk));
+            *self.asm_latest.borrow_mut() = Some(blk);
         }
     }
 
@@ -201,6 +205,16 @@ mod tests {
     }
 
     impl MohoStateStore for MockContext {
+        fn recover_pending_rebase(&self) -> MohoWorkerResult<()> {
+            let Some(base) = *self.pending_rebase.borrow() else {
+                return Ok(());
+            };
+            if let Some(first_suffix_height) = base.height().checked_add(1) {
+                self.prune_export_entries_from(first_suffix_height)?;
+            }
+            self.finish_moho_rebase(&base)
+        }
+
         fn get_latest_moho_state(
             &self,
         ) -> MohoWorkerResult<Option<(L1BlockCommitment, MohoState)>> {
@@ -221,13 +235,38 @@ mod tests {
             state: &MohoState,
         ) -> MohoWorkerResult<()> {
             self.moho.borrow_mut().insert(*blockid, state.clone());
-            let mut latest = self.latest.borrow_mut();
-            if latest
-                .as_ref()
-                .is_none_or(|(b, _)| blockid.height() >= b.height())
-            {
-                *latest = Some((*blockid, state.clone()));
+            *self.latest.borrow_mut() = Some((*blockid, state.clone()));
+            Ok(())
+        }
+
+        fn begin_moho_rebase(&self, base: &L1BlockCommitment) -> MohoWorkerResult<()> {
+            if !self.moho.borrow().contains_key(base) {
+                return Err(MohoWorkerError::MissingMohoState(*base));
             }
+            let mut pending = self.pending_rebase.borrow_mut();
+            if pending.is_some_and(|current| current != *base) {
+                return Err(MohoWorkerError::Storage(
+                    Error::other(format!("another mock rebase is pending: {pending:?}")).into(),
+                ));
+            }
+            *pending = Some(*base);
+            Ok(())
+        }
+
+        fn finish_moho_rebase(&self, base: &L1BlockCommitment) -> MohoWorkerResult<()> {
+            if *self.pending_rebase.borrow() != Some(*base) {
+                return Err(MohoWorkerError::Storage(
+                    Error::other(format!("mock rebase is not pending for {base}")).into(),
+                ));
+            }
+            let state = self
+                .moho
+                .borrow()
+                .get(base)
+                .cloned()
+                .ok_or(MohoWorkerError::MissingMohoState(*base))?;
+            *self.latest.borrow_mut() = Some((*base, state));
+            *self.pending_rebase.borrow_mut() = None;
             Ok(())
         }
     }
@@ -257,7 +296,7 @@ mod tests {
     /// Builds a genesis anchor state and its commitment from arbitrary params.
     fn genesis_anchor() -> (L1BlockCommitment, AnchorState) {
         let params: StrataGenesisConfig = ArbitraryGenerator::new().generate();
-        let anchor = construct_genesis_state(&params);
+        let anchor = construct_v1_genesis_state(&params);
         let commitment = anchor.chain_view.pow_state.last_verified_block;
         (commitment, anchor)
     }
@@ -304,7 +343,7 @@ mod tests {
             .unwrap();
         assert_eq!(
             stored.inner_state(),
-            AsmStfProgram::compute_state_commitment(&anchor)
+            compute_anchor_state_commitment(&anchor)
         );
     }
 
@@ -395,7 +434,7 @@ mod tests {
         assert!(moho.contains_key(&blk_b));
         // Both fold from the shared genesis state onto the same anchor, so their
         // inner commitments match.
-        let inner = AsmStfProgram::compute_state_commitment(&anchor);
+        let inner = compute_anchor_state_commitment(&anchor);
         assert_eq!(moho.get(&blk_a).unwrap().inner_state(), inner);
         assert_eq!(moho.get(&blk_b).unwrap().inner_state(), inner);
     }
@@ -461,7 +500,6 @@ mod tests {
             ctx.insert_anchor(blk, child(&anchor));
             ctx.link_parent(blk, parent);
         }
-
         // Seeds genesis Moho state; ASM tip is blk3.
         let mut state = MohoWorkerServiceState::new(
             ctx,
@@ -570,6 +608,135 @@ mod tests {
 
         assert_eq!(state.cur_block(), blk_b);
         assert!(state.context.moho.borrow().contains_key(&blk_b));
+    }
+
+    #[test]
+    fn shorter_ancestor_is_durable_and_retained_branch_is_replayed() {
+        let (genesis_blk, anchor) = genesis_anchor();
+        let ctx = MockContext::default();
+        ctx.insert_anchor(genesis_blk, anchor.clone());
+
+        let blk1 = commitment_after_with_id(genesis_blk, 0xa1);
+        let blk2 = commitment_after_with_id(blk1, 0xa2);
+        let blk3 = commitment_after_with_id(blk2, 0xa3);
+        for (blk, parent) in [(blk1, genesis_blk), (blk2, blk1), (blk3, blk2)] {
+            ctx.insert_anchor(blk, child(&anchor));
+            ctx.link_parent(blk, parent);
+        }
+        for (blk, seed) in [(blk1, 0xa1), (blk2, 0xa2), (blk3, 0xa3)] {
+            ctx.logs.borrow_mut().insert(
+                blk,
+                vec![
+                    AsmLogEntry::from_log(&NewExportEntry::new(0, [seed; 32]))
+                        .expect("valid export log"),
+                ],
+            );
+        }
+
+        let mut state = MohoWorkerServiceState::new(
+            ctx,
+            genesis_blk,
+            PredicateKey::always_accept(),
+            Subscribers::default(),
+        )
+        .unwrap();
+        sync_to_tip(&mut state).unwrap();
+        assert_eq!(state.cur_block(), blk3);
+        assert_eq!(
+            state.context.export_entries.borrow().as_slice(),
+            &[
+                (0, blk1.height(), [0xa1; 32]),
+                (0, blk2.height(), [0xa2; 32]),
+                (0, blk3.height(), [0xa3; 32]),
+            ],
+        );
+
+        // `hashblock` can authoritatively move to an already-stored ancestor
+        // after invalidation. This is not a stale notification or a no-op.
+        state.context.set_asm_tip(blk1);
+        sync_to_tip(&mut state).unwrap();
+        assert_eq!(state.cur_block(), blk1);
+        assert_eq!(state.context.latest.borrow().as_ref().unwrap().0, blk1);
+        assert!(state.context.moho.borrow().contains_key(&blk3));
+        assert_eq!(
+            state.context.export_entries.borrow().as_slice(),
+            &[(0, blk1.height(), [0xa1; 32])],
+        );
+
+        // The active pointer survives restart even though a higher orphan is
+        // retained. Switching back to that already-stored branch must replay
+        // its suffix instead of treating the stored target as caught up.
+        let ctx = state.context;
+        let mut restarted = MohoWorkerServiceState::new(
+            ctx,
+            genesis_blk,
+            PredicateKey::always_accept(),
+            Subscribers::default(),
+        )
+        .unwrap();
+        assert_eq!(restarted.cur_block(), blk1);
+
+        restarted.context.set_asm_tip(blk3);
+        sync_to_tip(&mut restarted).unwrap();
+        assert_eq!(restarted.cur_block(), blk3);
+        assert_eq!(restarted.context.latest.borrow().as_ref().unwrap().0, blk3);
+        assert!(restarted.context.moho.borrow().contains_key(&blk1));
+        assert_eq!(
+            restarted.context.export_entries.borrow().as_slice(),
+            &[
+                (0, blk1.height(), [0xa1; 32]),
+                (0, blk2.height(), [0xa2; 32]),
+                (0, blk3.height(), [0xa3; 32]),
+            ],
+            "replaying the retained branch rebuilds its height-indexed export suffix",
+        );
+    }
+
+    #[test]
+    fn startup_completes_an_interrupted_rebase_without_a_new_notification() {
+        let (genesis_blk, anchor) = genesis_anchor();
+        let ctx = MockContext::default();
+        ctx.insert_anchor(genesis_blk, anchor.clone());
+
+        let blk1 = commitment_after_with_id(genesis_blk, 0xb1);
+        let blk2 = commitment_after_with_id(blk1, 0xb2);
+        for (blk, parent) in [(blk1, genesis_blk), (blk2, blk1)] {
+            ctx.insert_anchor(blk, child(&anchor));
+            ctx.link_parent(blk, parent);
+        }
+
+        let mut state = MohoWorkerServiceState::new(
+            ctx,
+            genesis_blk,
+            PredicateKey::always_accept(),
+            Subscribers::default(),
+        )
+        .unwrap();
+        sync_to_tip(&mut state).unwrap();
+        assert_eq!(state.cur_block(), blk2);
+
+        // Model a process interruption after the journal and export prune but
+        // before the base became active and the journal was cleared.
+        state.context.begin_moho_rebase(&blk1).unwrap();
+        state
+            .context
+            .prune_export_entries_from(blk2.height())
+            .unwrap();
+        assert_eq!(*state.context.pending_rebase.borrow(), Some(blk1));
+        assert_eq!(state.context.latest.borrow().as_ref().unwrap().0, blk2);
+
+        let context = state.context;
+        let restarted = MohoWorkerServiceState::new(
+            context,
+            genesis_blk,
+            PredicateKey::always_accept(),
+            Subscribers::default(),
+        )
+        .unwrap();
+
+        assert_eq!(restarted.cur_block(), blk1);
+        assert_eq!(*restarted.context.pending_rebase.borrow(), None);
+        assert_eq!(restarted.context.latest.borrow().as_ref().unwrap().0, blk1);
     }
 
     #[test]

@@ -11,6 +11,7 @@ strata-asm-common.workspace = true
 strata-identifiers.workspace = true
 strata-merkle = { workspace = true, features = ["ssz"] }
 strata-merkle-node-store.workspace = true
+strata-predicate = { workspace = true, features = ["borsh"] }
 
 anyhow.workspace = true
 borsh.workspace = true

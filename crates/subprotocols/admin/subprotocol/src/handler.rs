@@ -19,6 +19,15 @@ use crate::{
     error::AdministrationError, queued_update::QueuedUpdate, state::AdministrationSubprotoState,
 };
 
+/// Per-block guard for the one authoritative ASM predicate handover.
+///
+/// This is execution context, not consensus state. Replaying a block reconstructs it from
+/// `false`, and both queued enactments and incoming transactions share the same instance.
+#[derive(Debug, Default)]
+pub(crate) struct AsmEmissionGuard {
+    emitted: bool,
+}
+
 /// Processes and applies all queued updates that are ready to be enacted at the current height.
 ///
 /// This function retrieves all update actions from the queue that are ready to be applied
@@ -31,6 +40,7 @@ pub(crate) fn handle_pending_updates(
     state: &mut AdministrationSubprotoState,
     relayer: &mut impl MsgRelayer,
     current_height: L1Height,
+    asm_guard: &mut AsmEmissionGuard,
 ) {
     // Get all the update actions that are ready to be enacted, in queue order. The queue
     // preserves insertion order across cancellations, so this drain is deterministic.
@@ -48,7 +58,7 @@ pub(crate) fn handle_pending_updates(
         let (update_id, action) = queued.into_id_and_action();
         let tx_type = action.update_tx_type();
         let role = action.required_role();
-        match handle_update(state, relayer, action, current_height) {
+        match handle_update(state, relayer, action, current_height, asm_guard) {
             Ok(()) => info!(%update_id, %tx_type, %role, "enacted queued admin update"),
             Err(e) => {
                 error!(%update_id, %tx_type, %role, error = %e, "failed to enact queued admin update")
@@ -77,6 +87,7 @@ pub(crate) fn handle_action(
     payload: SignedPayload,
     current_height: L1Height,
     relayer: &mut impl MsgRelayer,
+    asm_guard: &mut AsmEmissionGuard,
 ) -> Result<(), AdministrationError> {
     // Determine the required role; both update and cancel actions are self-describing.
     let role = state.resolve_action_role(&payload.action);
@@ -93,6 +104,15 @@ pub(crate) fn handle_action(
             // Generate a unique ID for this update
             let id = state.next_update_id();
             let tx_type = update.update_tx_type();
+            let activation_height = match state.confirmation_depth(tx_type) {
+                Some(delay) => Some(current_height.checked_add(u32::from(delay)).ok_or(
+                    AdministrationError::ActivationHeightOverflow {
+                        current_height,
+                        delay,
+                    },
+                )?),
+                None => None,
+            };
 
             // At most one OL predicate rotation may be outstanding. Rejecting the second here
             // — rather than deferring its enactment later — keeps the exit window that the
@@ -103,18 +123,32 @@ pub(crate) fn handle_action(
             {
                 return Err(AdministrationError::OlStfVkUpdateAlreadyOutstanding);
             }
+            // A block hands over exactly one ASM predicate. Delayed rotations conflict only
+            // when they target the same activation height; rotations scheduled for distinct
+            // blocks are independently representable. A zero-depth update emits now, so it
+            // uses the shared block-local guard.
+            if matches!(update, UpdateAction::AsmStfVk(_)) {
+                match activation_height {
+                    Some(height) if state.has_asm_stf_vk_update_at(height) => {
+                        return Err(AdministrationError::AsmStfVkUpdateAlreadyScheduled {
+                            activation_height: height,
+                        });
+                    }
+                    None if asm_guard.emitted => {
+                        return Err(AdministrationError::AsmStfVkUpdateAlreadyEmitted);
+                    }
+                    Some(_) | None => {}
+                }
+            }
 
             // Updates with a non-zero confirmation depth are queued and enacted only after
             // `delay` more L1 blocks; until then they remain cancellable. A depth of zero
             // (surfaced as `None`) means "apply immediately" and bypasses the queue.
-            match state.confirmation_depth(tx_type) {
-                Some(delay) => {
-                    let activation_height = current_height.checked_add(u32::from(delay)).ok_or(
-                        AdministrationError::ActivationHeightOverflow {
-                            current_height,
-                            delay,
-                        },
-                    )?;
+            match activation_height {
+                Some(activation_height) => {
+                    let delay = state
+                        .confirmation_depth(tx_type)
+                        .expect("an activation height exists only for a non-zero delay");
                     let queued_update = QueuedUpdate::new(id, update, activation_height);
                     state.enqueue(queued_update);
                     info!(
@@ -133,7 +167,8 @@ pub(crate) fn handle_action(
                         %role,
                         "applying admin update immediately (zero confirmation depth)"
                     );
-                    if let Err(e) = handle_update(state, relayer, update, current_height) {
+                    if let Err(e) = handle_update(state, relayer, update, current_height, asm_guard)
+                    {
                         error!(update_id = %id, %tx_type, %role, error = %e, "failed to apply admin update");
                     }
                 }
@@ -178,6 +213,7 @@ fn handle_update(
     relayer: &mut impl MsgRelayer,
     update: UpdateAction,
     current_height: L1Height,
+    asm_guard: &mut AsmEmissionGuard,
 ) -> Result<(), AdministrationError> {
     match update {
         UpdateAction::StrataAdminMultisig(update) => {
@@ -209,11 +245,15 @@ fn handle_update(
             );
         }
         UpdateAction::AsmStfVk(update) => {
+            if asm_guard.emitted {
+                return Err(AdministrationError::AsmStfVkUpdateAlreadyEmitted);
+            }
             let key = update.into_key();
             debug!(?key, "new ASM STF verifying key");
             let log_entry = AsmLogEntry::from_log(&AsmStfUpdate::new(key))
                 .expect("AsmStfUpdate encoding is infallible");
             relayer.emit_log(log_entry);
+            asm_guard.emitted = true;
             info!("emitted ASM STF verifying key update log");
         }
         UpdateAction::EeStfVk(update) => {
@@ -331,11 +371,44 @@ mod tests {
     use strata_predicate::{PredicateKey, PredicateTypeId};
     use strata_test_utils_arb::ArbitraryGenerator;
 
-    use super::{handle_action, handle_pending_updates};
+    use super::{
+        AsmEmissionGuard, handle_action as handle_action_in_block,
+        handle_pending_updates as handle_pending_updates_in_block,
+    };
     use crate::{
         error::AdministrationError, queued_update::QueuedUpdate,
         state::AdministrationSubprotoState, subprotocol::AdministrationSubprotocol,
     };
+
+    /// Most unit tests exercise one administration operation in isolation. Full-block guard
+    /// behavior has dedicated tests below, so these wrappers give isolated calls a fresh block.
+    fn handle_action(
+        state: &mut AdministrationSubprotoState,
+        payload: SignedPayload,
+        current_height: L1Height,
+        relayer: &mut impl MsgRelayer,
+    ) -> Result<(), AdministrationError> {
+        handle_action_in_block(
+            state,
+            payload,
+            current_height,
+            relayer,
+            &mut AsmEmissionGuard::default(),
+        )
+    }
+
+    fn handle_pending_updates(
+        state: &mut AdministrationSubprotoState,
+        relayer: &mut impl MsgRelayer,
+        current_height: L1Height,
+    ) {
+        handle_pending_updates_in_block(
+            state,
+            relayer,
+            current_height,
+            &mut AsmEmissionGuard::default(),
+        );
+    }
 
     struct MockRelayer<M> {
         logs: Vec<AsmLogEntry>,
@@ -452,13 +525,15 @@ mod tests {
 
     /// Draws `count` random updates authorized by the Strata administrator.
     ///
-    /// Yields at most one `OlStfVk` action. Only one rotation may be outstanding at a time, so
-    /// a second draw would be refused at authorization and fail callers that expect every
-    /// action to queue. The rule has its own tests; these callers are about generic queueing.
+    /// Yields at most one `OlStfVk` and one `AsmStfVk` action. These callers submit every
+    /// generated action at the same height: a second OL rotation would violate its global pending
+    /// slot, while a second ASM rotation would target the same handover block. Both rules have
+    /// dedicated tests; these callers are about generic queueing.
     fn get_strata_administrator_update_actions(count: usize) -> Vec<UpdateAction> {
         let mut arb = ArbitraryGenerator::new();
         let mut actions = Vec::new();
         let mut drew_ol_rotation = false;
+        let mut drew_asm_rotation = false;
 
         while actions.len() < count {
             let action: UpdateAction = arb.generate();
@@ -470,6 +545,12 @@ mod tests {
                     continue;
                 }
                 drew_ol_rotation = true;
+            }
+            if matches!(action, UpdateAction::AsmStfVk(_)) {
+                if drew_asm_rotation {
+                    continue;
+                }
+                drew_asm_rotation = true;
             }
             actions.push(action);
         }
@@ -494,6 +575,41 @@ mod tests {
         let sig_set = create_signature_set(admin_sks, &[0, 2], &action, seqno);
         let payload = SignedPayload::new(seqno, action, sig_set);
         handle_action(state, payload, current_height, relayer)
+    }
+
+    /// Signs and submits an `AsmStfVk` rotation as the Strata administrator.
+    fn authorize_asm_rotation(
+        state: &mut AdministrationSubprotoState,
+        relayer: &mut MockRelayer<CheckpointIncomingMsg>,
+        admin_sks: &[SecretKey],
+        predicate: PredicateKey,
+        seqno: u64,
+        current_height: L1Height,
+    ) -> Result<(), AdministrationError> {
+        authorize_asm_rotation_in_block(
+            state,
+            relayer,
+            admin_sks,
+            predicate,
+            seqno,
+            current_height,
+            &mut AsmEmissionGuard::default(),
+        )
+    }
+
+    fn authorize_asm_rotation_in_block(
+        state: &mut AdministrationSubprotoState,
+        relayer: &mut MockRelayer<CheckpointIncomingMsg>,
+        admin_sks: &[SecretKey],
+        predicate: PredicateKey,
+        seqno: u64,
+        current_height: L1Height,
+        asm_guard: &mut AsmEmissionGuard,
+    ) -> Result<(), AdministrationError> {
+        let action = MultisigAction::Update(UpdateAction::AsmStfVk(AsmStfVkUpdate::new(predicate)));
+        let sig_set = create_signature_set(admin_sks, &[0, 2], &action, seqno);
+        let payload = SignedPayload::new(seqno, action, sig_set);
+        handle_action_in_block(state, payload, current_height, relayer, asm_guard)
     }
 
     /// Test that Strata Administrator update actions are properly handled:
@@ -1014,6 +1130,195 @@ mod tests {
             .try_into_log::<AsmStfUpdate>()
             .expect("log should deserialize as AsmStfUpdate");
         assert_eq!(asm_update.new_predicate(), &predicate);
+    }
+
+    #[test]
+    fn test_second_asm_rotation_rejected_while_one_is_queued() {
+        let (params, admin_sks, _, _) = create_test_params();
+        let mut state = AdministrationSubprotoState::new(&params);
+        let mut relayer = MockRelayer::<CheckpointIncomingMsg>::new();
+        let current_height = 1_000;
+
+        assert!(
+            authorize_asm_rotation(
+                &mut state,
+                &mut relayer,
+                &admin_sks,
+                test_predicate(1),
+                1,
+                current_height,
+            )
+            .is_ok()
+        );
+        assert_eq!(state.queued().len(), 1);
+
+        assert_eq!(
+            authorize_asm_rotation(
+                &mut state,
+                &mut relayer,
+                &admin_sks,
+                test_predicate(2),
+                2,
+                current_height,
+            ),
+            Err(AdministrationError::AsmStfVkUpdateAlreadyScheduled {
+                activation_height: current_height + 2016,
+            }),
+        );
+        assert_eq!(state.queued().len(), 1);
+        assert_eq!(state.next_update_id(), 1);
+        assert_eq!(
+            state
+                .authority(Role::StrataAdministrator)
+                .expect("authority")
+                .last_seqno(),
+            1,
+        );
+    }
+
+    #[test]
+    fn test_asm_rotations_at_distinct_activation_heights_can_be_queued() {
+        let (params, admin_sks, _, _) = create_test_params();
+        let mut state = AdministrationSubprotoState::new(&params);
+        let mut relayer = MockRelayer::<CheckpointIncomingMsg>::new();
+
+        authorize_asm_rotation(
+            &mut state,
+            &mut relayer,
+            &admin_sks,
+            test_predicate(1),
+            1,
+            1_000,
+        )
+        .expect("first future handover is scheduled");
+        authorize_asm_rotation(
+            &mut state,
+            &mut relayer,
+            &admin_sks,
+            test_predicate(2),
+            2,
+            1_001,
+        )
+        .expect("a later block has an independent handover slot");
+
+        assert_eq!(state.queued().len(), 2);
+        assert_eq!(state.queued()[0].activation_height(), 3_016);
+        assert_eq!(state.queued()[1].activation_height(), 3_017);
+    }
+
+    #[test]
+    fn test_second_immediate_asm_rotation_rejected_in_the_same_block() {
+        let (mut params, admin_sks, _, _) = create_test_params();
+        params.confirmation_depths.asm_stf_vk_update = 0;
+        let mut state = AdministrationSubprotoState::new(&params);
+        let mut relayer = MockRelayer::<CheckpointIncomingMsg>::new();
+        let current_height = 1_000;
+        let mut asm_guard = AsmEmissionGuard::default();
+
+        assert!(
+            authorize_asm_rotation_in_block(
+                &mut state,
+                &mut relayer,
+                &admin_sks,
+                test_predicate(1),
+                1,
+                current_height,
+                &mut asm_guard,
+            )
+            .is_ok()
+        );
+        assert_eq!(relayer.logs.len(), 1);
+
+        assert_eq!(
+            authorize_asm_rotation_in_block(
+                &mut state,
+                &mut relayer,
+                &admin_sks,
+                test_predicate(2),
+                2,
+                current_height,
+                &mut asm_guard,
+            ),
+            Err(AdministrationError::AsmStfVkUpdateAlreadyEmitted),
+        );
+        assert_eq!(
+            relayer.logs.len(),
+            1,
+            "the rejected update emitted a handover"
+        );
+        assert_eq!(state.next_update_id(), 1);
+        assert_eq!(
+            state
+                .authority(Role::StrataAdministrator)
+                .expect("authority")
+                .last_seqno(),
+            1,
+        );
+    }
+
+    #[test]
+    fn test_due_rotation_blocks_an_immediate_second_handover_in_the_same_block() {
+        let (mut params, admin_sks, _, _) = create_test_params();
+        params.confirmation_depths.asm_stf_vk_update = 0;
+        let mut state = AdministrationSubprotoState::new(&params);
+        let mut relayer = MockRelayer::<CheckpointIncomingMsg>::new();
+        let current_height = 1_000;
+        state.enqueue(QueuedUpdate::new(
+            0,
+            UpdateAction::AsmStfVk(AsmStfVkUpdate::new(test_predicate(1))),
+            current_height,
+        ));
+
+        let mut asm_guard = AsmEmissionGuard::default();
+        handle_pending_updates_in_block(&mut state, &mut relayer, current_height, &mut asm_guard);
+        assert_eq!(relayer.logs.len(), 1);
+
+        assert_eq!(
+            authorize_asm_rotation_in_block(
+                &mut state,
+                &mut relayer,
+                &admin_sks,
+                test_predicate(2),
+                1,
+                current_height,
+                &mut asm_guard,
+            ),
+            Err(AdministrationError::AsmStfVkUpdateAlreadyEmitted),
+        );
+        assert_eq!(relayer.logs.len(), 1);
+    }
+
+    #[test]
+    fn test_next_block_can_authorize_another_immediate_asm_rotation() {
+        let (mut params, admin_sks, _, _) = create_test_params();
+        params.confirmation_depths.asm_stf_vk_update = 0;
+        let mut state = AdministrationSubprotoState::new(&params);
+        let mut relayer = MockRelayer::<CheckpointIncomingMsg>::new();
+
+        let mut first_block = AsmEmissionGuard::default();
+        authorize_asm_rotation_in_block(
+            &mut state,
+            &mut relayer,
+            &admin_sks,
+            test_predicate(1),
+            1,
+            1_000,
+            &mut first_block,
+        )
+        .expect("first block may hand over once");
+        let mut second_block = AsmEmissionGuard::default();
+        authorize_asm_rotation_in_block(
+            &mut state,
+            &mut relayer,
+            &admin_sks,
+            test_predicate(2),
+            2,
+            1_001,
+            &mut second_block,
+        )
+        .expect("the child block may hand over again under its selected rules");
+
+        assert_eq!(relayer.logs.len(), 2);
     }
 
     /// Test that cancel actions properly remove queued updates:

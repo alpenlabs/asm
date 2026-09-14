@@ -16,17 +16,17 @@ use integration_tests::harness;
 use moho_runtime_impl::RuntimeInput;
 use moho_types::ExportState;
 use ssz::Encode;
-use strata_asm_common::AuxData;
+use strata_asm_common::{prepare_state, AuxData};
 use strata_asm_logs::AsmStfUpdate;
 use strata_asm_proof_impl::{
     moho_program::{input::AsmStepInput, program::advance_export_state_with_logs},
     program::AsmStfProofProgram,
     test_utils::create_moho_state,
 };
-use strata_asm_spec::StrataAsmSpec;
+use strata_asm_spec::{StrataAsmSpecV1, StrataAsmTarget};
 use strata_asm_stf::compute_asm_transition;
 use strata_btc_verification::TxidInclusionProof;
-use strata_predicate::PredicateKey;
+use strata_predicate::{PredicateKey, PredicateTypeId};
 
 /// Verifies ASM predicate updates emit an `AsmStfUpdate` log in the manifest after activation.
 ///
@@ -162,9 +162,10 @@ async fn test_proof_program_reflects_predicate_update() {
         AsmStfProofProgram::execute(&runtime_input).expect("AsmStfProofProgram::execute failed");
 
     // Independently compute the expected post-state.
+    let prepared = prepare_state::<StrataAsmSpecV1>(&pre_anchor_state)
+        .expect("pre-state prepares for the spec");
     let stf_output = compute_asm_transition(
-        &StrataAsmSpec,
-        &pre_anchor_state,
+        &prepared,
         &activation_block,
         step_input.aux_data(),
         Some(&coinbase_inclusion_proof),
@@ -187,5 +188,117 @@ async fn test_proof_program_reflects_predicate_update() {
         attestation.to().commitment(),
         &expected_post_moho.compute_commitment(),
         "post-state commitment should reflect the updated predicate (never_accept)"
+    );
+}
+
+/// A successor release's verifying key, standing in for the artifact an upgrade
+/// enacts.
+fn successor_predicate() -> PredicateKey {
+    PredicateKey::try_new(PredicateTypeId::Sp1Groth16, vec![0xa1; 32]).expect("valid predicate")
+}
+
+/// Verifies the worker rotates onto the enacted predicate and keeps executing
+/// under it.
+///
+/// This is the half of the handover that only the real worker can show. The
+/// pieces — deriving the predicate from the logs, persisting it, resolving it to
+/// a specification — are each unit-tested, but whether the running worker
+/// actually adopts what it derived, and does so before the next block, is a
+/// property of the wiring. The next block is processed at all only if it does.
+///
+/// Flow:
+/// 1. Bind the successor predicate in the worker's target table, as a release would
+/// 2. Enact it through the admin subprotocol and mine to activation
+/// 3. Assert the chain handed it over, then mine one more block under it
+#[tokio::test(flavor = "multi_thread")]
+async fn test_worker_rotates_onto_the_enacted_predicate() {
+    let successor = successor_predicate();
+    let Setup {
+        harness,
+        admin: mut ctx,
+        ..
+    } = AsmTestHarnessBuilder::default()
+        .with_target(successor.clone(), StrataAsmTarget::V1)
+        .build()
+        .await;
+
+    harness
+        .submit_admin_action(&mut ctx, asm_stf_vk_update(successor.clone()))
+        .await
+        .unwrap();
+    harness
+        .mine_blocks(DEFAULT_CONFIRMATION_DEPTH as usize)
+        .await
+        .unwrap();
+
+    // The activation block handed over the successor predicate.
+    let (_, moho_state) = harness
+        .get_latest_moho_state()
+        .unwrap()
+        .expect("Moho state must exist after activation");
+    assert_eq!(
+        moho_state.next_predicate(),
+        &successor,
+        "the activation block must hand over the enacted predicate",
+    );
+
+    // Executing the next block requires resolving that predicate, so a
+    // successful submit is the proof the worker adopted it.
+    let height_before = harness.get_processed_height().unwrap();
+    harness
+        .mine_block(None)
+        .await
+        .expect("the worker must execute the block after the handover");
+    assert_eq!(
+        harness.get_processed_height().unwrap(),
+        height_before + 1,
+        "the block after the handover must be processed under the rotated predicate",
+    );
+}
+
+/// Verifies the worker refuses the block after an upgrade it cannot execute,
+/// rather than continuing under the rules it happens to have.
+///
+/// This is the failure the whole selection model exists to produce. A node whose
+/// release does not implement the enacted rules must stop: continuing would build
+/// state no proof can ever be made for, and on a node that does not prove nothing
+/// else would notice.
+///
+/// The enacting block itself still succeeds — it ran under the old, bound
+/// predicate. Only its successor is refused.
+#[tokio::test(flavor = "multi_thread")]
+async fn test_worker_halts_on_an_upgrade_it_cannot_execute() {
+    let Setup {
+        harness,
+        admin: mut ctx,
+        ..
+    } = AsmTestHarnessBuilder::default().build().await;
+
+    // Deliberately *not* bound in the target table: rules this build lacks.
+    let unbound = successor_predicate();
+    harness
+        .submit_admin_action(&mut ctx, asm_stf_vk_update(unbound))
+        .await
+        .unwrap();
+
+    // Activation lands on the last of these blocks, which still executes under
+    // the genesis predicate.
+    harness
+        .mine_blocks(DEFAULT_CONFIRMATION_DEPTH as usize)
+        .await
+        .expect("the enacting block runs under the predicate it was authorized by");
+
+    let height_at_activation = harness.get_processed_height().unwrap();
+
+    let result = harness.mine_block(None).await;
+
+    assert!(
+        result.is_err(),
+        "the worker must refuse a block whose predicate it cannot resolve",
+    );
+    assert_eq!(
+        harness.get_processed_height().unwrap(),
+        height_at_activation,
+        "a refused block must leave the committed anchor where it was",
     );
 }

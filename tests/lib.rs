@@ -17,6 +17,8 @@ use moho_types as _;
 use rand as _;
 use rand_chacha as _;
 use ssz as _;
+use ssz_derive as _;
+use ssz_types as _;
 use strata_asm_bridge_types as _;
 use strata_asm_checkpoint_types as _;
 use strata_asm_common as _;

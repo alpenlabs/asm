@@ -8,10 +8,12 @@
 mod authority;
 mod error;
 mod handler;
+mod migrate;
 mod queued_update;
 mod state;
 mod subprotocol;
 
+pub use migrate::{AdminMigrationError, migrate_from_v0};
 pub use queued_update::QueuedUpdate;
 pub use state::AdministrationSubprotoState;
 pub use subprotocol::AdministrationSubprotocol;

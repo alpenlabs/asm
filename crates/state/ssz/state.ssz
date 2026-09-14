@@ -19,6 +19,9 @@ class AsmHistoryAccumulatorState(Container):
 ### Serialized state for a subprotocol section.
 class SectionState(Container):
     id: uint8
+    ### Codec version of `data`, declared by the subprotocol version that
+    ### wrote it (`Subprotocol::STATE_VERSION`). Numbering starts at 0.
+    version: uint8
     data: List[uint8, MAX_SECTION_STATE_BYTES]
 
 ### Chain view state required by the ASM transition.
@@ -30,7 +33,12 @@ class ChainViewState(Container):
     history_accumulator: AsmHistoryAccumulatorState
 
 ### Top-level ASM state.
+###
+### `version` leads the container so the codec version is the first wire byte
+### and can be read without decoding the rest.
 class AnchorState(Container):
+    ### Codec version of this container's layout.
+    version: uint8
     magic: Bytes4
     chain_view: ChainViewState
     sections: List[SectionState, MAX_SECTIONS]

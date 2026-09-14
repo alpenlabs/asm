@@ -8,11 +8,16 @@
 mod manager;
 mod preprocess;
 mod stage;
+mod targets;
 mod transition;
 mod tx_filter;
 mod types;
 
 pub use preprocess::pre_process_asm;
+pub use targets::{
+    AsmTargetSet, PreStateValidation, pre_process_for, transition_for, validate_pre_state_for,
+    validate_pre_state_with_predecessor_for,
+};
 pub use transition::compute_asm_transition;
 pub use tx_filter::group_txs_by_subprotocol;
-pub use types::{AsmStfInput, AsmStfOutput};
+pub use types::{AsmPreProcessOutput, AsmStfInput, AsmStfOutput};

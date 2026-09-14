@@ -94,7 +94,7 @@ impl AsmStateProvider for MohoWorkerContextImpl {
             .state_db
             .get_latest()
             .map_err(|e| MohoWorkerError::Storage(e.into()))?
-            .map(|anchor| anchor.chain_view.pow_state.last_verified_block))
+            .map(|(block, _anchor)| block))
     }
 }
 
@@ -120,6 +120,13 @@ impl L1ProviderContext for MohoWorkerContextImpl {
 }
 
 impl MohoStateStore for MohoWorkerContextImpl {
+    fn recover_pending_rebase(&self) -> MohoWorkerResult<()> {
+        self.moho_state_db
+            .recover_rebase(&self.export_entries_db)
+            .map(|_| ())
+            .map_err(|e| MohoWorkerError::Storage(e.into()))
+    }
+
     fn get_latest_moho_state(&self) -> MohoWorkerResult<Option<(L1BlockCommitment, MohoState)>> {
         self.moho_state_db
             .get_latest()
@@ -139,7 +146,19 @@ impl MohoStateStore for MohoWorkerContextImpl {
         state: &MohoState,
     ) -> MohoWorkerResult<()> {
         self.moho_state_db
-            .store(*blockid, state.clone())
+            .commit(*blockid, state.clone())
+            .map_err(|e| MohoWorkerError::Storage(e.into()))
+    }
+
+    fn begin_moho_rebase(&self, base: &L1BlockCommitment) -> MohoWorkerResult<()> {
+        self.moho_state_db
+            .begin_rebase(*base)
+            .map_err(|e| MohoWorkerError::Storage(e.into()))
+    }
+
+    fn finish_moho_rebase(&self, base: &L1BlockCommitment) -> MohoWorkerResult<()> {
+        self.moho_state_db
+            .finish_rebase(*base, &self.export_entries_db)
             .map_err(|e| MohoWorkerError::Storage(e.into()))
     }
 }

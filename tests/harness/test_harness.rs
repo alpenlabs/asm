@@ -55,7 +55,7 @@ use strata_asm_common::{AnchorState, AsmLogEntry};
 use strata_asm_manifest_types::AsmLog;
 use strata_asm_moho_worker::{MohoStateStore, MohoWorkerBuilder, MohoWorkerHandle};
 use strata_asm_params::{AdministrationInitConfig, StrataGenesisConfig};
-use strata_asm_spec::StrataAsmSpec;
+use strata_asm_spec::{StrataAsmTarget, StrataAsmTargets};
 use strata_asm_worker::{
     test_utils::{get_l1_anchor, TestAsmWorkerContext},
     AnchorStateStore, AsmWorkerBuilder, AsmWorkerHandle, ManifestMmrStore,
@@ -343,10 +343,7 @@ impl AsmTestHarness {
 
     /// Get the latest ASM anchor state from the worker context.
     pub fn get_latest_asm_state(&self) -> anyhow::Result<Option<(L1BlockCommitment, AnchorState)>> {
-        Ok(self
-            .context
-            .get_latest_anchor_state()?
-            .map(|state| (state.last_processed_block(), state)))
+        Ok(self.context.get_latest_anchor_state()?)
     }
 
     /// Get the ASM anchor state at a specific block.
@@ -712,6 +709,7 @@ pub struct AsmTestHarnessBuilder {
     admin_customize: Option<AdminConfigCustomizer>,
     num_operators: usize,
     txindex: bool,
+    extra_targets: Vec<(PredicateKey, StrataAsmTarget)>,
 }
 
 impl Default for AsmTestHarnessBuilder {
@@ -722,6 +720,7 @@ impl Default for AsmTestHarnessBuilder {
             admin_customize: None,
             num_operators: DEFAULT_NUM_OPERATORS,
             txindex: false,
+            extra_targets: Vec::new(),
         }
     }
 }
@@ -736,6 +735,7 @@ impl fmt::Debug for AsmTestHarnessBuilder {
             .field("admin_customize", &self.admin_customize.is_some())
             .field("num_operators", &self.num_operators)
             .field("txindex", &self.txindex)
+            .field("extra_targets", &self.extra_targets.len())
             .finish()
     }
 }
@@ -787,6 +787,19 @@ impl AsmTestHarnessBuilder {
         self
     }
 
+    /// Binds an additional predicate to a specification in the worker's target
+    /// table, on top of the genesis binding the harness always installs.
+    ///
+    /// Needed by any test that enacts an ASM verifying-key update *and then keeps
+    /// mining*: the worker resolves each block against the predicate its parent
+    /// handed over, and halts on one it cannot resolve. A test that rotates onto
+    /// a predicate must therefore say what rules that predicate selects — which
+    /// is exactly what a release does for a real upgrade.
+    pub fn with_target(mut self, predicate: PredicateKey, target: StrataAsmTarget) -> Self {
+        self.extra_targets.push((predicate, target));
+        self
+    }
+
     /// Builds the harness and returns it alongside the per-subprotocol contexts. Panics on
     /// failure (test setup); see [`Setup`].
     pub async fn build(self) -> Setup {
@@ -824,10 +837,14 @@ impl AsmTestHarnessBuilder {
         let (checkpoint_config, checkpoint_harness) =
             create_test_checkpoint_setup(genesis_height as u32);
 
-        // 4. Build the genesis config (arbitrary for the L1 view) and install the
-        // named subprotocol configs.
+        // 4. Build the genesis config (arbitrary for the L1 view) and install our
+        // subprotocol configs. Each is a named field, so there is nothing to
+        // search for and nothing that can be silently absent.
         let mut asm_params: StrataGenesisConfig = ArbitraryGenerator::new().generate();
         asm_params.anchor = genesis_view;
+        // Stated rather than left to the arbitrary value, so the two workers
+        // below and any assertion about the handover all read one source.
+        asm_params.genesis_asm_predicate = Some(PredicateKey::always_accept());
         asm_params.admin = admin_config.clone();
         asm_params.bridge = bridge_config.clone();
         asm_params.checkpoint = checkpoint_config.clone();
@@ -847,10 +864,25 @@ impl AsmTestHarnessBuilder {
         // 7. Launch ASM worker service. `launch` stores the genesis anchor
         // synchronously, so the Moho worker (step 8) can seed its genesis Moho
         // state from it.
+        let bootstrap = Arc::new(strata_asm_spec::build_v1_bootstrap(&asm_params)?);
+        // The predicate the chain starts under comes from params, so the worker
+        // and the Moho worker below are seeded from one value rather than two
+        // that happen to agree.
+        let asm_predicate = asm_params
+            .genesis_asm_predicate
+            .clone()
+            .expect("the harness states the genesis predicate");
+        // The harness runs the current rules from block one, so the genesis
+        // binding alone suffices unless a test rotates onto another predicate;
+        // see `with_target`.
+        let mut bindings = vec![(asm_predicate.clone(), StrataAsmTarget::V1)];
+        bindings.extend(self.extra_targets);
+        let targets = StrataAsmTargets::new(bindings)?;
         let asm_handle = AsmWorkerBuilder::new()
             .with_context(context.clone())
-            .with_asm_spec(StrataAsmSpec)
-            .with_params((*asm_params).clone())
+            .with_targets(targets)
+            .with_genesis_predicate(asm_predicate.clone())
+            .with_bootstrap(bootstrap)
             .launch(&executor)?;
 
         // 8. Launch the Moho worker, driven by the ASM worker's per-block commit
@@ -859,15 +891,14 @@ impl AsmTestHarnessBuilder {
         //
         // Subscribe *before* any block is submitted (the genesis submit below and
         // every later `mine_block`): the subscription has no replay, so a later
-        // subscriber would miss already-committed blocks. The `always_accept`
-        // predicate stands in for the real ASM predicate the runner derives from
-        // its proof backend — the harness has no verifier.
+        // subscriber would miss already-committed blocks. Both workers seed from
+        // the same genesis predicate the params carry, mirroring the runner.
         let moho_context = TestMohoWorkerContext::new(context.clone());
         let moho_handle = MohoWorkerBuilder::new()
             .with_context(moho_context.clone())
             .with_subscription(asm_handle.subscribe_blocks())
             .with_genesis_block(asm_params.anchor.block)
-            .with_asm_predicate(PredicateKey::always_accept())
+            .with_asm_predicate(asm_predicate.clone())
             .launch(&executor)
             .await?;
 

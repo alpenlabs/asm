@@ -10,13 +10,14 @@
 use strata_identifiers::{Buf32, L1BlockCommitment, L1BlockId};
 
 mod aux_input;
+mod handover;
 mod manifest;
 mod manifest_mmr;
 mod state;
 
 pub use self::{
-    aux_input::SledAsmAuxDataDb, manifest::SledAsmManifestDb, manifest_mmr::SledAsmManifestMmrDb,
-    state::SledAsmStateDb,
+    aux_input::SledAsmAuxDataDb, handover::SledAsmHandoverDb, manifest::SledAsmManifestDb,
+    manifest_mmr::SledAsmManifestMmrDb, state::SledAsmStateDb,
 };
 
 // ── Key encoding ──────────────────────────────────────────────────────

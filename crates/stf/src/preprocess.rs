@@ -3,7 +3,7 @@
 //! view into a single deterministic state transition.
 
 use bitcoin::block::Block;
-use strata_asm_common::{AnchorState, AsmError, AsmResult, AsmSpec};
+use strata_asm_common::{AsmError, AsmResult, AsmSpec, PreparedState};
 
 use crate::{
     manager::SubprotoManager,
@@ -27,7 +27,9 @@ use crate::{
 ///
 /// # Arguments
 ///
-/// * `pre_state` - The previous anchor state to transition from
+/// * `pre_state` - State already validated for `S` by
+///   [`prepare_state`](strata_asm_common::prepare_state). The same value must be reused for the
+///   transition, so both phases observe one layout.
 /// * `block` - The new L1 Bitcoin block to process
 ///
 /// # Returns
@@ -40,18 +42,18 @@ use crate::{
 ///
 /// This function will return an error if:
 /// - The block header fails PoW continuity validation
-/// - Subprotocol loading or pre-processing fails
+/// - A declared section is absent, or its payload does not decode as its subprotocol's state
 ///
 /// # Type Parameters
 ///
-/// * `S` - The ASM specification type that defines magic bytes, subprotocol behavior, and genesis
-///   configs
+/// * `S` - The ASM specification whose rules apply to this block
 /// * `'b` - Lifetime parameter tied to the input block reference
 pub fn pre_process_asm<'b, S: AsmSpec>(
-    spec: &S,
-    pre_state: &AnchorState,
+    pre_state: &PreparedState<'_, S>,
     block: &'b Block,
 ) -> AsmResult<AsmPreProcessOutput<'b>> {
+    let pre_state = pre_state.state();
+
     // 1. Validate and update PoW header continuity for the new block.
     // This ensures the block header follows proper Bitcoin consensus rules and chain continuity.
     let mut pow_state = pre_state.chain_view.pow_state.clone();
@@ -67,13 +69,13 @@ pub fn pre_process_asm<'b, S: AsmSpec>(
 
     // 3. LOAD: Initialize each subprotocol in the subproto manager.
     let mut loader_stage = LoaderStage::new(&mut manager, pre_state);
-    spec.call_subprotocols(&mut loader_stage);
+    S::call_subprotocols(&mut loader_stage);
 
     // 4. PROCESS: Feed each subprotocol its filtered transactions for pre-processing.
     // This stage extracts auxiliary requests that will be needed for the main STF execution.
     let mut pre_process_stage =
         PreProcessStage::new(&mut manager, pre_state, &grouped_relevant_txs);
-    spec.call_subprotocols(&mut pre_process_stage);
+    S::call_subprotocols(&mut pre_process_stage);
 
     // 5. Export auxiliary requests collected during pre-processing.
     // These requests will be fulfilled before running the main ASM state transition.

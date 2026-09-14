@@ -30,6 +30,22 @@ pub enum AdministrationError {
     #[error("an OL STF verifying key update is already queued or awaiting activation")]
     OlStfVkUpdateAlreadyOutstanding,
 
+    /// Another ASM STF verifying-key rotation already targets the same activation block.
+    ///
+    /// The handover chain can authorize only one predicate for a block's child. Rotations at
+    /// distinct heights remain valid and may be scheduled concurrently.
+    #[error(
+        "an ASM STF verifying key update is already scheduled for L1 height {activation_height}"
+    )]
+    AsmStfVkUpdateAlreadyScheduled {
+        /// Activation height already occupied by another ASM rotation.
+        activation_height: L1Height,
+    },
+
+    /// This block already emitted its one ASM predicate handover.
+    #[error("this L1 block already emitted an ASM STF verifying key update")]
+    AsmStfVkUpdateAlreadyEmitted,
+
     /// The activation height cannot be represented in the L1 height domain.
     #[error(
         "activation height overflow: current height {current_height} plus confirmation delay \

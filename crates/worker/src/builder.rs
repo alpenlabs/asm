@@ -1,4 +1,8 @@
-use strata_asm_common::AsmSpec;
+use std::sync::Arc;
+
+use strata_asm_common::AsmBootstrap;
+use strata_asm_stf::AsmTargetSet;
+use strata_predicate::PredicateKey;
 use strata_service::ServiceBuilder;
 use strata_tasks::TaskExecutor;
 
@@ -18,23 +22,24 @@ use crate::{
 /// from leaking into the caller. The builder launches the service and returns
 /// a handle to it.
 ///
-/// Generic over the worker context `W` and the ASM spec `S`, so callers can
-/// inject alternative specs (e.g. a debug-wrapped spec for testing) without
-/// forking the worker.
+/// Generic over the worker context `W` and the target set `T` — the
+/// specifications this build can execute, keyed by authorizing predicate.
 #[derive(Debug)]
-pub struct AsmWorkerBuilder<W, S: AsmSpec> {
+pub struct AsmWorkerBuilder<W, T> {
     context: Option<W>,
-    params: Option<S::Params>,
-    spec: Option<S>,
+    targets: Option<T>,
+    genesis_predicate: Option<PredicateKey>,
+    bootstrap: Option<Arc<AsmBootstrap>>,
 }
 
-impl<W, S: AsmSpec> AsmWorkerBuilder<W, S> {
+impl<W, T> AsmWorkerBuilder<W, T> {
     /// Create a new builder instance.
     pub fn new() -> Self {
         Self {
             context: None,
-            params: None,
-            spec: None,
+            targets: None,
+            genesis_predicate: None,
+            bootstrap: None,
         }
     }
 
@@ -44,18 +49,31 @@ impl<W, S: AsmSpec> AsmWorkerBuilder<W, S> {
         self
     }
 
-    /// Set the ASM parameters used to construct the genesis state.
-    pub fn with_params(mut self, params: S::Params) -> Self {
-        self.params = Some(params);
+    /// Set the specifications this build can execute.
+    ///
+    /// The predicate-to-specification table is a property of the release, not of
+    /// a deployment; see `strata_asm_spec::StrataAsmTargets`.
+    pub fn with_targets(mut self, targets: T) -> Self {
+        self.targets = Some(targets);
         self
     }
 
-    /// Set the ASM spec driving the subprotocol pipeline.
+    /// Set the predicate a fresh chain's genesis state hands over.
     ///
-    /// Production deployments pass `StrataAsmSpec`; tests can pass a wrapped
-    /// debug spec to inject extra subprotocols.
-    pub fn with_asm_spec(mut self, spec: S) -> Self {
-        self.spec = Some(spec);
+    /// Only consulted when no handover has been recorded yet — that is, on a
+    /// chain being initialized. Afterwards the chain's own handovers decide.
+    pub fn with_genesis_predicate(mut self, predicate: PredicateKey) -> Self {
+        self.genesis_predicate = Some(predicate);
+        self
+    }
+
+    /// Set the chain's validated bootstrap.
+    ///
+    /// The worker never sees genesis params: whoever holds them builds and
+    /// validates the genesis state, and the bootstrap carries its own anchor
+    /// height.
+    pub fn with_bootstrap(mut self, bootstrap: Arc<AsmBootstrap>) -> Self {
+        self.bootstrap = Some(bootstrap);
         self
     }
 
@@ -67,16 +85,20 @@ impl<W, S: AsmSpec> AsmWorkerBuilder<W, S> {
     pub fn launch(self, executor: &TaskExecutor) -> WorkerResult<AsmWorkerHandle>
     where
         W: WorkerContext + Send + Sync + 'static,
-        S: AsmSpec + Send + Sync + 'static,
-        S::Params: Send + Sync + 'static,
+        T: AsmTargetSet,
     {
         let context = self
             .context
             .ok_or(WorkerError::MissingDependency("context"))?;
-        let params = self
-            .params
-            .ok_or(WorkerError::MissingDependency("params"))?;
-        let spec = self.spec.ok_or(WorkerError::MissingDependency("spec"))?;
+        let targets = self
+            .targets
+            .ok_or(WorkerError::MissingDependency("targets"))?;
+        let genesis_predicate = self
+            .genesis_predicate
+            .ok_or(WorkerError::MissingDependency("genesis predicate"))?;
+        let bootstrap = self
+            .bootstrap
+            .ok_or(WorkerError::MissingDependency("bootstrap"))?;
 
         // Shared between the service state (which emits) and the handle (which
         // hands out subscriptions), so a `subscribe_blocks()` on the handle
@@ -84,11 +106,17 @@ impl<W, S: AsmSpec> AsmWorkerBuilder<W, S> {
         let subscribers = Subscribers::default();
 
         // Create the service state.
-        let service_state = AsmWorkerServiceState::new(context, spec, params, subscribers.clone())?;
+        let service_state = AsmWorkerServiceState::<W, T>::new(
+            context,
+            targets,
+            genesis_predicate,
+            bootstrap,
+            subscribers.clone(),
+        )?;
 
         // Create the service builder and get command handle.
         let mut service_builder =
-            ServiceBuilder::<AsmWorkerService<W, S>, _>::new().with_state(service_state);
+            ServiceBuilder::<AsmWorkerService<W, T>, _>::new().with_state(service_state);
 
         // Create the command handle before launching.
         let command_handle = service_builder.create_command_handle(64);
@@ -106,7 +134,7 @@ impl<W, S: AsmSpec> AsmWorkerBuilder<W, S> {
     }
 }
 
-impl<W, S: AsmSpec> Default for AsmWorkerBuilder<W, S> {
+impl<W, T> Default for AsmWorkerBuilder<W, T> {
     fn default() -> Self {
         Self::new()
     }

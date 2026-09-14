@@ -55,7 +55,7 @@ pub enum ExportProofError<M: Debug, E: Debug> {
     LeafAfterBlock {
         /// The container that was queried.
         container_id: u8,
-        /// Where the leaf sits in the index today.
+        /// Where the newest occurrence sits in the index today.
         mmr_index: u64,
         /// How many leaves the container held at the queried block.
         at_leaf_count: u64,
@@ -80,6 +80,13 @@ pub enum ExportProofError<M: Debug, E: Debug> {
         commitment: L1BlockCommitment,
     },
 
+    /// The active state/export projection changed while the proof was built.
+    ///
+    /// The caller can retry against the newly ready generation; returning the
+    /// first proof could otherwise expose a mix of the two projections.
+    #[error("moho state/export view changed during proof read: generation {before} -> {after}")]
+    ViewChanged { before: u64, after: u64 },
+
     /// The Moho state store failed.
     #[error("moho state store: {0:?}")]
     MohoState(M),
@@ -96,6 +103,10 @@ pub enum ExportProofError<M: Debug, E: Debug> {
 /// stored at `commitment`, which fixes the MMR size. Encoding is left to the
 /// caller.
 ///
+/// If the same leaf hash occurs more than once, the proof uses the greatest
+/// occurrence whose index is covered by that state's MMR size. A later
+/// duplicate therefore cannot make an earlier occurrence unprovable.
+///
 /// The proof is checked against that MMR before it is returned, so a caller
 /// never hands out a proof that would fail at the verifier.
 ///
@@ -111,6 +122,11 @@ where
     M: MohoStateDb,
     E: ExportEntriesDb,
 {
+    let generation = moho_state_db
+        .view_generation()
+        .await
+        .map_err(ExportProofError::MohoState)?;
+
     let moho_state = moho_state_db
         .get_moho_state(commitment)
         .await
@@ -129,19 +145,29 @@ where
 
     let at_leaf_count = container.entries_mmr().num_entries();
 
-    let mmr_index = export_entries_db
+    let latest_index = export_entries_db
         .find_entry_index(container_id, *leaf)
         .await
         .map_err(ExportProofError::ExportEntries)?
         .ok_or(ExportProofError::NoSuchLeaf { container_id })?;
 
-    if mmr_index >= at_leaf_count {
-        return Err(ExportProofError::LeafAfterBlock {
-            container_id,
-            mmr_index,
-            at_leaf_count,
-        });
-    }
+    // The ordinary reverse lookup returns the newest occurrence. A historical
+    // state may commit to an earlier duplicate while that newest occurrence
+    // sits beyond its MMR size, so use the bounded predecessor lookup before
+    // concluding the leaf is after the block.
+    let mmr_index = if latest_index < at_leaf_count {
+        latest_index
+    } else {
+        export_entries_db
+            .find_entry_index_before(container_id, *leaf, at_leaf_count)
+            .await
+            .map_err(ExportProofError::ExportEntries)?
+            .ok_or(ExportProofError::LeafAfterBlock {
+                container_id,
+                mmr_index: latest_index,
+                at_leaf_count,
+            })?
+    };
 
     let proof = export_entries_db
         .generate_entry_proof(container_id, mmr_index, at_leaf_count)
@@ -156,6 +182,17 @@ where
             container_id,
             mmr_index,
             commitment,
+        });
+    }
+
+    let final_generation = moho_state_db
+        .view_generation()
+        .await
+        .map_err(ExportProofError::MohoState)?;
+    if generation != final_generation {
+        return Err(ExportProofError::ViewChanged {
+            before: generation,
+            after: final_generation,
         });
     }
 
@@ -334,6 +371,120 @@ mod tests {
 
             assert_eq!(container_mmr_len(&state_at_b1, CONTAINER_ID), 1);
             assert!(verify_against(&state_at_b1, CONTAINER_ID, &proof, &leaf));
+        });
+    }
+
+    #[test]
+    fn proof_lookup_uses_greatest_surviving_duplicate_after_prune() {
+        Runtime::new().unwrap().block_on(async {
+            let (moho, idx, _tmp) = temp_dbs();
+            let duplicate = entry_hash(0xd0);
+
+            let b1 = commitment(100, 1);
+            let state_at_b1 = apply_block(
+                &moho,
+                &idx,
+                genesis_moho(),
+                b1,
+                &[(CONTAINER_ID, duplicate)],
+            )
+            .await;
+            let b2 = commitment(101, 2);
+            let state_at_b2 =
+                apply_block(&moho, &idx, state_at_b1, b2, &[(CONTAINER_ID, duplicate)]).await;
+            let b3 = commitment(102, 3);
+            apply_block(
+                &moho,
+                &idx,
+                state_at_b2.clone(),
+                b3,
+                &[(CONTAINER_ID, duplicate)],
+            )
+            .await;
+            assert_eq!(
+                idx.find_entry_index(CONTAINER_ID, duplicate).await.unwrap(),
+                Some(2)
+            );
+
+            idx.prune_entries_from(b3.height()).await.unwrap();
+
+            // The suffix copy is gone, so lookup and proof generation both use
+            // the greatest duplicate that remains in b2's MMR.
+            assert_eq!(
+                idx.find_entry_index(CONTAINER_ID, duplicate).await.unwrap(),
+                Some(1)
+            );
+            let proof = build_export_entry_mmr_proof(&moho, &idx, b2, CONTAINER_ID, &duplicate)
+                .await
+                .expect("the surviving duplicate must remain provable");
+            assert_eq!(proof.index(), 1);
+            assert!(verify_against(
+                &state_at_b2,
+                CONTAINER_ID,
+                &proof,
+                &duplicate
+            ));
+        });
+    }
+
+    #[test]
+    fn duplicate_proof_lookup_is_bounded_by_queried_mmr_size() {
+        Runtime::new().unwrap().block_on(async {
+            let (moho, idx, _tmp) = temp_dbs();
+            let duplicate = entry_hash(0xd1);
+
+            let b1 = commitment(100, 1);
+            let state_at_b1 = apply_block(
+                &moho,
+                &idx,
+                genesis_moho(),
+                b1,
+                &[(CONTAINER_ID, duplicate)],
+            )
+            .await;
+            let b2 = commitment(101, 2);
+            let state_at_b2 =
+                apply_block(&moho, &idx, state_at_b1, b2, &[(CONTAINER_ID, duplicate)]).await;
+            let b3 = commitment(102, 3);
+            let state_at_b3 = apply_block(
+                &moho,
+                &idx,
+                state_at_b2.clone(),
+                b3,
+                &[(CONTAINER_ID, duplicate)],
+            )
+            .await;
+
+            // The global reverse index points at b3, but b2's proof must use
+            // the greatest occurrence covered by b2's committed MMR.
+            assert_eq!(
+                idx.find_entry_index(CONTAINER_ID, duplicate).await.unwrap(),
+                Some(2)
+            );
+            let historical =
+                build_export_entry_mmr_proof(&moho, &idx, b2, CONTAINER_ID, &duplicate)
+                    .await
+                    .expect("the historical duplicate must remain provable");
+            assert_eq!(historical.index(), 1);
+            assert!(verify_against(
+                &state_at_b2,
+                CONTAINER_ID,
+                &historical,
+                &duplicate
+            ));
+
+            // At b3, the globally newest occurrence is eligible and remains the
+            // selected proof position.
+            let current = build_export_entry_mmr_proof(&moho, &idx, b3, CONTAINER_ID, &duplicate)
+                .await
+                .expect("the current duplicate must be provable");
+            assert_eq!(current.index(), 2);
+            assert!(verify_against(
+                &state_at_b3,
+                CONTAINER_ID,
+                &current,
+                &duplicate
+            ));
         });
     }
 
