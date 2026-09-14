@@ -31,6 +31,7 @@ pub use errors::*;
 pub use strata_asm_proto_bridge_msgs::BridgeIncomingMsg;
 // Re-exported so downstream users keep finding the state types here.
 pub use strata_asm_proto_bridge_state::{
-    AssignmentEntry, BridgeStateV1, DepositEntry, NnScriptIdx, OperatorClaimUnlock,
+    AssignmentEntry, AssignmentStatus, BridgeStateV1, DepositEntry, NnScriptIdx,
+    OperatorClaimUnlock, ReassignmentOutcome, ReassignmentReport,
 };
 pub use subprotocol::BridgeSubprotoV1;

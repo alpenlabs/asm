@@ -7,7 +7,7 @@ use strata_asm_bridge_types::BridgeInitConfig;
 use strata_asm_common::{
     AsmLogEntry, AuxRequestCollector, HeaderVerificationState, MsgRelayer, Subprotocol,
     SubprotocolId, TxInputRef, VerifiedAuxData,
-    logging::{debug, error, info},
+    logging::{debug, error, info, warn},
 };
 use strata_asm_logs::ExportExtraDataUpdate;
 use strata_asm_proto_bridge_msgs::BridgeIncomingMsg;
@@ -77,11 +77,8 @@ impl Subprotocol for BridgeSubprotoV1 {
     ///
     /// # Panics
     ///
-    /// **CRITICAL**: This function panics if expired assignment reassignment fails, as this
-    /// indicates a violation of the bridge's 1/N honesty assumption. The bridge protocol assumes at
-    /// least one honest operator remains active to fulfill withdrawals. Failure to reassign
-    /// expired assignments means no honest operators are available, representing an
-    /// unrecoverable protocol breach that poses significant risk of fund loss.
+    /// Panics if reassignment encounters malformed assignment state. An expired assignment with no
+    /// active operator from its historical notary set is marked unassignable instead.
     fn process_txs(
         state: &mut Self::State,
         txs: &[TxInputRef<'_>],
@@ -111,17 +108,25 @@ impl Subprotocol for BridgeSubprotoV1 {
 
         // After processing all transactions, reassign expired assignments
         match state.reassign_expired_assignments(&header_vs.last_verified_block) {
-            Ok(reassigned) => {
+            Ok(report) => {
                 // Only log when something actually happened, to avoid a line every block.
-                if let Some(first) = reassigned.first() {
+                if let Some(first_deposit_idx) = report.reassigned().first() {
+                    let first = state
+                        .assignments()
+                        .get_assignment(*first_deposit_idx)
+                        .expect("reassignment report references a stored assignment");
                     info!(
-                        count = reassigned.len(),
+                        count = report.reassigned().len(),
                         l1_height = header_vs.last_verified_block.height(),
                         // Uniform across the batch: all entries get the same new deadline.
                         fulfillment_deadline = first.fulfillment_deadline(),
                         "Reassigned expired withdrawal assignments",
                     );
-                    for assignment in &reassigned {
+                    for deposit_idx in report.reassigned() {
+                        let assignment = state
+                            .assignments()
+                            .get_assignment(*deposit_idx)
+                            .expect("reassignment report references a stored assignment");
                         info!(
                             deposit_idx = assignment.deposit_idx(),
                             operator_idx = assignment.current_assignee(),
@@ -129,16 +134,25 @@ impl Subprotocol for BridgeSubprotoV1 {
                         );
                     }
                 }
+
+                for deposit_idx in report.newly_unassignable() {
+                    let assignment = state
+                        .assignments()
+                        .get_assignment(*deposit_idx)
+                        .expect("reassignment report references a stored assignment");
+                    warn!(
+                        deposit_idx,
+                        notary_set = assignment.notary_set(),
+                        current_assignee = assignment.current_assignee(),
+                        "Withdrawal assignment has no active operator from its historical notary set",
+                    );
+                }
             }
             Err(e) => {
-                // PANIC: Failure to reassign expired assignments indicates a violation of the
-                // bridge's fundamental 1/N honesty assumption. This means no operators remain
-                // available to fulfill withdrawals, representing an unrecoverable protocol breach
-                // that poses significant risk of fund loss.
                 error!(
                     l1_height = header_vs.last_verified_block.height(),
                     error = %e,
-                    "Failed to reassign expired assignments; 1/N honesty assumption violated"
+                    "Failed to reassign expired assignments because assignment state is invalid"
                 );
                 panic!("Failed to reassign expired assignments {e}");
             }
@@ -254,6 +268,8 @@ mod tests {
     use strata_asm_bridge_types::{SafeHarbourAddress, WithdrawalIntent};
     use strata_asm_common::{HeaderVerificationState, Subprotocol};
     use strata_asm_proto_bridge_msgs::{BridgeIncomingMsg, DefconPayload};
+    use strata_asm_proto_bridge_state::AssignmentStatus;
+    use strata_asm_proto_bridge_txs::test_utils::create_test_operators;
     use strata_btc_types::BitcoinAmount;
     use strata_identifiers::L1BlockCommitment;
     use strata_test_utils_arb::ArbitraryGenerator;
@@ -359,6 +375,62 @@ mod tests {
         for assignment in state.assignments().assignments() {
             assert_eq!(assignment.fulfillment_deadline(), expected_deadline);
         }
+    }
+
+    #[test]
+    fn process_txs_marks_stranded_assignment_and_reassigns_healthy_assignment() {
+        let (mut state, _privkeys) = create_test_state();
+        let creation_block = L1BlockCommitment::new(0, ArbitraryGenerator::new().generate());
+
+        add_deposits(&mut state, 1);
+        let mut old_intent: WithdrawalIntent = ArbitraryGenerator::new().generate();
+        old_intent.amt = *state.denomination();
+        let old_assignment = state
+            .create_withdrawal_assignment(&old_intent, &creation_block)
+            .unwrap();
+        let old_deposit_idx = old_assignment.deposit_idx();
+        let old_assignee = old_assignment.current_assignee();
+        let old_deadline = old_assignment.fulfillment_deadline();
+        state.insert_withdrawal_assignment(old_assignment);
+
+        let initial_operator_count = state.operators().len();
+        let (_, replacement_operators) = create_test_operators(2);
+        let removed_operators: Vec<_> = (0..initial_operator_count).collect();
+        state.apply_operator_set_update(&replacement_operators, &removed_operators);
+
+        add_deposits(&mut state, 1);
+        let mut healthy_intent: WithdrawalIntent = ArbitraryGenerator::new().generate();
+        healthy_intent.amt = *state.denomination();
+        let healthy_assignment = state
+            .create_withdrawal_assignment(&healthy_intent, &creation_block)
+            .unwrap();
+        let healthy_deposit_idx = healthy_assignment.deposit_idx();
+        state.insert_withdrawal_assignment(healthy_assignment);
+
+        let current_height = 500;
+        let mut header_vs = HeaderVerificationState::default();
+        header_vs.last_verified_block =
+            L1BlockCommitment::new(current_height, ArbitraryGenerator::new().generate());
+
+        let aux_data = create_verified_aux_data(vec![]);
+        let mut relayer = MockMsgRelayer::default();
+        BridgeSubprotoV1::process_txs(&mut state, &[], &header_vs, &aux_data, &mut relayer);
+
+        let stranded = state.assignments().get_assignment(old_deposit_idx).unwrap();
+        assert_eq!(stranded.status(), AssignmentStatus::Unassignable);
+        assert_eq!(stranded.current_assignee(), old_assignee);
+        assert_eq!(stranded.fulfillment_deadline(), old_deadline);
+
+        let healthy = state
+            .assignments()
+            .get_assignment(healthy_deposit_idx)
+            .unwrap();
+        assert_eq!(healthy.status(), AssignmentStatus::Active);
+        assert_eq!(healthy.fulfillment_deadline(), current_height + 144);
+        assert!(
+            !relayer.logs().is_empty(),
+            "block processing should complete"
+        );
     }
 
     #[test]
