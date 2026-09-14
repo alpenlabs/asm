@@ -20,6 +20,7 @@ use tree_hash::{Sha256Hasher as TreeSha256Hasher, TreeHash};
 use crate::{
     ProverContext,
     errors::{ProverError, ProverResult},
+    verify::ProofVerifier,
 };
 
 /// Leaf index of `next_predicate` in the [`MohoState`] commitment tree, whose
@@ -102,6 +103,16 @@ impl InputBuilder {
     /// Proofs exist only for blocks strictly above it.
     pub(crate) fn genesis(&self) -> L1BlockCommitment {
         self.genesis
+    }
+
+    /// A verifier over the predicate keys and genesis block held here.
+    ///
+    /// The keys are what a receipt is checked against, and this is the only
+    /// place both are held, so pairing them stays here rather than at each
+    /// call site. Borrows only this builder, which lets the follower hold a
+    /// verifier while the fetch loop borrows the queue mutably.
+    pub(crate) fn verifier(&self) -> ProofVerifier<'_> {
+        ProofVerifier::new(&self.asm_predicate, &self.moho_predicate, self.genesis)
     }
 
     /// Builds the [`RuntimeInput`] for a single-block ASM proof.

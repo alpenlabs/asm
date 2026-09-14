@@ -1,7 +1,7 @@
 //! Reconciliation of in-flight remote proofs.
 //!
 //! Each tick, the service polls every remote proof that was previously
-//! submitted and reacts to status changes: completed proofs are retrieved and
+//! submitted and reacts to status changes: completed proofs are verified and
 //! persisted to the proof store, jobs that will not yield a proof are
 //! discarded so the scheduler can submit the block again, and everything else
 //! just has its stored status refreshed.
@@ -15,6 +15,7 @@ use crate::{
     errors::{ProverError, ProverResult},
     proof_store::{self, ProofSource},
     state::ProverServiceState,
+    verify,
 };
 
 /// Polls all in-progress remote proofs and stores any that have completed.
@@ -112,6 +113,20 @@ where
         .ok_or(ProverError::NotFound(
             "no mapping found for completed remote proof",
         ))?;
+
+    // A receipt that is not a proof of this block tells us nothing the job
+    // having failed outright would not, so treat it the same way and let the
+    // scheduler prove the block again. Failing to read our own state is a
+    // different problem and propagates instead.
+    let expected_state = verify::expected_state_commitment(&state.ctx, &proof_id).await?;
+    if let Err(e) = state
+        .input_builder
+        .verifier()
+        .verify(&proof_id, &receipt, &expected_state)
+    {
+        error!(%proof_id, %remote_id, %e, "completed proof failed verification, discarding it");
+        return discard_submission(&state.ctx, remote_id).await;
+    }
 
     proof_store::store_completed_proof(&state.ctx, proof_id, receipt, ProofSource::Backend).await?;
 
