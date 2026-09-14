@@ -13,7 +13,7 @@ use strata_asm_proto_admin_txs::{constants::ADMINISTRATION_SUBPROTOCOL_ID, parse
 use strata_identifiers::L1BlockCommitment;
 
 use crate::{
-    handler::{handle_action, handle_pending_updates},
+    handler::{OlEnactmentBatch, handle_action, handle_pending_updates},
     state::AdministrationSubprotoState,
 };
 
@@ -43,6 +43,10 @@ impl Subprotocol for AdministrationSubprotocol {
     /// The function follows a two-phase approach:
     /// 1. **Pre-processing**: Executes all queued updates that are ready for activation
     /// 2. **Transaction processing**: Handles incoming multisig actions
+    ///
+    /// OL predicate enactments from both phases are collected in an `OlEnactmentBatch` and
+    /// relayed once at the end, so a block emits at most one `CheckpointPredicateEnacted` log
+    /// and it carries the predicate that governs the territory after this height.
     fn process_txs(
         state: &mut AdministrationSubprotoState,
         txs: &[TxInputRef<'_>],
@@ -51,9 +55,10 @@ impl Subprotocol for AdministrationSubprotocol {
         relayer: &mut impl MsgRelayer,
     ) {
         let current_height = header_vs.last_verified_block.height();
+        let mut ol_batch = OlEnactmentBatch::default();
 
         // Phase 1: Execute any pending updates that have reached their activation height
-        handle_pending_updates(state, relayer, current_height);
+        handle_pending_updates(state, relayer, current_height, &mut ol_batch);
 
         // Phase 2: Process incoming administration transactions. Unparseable txs are
         // logged and skipped inside `parse_tx` to maintain system resilience.
@@ -61,10 +66,19 @@ impl Subprotocol for AdministrationSubprotocol {
             let Some(signed_payload) = parse_tx(tx) else {
                 continue;
             };
-            if let Err(e) = handle_action(state, signed_payload, current_height, relayer) {
+            if let Err(e) = handle_action(
+                state,
+                signed_payload,
+                current_height,
+                relayer,
+                &mut ol_batch,
+            ) {
                 warn!(tx_id = %tx.tx().compute_txid(), error = %e, "Failed to handle admin action");
             }
         }
+
+        // Relay the block's single OL predicate transition and emit its enactment log.
+        ol_batch.flush(relayer, current_height);
     }
 
     /// Processes incoming administration messages.

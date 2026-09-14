@@ -161,7 +161,9 @@ impl CheckpointState {
     ///
     /// Boundaries arrive in nondecreasing enactment order. A later update enacted at the same
     /// boundary replaces the prior entry, so the latest `UpdateId` governs the following
-    /// territory without growing the queue.
+    /// territory without growing the queue. Administration already collapses a block's
+    /// enactments into one relayed transition, so this replacement is a defensive guarantee
+    /// rather than the expected path.
     pub fn queue_predicate_transition(&mut self, transition: PendingPredicateTransition) {
         if let Some(last) = self.pending_transitions.last_mut() {
             assert!(
