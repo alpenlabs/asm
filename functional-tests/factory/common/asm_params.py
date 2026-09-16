@@ -59,7 +59,7 @@ class AdminSubprotocol:
 
 @dataclass
 class CheckpointSubprotocol:
-    sequencer_predicate: str
+    sequencer_key: str
     checkpoint_predicate: str
     genesis_l1_height: int
     genesis_ol_blkid: str
@@ -171,7 +171,9 @@ def build_subprotocols(
     checkpoint = {
         "Checkpoint": asdict(
             CheckpointSubprotocol(
-                sequencer_predicate="AlwaysAccept",
+                # The musig2 keys are already x-only, which is what the
+                # sequencer key has to be.
+                sequencer_key=musig2_keys[0],
                 checkpoint_predicate="AlwaysAccept",
                 genesis_l1_height=genesis_height,
                 genesis_ol_blkid="0" * 64,
