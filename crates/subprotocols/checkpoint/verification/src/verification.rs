@@ -265,7 +265,7 @@ mod tests {
     use strata_test_utils_checkpoint::CheckpointTestHarness;
 
     use crate::{
-        CheckpointState,
+        CheckpointState, MAX_PENDING_PREDICATE_TRANSITIONS,
         errors::{
             CheckpointValidationError, CheckpointValidationResult, InvalidCheckpointPayload,
             InvalidSequencerKey,
@@ -546,7 +546,7 @@ mod tests {
 
         assert!(promoted);
         assert_eq!(state.checkpoint_predicate(), &successor.predicate());
-        assert!(state.pending_transition().is_none());
+        assert!(state.next_transition().is_none());
 
         // The next checkpoint covers B+1 onwards and must verify under the successor key.
         harness.update_verified_tip(at_boundary);
@@ -576,7 +576,7 @@ mod tests {
         ));
         let previous_tip = *state.verified_tip();
         let previous_deposits = state.available_deposit_sum();
-        let previous_transition = state.pending_transition().cloned();
+        let previous_transition = state.next_transition().cloned();
 
         // Signed by the queued successor, but the range ends at B so the active key applies.
         let new_tip = CheckpointTip {
@@ -595,7 +595,7 @@ mod tests {
         ));
         assert_eq!(state.verified_tip(), &previous_tip);
         assert_eq!(state.available_deposit_sum(), previous_deposits);
-        assert_eq!(state.pending_transition().cloned(), previous_transition);
+        assert_eq!(state.next_transition().cloned(), previous_transition);
     }
 
     #[test]
@@ -642,7 +642,112 @@ mod tests {
         let (_, promoted) = run_proof_pipeline(&mut state, boundary + 2, &payload, hash).unwrap();
         assert!(!promoted);
         assert_eq!(state.verified_tip(), &new_tip);
-        assert_eq!(state.pending_transition(), Some(&transition));
+        assert_eq!(state.next_transition(), Some(&transition));
+    }
+
+    /// Two rotations hand over one at a time: each checkpoint may reach the next boundary
+    /// but not cross it, and reaching it activates exactly that rotation.
+    #[test]
+    fn test_queued_rotations_hand_over_one_boundary_at_a_time() {
+        let (mut state, mut harness) = test_setup();
+        let first = CheckpointTestHarness::mint_checkpoint_signer();
+        let second = CheckpointTestHarness::mint_checkpoint_signer();
+        let first_boundary = harness.verified_tip().l1_height() + 10;
+        let second_boundary = first_boundary + 10;
+        state.queue_predicate_transition(PendingPredicateTransition::new(
+            first.predicate(),
+            first_boundary,
+        ));
+        state.queue_predicate_transition(PendingPredicateTransition::new(
+            second.predicate(),
+            second_boundary,
+        ));
+
+        // A range reaching past the first boundary is rejected even though a later boundary
+        // is what it ultimately overshoots.
+        let err = state
+            .verify_coverage_boundary(&CheckpointL1Range::Range {
+                start_height: harness.verified_tip().l1_height() + 1,
+                end_height: second_boundary,
+            })
+            .unwrap_err();
+        assert!(matches!(
+            err,
+            CheckpointValidationError::InvalidPayload(
+                InvalidCheckpointPayload::RangeStraddlesPredicateBoundary { boundary, .. }
+            ) if boundary == first_boundary
+        ));
+
+        // Each checkpoint is signed by the key active at the time: the harness's own up to
+        // the first boundary, then the key the first rotation installed.
+        let steps = [
+            (first_boundary, None, &first),
+            (second_boundary, Some(&first), &second),
+        ];
+        for (boundary, active_signer, expected_signer) in steps {
+            let tip = CheckpointTip {
+                l1_height: boundary,
+                ..harness.gen_new_tip()
+            };
+            let payload = match active_signer {
+                Some(signer) => harness.build_payload_with_tip_and_signer(tip, signer),
+                None => harness.build_payload_with_tip(tip),
+            };
+            let hash = harness.gen_asm_manifests_hash(&tip);
+            run_proof_pipeline(&mut state, boundary + 1, &payload, hash)
+                .expect("a checkpoint reaching the next boundary is verified under the active key");
+            harness.update_verified_tip(tip);
+
+            assert_eq!(state.checkpoint_predicate(), &expected_signer.predicate());
+        }
+        assert!(state.pending_transitions().is_empty());
+    }
+
+    /// A full queue drops its oldest entry: that rotation's key never activates.
+    #[test]
+    fn test_full_queue_evicts_the_oldest_rotation() {
+        let (mut state, harness) = test_setup();
+        let capacity = usize::try_from(MAX_PENDING_PREDICATE_TRANSITIONS).unwrap();
+        let first_boundary = harness.verified_tip().l1_height() + 1;
+
+        for offset in 0..capacity {
+            state.queue_predicate_transition(PendingPredicateTransition::new(
+                PredicateKey::always_accept(),
+                first_boundary + offset as u32,
+            ));
+        }
+        assert_eq!(state.pending_transitions().len(), capacity);
+        assert_eq!(state.next_transition().unwrap().boundary(), first_boundary);
+
+        let overflow_boundary = first_boundary + capacity as u32;
+        state.queue_predicate_transition(PendingPredicateTransition::new(
+            PredicateKey::never_accept(),
+            overflow_boundary,
+        ));
+
+        assert_eq!(state.pending_transitions().len(), capacity);
+        assert_eq!(
+            state.next_transition().unwrap().boundary(),
+            first_boundary + 1,
+            "the oldest rotation should have been dropped"
+        );
+        assert_eq!(
+            state.pending_transitions().last().unwrap().boundary(),
+            overflow_boundary
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "boundaries must strictly increase")]
+    fn test_queueing_a_non_increasing_boundary_panics() {
+        let (mut state, harness) = test_setup();
+        let boundary = harness.verified_tip().l1_height() + 10;
+        for _ in 0..2 {
+            state.queue_predicate_transition(PendingPredicateTransition::new(
+                PredicateKey::always_accept(),
+                boundary,
+            ));
+        }
     }
 
     #[test]
@@ -661,7 +766,7 @@ mod tests {
             state.checkpoint_predicate(),
             &harness.checkpoint_predicate()
         );
-        assert!(state.pending_transition().is_none());
+        assert!(state.next_transition().is_none());
     }
 
     // --- Proof verification + withdrawal extraction ---

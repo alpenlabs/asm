@@ -6,9 +6,10 @@ use strata_asm_manifest_types::AsmManifestRangeHash;
 use strata_btc_types::BitcoinAmount;
 use strata_identifiers::{Buf32, L2BlockCommitment};
 use strata_predicate::PredicateKey;
+use zkaleido_logging as logging;
 
 use crate::{
-    CheckpointState, DepositPool,
+    CheckpointState, DepositPool, MAX_PENDING_PREDICATE_TRANSITIONS,
     errors::{CheckpointValidationResult, InvalidCheckpointPayload},
     verification::{CheckpointL1Range, extract_withdrawal_intents, verify_proof},
 };
@@ -57,9 +58,17 @@ impl CheckpointState {
         &self.checkpoint_predicate
     }
 
-    /// Returns the enacted predicate transition awaiting checkpoint-sequence activation.
-    pub fn pending_transition(&self) -> Option<&PendingPredicateTransition> {
+    /// Returns the transition that activates next, if any.
+    ///
+    /// Boundaries are strictly increasing, so this is the front of the queue and the only
+    /// boundary a checkpoint's coverage can run into.
+    pub fn next_transition(&self) -> Option<&PendingPredicateTransition> {
         self.pending_transition.first()
+    }
+
+    /// Returns the enacted predicate transitions awaiting activation, ordered by boundary.
+    pub fn pending_transitions(&self) -> &[PendingPredicateTransition] {
+        &self.pending_transition
     }
 
     /// Returns the last verified checkpoint tip.
@@ -96,7 +105,7 @@ impl CheckpointState {
             return Ok(());
         };
 
-        if let Some(next) = self.pending_transition()
+        if let Some(next) = self.next_transition()
             && next.boundary() < end_height
         {
             return Err(InvalidCheckpointPayload::RangeStraddlesPredicateBoundary {
@@ -112,12 +121,45 @@ impl CheckpointState {
 
     /// Records an enacted checkpoint predicate transition.
     ///
-    /// Administration refuses to authorize a rotation while another is queued or awaiting
-    /// activation, so the slot is always free when an enactment arrives.
+    /// An enactment cannot be refused: its `CheckpointPredicateEnacted` log is already in the
+    /// manifest of the block being processed. So a full queue drops its oldest entry, whose
+    /// key then never activates. That is the newest-intent-wins reading of a situation that
+    /// needs [`MAX_PENDING_PREDICATE_TRANSITIONS`] rotations with no checkpoint in between.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `transition` does not sit strictly after the last queued boundary.
+    /// Administration accepts at most one rotation per block and applies a fixed confirmation
+    /// depth, so enactment heights are strictly increasing.
     pub fn queue_predicate_transition(&mut self, transition: PendingPredicateTransition) {
+        if let Some(last) = self.pending_transition.last() {
+            assert!(
+                last.boundary() < transition.boundary(),
+                "predicate transition boundaries must strictly increase: {} follows {}",
+                transition.boundary(),
+                last.boundary()
+            );
+        }
+
+        if self.pending_transition.len()
+            == usize::try_from(MAX_PENDING_PREDICATE_TRANSITIONS)
+                .expect("the queue capacity fits in a usize")
+        {
+            let mut queue: Vec<_> = self.pending_transition.to_vec();
+            let evicted = queue.remove(0);
+            logging::warn!(
+                boundary = evicted.boundary(),
+                predicate = evicted.predicate().id(),
+                "pending predicate transition queue is full, dropping the oldest rotation"
+            );
+            self.pending_transition = queue
+                .try_into()
+                .expect("a shrunk queue still fits the original capacity");
+        }
+
         self.pending_transition
             .push(transition)
-            .expect("at most one OL predicate rotation is outstanding at a time");
+            .expect("the queue has room after eviction");
     }
 
     /// Activates every transition whose boundary the verified tip has now reached.

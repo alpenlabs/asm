@@ -3,10 +3,11 @@ import strata_identifiers
 import strata_btc_types
 import strata_asm_checkpoint_types
 
-### At most one OL predicate rotation may be outstanding at a time. Administration
-### refuses to authorize a rotation while another is queued or awaiting activation, so
-### this slot is always free when an enactment arrives.
-MAX_PENDING_PREDICATE_TRANSITIONS = 1
+### How many enacted rotations may await activation at once. Administration accepts at
+### most one rotation per L1 block, so filling the queue needs this many rotations with
+### no checkpoint in between. An enactment cannot be refused — its log is already in the
+### block's manifest — so a full queue evicts its oldest entry instead.
+MAX_PENDING_PREDICATE_TRANSITIONS = 8
 
 ### Pool of bridge UTXOs available to honor withdrawals.
 ###
