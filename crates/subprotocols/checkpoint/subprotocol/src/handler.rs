@@ -49,12 +49,14 @@ pub(crate) fn handle_checkpoint_tx(
         return;
     }
 
-    // Validate epoch / L1 / L2 progression. Yields the L1 coverage whose ASM manifests
-    // we must resolve before proof verification.
+    // Validate epoch / L1 / L2 progression and confirm the covered territory lies wholly
+    // inside the active predicate's range. Yields the L1 coverage whose ASM manifests we
+    // must resolve before proof verification.
     let coverage = match verify_progression(
         state.verified_tip(),
         envelope.payload.new_tip(),
         current_l1_height,
+        state.next_transition(),
     ) {
         Ok(c) => c,
         Err(e) => {
@@ -62,14 +64,6 @@ pub(crate) fn handle_checkpoint_tx(
             return;
         }
     };
-
-    // Confirm the covered territory lies wholly inside the active predicate's range before
-    // resolving any manifests: a range crossing a predicate boundary is rejected here, so a
-    // checkpoint that cannot be accepted never costs a manifest fetch or hash.
-    if let Err(e) = state.verify_coverage_boundary(&coverage) {
-        logging::warn!(txid = %tx.tx().compute_txid(), epoch, error = %e, "checkpoint coverage crosses a predicate boundary");
-        return;
-    }
 
     // Derive the precomputed manifest hash committed to in the checkpoint claim. Empty
     // coverage commits to the zero hash; otherwise resolve the range from aux data.

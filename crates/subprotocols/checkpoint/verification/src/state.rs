@@ -10,8 +10,8 @@ use zkaleido_logging as logging;
 
 use crate::{
     CheckpointState, DepositPool, MAX_PENDING_PREDICATE_TRANSITIONS,
-    errors::{CheckpointValidationResult, InvalidCheckpointPayload},
-    verification::{CheckpointL1Range, extract_withdrawal_intents, verify_proof},
+    errors::CheckpointValidationResult,
+    verification::{extract_withdrawal_intents, verify_proof},
 };
 
 impl CheckpointState {
@@ -86,39 +86,6 @@ impl CheckpointState {
         self.sequencer_key = new_key
     }
 
-    /// Rejects a coverage range that crosses the next predicate boundary.
-    ///
-    /// Every queued transition has a boundary strictly above the verified tip (see
-    /// `pending_transition`), so a range always starts inside the active predicate's
-    /// territory. It must also end there: a range reaching past the next boundary would
-    /// claim heights the active key does not govern.
-    pub fn verify_coverage_boundary(
-        &self,
-        coverage: &CheckpointL1Range,
-    ) -> CheckpointValidationResult<()> {
-        // An empty range claims no new L1 heights, so it cannot cross a boundary.
-        let CheckpointL1Range::Range {
-            start_height,
-            end_height,
-        } = *coverage
-        else {
-            return Ok(());
-        };
-
-        if let Some(next) = self.next_transition()
-            && next.boundary() < end_height
-        {
-            return Err(InvalidCheckpointPayload::RangeStraddlesPredicateBoundary {
-                start: start_height,
-                end: end_height,
-                boundary: next.boundary(),
-            }
-            .into());
-        }
-
-        Ok(())
-    }
-
     /// Records an authorized checkpoint predicate rotation.
     ///
     /// A rotation cannot be refused: administration has no back-channel to hear about it. So
@@ -171,8 +138,8 @@ impl CheckpointState {
     /// what makes key selection a non-choice.
     ///
     /// At most one transition can elapse per checkpoint: boundaries strictly increase, and
-    /// [`Self::verify_coverage_boundary`] refuses a range reaching past the front one, so the
-    /// tip can land on that boundary but never beyond it.
+    /// [`verify_progression`](crate::verify_progression) refuses a range reaching past the
+    /// front one, so the tip can land on that boundary but never beyond it.
     ///
     /// Returns the newly active predicate.
     fn promote_elapsed_transition(&mut self) -> Option<PredicateKey> {
@@ -210,8 +177,7 @@ impl CheckpointState {
     /// made active, if one did.
     ///
     /// The proof is always verified under the active predicate. The caller must first run
-    /// [`Self::verify_coverage_boundary`] against the coverage — before resolving ASM
-    /// manifests, so no manifest work is spent on a checkpoint that cannot be accepted —
+    /// [`verify_progression`](crate::verify_progression) with [`Self::next_transition`],
     /// which is what establishes that the active predicate governs the whole range.
     pub fn advance(
         &mut self,
