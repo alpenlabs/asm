@@ -124,7 +124,9 @@ async fn test_full_predicate_handover_selects_key_by_l1_range() {
         "the transition must remain pending after a straddling rejection"
     );
 
-    // Act: submit a checkpoint terminating exactly at B under the old predicate.
+    // Act: submit a checkpoint terminating exactly at B under the old predicate. Reaching B
+    // is what activates the successor: every height a later checkpoint can claim lies past
+    // the boundary, so the successor already governs all of them.
     let preceding_tip = next_checkpoint_tip(&checkpoint_harness, boundary);
     let preceding_tx = harness
         .build_checkpoint_tx_for_tip(&checkpoint_harness, preceding_tip, vec![])
@@ -133,17 +135,18 @@ async fn test_full_predicate_handover_selects_key_by_l1_range() {
     harness.submit_and_mine_tx(&preceding_tx).await.unwrap();
     checkpoint_harness.update_verified_tip(preceding_tip);
 
-    // Assert: the preceding-key checkpoint is accepted without promoting the transition.
+    // Assert: the preceding-key checkpoint is accepted under the old predicate, and reaching
+    // B activates the successor.
     assert_eq!(
         harness.checkpoint_tip_update_logs().unwrap(),
         vec![preceding_tip],
         "a checkpoint ending at B should be accepted under the preceding predicate"
     );
     let checkpoint_state = harness.checkpoint_state().unwrap();
-    assert_eq!(checkpoint_state.checkpoint_predicate(), &old_predicate);
+    assert_eq!(checkpoint_state.checkpoint_predicate(), &new_predicate);
     assert!(
-        harness.pending_predicate_transition().unwrap().is_some(),
-        "a checkpoint ending at B must not promote the transition"
+        harness.pending_predicate_transition().unwrap().is_none(),
+        "a checkpoint reaching B should promote the transition"
     );
 
     // Act: submit a checkpoint starting at B+1 under the new predicate.
@@ -160,18 +163,13 @@ async fn test_full_predicate_handover_selects_key_by_l1_range() {
     harness.submit_and_mine_tx(&successor_tx).await.unwrap();
     checkpoint_harness.update_verified_tip(successor_tip);
 
-    // Assert: the pending predicate becomes active and the slot is freed.
+    // Assert: the territory past B really is governed by the successor predicate.
     assert_eq!(
         harness.checkpoint_tip_update_logs().unwrap(),
         vec![successor_tip],
         "a checkpoint starting at B+1 should be accepted under the successor predicate"
     );
-    let checkpoint_state = harness.checkpoint_state().unwrap();
-    assert_eq!(checkpoint_state.checkpoint_predicate(), &new_predicate);
-    assert!(
-        harness.pending_predicate_transition().unwrap().is_none(),
-        "promoting the transition should free the pending slot"
-    );
+    assert_ne!(old_predicate, new_predicate);
 }
 
 /// Verifies the one-rotation-at-a-time rule through the full worker.
@@ -265,8 +263,8 @@ async fn test_second_rotation_refused_until_checkpoint_promotes_the_first() {
     harness.submit_and_mine_tx(&preceding_tx).await.unwrap();
     checkpoint_harness.update_verified_tip(preceding_tip);
     assert!(
-        harness.pending_predicate_transition().unwrap().is_some(),
-        "a checkpoint ending at B must not promote the transition"
+        harness.pending_predicate_transition().unwrap().is_none(),
+        "a checkpoint reaching B should promote the transition"
     );
 
     // Act: accept a checkpoint starting at B+1 so the first rotation is promoted.

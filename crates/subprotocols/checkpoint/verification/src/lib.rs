@@ -23,5 +23,4 @@ mod ssz_generated {
 pub use errors::CheckpointValidationError;
 pub use ssz_generated::ssz::state::CheckpointState;
 pub(crate) use ssz_generated::ssz::state::DepositPool;
-pub use state::PredicateSelection;
 pub use verification::{CheckpointL1Range, verify_progression, verify_sequencer_key};

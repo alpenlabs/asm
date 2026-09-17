@@ -13,15 +13,6 @@ use crate::{
     verification::{CheckpointL1Range, extract_withdrawal_intents, verify_proof},
 };
 
-/// Which key verifies a checkpoint, and where it came from.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum PredicateSelection {
-    /// The currently active predicate.
-    Active,
-    /// The enacted transition awaiting activation.
-    Pending,
-}
-
 impl CheckpointState {
     /// Initializes checkpoint state from configuration.
     pub fn init(config: CheckpointInitConfig) -> Self {
@@ -86,67 +77,37 @@ impl CheckpointState {
         self.sequencer_key = new_key
     }
 
-    /// Selects the predicate governing `territory`, an L1 height whose inputs the
-    /// checkpoint claims to have processed.
+    /// Rejects a coverage range that crosses the next predicate boundary.
     ///
-    /// A transition's `boundary` is the last height governed by the preceding predicate,
-    /// so the pending key governs exactly `boundary + 1` and up.
-    fn governing(&self, territory: u32) -> PredicateSelection {
-        match self.pending_transition() {
-            Some(transition) if transition.boundary() < territory => PredicateSelection::Pending,
-            _ => PredicateSelection::Active,
-        }
-    }
-
-    /// Selects the checkpoint predicate governed by the claimed L1 coverage.
-    pub fn select_predicate(
+    /// Every queued transition has a boundary strictly above the verified tip (see
+    /// `pending_transition`), so a range always starts inside the active predicate's
+    /// territory. It must also end there: a range reaching past the next boundary would
+    /// claim heights the active key does not govern.
+    pub fn verify_coverage_boundary(
         &self,
         coverage: &CheckpointL1Range,
-    ) -> CheckpointValidationResult<PredicateSelection> {
-        let (start_height, end_height) = match *coverage {
-            // An empty range processes no new L1 inputs, so the territory it would claim
-            // next decides: the first height the verified tip has not already covered.
-            CheckpointL1Range::Empty => {
-                return Ok(match self.verified_tip.l1_height().checked_add(1) {
-                    Some(first_uncovered) => self.governing(first_uncovered),
-                    // The tip sits at the top of the L1 height domain, so there is no
-                    // uncovered height left and every boundary is behind it.
-                    None if self.pending_transition().is_some() => PredicateSelection::Pending,
-                    None => PredicateSelection::Active,
-                });
-            }
-            CheckpointL1Range::Range {
-                start_height,
-                end_height,
-            } => (start_height, end_height),
+    ) -> CheckpointValidationResult<()> {
+        // An empty range claims no new L1 heights, so it cannot cross a boundary.
+        let CheckpointL1Range::Range {
+            start_height,
+            end_height,
+        } = *coverage
+        else {
+            return Ok(());
         };
 
-        let start_selection = self.governing(start_height);
-        if start_selection != self.governing(end_height) {
-            let boundary = self
-                .pending_transition()
-                .map(PendingPredicateTransition::boundary)
-                .expect("differing selections imply a pending transition inside the range");
+        if let Some(next) = self.pending_transition()
+            && next.boundary() < end_height
+        {
             return Err(InvalidCheckpointPayload::RangeStraddlesPredicateBoundary {
                 start: start_height,
                 end: end_height,
-                boundary,
+                boundary: next.boundary(),
             }
             .into());
         }
 
-        Ok(start_selection)
-    }
-
-    /// Returns the predicate selected for checkpoint proof verification.
-    pub fn predicate_for(&self, selection: PredicateSelection) -> &PredicateKey {
-        match selection {
-            PredicateSelection::Active => &self.checkpoint_predicate,
-            PredicateSelection::Pending => self
-                .pending_transition()
-                .expect("pending selection implies a pending transition")
-                .predicate(),
-        }
+        Ok(())
     }
 
     /// Records an enacted checkpoint predicate transition.
@@ -159,19 +120,37 @@ impl CheckpointState {
             .expect("at most one OL predicate rotation is outstanding at a time");
     }
 
-    /// Promotes the pending transition if it verified this checkpoint.
+    /// Activates every transition whose boundary the verified tip has now reached.
     ///
-    /// Returns whether a transition was promoted.
-    pub fn promote(&mut self, selection: PredicateSelection) -> bool {
-        if selection != PredicateSelection::Pending {
+    /// A transition governs the heights strictly after its boundary, so once the tip sits at
+    /// or past that boundary the successor key governs every height a future checkpoint can
+    /// claim. Promoting here — rather than when a checkpoint first verifies under the
+    /// successor key — keeps the invariant that the active predicate governs `verified_tip +
+    /// 1`, which is what makes key selection a non-choice.
+    /// Returns whether any transition was promoted.
+    fn promote_elapsed_transitions(&mut self) -> bool {
+        let tip_height = self.verified_tip.l1_height();
+        let elapsed = self
+            .pending_transition
+            .iter()
+            .take_while(|transition| transition.boundary() <= tip_height)
+            .count();
+        if elapsed == 0 {
             return false;
         }
 
-        let transition = self
-            .pending_transition()
-            .expect("pending selection implies a pending transition");
-        self.checkpoint_predicate = transition.predicate().clone();
-        self.pending_transition = Default::default();
+        // Boundaries are strictly increasing, so the last elapsed transition is the one
+        // that ends up active; the earlier ones governed territory this tip has already
+        // passed through under a key that was itself superseded.
+        let mut remaining: Vec<_> = self.pending_transition.to_vec();
+        let activated = remaining
+            .drain(..elapsed)
+            .next_back()
+            .expect("a non-zero elapsed count yields at least one transition");
+        self.checkpoint_predicate = activated.predicate().clone();
+        self.pending_transition = remaining
+            .try_into()
+            .expect("a shrunk queue still fits the original capacity");
         true
     }
 
@@ -187,23 +166,23 @@ impl CheckpointState {
 
     /// Advances the verified tip to `payload.new_tip` after verifying the ZK proof against
     /// the precomputed ASM manifests hash and extracting withdrawal intents. On success,
-    /// deducts the withdrawn funds, promotes the selected predicate, and returns the extracted
-    /// withdrawal intents plus whether a pending transition was promoted.
+    /// deducts the withdrawn funds, activates any transition the new tip has reached, and
+    /// returns the extracted withdrawal intents plus whether a transition was promoted.
     ///
-    /// `selection` comes from [`Self::select_predicate`], which the caller runs against the
-    /// coverage before resolving ASM manifests: a range that straddles the boundary is
-    /// rejected there, so no manifest work is spent on a checkpoint that cannot be accepted.
+    /// The proof is always verified under the active predicate. The caller must first run
+    /// [`Self::verify_coverage_boundary`] against the coverage — before resolving ASM
+    /// manifests, so no manifest work is spent on a checkpoint that cannot be accepted —
+    /// which is what establishes that the active predicate governs the whole range.
     pub fn advance(
         &mut self,
         payload: &CheckpointPayload,
         asm_manifests_hash: AsmManifestRangeHash,
-        selection: PredicateSelection,
     ) -> CheckpointValidationResult<(Vec<WithdrawalIntent>, bool)> {
         let withdrawal_intents = extract_withdrawal_intents(payload.sidecar().ol_logs())?;
 
         let token = self.deposits.verify_withdrawals(&withdrawal_intents)?;
         verify_proof(
-            self.predicate_for(selection),
+            &self.checkpoint_predicate,
             &self.verified_tip,
             payload,
             asm_manifests_hash,
@@ -211,7 +190,7 @@ impl CheckpointState {
 
         self.deposits.apply_withdrawals(token);
         self.update_verified_tip(payload.new_tip);
-        let promoted = self.promote(selection);
+        let promoted = self.promote_elapsed_transitions();
 
         Ok((withdrawal_intents, promoted))
     }

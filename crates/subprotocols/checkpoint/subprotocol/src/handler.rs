@@ -64,16 +64,13 @@ pub(crate) fn handle_checkpoint_tx(
         }
     };
 
-    // Pick the verifying key from the covered territory before resolving any manifests: a
-    // range straddling a predicate boundary is rejected here, so a checkpoint that cannot
-    // be accepted never costs a manifest fetch or hash.
-    let selection = match state.select_predicate(&coverage) {
-        Ok(selection) => selection,
-        Err(e) => {
-            logging::warn!(txid = %tx.tx().compute_txid(), epoch, error = %e, "checkpoint predicate selection failed");
-            return;
-        }
-    };
+    // Confirm the covered territory lies wholly inside the active predicate's range before
+    // resolving any manifests: a range crossing a predicate boundary is rejected here, so a
+    // checkpoint that cannot be accepted never costs a manifest fetch or hash.
+    if let Err(e) = state.verify_coverage_boundary(&coverage) {
+        logging::warn!(txid = %tx.tx().compute_txid(), epoch, error = %e, "checkpoint coverage crosses a predicate boundary");
+        return;
+    }
 
     // Derive the precomputed manifest hash committed to in the checkpoint claim. Empty
     // coverage commits to the zero hash; otherwise resolve the range from aux data.
@@ -108,11 +105,9 @@ pub(crate) fn handle_checkpoint_tx(
 
     // Verify the ZK proof against the precomputed hash, extract withdrawal intents, and
     // atomically apply the resulting state changes.
-    let (withdrawal_intents, promoted_transition) = match state.advance(
-        &envelope.payload,
-        asm_manifests_hash,
-        selection,
-    ) {
+    let (withdrawal_intents, promoted_transition) = match state
+        .advance(&envelope.payload, asm_manifests_hash)
+    {
         Ok(v) => v,
         Err(e) => {
             logging::warn!(txid = %tx.tx().compute_txid(), epoch, error = %e, "checkpoint rejected");

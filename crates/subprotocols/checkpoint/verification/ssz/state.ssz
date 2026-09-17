@@ -30,7 +30,12 @@ class CheckpointState(Container):
     #~# external_kind: container
     checkpoint_predicate: strata_predicate.PredicateKey
 
-    ### Enacted predicate transition awaiting checkpoint-sequence activation, if any.
+    ### Enacted predicate transitions awaiting activation, ordered by boundary.
+    ###
+    ### Every entry has a boundary strictly above `verified_tip.l1_height`: a transition is
+    ### enacted at the L1 height being processed, which is always above the height any
+    ### checkpoint has covered, and an entry is promoted as soon as the tip reaches it. So
+    ### `checkpoint_predicate` always governs `verified_tip.l1_height + 1`.
     #~# external_kind: container
     pending_transition: List[strata_asm_checkpoint_types.PendingPredicateTransition, MAX_PENDING_PREDICATE_TRANSITIONS]
 
