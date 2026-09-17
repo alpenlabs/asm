@@ -9,7 +9,11 @@ mod input;
 mod orchestrator;
 mod proof_store;
 mod queue;
+mod status;
 
 pub(crate) use self::{
-    backend::ProofBackend, input::InputBuilder, orchestrator::ProofOrchestrator,
+    backend::ProofBackend,
+    input::InputBuilder,
+    orchestrator::ProofOrchestrator,
+    status::{ProverStatusHandle, channel as status_channel},
 };

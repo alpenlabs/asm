@@ -15,7 +15,7 @@ use jsonrpsee::{
 use ssz::{Decode, Encode};
 use strata_asm_common::{AnchorState, AsmManifest};
 use strata_asm_proof_db::{ProofDb, SledMohoStateDb, SledProofDb};
-use strata_asm_proof_types::{AsmProof, L1Range, MohoProof};
+use strata_asm_proof_types::{AsmProof, L1Range, MohoProof, ProverStatus};
 use strata_asm_proto_bridge_v1::{AssignmentEntry, BridgeV1State, DepositEntry};
 use strata_asm_proto_bridge_v1_txs::BRIDGE_V1_SUBPROTOCOL_ID;
 use strata_asm_proto_bridge_v1_types::SafeHarbour;
@@ -28,6 +28,8 @@ use strata_btc_types::BlockHashExt;
 use strata_identifiers::L1BlockCommitment;
 use strata_tasks::ShutdownGuard;
 use tracing::{info, warn};
+
+use crate::prover::ProverStatusHandle;
 
 /// Convert any error to an RPC error
 fn to_rpc_error(e: impl Display) -> ErrorObjectOwned {
@@ -176,6 +178,7 @@ impl AsmStateApiServer for AsmRpcServer {
 /// is configured.
 pub(crate) struct AsmProofRpcDeps {
     pub proof_db: SledProofDb,
+    pub prover_status: ProverStatusHandle,
     pub moho_state_db: SledMohoStateDb,
     pub export_entries_db: ExportEntriesDb,
 }
@@ -184,6 +187,7 @@ pub(crate) struct AsmProofRpcDeps {
 pub(crate) struct AsmProofRpcServer {
     bitcoin_client: Arc<Client>,
     proof_db: SledProofDb,
+    prover_status: ProverStatusHandle,
     moho_state_db: SledMohoStateDb,
     export_entries_db: ExportEntriesDb,
 }
@@ -193,6 +197,7 @@ impl AsmProofRpcServer {
         Self {
             bitcoin_client,
             proof_db: deps.proof_db,
+            prover_status: deps.prover_status,
             moho_state_db: deps.moho_state_db,
             export_entries_db: deps.export_entries_db,
         }
@@ -201,6 +206,10 @@ impl AsmProofRpcServer {
 
 #[async_trait]
 impl AsmProofApiServer for AsmProofRpcServer {
+    async fn get_prover_status(&self) -> RpcResult<ProverStatus> {
+        Ok(self.prover_status.status())
+    }
+
     async fn get_asm_proof(&self, block_hash: BlockHash) -> RpcResult<Option<AsmProof>> {
         let commitment = to_block_commitment(&self.bitcoin_client, block_hash)
             .await

@@ -3,7 +3,7 @@
 use bitcoin::BlockHash;
 use jsonrpsee::{core::RpcResult, proc_macros::rpc};
 use strata_asm_common::{AnchorState, AsmManifest};
-use strata_asm_proof_types::{AsmProof, MohoProof};
+use strata_asm_proof_types::{AsmProof, MohoProof, ProverStatus};
 use strata_asm_proto_bridge_v1::{AssignmentEntry, DepositEntry};
 use strata_asm_proto_bridge_v1_types::SafeHarbour;
 use strata_asm_proto_checkpoint_types::CheckpointTip;
@@ -60,6 +60,11 @@ pub trait AsmStateApi {
 #[cfg_attr(not(feature = "client"), rpc(server, namespace = "strata_asm"))]
 #[cfg_attr(feature = "client", rpc(server, client, namespace = "strata_asm"))]
 pub trait AsmProofApi {
+    /// Return the prover's current status: queue depth plus the last committed and
+    /// last proven blocks.
+    #[method(name = "getProverStatus")]
+    async fn get_prover_status(&self) -> RpcResult<ProverStatus>;
+
     /// Return the ASM step proof for the given block, if one exists.
     #[method(name = "getAsmProof")]
     async fn get_asm_proof(&self, block_hash: BlockHash) -> RpcResult<Option<AsmProof>>;

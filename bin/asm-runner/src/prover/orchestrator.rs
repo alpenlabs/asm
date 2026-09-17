@@ -9,7 +9,8 @@ use async_trait::async_trait;
 use moho_recursive_proof::MohoRecursiveProgram;
 use strata_asm_proof_db::{RemoteProofMappingDb, RemoteProofStatusDb, SledProofDb};
 use strata_asm_proof_impl::program::AsmStfProofProgram;
-use strata_asm_proof_types::{L1Range, ProofId, RemoteProofId};
+use strata_asm_proof_types::{L1Range, ProofId, ProverStatus, RemoteProofId};
+use strata_identifiers::L1BlockCommitment;
 use strata_tasks::ShutdownGuard;
 use tokio::{sync::mpsc, time};
 use tracing::{debug, error, info, warn};
@@ -17,6 +18,7 @@ use zkaleido::{RemoteProofStatus, ZkVmRemoteHost, ZkVmRemoteProgram};
 
 use super::{
     config::OrchestratorConfig, input::InputBuilder, proof_store, queue::PendingProofQueue,
+    status::ProverStatusReporter,
 };
 
 /// Orchestrates remote proof generation for ASM and Moho proofs.
@@ -28,6 +30,15 @@ pub(crate) struct ProofOrchestrator<Host: ZkVmRemoteHost> {
     moho: Host,
     config: OrchestratorConfig,
     input_builder: InputBuilder,
+    status: ProverStatusReporter,
+
+    /// Highest block the watcher has requested proofs for. Reported as
+    /// [`ProverStatus::last_committed`].
+    last_committed: Option<L1BlockCommitment>,
+
+    /// Highest block with a completed Moho proof. Seeded at startup from the
+    /// canonical walk in [`InputBuilder::proofs_to_backfill`].
+    last_proven: Option<L1BlockCommitment>,
 }
 
 impl<R: ZkVmRemoteHost> ProofOrchestrator<R> {
@@ -39,6 +50,7 @@ impl<R: ZkVmRemoteHost> ProofOrchestrator<R> {
         config: OrchestratorConfig,
         input_builder: InputBuilder,
         rx: mpsc::UnboundedReceiver<ProofId>,
+        status: ProverStatusReporter,
     ) -> Self {
         Self {
             db,
@@ -48,6 +60,9 @@ impl<R: ZkVmRemoteHost> ProofOrchestrator<R> {
             moho,
             config,
             input_builder,
+            status,
+            last_committed: None,
+            last_proven: None,
         }
     }
 
@@ -108,8 +123,41 @@ impl<R: ZkVmRemoteHost> ProofOrchestrator<R> {
     fn drain_incoming(&mut self) {
         while let Ok(id) = self.rx.try_recv() {
             debug!(?id, "received proof request");
+            // The watcher requests proofs for every block it processes, so the
+            // high-water mark over requests is the committed tip. Tracked on
+            // the Moho variant alone to avoid counting a block twice.
+            if let ProofId::Moho(block) = id
+                && self
+                    .last_committed
+                    .is_none_or(|cur| block.height() > cur.height())
+            {
+                self.last_committed = Some(block);
+            }
             self.queue.enqueue(id);
         }
+    }
+
+    /// Advances the proven watermark when a completed proof closes a block.
+    ///
+    /// Only Moho proofs move it: a Moho proof at height H attests the whole
+    /// recursive chain up to H, while a bare ASM step proof does not.
+    fn advance_proven(&mut self, proof_id: &ProofId) {
+        if let ProofId::Moho(block) = proof_id
+            && self
+                .last_proven
+                .is_none_or(|cur| block.height() > cur.height())
+        {
+            self.last_proven = Some(*block);
+        }
+    }
+
+    /// Publishes the current snapshot for the proof RPC to serve.
+    fn report_status(&self) {
+        self.status.publish(ProverStatus {
+            pending: self.queue.len(),
+            last_committed: self.last_committed,
+            last_proven: self.last_proven,
+        });
     }
 
     /// Re-enqueues proofs that were pending at restart but are not yet completed
@@ -122,12 +170,20 @@ impl<R: ZkVmRemoteHost> ProofOrchestrator<R> {
     /// filtered out downstream by [`OrchestratorSubmitter::try_submit`], so this
     /// only resurrects the genuinely-missing work.
     async fn recover_pending_proofs(&mut self) -> Result<()> {
-        let backfill = self
+        let recovery = self
             .input_builder
             .proofs_to_backfill()
             .await
             .context("failed to compute pending proof backfill")?;
 
+        // Seed the proven watermark even when nothing is pending: it is what
+        // this node reports over RPC, and a follower of ours measures its lag
+        // against it.
+        if let Some(block) = recovery.last_proven {
+            self.advance_proven(&ProofId::Moho(block));
+        }
+
+        let backfill = recovery.backfill;
         if backfill.is_empty() {
             return Ok(());
         }
@@ -154,6 +210,7 @@ impl<R: ZkVmRemoteHost> ProofOrchestrator<R> {
 
         self.reconcile_active_proofs().await?;
         self.schedule_proofs().await?;
+        self.report_status();
         Ok(())
     }
 
@@ -177,7 +234,7 @@ impl<R: ZkVmRemoteHost> ProofOrchestrator<R> {
 
     /// Reconciles a single remote proof.
     async fn reconcile_one(
-        &self,
+        &mut self,
         remote_id: &RemoteProofId,
         old_status: &RemoteProofStatus,
     ) -> Result<()> {
@@ -227,7 +284,7 @@ impl<R: ZkVmRemoteHost> ProofOrchestrator<R> {
 
     /// Retrieves a completed proof and stores it in the proof DB.
     async fn handle_completed(
-        &self,
+        &mut self,
         remote_id: &RemoteProofId,
         typed_id: &R::ProofId,
     ) -> Result<()> {
@@ -249,6 +306,8 @@ impl<R: ZkVmRemoteHost> ProofOrchestrator<R> {
             .context("no mapping found for completed remote proof")?;
 
         proof_store::store_completed_proof(&self.db, proof_id, receipt).await?;
+
+        self.advance_proven(&proof_id);
 
         self.db
             .remove(remote_id)

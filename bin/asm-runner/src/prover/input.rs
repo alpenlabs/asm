@@ -33,6 +33,18 @@ pub(crate) struct InputBuilder {
     moho_predicate: PredicateKey,
 }
 
+/// What [`InputBuilder::proofs_to_backfill`] found on the canonical chain at
+/// startup.
+pub(crate) struct PendingProofRecovery {
+    /// Canonical blocks that may still need proofs, oldest first.
+    pub(crate) backfill: Vec<L1BlockCommitment>,
+
+    /// Highest canonical block that already has a Moho proof — the block the
+    /// downward walk stopped at. `None` when the walk reached genesis without
+    /// finding one.
+    pub(crate) last_proven: Option<L1BlockCommitment>,
+}
+
 pub(crate) struct MohoPrerequisite {
     prev_moho_proof: Option<RecursiveMohoProof>,
     incremental_step_proof: StepMohoProof,
@@ -116,13 +128,20 @@ impl InputBuilder {
     /// stored, a canonical proof at height H implies every canonical proof at or
     /// below H is done. `try_submit` drops any re-enqueued proof that turns out
     /// to already exist or be in flight.
-    pub(crate) async fn proofs_to_backfill(&self) -> Result<Vec<L1BlockCommitment>> {
+    ///
+    /// The block the walk stops at is the canonical proven watermark, returned
+    /// alongside the backfill so the orchestrator can seed the `last_proven` it
+    /// reports over RPC without repeating the walk.
+    pub(crate) async fn proofs_to_backfill(&self) -> Result<PendingProofRecovery> {
         let genesis_height = self.genesis.height();
 
         // Highest persisted anchor. May belong to an abandoned reorg branch, so
         // it only bounds the walk — canonicality is established per height below.
         let Some(latest) = self.state_db.get_latest()? else {
-            return Ok(Vec::new());
+            return Ok(PendingProofRecovery {
+                backfill: Vec::new(),
+                last_proven: None,
+            });
         };
         let latest_height = latest.chain_view.pow_state.last_verified_block.height();
 
@@ -137,6 +156,7 @@ impl InputBuilder {
         let mut height = latest_height.min(u32::try_from(tip_height).unwrap_or(u32::MAX));
 
         let mut backfill = Vec::new();
+        let mut last_proven = None;
         while height > genesis_height {
             let block_hash = self
                 .bitcoin_client
@@ -149,6 +169,7 @@ impl InputBuilder {
             // re-processes and re-enqueues them on sync, so recovery skips them.
             if self.state_db.contains(&commitment)? {
                 if self.proof_db.get_moho_proof(commitment).await?.is_some() {
+                    last_proven = Some(commitment);
                     break;
                 }
                 backfill.push(commitment);
@@ -159,7 +180,10 @@ impl InputBuilder {
 
         // Oldest-first, the order the recursive Moho chain needs.
         backfill.reverse();
-        Ok(backfill)
+        Ok(PendingProofRecovery {
+            backfill,
+            last_proven,
+        })
     }
 
     pub(crate) async fn check_moho_prerequisite(
