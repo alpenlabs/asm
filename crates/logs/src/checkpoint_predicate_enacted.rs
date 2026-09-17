@@ -6,21 +6,23 @@ use strata_predicate::PredicateKey;
 
 use crate::constants::AsmLogTypeId;
 
-/// Records an OL STF verifying-key rotation taking effect.
+/// Records an enacted OL STF verifying-key rotation.
 ///
-/// Emitted when the rotation actually becomes the active predicate, not when
-/// it is authorized: a rotation is queued at the height that authorizes it and
-/// activates once the verified checkpoint tip reaches that height. This log
-/// rides in the manifest of the block where it activates, so the activation
-/// height is implicit.
+/// The new predicate is queued for activation rather than becoming active
+/// immediately: it governs every L1 height strictly above the one this log
+/// rides in, so the manifest carrying it fixes the boundary implicitly.
+///
+/// Nothing on the wire names the OL protocol-rules version the rotation
+/// activates. The OL derives it from where this log appears in its own input
+/// stream.
 #[derive(Debug, Clone)]
 pub struct CheckpointPredicateEnacted {
-    /// OL STF verification predicate that is now active.
+    /// New OL STF verification predicate queued for activation.
     new_predicate: PredicateKey,
 }
 
 impl CheckpointPredicateEnacted {
-    /// Creates a log for a predicate rotation that has taken effect.
+    /// Creates a log for an enacted predicate rotation queued for activation.
     pub fn new(new_predicate: PredicateKey) -> Self {
         Self { new_predicate }
     }

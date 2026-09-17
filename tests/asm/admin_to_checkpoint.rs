@@ -199,18 +199,16 @@ async fn test_predicate_update_propagates_to_checkpoint() {
         .next_transition()
         .expect("enactment must record a pending transition");
     assert_eq!(transition.predicate(), &new_predicate);
-    assert!(
-        harness
-            .find_log_in_blocks::<CheckpointPredicateEnacted>(&activation_blocks)
-            .await
-            .unwrap()
-            .is_none(),
-        "queueing a rotation announces nothing; the log waits until it governs"
-    );
+    let enactment = harness
+        .find_log_in_blocks::<CheckpointPredicateEnacted>(&activation_blocks)
+        .await
+        .unwrap()
+        .expect("expected CheckpointPredicateEnacted in the activation block");
+    assert_eq!(enactment.new_predicate(), &new_predicate);
     assert_eq!(
         u64::from(transition.boundary()),
         activation_height,
-        "transition boundary should be the height that queued it"
+        "transition boundary should be the enactment-log height"
     );
     assert_eq!(
         harness.admin_state().unwrap().queued().len(),
@@ -304,14 +302,12 @@ async fn test_zero_and_nonzero_depth_updates_both_apply() {
         .expect("enactment must record a pending transition");
     assert_eq!(transition.predicate(), &new_predicate);
     assert_eq!(u64::from(transition.boundary()), activation_height);
-    assert!(
-        harness
-            .find_log_in_blocks::<CheckpointPredicateEnacted>(&activation_blocks)
-            .await
-            .unwrap()
-            .is_none(),
-        "queueing a rotation announces nothing; the log waits until it governs"
-    );
+    let enactment = harness
+        .find_log_in_blocks::<CheckpointPredicateEnacted>(&activation_blocks)
+        .await
+        .unwrap()
+        .expect("expected CheckpointPredicateEnacted in the activation block");
+    assert_eq!(enactment.new_predicate(), &new_predicate);
 }
 
 // ============================================================================
@@ -572,14 +568,12 @@ async fn test_predicate_immediate_update_same_block_checkpoint_validates() {
         .expect("enactment must record a pending transition");
     assert_eq!(transition.predicate(), &new_predicate);
     assert_eq!(u64::from(transition.boundary()), activation_height);
-    assert!(
-        harness
-            .find_log_in_blocks::<CheckpointPredicateEnacted>(&[enactment_block])
-            .await
-            .unwrap()
-            .is_none(),
-        "queueing a rotation announces nothing; the log waits until it governs"
-    );
+    let enactment = harness
+        .find_log_in_blocks::<CheckpointPredicateEnacted>(&[enactment_block])
+        .await
+        .unwrap()
+        .expect("expected CheckpointPredicateEnacted in the enactment block");
+    assert_eq!(enactment.new_predicate(), &new_predicate);
 }
 
 /// A queued checkpoint-predicate update that activates in the same block as a checkpoint still
@@ -643,14 +637,12 @@ async fn test_queued_predicate_update_activation_same_block_checkpoint_validates
         .expect("enactment must record a pending transition");
     assert_eq!(transition.predicate(), &new_predicate);
     assert_eq!(u64::from(transition.boundary()), activation);
-    assert!(
-        harness
-            .find_log_in_blocks::<CheckpointPredicateEnacted>(&[activation_block])
-            .await
-            .unwrap()
-            .is_none(),
-        "queueing a rotation announces nothing; the log waits until it governs"
-    );
+    let enactment = harness
+        .find_log_in_blocks::<CheckpointPredicateEnacted>(&[activation_block])
+        .await
+        .unwrap()
+        .expect("expected CheckpointPredicateEnacted in the activation block");
+    assert_eq!(enactment.new_predicate(), &new_predicate);
     assert_eq!(
         harness.admin_state().unwrap().queued().len(),
         0,

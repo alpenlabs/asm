@@ -86,12 +86,12 @@ impl CheckpointState {
         self.sequencer_key = new_key
     }
 
-    /// Records an authorized checkpoint predicate rotation.
+    /// Records an enacted checkpoint predicate rotation.
     ///
-    /// A rotation cannot be refused: administration has no back-channel to hear about it. So
-    /// a full queue drops its oldest entry, whose key then never activates and which was
-    /// never announced. That is the newest-intent-wins reading of a situation that needs
-    /// [`MAX_PENDING_PREDICATE_TRANSITIONS`] rotations with no checkpoint in between.
+    /// The rotation arrives as a relayed message, which carries no reply, so this cannot
+    /// refuse it. When the queue is full it drops the oldest entry instead, and that entry's
+    /// key never activates. Filling the queue takes [`MAX_PENDING_PREDICATE_TRANSITIONS`]
+    /// rotations with no checkpoint in between, and the newest intent is the one to keep.
     ///
     /// # Panics
     ///
@@ -140,24 +140,29 @@ impl CheckpointState {
     /// At most one transition can elapse per checkpoint: boundaries strictly increase, and
     /// [`verify_progression`](crate::verify_progression) refuses a range reaching past the
     /// front one, so the tip can land on that boundary but never beyond it.
-    ///
-    /// Returns the newly active predicate.
-    fn promote_elapsed_transition(&mut self) -> Option<PredicateKey> {
+    fn promote_elapsed_transition(&mut self) {
         let elapsed = self
             .pending_transition
             .first()
             .is_some_and(|transition| transition.boundary() <= self.verified_tip.l1_height());
         if !elapsed {
-            return None;
+            return;
         }
 
         let mut queue: Vec<_> = self.pending_transition.to_vec();
         let activated = queue.remove(0);
+        logging::info!(
+            boundary = activated.boundary(),
+            "checkpoint predicate rotation took effect"
+        );
+        // `PredicateKey::id()` only names the backend type, so it would read the same before
+        // and after a rotation. Render the key itself instead, through `Debug` for now,
+        // pending a hex rendering on `PredicateKey` upstream.
+        logging::debug!(predicate = ?activated.predicate(), "checkpoint predicate now active");
         self.checkpoint_predicate = activated.predicate().clone();
         self.pending_transition = queue
             .try_into()
             .expect("a shrunk queue still fits the original capacity");
-        Some(self.checkpoint_predicate.clone())
     }
 
     /// Updates the verified checkpoint tip after successful verification.
@@ -173,8 +178,7 @@ impl CheckpointState {
     /// Advances the verified tip to `payload.new_tip` after verifying the ZK proof against
     /// the precomputed ASM manifests hash and extracting withdrawal intents. On success,
     /// deducts the withdrawn funds, activates any transition the new tip has reached, and
-    /// returns the extracted withdrawal intents together with the predicate that rotation
-    /// made active, if one did.
+    /// returns the extracted withdrawal intents.
     ///
     /// The proof is always verified under the active predicate. The caller must first run
     /// [`verify_progression`](crate::verify_progression) with [`Self::next_transition`],
@@ -183,7 +187,7 @@ impl CheckpointState {
         &mut self,
         payload: &CheckpointPayload,
         asm_manifests_hash: AsmManifestRangeHash,
-    ) -> CheckpointValidationResult<(Vec<WithdrawalIntent>, Option<PredicateKey>)> {
+    ) -> CheckpointValidationResult<Vec<WithdrawalIntent>> {
         let withdrawal_intents = extract_withdrawal_intents(payload.sidecar().ol_logs())?;
 
         let token = self.deposits.verify_withdrawals(&withdrawal_intents)?;
@@ -196,8 +200,8 @@ impl CheckpointState {
 
         self.deposits.apply_withdrawals(token);
         self.update_verified_tip(payload.new_tip);
-        let activated_predicate = self.promote_elapsed_transition();
+        self.promote_elapsed_transition();
 
-        Ok((withdrawal_intents, activated_predicate))
+        Ok(withdrawal_intents)
     }
 }

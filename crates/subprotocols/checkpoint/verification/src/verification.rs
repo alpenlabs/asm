@@ -318,7 +318,7 @@ mod tests {
         current_l1_height: u32,
         payload: &CheckpointPayload,
         asm_manifests_hash: AsmManifestRangeHash,
-    ) -> CheckpointValidationResult<(Vec<WithdrawalIntent>, Option<PredicateKey>)> {
+    ) -> CheckpointValidationResult<Vec<WithdrawalIntent>> {
         verify_progression(
             state.verified_tip(),
             payload.new_tip(),
@@ -615,14 +615,9 @@ mod tests {
         };
         let payload = harness.build_payload_with_tip(at_boundary);
         let hash = harness.gen_asm_manifests_hash(&at_boundary);
-        let (_, activated) = run_proof_pipeline(&mut state, boundary + 1, &payload, hash)
+        run_proof_pipeline(&mut state, boundary + 1, &payload, hash)
             .expect("a checkpoint ending at the boundary is verified under the active key");
 
-        assert_eq!(
-            activated,
-            Some(successor.predicate()),
-            "reaching the boundary reports the key that became active"
-        );
         assert_eq!(state.checkpoint_predicate(), &successor.predicate());
         assert!(state.next_transition().is_none());
 
@@ -717,8 +712,7 @@ mod tests {
         let payload = harness.build_payload_with_tip(new_tip);
         let hash = harness.gen_asm_manifests_hash(&new_tip);
 
-        let (_, activated) = run_proof_pipeline(&mut state, boundary + 2, &payload, hash).unwrap();
-        assert_eq!(activated, None, "a checkpoint short of B activates nothing");
+        run_proof_pipeline(&mut state, boundary + 2, &payload, hash).unwrap();
         assert_eq!(state.verified_tip(), &new_tip);
         assert_eq!(state.next_transition(), Some(&transition));
     }

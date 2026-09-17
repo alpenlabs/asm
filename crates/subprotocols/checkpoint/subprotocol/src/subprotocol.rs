@@ -120,6 +120,13 @@ impl Subprotocol for CheckpointSubprotocol {
                     // queue it here: it takes effect once the verified tip passes the
                     // boundary. The block carrying the rotation is the last height the
                     // preceding predicate governs.
+                    //
+                    // A full queue drops its oldest entry, and that entry's key never
+                    // activates. Administration already announced it with a
+                    // `CheckpointPredicateEnacted` log at enactment and nothing retracts a
+                    // log, so the OL sees a boundary the ASM does not honour. The ASM stays
+                    // coherent — the preceding key governs on to the next boundary — and the
+                    // OL is expected to handle the discrepancy.
                     let boundary = l1ref.height();
                     logging::info!(
                         boundary,

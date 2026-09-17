@@ -4,7 +4,7 @@ use strata_asm_common::{
     AsmLogEntry, MsgRelayer,
     logging::{debug, error, info},
 };
-use strata_asm_logs::{AsmStfUpdate, EePredicateKeyUpdate};
+use strata_asm_logs::{AsmStfUpdate, CheckpointPredicateEnacted, EePredicateKeyUpdate};
 use strata_asm_proto_admin_txs::{
     actions::{MultisigAction, UpdateAction},
     parser::SignedPayload,
@@ -272,18 +272,13 @@ fn relay_checkpoint_sequencer_update(relayer: &mut impl MsgRelayer, new_key: Buf
     info!("forwarded sequencer key update to checkpoint subprotocol");
 }
 
-/// Forwards an OL predicate rotation to checkpoint.
-///
-/// Checkpoint owns everything about when the key takes effect: it reads the boundary off the
-/// block it is processing — the same block this message is relayed in — activates the key
-/// once its verified tip reaches that boundary, and announces it then. Nothing is announced
-/// here, because a queued rotation is not yet a rotation that governs anything.
-///
-/// Checkpoint has to record every rotation it is sent: [`BlockUpdateGuard`] keeps at most one
-/// per block, which is what makes those boundaries strictly increasing.
 fn relay_checkpoint_predicate_update(relayer: &mut impl MsgRelayer, predicate: PredicateKey) {
     debug!(?predicate, "relaying checkpoint predicate update");
-    relayer.relay_msg(&CheckpointIncomingMsg::UpdateCheckpointPredicate(predicate));
+    let msg = CheckpointIncomingMsg::UpdateCheckpointPredicate(predicate.clone());
+    relayer.relay_msg(&msg);
+    let log_entry = AsmLogEntry::from_log(&CheckpointPredicateEnacted::new(predicate))
+        .expect("CheckpointPredicateEnacted encoding is infallible");
+    relayer.emit_log(log_entry);
     info!("forwarded predicate rotation to checkpoint subprotocol");
 }
 
@@ -326,7 +321,7 @@ mod tests {
     };
     use strata_asm_bridge_types::SafeHarbourAddress;
     use strata_asm_common::{AsmLogEntry, InterprotoMsg, MsgRelayer};
-    use strata_asm_logs::AsmStfUpdate;
+    use strata_asm_logs::{AsmStfUpdate, CheckpointPredicateEnacted};
     use strata_asm_proto_admin_txs::{
         actions::{
             CancelAction, MultisigAction, UpdateAction,
@@ -803,17 +798,17 @@ mod tests {
             }
             _ => panic!("expected rollup verifying key update to checkpoint"),
         }
-        assert!(
-            relayer.logs.is_empty(),
-            "a queued rotation governs nothing yet, so administration announces nothing"
-        );
+        let enactment = relayer.logs[0]
+            .try_into_log::<CheckpointPredicateEnacted>()
+            .expect("log should deserialize as CheckpointPredicateEnacted");
+        assert_eq!(enactment.new_predicate(), &predicate);
     }
 
     /// A second OL rotation in the same block is refused; the first one queues.
     ///
     /// Both would otherwise enact at the same height and reach checkpoint as two transitions
-    /// sharing one boundary, which the queue cannot represent and which leaves no way to say
-    /// which of the two the OL should end up following.
+    /// sharing one boundary, and the block's manifest would carry two enactment logs with no
+    /// way to tell which of them the OL should follow.
     #[test]
     fn test_second_ol_rotation_in_the_same_block_is_rejected() {
         let (params, admin_sks, _, _) = create_test_params();
