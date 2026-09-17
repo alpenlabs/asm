@@ -6,6 +6,7 @@
 
 use anyhow::{Context, Result};
 use async_trait::async_trait;
+use jsonrpsee::http_client::HttpClientBuilder;
 use moho_recursive_proof::MohoRecursiveProgram;
 use strata_asm_proof_db::{RemoteProofMappingDb, RemoteProofStatusDb, SledProofDb};
 use strata_asm_proof_impl::program::AsmStfProofProgram;
@@ -17,7 +18,11 @@ use tracing::{debug, error, info, warn};
 use zkaleido::{RemoteProofStatus, ZkVmRemoteHost, ZkVmRemoteProgram};
 
 use super::{
-    config::OrchestratorConfig, input::InputBuilder, proof_store, queue::PendingProofQueue,
+    config::{FollowerConfig, OrchestratorConfig, ProverMode},
+    follow::{self, Peer},
+    input::InputBuilder,
+    proof_store::{self, ProofSource},
+    queue::PendingProofQueue,
     status::ProverStatusReporter,
 };
 
@@ -33,16 +38,26 @@ pub(crate) struct ProofOrchestrator<Host: ZkVmRemoteHost> {
     status: ProverStatusReporter,
 
     /// Highest block the watcher has requested proofs for. Reported as
-    /// [`ProverStatus::last_committed`].
+    /// [`ProverStatus::last_committed`] and used by follower mode to measure
+    /// how far a peer trails us.
     last_committed: Option<L1BlockCommitment>,
 
-    /// Highest block with a completed Moho proof. Seeded at startup from the
-    /// canonical walk in [`InputBuilder::proofs_to_backfill`].
+    /// Highest block with a completed Moho proof, whether generated locally or
+    /// fetched from a peer. Seeded at startup from the canonical walk in
+    /// [`InputBuilder::proofs_to_backfill`].
     last_proven: Option<L1BlockCommitment>,
+
+    /// The peer to fetch from, in [`ProverMode::Follower`] only.
+    peer: Option<Peer>,
 }
 
 impl<R: ZkVmRemoteHost> ProofOrchestrator<R> {
     /// Creates a new orchestrator.
+    ///
+    /// # Errors
+    ///
+    /// Fails when [`ProverMode::Follower`] names a peer URL the RPC client
+    /// cannot be built for.
     pub(crate) fn new(
         db: SledProofDb,
         asm: R,
@@ -51,8 +66,23 @@ impl<R: ZkVmRemoteHost> ProofOrchestrator<R> {
         input_builder: InputBuilder,
         rx: mpsc::UnboundedReceiver<ProofId>,
         status: ProverStatusReporter,
-    ) -> Self {
-        Self {
+    ) -> Result<Self> {
+        // Derive the peer from the configured mode so that "follower without a
+        // peer" is unrepresentable rather than a launch-time check.
+        let peer = match &config.mode {
+            ProverMode::Generator => None,
+            ProverMode::Follower(follower) => {
+                let client = HttpClientBuilder::default()
+                    .build(&follower.peer_url)
+                    .with_context(|| {
+                        format!("failed to build peer RPC client for {}", follower.peer_url)
+                    })?;
+                info!(peer_url = %follower.peer_url, "prover running in follower mode");
+                Some(Peer::new(client))
+            }
+        };
+
+        Ok(Self {
             db,
             queue: PendingProofQueue::new(),
             rx,
@@ -63,7 +93,8 @@ impl<R: ZkVmRemoteHost> ProofOrchestrator<R> {
             status,
             last_committed: None,
             last_proven: None,
-        }
+            peer,
+        })
     }
 
     /// Runs the orchestrator loop until shutdown is requested or the channel is closed.
@@ -208,9 +239,52 @@ impl<R: ZkVmRemoteHost> ProofOrchestrator<R> {
             debug!(pending = self.queue.len(), "orchestrator tick");
         }
 
+        // Reconcile runs in both modes: a follower that fell back on an earlier
+        // tick still has local jobs in flight to finish.
         self.reconcile_active_proofs().await?;
-        self.schedule_proofs().await?;
+
+        match self.config.mode.clone() {
+            ProverMode::Generator => self.schedule_proofs().await?,
+            ProverMode::Follower(follower) => self.follow_proofs(&follower).await?,
+        }
+
         self.report_status();
+        Ok(())
+    }
+
+    /// Fetches pending proofs from the peer, or schedules them locally when the
+    /// peer cannot serve us.
+    ///
+    /// The decision is re-taken every tick, so a recovered peer immediately
+    /// stops new local submissions.
+    async fn follow_proofs(&mut self, follower: &FollowerConfig) -> Result<()> {
+        let genesis_height = self.input_builder.genesis().height();
+        let last_committed = self.last_committed;
+
+        let Some(peer) = self.peer.as_mut() else {
+            // Unreachable: the constructor builds a peer for every follower
+            // config. Fall back rather than stall proving if that ever changes.
+            error!("follower mode has no peer configured; proving locally");
+            return self.schedule_proofs().await;
+        };
+
+        let outcome = follow::follow_proofs(
+            &self.db,
+            &mut self.queue,
+            peer,
+            follower,
+            last_committed,
+            genesis_height,
+        )
+        .await;
+
+        for proof_id in &outcome.fetched {
+            self.advance_proven(proof_id);
+        }
+
+        if outcome.fall_back {
+            self.schedule_proofs().await?;
+        }
         Ok(())
     }
 
@@ -305,7 +379,8 @@ impl<R: ZkVmRemoteHost> ProofOrchestrator<R> {
             .context("failed to look up proof ID from remote ID")?
             .context("no mapping found for completed remote proof")?;
 
-        proof_store::store_completed_proof(&self.db, proof_id, receipt).await?;
+        proof_store::store_completed_proof(&self.db, proof_id, receipt, ProofSource::Backend)
+            .await?;
 
         self.advance_proven(&proof_id);
 

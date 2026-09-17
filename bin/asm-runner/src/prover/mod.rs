@@ -5,6 +5,7 @@
 
 mod backend;
 pub(crate) mod config;
+mod follow;
 mod input;
 mod orchestrator;
 mod proof_store;

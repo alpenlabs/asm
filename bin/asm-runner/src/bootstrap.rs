@@ -130,7 +130,7 @@ pub(crate) async fn bootstrap(
             input_builder,
             rx,
             status_reporter,
-        );
+        )?;
 
         // ZkVmRemoteProver is !Send (#[async_trait(?Send)]), so the orchestrator
         // future cannot be spawned on a multi-threaded runtime directly. We run it

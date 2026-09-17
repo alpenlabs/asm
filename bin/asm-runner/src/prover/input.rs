@@ -77,6 +77,11 @@ impl InputBuilder {
         }
     }
 
+    /// The genesis block the proof chain is anchored at.
+    pub(crate) fn genesis(&self) -> L1BlockCommitment {
+        self.genesis
+    }
+
     async fn get_parent_commitment(&self, l1_ref: L1BlockCommitment) -> Result<L1BlockCommitment> {
         let block_hash = l1_ref.blkid().to_block_hash();
         let header = self
