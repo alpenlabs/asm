@@ -97,12 +97,15 @@ pub(crate) fn handle_pending_updates(
 /// This function handles the complete lifecycle of a multisig action:
 /// 1. Determines the required role based on the action type
 /// 2. Validates that the signature set meets the threshold requirements for that role
-/// 3. Enforces the per-block limit on update types that may only be accepted once per block
-/// 4. Processes the action based on its type:
+/// 3. Increments the authority's sequence number to prevent replay attacks
+/// 4. Enforces the per-block limit on update types that may only be accepted once per block
+/// 5. Processes the action based on its type:
 ///    - `Update`: Queues the action for later execution, or applies it immediately if the
 ///      configured confirmation depth for that update variant is zero
 ///    - `Cancel`: Removes a previously queued action from the queue
-/// 5. Increments the authority's sequence number to prevent replay attacks
+///
+/// The sequence number advances on every payload whose signature verifies, including ones
+/// rejected by steps 4 and 5.
 ///
 /// # Returns
 /// * `Ok(())` if the action was successfully processed
@@ -117,11 +120,19 @@ pub(crate) fn handle_action(
     // Determine the required role; both update and cancel actions are self-describing.
     let role = state.resolve_action_role(&payload.action);
 
-    // Get the authority for this role and validate the action with the aggregated signature
+    // Get the authority for this role and validate the action with the aggregated signature.
+    let max_seqno_gap = state.max_seqno_gap();
     let authority = state
-        .authority(role)
+        .authority_mut(role)
         .ok_or(AdministrationError::UnknownRole)?;
-    let seqno_token = authority.verify_action_signature(&payload, state.max_seqno_gap())?;
+    let seqno_token = authority.verify_action_signature(&payload, max_seqno_gap)?;
+
+    // Burn the sequence number as soon as the signature verifies, before the action itself is
+    // accepted or rejected. The seqno is replay protection for the signature, not a record of
+    // what was applied: a payload that verifies but is then turned away still carries a valid
+    // signature, so leaving its seqno live would let anyone resubmit it in a later block.
+    // Rejected actions have to be re-signed at a fresh seqno.
+    authority.update_last_seqno(seqno_token);
 
     // Process the action based on its type
     match payload.action {
@@ -186,12 +197,6 @@ pub(crate) fn handle_action(
             info!(target_id = %cancel.target_id(), %role, "cancelled queued admin update");
         }
     }
-
-    // Advance the sequence number using the verified token to prevent replay attacks
-    let authority = state
-        .authority_mut(role)
-        .ok_or(AdministrationError::UnknownRole)?;
-    authority.update_last_seqno(seqno_token);
 
     Ok(())
 }
@@ -581,8 +586,12 @@ mod tests {
         }
     }
 
+    /// An update whose activation height would overflow is refused without queueing.
+    ///
+    /// The seqno still advances: the payload verified, so it stays replayable until its
+    /// sequence number is burned.
     #[test]
-    fn test_activation_height_overflow_rejects_update_without_advancing_state() {
+    fn test_activation_height_overflow_rejects_update_without_queueing_it() {
         let (mut params, admin_sks, _, _) = create_test_params();
         params.confirmation_depths.ol_stf_vk_update = 2;
         let mut state = AdministrationSubprotoState::new(&params);
@@ -616,7 +625,7 @@ mod tests {
                 .authority(Role::StrataAdministrator)
                 .unwrap()
                 .last_seqno(),
-            0
+            seqno
         );
     }
 
@@ -839,6 +848,73 @@ mod tests {
             second,
             Err(AdministrationError::UpdateAlreadyAcceptedInBlock {
                 tx_type: UpdateTxType::OlStfVkUpdate
+            })
+        );
+        assert_eq!(state.queued().len(), 1);
+        assert_eq!(
+            state
+                .authority(Role::StrataAdministrator)
+                .expect("the administrator authority exists")
+                .last_seqno(),
+            2,
+            "the refused rotation still burns its sequence number"
+        );
+    }
+
+    /// A rotation refused by the per-block limit cannot be replayed into a later block.
+    ///
+    /// The refusal happens after the signature verifies, so the payload is still signed and
+    /// anyone can resubmit it. Burning the sequence number is what stops that.
+    #[test]
+    fn test_rotation_refused_by_the_block_limit_cannot_be_replayed_later() {
+        let (params, admin_sks, _, _) = create_test_params();
+        let mut state = AdministrationSubprotoState::new(&params);
+        let mut relayer = MockRelayer::<CheckpointIncomingMsg>::new();
+        let mut block_updates = BlockUpdateGuard::default();
+
+        let refused_predicate = test_predicate(2);
+        let refused_seqno = 2;
+
+        authorize_ol_rotation(
+            &mut state,
+            &mut relayer,
+            &admin_sks,
+            test_predicate(1),
+            1,
+            1000,
+            &mut block_updates,
+        )
+        .expect("the first rotation of the block is authorized");
+        assert!(
+            authorize_ol_rotation(
+                &mut state,
+                &mut relayer,
+                &admin_sks,
+                refused_predicate.clone(),
+                refused_seqno,
+                1000,
+                &mut block_updates,
+            )
+            .is_err()
+        );
+
+        // Same signed payload, replayed by a third party into the next block.
+        let replayed = authorize_ol_rotation(
+            &mut state,
+            &mut relayer,
+            &admin_sks,
+            refused_predicate,
+            refused_seqno,
+            1001,
+            &mut BlockUpdateGuard::default(),
+        );
+
+        assert_eq!(
+            replayed,
+            Err(AdministrationError::InvalidSeqno {
+                role: Role::StrataAdministrator,
+                payload_seqno: refused_seqno,
+                last_seqno: refused_seqno,
             })
         );
         assert_eq!(state.queued().len(), 1);
