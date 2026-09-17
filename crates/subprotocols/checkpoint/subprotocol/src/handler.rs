@@ -1,6 +1,6 @@
 use strata_asm_checkpoint_types::{AsmManifestRangeHash, compute_asm_manifests_hash_from_leaves};
 use strata_asm_common::{AsmLogEntry, MsgRelayer, TxInputRef, VerifiedAuxData, logging};
-use strata_asm_logs::CheckpointTipUpdate;
+use strata_asm_logs::{CheckpointPredicateEnacted, CheckpointTipUpdate};
 use strata_asm_proto_bridge_msgs::BridgeIncomingMsg;
 use strata_asm_proto_checkpoint_txs::extract_checkpoint_from_envelope;
 use strata_checkpoint_verification::{
@@ -104,7 +104,9 @@ pub(crate) fn handle_checkpoint_tx(
 
     // Verify the ZK proof against the precomputed hash, extract withdrawal intents, and
     // atomically apply the resulting state changes.
-    let withdrawal_intents = match state.advance(&envelope.payload, asm_manifests_hash) {
+    let (withdrawal_intents, activated_predicate) = match state
+        .advance(&envelope.payload, asm_manifests_hash)
+    {
         Ok(v) => v,
         Err(e) => {
             logging::warn!(txid = %tx.tx().compute_txid(), epoch, error = %e, "checkpoint rejected");
@@ -125,6 +127,17 @@ pub(crate) fn handle_checkpoint_tx(
     let log_entry = AsmLogEntry::from_log(&checkpoint_tip_update)
         .expect("CheckpointTipUpdate encoding is infallible for fixed-size SSZ");
     relayer.emit_log(log_entry);
+
+    // Announce a rotation only once it governs, so the OL switches protocol rules at the
+    // height the ASM actually starts verifying under the new key. A rotation dropped from a
+    // full queue never reaches this point, and so is never announced.
+    if let Some(predicate) = activated_predicate {
+        logging::info!("checkpoint predicate rotation took effect");
+        logging::debug!(?predicate, "checkpoint predicate now active");
+        let log_entry = AsmLogEntry::from_log(&CheckpointPredicateEnacted::new(predicate))
+            .expect("CheckpointPredicateEnacted encoding is infallible");
+        relayer.emit_log(log_entry);
+    }
 
     for intent in withdrawal_intents {
         let bridge_msg = BridgeIncomingMsg::DispatchWithdrawal(intent);

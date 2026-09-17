@@ -47,7 +47,7 @@ async fn test_full_predicate_handover_selects_key_by_l1_range() {
         ..
     } = AsmTestHarnessBuilder::default().build().await;
 
-    // Arrange: enact a predicate rotation at boundary B and preserve the initial active key.
+    // Arrange: queue a predicate rotation at boundary B and preserve the initial active key.
     let old_predicate = checkpoint_harness.checkpoint_predicate();
     let new_signer = CheckpointTestHarness::mint_checkpoint_signer();
     let new_predicate = new_signer.predicate();
@@ -55,25 +55,27 @@ async fn test_full_predicate_handover_selects_key_by_l1_range() {
         .submit_admin_action(&mut admin_ctx, ol_stf_vk_update(new_predicate.clone()))
         .await
         .unwrap();
-    let enactment_blocks = harness
+    let queueing_blocks = harness
         .mine_blocks(DEFAULT_CONFIRMATION_DEPTH as usize)
         .await
         .unwrap();
-    let enactment = harness
-        .find_log_in_blocks::<CheckpointPredicateEnacted>(&enactment_blocks)
-        .await
-        .unwrap()
-        .expect("predicate rotation should emit an enactment log");
     let boundary = harness
         .pending_predicate_transition()
         .unwrap()
-        .expect("enactment should record a pending transition")
+        .expect("the rotation should record a pending transition")
         .boundary();
-    assert_eq!(enactment.new_predicate(), &new_predicate);
     assert_eq!(
         harness.checkpoint_state().unwrap().checkpoint_predicate(),
         &old_predicate,
-        "enactment should not immediately replace the active predicate"
+        "queueing a rotation should not immediately replace the active predicate"
+    );
+    assert!(
+        harness
+            .find_log_in_blocks::<CheckpointPredicateEnacted>(&queueing_blocks)
+            .await
+            .unwrap()
+            .is_none(),
+        "a rotation that governs nothing yet must not be announced"
     );
 
     // Arrange: advance L1 beyond B+1 so a straddling tip passes the current-height check.
@@ -132,11 +134,11 @@ async fn test_full_predicate_handover_selects_key_by_l1_range() {
         .build_checkpoint_tx_for_tip(&checkpoint_harness, preceding_tip, vec![])
         .await
         .unwrap();
-    harness.submit_and_mine_tx(&preceding_tx).await.unwrap();
+    let preceding_block = harness.submit_and_mine_tx(&preceding_tx).await.unwrap();
     checkpoint_harness.update_verified_tip(preceding_tip);
 
     // Assert: the preceding-key checkpoint is accepted under the old predicate, and reaching
-    // B activates the successor.
+    // B activates the successor and announces it.
     assert_eq!(
         harness.checkpoint_tip_update_logs().unwrap(),
         vec![preceding_tip],
@@ -148,6 +150,12 @@ async fn test_full_predicate_handover_selects_key_by_l1_range() {
         harness.pending_predicate_transition().unwrap().is_none(),
         "a checkpoint reaching B should promote the transition"
     );
+    let announcement = harness
+        .find_log_in_blocks::<CheckpointPredicateEnacted>(&[preceding_block])
+        .await
+        .unwrap()
+        .expect("the block whose checkpoint activates the rotation should announce it");
+    assert_eq!(announcement.new_predicate(), &new_predicate);
 
     // Act: submit a checkpoint starting at B+1 under the new predicate.
     let successor_tip = next_checkpoint_tip(&checkpoint_harness, boundary + 1);
@@ -204,28 +212,15 @@ async fn test_rotations_are_capped_per_block_and_queue_across_blocks() {
     let shared_block = harness.mine_block(None).await.unwrap();
     let first_boundary = harness.commitment_of(shared_block).await.unwrap().height();
 
-    // Assert: exactly one rotation is announced, and it is the one checkpoint queued. Which
-    // of the two wins is not asserted: that follows from the order bitcoind puts them in the
-    // block, not from anything the ASM decides.
-    let enactments = harness
-        .find_logs_in_blocks::<CheckpointPredicateEnacted>(&[shared_block])
-        .await
-        .unwrap();
+    // Assert: exactly one of the two is queued. Which one is not asserted: that follows from
+    // the order bitcoind puts them in the block, not from anything the ASM decides.
+    let pending = harness.pending_predicate_transitions().unwrap();
     assert_eq!(
-        enactments.len(),
+        pending.len(),
         1,
-        "a block may announce at most one OL rotation"
+        "a block may queue at most one OL rotation"
     );
-    let accepted = enactments[0].new_predicate().clone();
-    assert_eq!(
-        harness
-            .pending_predicate_transitions()
-            .unwrap()
-            .iter()
-            .map(|transition| transition.predicate().clone())
-            .collect::<Vec<_>>(),
-        vec![accepted.clone()]
-    );
+    let accepted = pending[0].predicate().clone();
 
     // Act: a third rotation in a later block, while the first still awaits activation.
     let queued_behind = CheckpointTestHarness::mint_checkpoint_signer().predicate();

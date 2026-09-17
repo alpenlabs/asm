@@ -119,12 +119,12 @@ impl CheckpointState {
         Ok(())
     }
 
-    /// Records an enacted checkpoint predicate transition.
+    /// Records an authorized checkpoint predicate rotation.
     ///
-    /// An enactment cannot be refused: its `CheckpointPredicateEnacted` log is already in the
-    /// manifest of the block being processed. So a full queue drops its oldest entry, whose
-    /// key then never activates. That is the newest-intent-wins reading of a situation that
-    /// needs [`MAX_PENDING_PREDICATE_TRANSITIONS`] rotations with no checkpoint in between.
+    /// A rotation cannot be refused: administration has no back-channel to hear about it. So
+    /// a full queue drops its oldest entry, whose key then never activates and which was
+    /// never announced. That is the newest-intent-wins reading of a situation that needs
+    /// [`MAX_PENDING_PREDICATE_TRANSITIONS`] rotations with no checkpoint in between.
     ///
     /// # Panics
     ///
@@ -162,36 +162,35 @@ impl CheckpointState {
             .expect("the queue has room after eviction");
     }
 
-    /// Activates every transition whose boundary the verified tip has now reached.
+    /// Activates the transition whose boundary the verified tip has just reached, if any.
     ///
     /// A transition governs the heights strictly after its boundary, so once the tip sits at
-    /// or past that boundary the successor key governs every height a future checkpoint can
-    /// claim. Promoting here — rather than when a checkpoint first verifies under the
-    /// successor key — keeps the invariant that the active predicate governs `verified_tip +
-    /// 1`, which is what makes key selection a non-choice.
-    fn promote_elapsed_transitions(&mut self) {
-        let tip_height = self.verified_tip.l1_height();
+    /// that boundary the successor key governs every height a future checkpoint can claim.
+    /// Promoting here — rather than when a checkpoint first verifies under the successor key
+    /// — keeps the invariant that the active predicate governs `verified_tip + 1`, which is
+    /// what makes key selection a non-choice.
+    ///
+    /// At most one transition can elapse per checkpoint: boundaries strictly increase, and
+    /// [`Self::verify_coverage_boundary`] refuses a range reaching past the front one, so the
+    /// tip can land on that boundary but never beyond it.
+    ///
+    /// Returns the newly active predicate.
+    fn promote_elapsed_transition(&mut self) -> Option<PredicateKey> {
         let elapsed = self
             .pending_transition
-            .iter()
-            .take_while(|transition| transition.boundary() <= tip_height)
-            .count();
-        if elapsed == 0 {
-            return;
+            .first()
+            .is_some_and(|transition| transition.boundary() <= self.verified_tip.l1_height());
+        if !elapsed {
+            return None;
         }
 
-        // Boundaries are strictly increasing, so the last elapsed transition is the one
-        // that ends up active; the earlier ones governed territory this tip has already
-        // passed through under a key that was itself superseded.
-        let mut remaining: Vec<_> = self.pending_transition.to_vec();
-        let activated = remaining
-            .drain(..elapsed)
-            .next_back()
-            .expect("a non-zero elapsed count yields at least one transition");
+        let mut queue: Vec<_> = self.pending_transition.to_vec();
+        let activated = queue.remove(0);
         self.checkpoint_predicate = activated.predicate().clone();
-        self.pending_transition = remaining
+        self.pending_transition = queue
             .try_into()
             .expect("a shrunk queue still fits the original capacity");
+        Some(self.checkpoint_predicate.clone())
     }
 
     /// Updates the verified checkpoint tip after successful verification.
@@ -207,7 +206,8 @@ impl CheckpointState {
     /// Advances the verified tip to `payload.new_tip` after verifying the ZK proof against
     /// the precomputed ASM manifests hash and extracting withdrawal intents. On success,
     /// deducts the withdrawn funds, activates any transition the new tip has reached, and
-    /// returns the extracted withdrawal intents.
+    /// returns the extracted withdrawal intents together with the predicate that rotation
+    /// made active, if one did.
     ///
     /// The proof is always verified under the active predicate. The caller must first run
     /// [`Self::verify_coverage_boundary`] against the coverage — before resolving ASM
@@ -217,7 +217,7 @@ impl CheckpointState {
         &mut self,
         payload: &CheckpointPayload,
         asm_manifests_hash: AsmManifestRangeHash,
-    ) -> CheckpointValidationResult<Vec<WithdrawalIntent>> {
+    ) -> CheckpointValidationResult<(Vec<WithdrawalIntent>, Option<PredicateKey>)> {
         let withdrawal_intents = extract_withdrawal_intents(payload.sidecar().ol_logs())?;
 
         let token = self.deposits.verify_withdrawals(&withdrawal_intents)?;
@@ -230,8 +230,8 @@ impl CheckpointState {
 
         self.deposits.apply_withdrawals(token);
         self.update_verified_tip(payload.new_tip);
-        self.promote_elapsed_transitions();
+        let activated_predicate = self.promote_elapsed_transition();
 
-        Ok(withdrawal_intents)
+        Ok((withdrawal_intents, activated_predicate))
     }
 }

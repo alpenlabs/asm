@@ -8,6 +8,6 @@ class PendingPredicateTransition(Container):
     #~# external_kind: container
     predicate: strata_predicate.PredicateKey
 
-    ### Enactment height `B`: the last L1 height governed by the *preceding*
-    ### predicate. Its manifest carries the `CheckpointPredicateEnacted` log.
+    ### The last L1 height governed by the *preceding* predicate, which is also
+    ### the height of the block that authorized this rotation.
     boundary: strata_identifiers.L1Height
