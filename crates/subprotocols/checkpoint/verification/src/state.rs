@@ -4,7 +4,7 @@ use strata_asm_checkpoint_types::{
 };
 use strata_asm_manifest_types::AsmManifestRangeHash;
 use strata_btc_types::BitcoinAmount;
-use strata_identifiers::L2BlockCommitment;
+use strata_identifiers::{Buf32, L2BlockCommitment};
 use strata_predicate::PredicateKey;
 
 use crate::{
@@ -35,20 +35,20 @@ impl CheckpointState {
             genesis_l2_commitment,
         );
         Self::new(
-            config.sequencer_predicate,
+            config.sequencer_key,
             config.checkpoint_predicate,
             genesis_tip,
         )
     }
 
-    /// Creates a new checkpoint state with the given predicates and tip.
+    /// Creates a new checkpoint state with the given sequencer key, predicate, and tip.
     pub(crate) fn new(
-        sequencer_predicate: PredicateKey,
+        sequencer_key: Buf32,
         checkpoint_predicate: PredicateKey,
         verified_tip: CheckpointTip,
     ) -> Self {
         Self {
-            sequencer_predicate,
+            sequencer_key,
             checkpoint_predicate,
             pending_transition: Default::default(),
             verified_tip,
@@ -56,9 +56,9 @@ impl CheckpointState {
         }
     }
 
-    /// Returns the sequencer predicate for signature verification.
-    pub fn sequencer_predicate(&self) -> &PredicateKey {
-        &self.sequencer_predicate
+    /// Returns the sequencer key that must sign the checkpoint envelope.
+    pub fn sequencer_key(&self) -> &Buf32 {
+        &self.sequencer_key
     }
 
     /// Returns the active checkpoint predicate for proof verification.
@@ -81,9 +81,9 @@ impl CheckpointState {
         self.deposits.total().to_sat()
     }
 
-    /// Update the sequencer predicate with a new Schnorr public key.
-    pub fn update_sequencer_predicate(&mut self, new_predicate: PredicateKey) {
-        self.sequencer_predicate = new_predicate
+    /// Update the sequencer key with a new Schnorr public key.
+    pub fn update_sequencer_key(&mut self, new_key: Buf32) {
+        self.sequencer_key = new_key
     }
 
     /// Selects the predicate governing `territory`, an L1 height whose inputs the
