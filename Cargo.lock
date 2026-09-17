@@ -7910,7 +7910,6 @@ dependencies = [
  "ssz_derive",
  "strata-asm-admin-types",
  "strata-asm-bridge-types",
- "strata-asm-checkpoint-types",
  "strata-asm-common",
  "strata-asm-logs",
  "strata-asm-proto-admin-txs",
@@ -8042,11 +8041,11 @@ version = "0.1.0"
 dependencies = [
  "ssz",
  "ssz_derive",
- "strata-asm-checkpoint-types",
  "strata-asm-common",
  "strata-asm-proto-checkpoint-txs",
  "strata-btc-types",
  "strata-identifiers",
+ "strata-predicate",
 ]
 
 [[package]]

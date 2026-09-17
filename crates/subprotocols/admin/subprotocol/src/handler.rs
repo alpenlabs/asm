@@ -1,6 +1,5 @@
 use strata_asm_admin_types::{Role, UpdateTxType};
 use strata_asm_bridge_types::SafeHarbourAddress;
-use strata_asm_checkpoint_types::PendingPredicateTransition;
 use strata_asm_common::{
     AsmLogEntry, MsgRelayer,
     logging::{debug, error, info},
@@ -83,7 +82,7 @@ pub(crate) fn handle_pending_updates(
         let (update_id, action) = queued.into_id_and_action();
         let tx_type = action.update_tx_type();
         let role = action.required_role();
-        match handle_update(state, relayer, action, current_height) {
+        match handle_update(state, relayer, action) {
             Ok(()) => info!(%update_id, %tx_type, %role, "enacted queued admin update"),
             Err(e) => {
                 error!(%update_id, %tx_type, %role, error = %e, "failed to enact queued admin update")
@@ -162,7 +161,7 @@ pub(crate) fn handle_action(
                         %role,
                         "applying admin update immediately (zero confirmation depth)"
                     );
-                    if let Err(e) = handle_update(state, relayer, update, current_height) {
+                    if let Err(e) = handle_update(state, relayer, update) {
                         error!(update_id = %id, %tx_type, %role, error = %e, "failed to apply admin update");
                     }
                 }
@@ -206,7 +205,6 @@ fn handle_update(
     state: &mut AdministrationSubprotoState,
     relayer: &mut impl MsgRelayer,
     update: UpdateAction,
-    current_height: L1Height,
 ) -> Result<(), AdministrationError> {
     match update {
         UpdateAction::StrataAdminMultisig(update) => {
@@ -230,7 +228,7 @@ fn handle_update(
             relay_checkpoint_sequencer_update(relayer, new_key);
         }
         UpdateAction::OlStfVk(update) => {
-            relay_checkpoint_predicate_update(relayer, update.into_key(), current_height);
+            relay_checkpoint_predicate_update(relayer, update.into_key());
         }
         UpdateAction::AsmStfVk(update) => {
             let key = update.into_key();
@@ -269,23 +267,18 @@ fn relay_checkpoint_sequencer_update(relayer: &mut impl MsgRelayer, new_key: Buf
     info!("forwarded sequencer key update to checkpoint subprotocol");
 }
 
-/// Forwards an OL predicate rotation to checkpoint, bound to `current_height` as its
-/// boundary `B`, and announces it.
+/// Forwards an OL predicate rotation to checkpoint and announces it.
 ///
-/// Checkpoint decides when the key takes effect: it queues the transition and activates it
-/// once its verified tip reaches `B`. This side only fixes the boundary and says so.
+/// Checkpoint owns both halves of when the key takes effect: it reads the boundary off the
+/// block it is processing — the same block this message is relayed in — and activates the
+/// key once its verified tip reaches it.
 ///
 /// The announcement cannot be retracted — the log rides in this block's manifest — so
-/// checkpoint has to record every transition it is sent. [`BlockUpdateGuard`] keeps at most
+/// checkpoint has to record every rotation it is sent. [`BlockUpdateGuard`] keeps at most
 /// one rotation per block, which is what makes those boundaries strictly increasing.
-fn relay_checkpoint_predicate_update(
-    relayer: &mut impl MsgRelayer,
-    predicate: PredicateKey,
-    current_height: L1Height,
-) {
-    debug!(?predicate, boundary = %current_height, "relaying checkpoint predicate update");
-    let transition = PendingPredicateTransition::new(predicate.clone(), current_height);
-    let msg = CheckpointIncomingMsg::QueueCheckpointPredicateTransition(transition);
+fn relay_checkpoint_predicate_update(relayer: &mut impl MsgRelayer, predicate: PredicateKey) {
+    debug!(?predicate, "relaying checkpoint predicate update");
+    let msg = CheckpointIncomingMsg::UpdateCheckpointPredicate(predicate.clone());
     relayer.relay_msg(&msg);
     let log_entry = AsmLogEntry::from_log(&CheckpointPredicateEnacted::new(predicate))
         .expect("CheckpointPredicateEnacted encoding is infallible");
@@ -800,9 +793,8 @@ mod tests {
             .first()
             .expect("checkpoint message expected")
         {
-            CheckpointIncomingMsg::QueueCheckpointPredicateTransition(transition) => {
-                assert_eq!(transition.predicate(), &predicate);
-                assert_eq!(transition.boundary(), activation_height);
+            CheckpointIncomingMsg::UpdateCheckpointPredicate(new_predicate) => {
+                assert_eq!(new_predicate, &predicate);
             }
             _ => panic!("expected rollup verifying key update to checkpoint"),
         }

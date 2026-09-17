@@ -1,6 +1,6 @@
 //! Checkpoint Subprotocol Implementation
 
-use strata_asm_checkpoint_types::CheckpointInitConfig;
+use strata_asm_checkpoint_types::{CheckpointInitConfig, PendingPredicateTransition};
 use strata_asm_common::{
     AuxRequestCollector, HeaderVerificationState, MsgRelayer, Subprotocol, SubprotocolId,
     TxInputRef, VerifiedAuxData, logging,
@@ -94,7 +94,7 @@ impl Subprotocol for CheckpointSubprotocol {
         }
     }
 
-    fn process_msgs(state: &mut Self::State, msgs: &[Self::Msg], _l1ref: &L1BlockCommitment) {
+    fn process_msgs(state: &mut Self::State, msgs: &[Self::Msg], l1ref: &L1BlockCommitment) {
         // ASM design assumes subprotocols are not adversarial against each other,
         // so no additional validation is performed on incoming messages.
         for msg in msgs {
@@ -115,13 +115,21 @@ impl Subprotocol for CheckpointSubprotocol {
                     );
                     state.update_sequencer_key(*new_key);
                 }
-                CheckpointIncomingMsg::QueueCheckpointPredicateTransition(transition) => {
+                CheckpointIncomingMsg::UpdateCheckpointPredicate(new_predicate) => {
+                    // The message asks for the predicate to be updated, but we only
+                    // queue it here: it takes effect once the verified tip passes the
+                    // boundary. The block carrying the rotation is the last height the
+                    // preceding predicate governs.
+                    let boundary = l1ref.height();
                     logging::info!(
-                        boundary = transition.boundary(),
-                        new = transition.predicate().id(),
+                        boundary,
+                        new = new_predicate.id(),
                         "recording checkpoint predicate transition"
                     );
-                    state.queue_predicate_transition(transition.clone());
+                    state.queue_predicate_transition(PendingPredicateTransition::new(
+                        new_predicate.clone(),
+                        boundary,
+                    ));
                 }
             }
         }
