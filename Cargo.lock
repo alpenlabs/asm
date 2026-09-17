@@ -7913,7 +7913,6 @@ dependencies = [
  "strata-asm-checkpoint-types",
  "strata-asm-common",
  "strata-asm-logs",
- "strata-asm-proto-admin-msgs",
  "strata-asm-proto-admin-txs",
  "strata-asm-proto-bridge-msgs",
  "strata-asm-proto-checkpoint-msgs",
@@ -7922,14 +7921,6 @@ dependencies = [
  "strata-predicate",
  "strata-test-utils-arb",
  "thiserror 2.0.18",
-]
-
-[[package]]
-name = "strata-asm-proto-admin-msgs"
-version = "0.1.0"
-dependencies = [
- "strata-asm-common",
- "strata-asm-proto-admin-txs",
 ]
 
 [[package]]
@@ -8038,7 +8029,6 @@ dependencies = [
  "strata-asm-checkpoint-types",
  "strata-asm-common",
  "strata-asm-logs",
- "strata-asm-proto-admin-msgs",
  "strata-asm-proto-bridge-msgs",
  "strata-asm-proto-checkpoint-msgs",
  "strata-asm-proto-checkpoint-txs",

@@ -169,8 +169,7 @@ impl CheckpointState {
     /// claim. Promoting here — rather than when a checkpoint first verifies under the
     /// successor key — keeps the invariant that the active predicate governs `verified_tip +
     /// 1`, which is what makes key selection a non-choice.
-    /// Returns whether any transition was promoted.
-    fn promote_elapsed_transitions(&mut self) -> bool {
+    fn promote_elapsed_transitions(&mut self) {
         let tip_height = self.verified_tip.l1_height();
         let elapsed = self
             .pending_transition
@@ -178,7 +177,7 @@ impl CheckpointState {
             .take_while(|transition| transition.boundary() <= tip_height)
             .count();
         if elapsed == 0 {
-            return false;
+            return;
         }
 
         // Boundaries are strictly increasing, so the last elapsed transition is the one
@@ -193,7 +192,6 @@ impl CheckpointState {
         self.pending_transition = remaining
             .try_into()
             .expect("a shrunk queue still fits the original capacity");
-        true
     }
 
     /// Updates the verified checkpoint tip after successful verification.
@@ -209,7 +207,7 @@ impl CheckpointState {
     /// Advances the verified tip to `payload.new_tip` after verifying the ZK proof against
     /// the precomputed ASM manifests hash and extracting withdrawal intents. On success,
     /// deducts the withdrawn funds, activates any transition the new tip has reached, and
-    /// returns the extracted withdrawal intents plus whether a transition was promoted.
+    /// returns the extracted withdrawal intents.
     ///
     /// The proof is always verified under the active predicate. The caller must first run
     /// [`Self::verify_coverage_boundary`] against the coverage — before resolving ASM
@@ -219,7 +217,7 @@ impl CheckpointState {
         &mut self,
         payload: &CheckpointPayload,
         asm_manifests_hash: AsmManifestRangeHash,
-    ) -> CheckpointValidationResult<(Vec<WithdrawalIntent>, bool)> {
+    ) -> CheckpointValidationResult<Vec<WithdrawalIntent>> {
         let withdrawal_intents = extract_withdrawal_intents(payload.sidecar().ol_logs())?;
 
         let token = self.deposits.verify_withdrawals(&withdrawal_intents)?;
@@ -232,8 +230,8 @@ impl CheckpointState {
 
         self.deposits.apply_withdrawals(token);
         self.update_verified_tip(payload.new_tip);
-        let promoted = self.promote_elapsed_transitions();
+        self.promote_elapsed_transitions();
 
-        Ok((withdrawal_intents, promoted))
+        Ok(withdrawal_intents)
     }
 }

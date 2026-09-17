@@ -1,4 +1,4 @@
-use strata_asm_admin_types::Role;
+use strata_asm_admin_types::{Role, UpdateTxType};
 use strata_asm_bridge_types::SafeHarbourAddress;
 use strata_asm_checkpoint_types::PendingPredicateTransition;
 use strata_asm_common::{
@@ -18,6 +18,41 @@ use strata_predicate::PredicateKey;
 use crate::{
     error::AdministrationError, queued_update::QueuedUpdate, state::AdministrationSubprotoState,
 };
+
+/// Tracks the update types that may be accepted at most once per L1 block.
+///
+/// Both verifying-key rotations are announced outside the ASM: an OL rotation as a pending
+/// transition keyed by its enactment height, an EE rotation as a log. Two of either in one
+/// block would collide on that height, or leave the consumer to pick between two logs that
+/// disagree. Taking only the first keeps the announcement unambiguous.
+///
+/// Scoped to a single block, so nothing is persisted: the confirmation depth for a type is
+/// fixed, so two updates of the same type accepted in different blocks always enact in
+/// different blocks too.
+#[derive(Debug, Default)]
+pub(crate) struct BlockUpdateGuard {
+    accepted: Vec<UpdateTxType>,
+}
+
+impl BlockUpdateGuard {
+    /// Records `tx_type` as accepted in this block, or fails if the type is limited to one
+    /// per block and one was already accepted.
+    fn admit(&mut self, tx_type: UpdateTxType) -> Result<(), AdministrationError> {
+        if !matches!(
+            tx_type,
+            UpdateTxType::OlStfVkUpdate | UpdateTxType::EeStfVkUpdate
+        ) {
+            return Ok(());
+        }
+
+        if self.accepted.contains(&tx_type) {
+            return Err(AdministrationError::UpdateAlreadyAcceptedInBlock { tx_type });
+        }
+
+        self.accepted.push(tx_type);
+        Ok(())
+    }
+}
 
 /// Processes and applies all queued updates that are ready to be enacted at the current height.
 ///
@@ -63,11 +98,12 @@ pub(crate) fn handle_pending_updates(
 /// This function handles the complete lifecycle of a multisig action:
 /// 1. Determines the required role based on the action type
 /// 2. Validates that the signature set meets the threshold requirements for that role
-/// 3. Processes the action based on its type:
+/// 3. Enforces the per-block limit on update types that may only be accepted once per block
+/// 4. Processes the action based on its type:
 ///    - `Update`: Queues the action for later execution, or applies it immediately if the
 ///      configured confirmation depth for that update variant is zero
 ///    - `Cancel`: Removes a previously queued action from the queue
-/// 4. Increments the authority's sequence number to prevent replay attacks
+/// 5. Increments the authority's sequence number to prevent replay attacks
 ///
 /// # Returns
 /// * `Ok(())` if the action was successfully processed
@@ -77,6 +113,7 @@ pub(crate) fn handle_action(
     payload: SignedPayload,
     current_height: L1Height,
     relayer: &mut impl MsgRelayer,
+    block_updates: &mut BlockUpdateGuard,
 ) -> Result<(), AdministrationError> {
     // Determine the required role; both update and cancel actions are self-describing.
     let role = state.resolve_action_role(&payload.action);
@@ -94,15 +131,7 @@ pub(crate) fn handle_action(
             let id = state.next_update_id();
             let tx_type = update.update_tx_type();
 
-            // At most one OL predicate rotation may be outstanding. Rejecting the second here
-            // — rather than deferring its enactment later — keeps the exit window that the
-            // first rotation's boundary fixed meaningful: a rotation that is authorized is a
-            // rotation that will enact at exactly `current_height + delay`.
-            if matches!(update, UpdateAction::OlStfVk(_))
-                && state.has_outstanding_ol_stf_vk_update()
-            {
-                return Err(AdministrationError::OlStfVkUpdateAlreadyOutstanding);
-            }
+            block_updates.admit(tx_type)?;
 
             // Updates with a non-zero confirmation depth are queued and enacted only after
             // `delay` more L1 blocks; until then they remain cancellable. A depth of zero
@@ -201,12 +230,7 @@ fn handle_update(
             relay_checkpoint_sequencer_update(relayer, new_key);
         }
         UpdateAction::OlStfVk(update) => {
-            enact_checkpoint_predicate_transition(
-                state,
-                relayer,
-                update.into_key(),
-                current_height,
-            );
+            relay_checkpoint_predicate_update(relayer, update.into_key(), current_height);
         }
         UpdateAction::AsmStfVk(update) => {
             let key = update.into_key();
@@ -245,28 +269,28 @@ fn relay_checkpoint_sequencer_update(relayer: &mut impl MsgRelayer, new_key: Buf
     info!("forwarded sequencer key update to checkpoint subprotocol");
 }
 
-/// Enacts an OL predicate rotation at `current_height`, the boundary `B`.
+/// Forwards an OL predicate rotation to checkpoint, bound to `current_height` as its
+/// boundary `B`, and announces it.
 ///
-/// Infallible by construction: [`handle_action`] refuses to authorize a rotation while
-/// another is queued or awaiting activation, so checkpoint's single pending-transition slot
-/// is always free here. That matters because the announcement cannot be retracted — the
-/// enactment log rides in this block's manifest, and a rotation the checkpoint subprotocol
-/// failed to record would switch the OL onto rules the ASM holds no key for.
-fn enact_checkpoint_predicate_transition(
-    state: &mut AdministrationSubprotoState,
+/// Checkpoint decides when the key takes effect: it queues the transition and activates it
+/// once its verified tip reaches `B`. This side only fixes the boundary and says so.
+///
+/// The announcement cannot be retracted — the log rides in this block's manifest — so
+/// checkpoint has to record every transition it is sent. [`BlockUpdateGuard`] keeps at most
+/// one rotation per block, which is what makes those boundaries strictly increasing.
+fn relay_checkpoint_predicate_update(
     relayer: &mut impl MsgRelayer,
     predicate: PredicateKey,
     current_height: L1Height,
 ) {
-    debug!(?predicate, boundary = %current_height, "enacting checkpoint predicate transition");
-    state.set_ol_transition_pending();
+    debug!(?predicate, boundary = %current_height, "relaying checkpoint predicate update");
     let transition = PendingPredicateTransition::new(predicate.clone(), current_height);
     let msg = CheckpointIncomingMsg::QueueCheckpointPredicateTransition(transition);
     relayer.relay_msg(&msg);
     let log_entry = AsmLogEntry::from_log(&CheckpointPredicateEnacted::new(predicate))
         .expect("CheckpointPredicateEnacted encoding is infallible");
     relayer.emit_log(log_entry);
-    info!("queued rollup verifying key transition and emitted enactment log");
+    info!("forwarded predicate transition to checkpoint subprotocol and announced it");
 }
 
 fn relay_bridge_operator_set_update(
@@ -303,11 +327,12 @@ mod tests {
 
     use bitcoin::secp256k1::{PublicKey, Secp256k1, SecretKey};
     use rand::{rngs::OsRng, seq::SliceRandom, thread_rng};
-    use strata_asm_admin_types::{AdministrationInitConfig, ConfirmationDepths, Role};
+    use strata_asm_admin_types::{
+        AdministrationInitConfig, ConfirmationDepths, Role, UpdateTxType,
+    };
     use strata_asm_bridge_types::SafeHarbourAddress;
-    use strata_asm_common::{AsmLogEntry, InterprotoMsg, MsgRelayer, Subprotocol};
+    use strata_asm_common::{AsmLogEntry, InterprotoMsg, MsgRelayer};
     use strata_asm_logs::{AsmStfUpdate, CheckpointPredicateEnacted};
-    use strata_asm_proto_admin_msgs::AdministrationIncomingMsg;
     use strata_asm_proto_admin_txs::{
         actions::{
             CancelAction, MultisigAction, UpdateAction,
@@ -324,14 +349,13 @@ mod tests {
     use strata_crypto::{
         keys::compressed::CompressedPublicKey, threshold_signature::ThresholdConfig,
     };
-    use strata_identifiers::{Buf32, L1BlockCommitment, L1Height};
+    use strata_identifiers::{Buf32, L1Height};
     use strata_predicate::{PredicateKey, PredicateTypeId};
     use strata_test_utils_arb::ArbitraryGenerator;
 
-    use super::{handle_action, handle_pending_updates};
+    use super::{BlockUpdateGuard, handle_action, handle_pending_updates};
     use crate::{
-        error::AdministrationError, queued_update::QueuedUpdate,
-        state::AdministrationSubprotoState, subprotocol::AdministrationSubprotocol,
+        error::AdministrationError, queued_update::QueuedUpdate, state::AdministrationSubprotoState,
     };
 
     struct MockRelayer<M> {
@@ -479,6 +503,9 @@ mod tests {
     }
 
     /// Signs and submits an `OlStfVk` rotation as the Strata administrator.
+    ///
+    /// `block_updates` is the caller's per-block guard: pass the same one to place two
+    /// rotations in one block, a fresh one to place them in different blocks.
     fn authorize_ol_rotation(
         state: &mut AdministrationSubprotoState,
         relayer: &mut MockRelayer<CheckpointIncomingMsg>,
@@ -486,11 +513,12 @@ mod tests {
         predicate: PredicateKey,
         seqno: u64,
         current_height: L1Height,
+        block_updates: &mut BlockUpdateGuard,
     ) -> Result<(), AdministrationError> {
         let action = MultisigAction::Update(UpdateAction::OlStfVk(OlStfVkUpdate::new(predicate)));
         let sig_set = create_signature_set(admin_sks, &[0, 2], &action, seqno);
         let payload = SignedPayload::new(seqno, action, sig_set);
-        handle_action(state, payload, current_height, relayer)
+        handle_action(state, payload, current_height, relayer, block_updates)
     }
 
     /// Test that Strata Administrator update actions are properly handled:
@@ -524,7 +552,14 @@ mod tests {
             let action = MultisigAction::Update(update.clone());
             let sig_set = create_signature_set(&admin_sks, &signer_indices, &action, seqno);
             let payload = SignedPayload::new(seqno, action, sig_set);
-            handle_action(&mut state, payload, current_height, &mut relayer).unwrap();
+            handle_action(
+                &mut state,
+                payload,
+                current_height,
+                &mut relayer,
+                &mut BlockUpdateGuard::default(),
+            )
+            .unwrap();
 
             // Verify state changes after processing
             let new_last_seqno = state
@@ -570,7 +605,13 @@ mod tests {
         let sig_set = create_signature_set(&admin_sks, &[0, 2], &action, seqno);
         let payload = SignedPayload::new(seqno, action, sig_set);
 
-        let result = handle_action(&mut state, payload, current_height, &mut relayer);
+        let result = handle_action(
+            &mut state,
+            payload,
+            current_height,
+            &mut relayer,
+            &mut BlockUpdateGuard::default(),
+        );
 
         assert_eq!(
             result,
@@ -613,7 +654,13 @@ mod tests {
         let action = MultisigAction::Update(update.clone());
         let sig_set = create_signature_set(&admin_sks, &signer_indices, &action, valid_seqno);
         let payload = SignedPayload::new(valid_seqno, action, sig_set);
-        let res = handle_action(&mut state, payload, current_height, &mut relayer);
+        let res = handle_action(
+            &mut state,
+            payload,
+            current_height,
+            &mut relayer,
+            &mut BlockUpdateGuard::default(),
+        );
         assert!(res.is_ok());
 
         // Authority seqno is now 1. Try replaying with seqno 1 (<= current).
@@ -621,7 +668,13 @@ mod tests {
         let sig_set = create_signature_set(&admin_sks, &signer_indices, &action, 1);
 
         let payload = SignedPayload::new(1, action, sig_set);
-        let res = handle_action(&mut state, payload, current_height, &mut relayer);
+        let res = handle_action(
+            &mut state,
+            payload,
+            current_height,
+            &mut relayer,
+            &mut BlockUpdateGuard::default(),
+        );
 
         assert!(res.is_err());
         assert!(matches!(
@@ -637,7 +690,13 @@ mod tests {
         let action = MultisigAction::Update(update.clone());
         let sig_set = create_signature_set(&admin_sks, &signer_indices, &action, 0);
         let payload = SignedPayload::new(0, action, sig_set);
-        let res = handle_action(&mut state, payload, current_height, &mut relayer);
+        let res = handle_action(
+            &mut state,
+            payload,
+            current_height,
+            &mut relayer,
+            &mut BlockUpdateGuard::default(),
+        );
         assert!(matches!(res, Err(AdministrationError::InvalidSeqno { .. })));
     }
 
@@ -682,7 +741,14 @@ mod tests {
                 create_signature_set(&seq_manager_sks, &signer_indices, &action, payload_seqno);
 
             let payload = SignedPayload::new(payload_seqno, action, sig_set);
-            handle_action(&mut state, payload, current_height, &mut relayer).unwrap();
+            handle_action(
+                &mut state,
+                payload,
+                current_height,
+                &mut relayer,
+                &mut BlockUpdateGuard::default(),
+            )
+            .unwrap();
 
             // Verify state changes after processing
             let new_last_seqno = state
@@ -746,17 +812,17 @@ mod tests {
         assert_eq!(enactment.new_predicate(), &predicate);
     }
 
-    /// Authorizing a second rotation while one is still queued must fail.
+    /// A second OL rotation in the same block is refused; the first one queues.
     ///
-    /// The checkpoint subprotocol holds a single pending-transition slot, and the boundary a
-    /// rotation announces is fixed the moment its transaction lands. Rejecting here keeps both
-    /// facts true: the slot cannot be double-booked, and no authorized rotation ever has its
-    /// enactment height pushed out from under the exit window it promised.
+    /// Both would otherwise enact at the same height and reach checkpoint as two transitions
+    /// sharing one boundary, and the block's manifest would carry two enactment logs with no
+    /// way to tell which of them the OL should follow.
     #[test]
-    fn test_second_ol_rotation_rejected_while_one_is_queued() {
+    fn test_second_ol_rotation_in_the_same_block_is_rejected() {
         let (params, admin_sks, _, _) = create_test_params();
         let mut state = AdministrationSubprotoState::new(&params);
         let mut relayer = MockRelayer::<CheckpointIncomingMsg>::new();
+        let mut block_updates = BlockUpdateGuard::default();
         let current_height = 1000;
 
         let first = authorize_ol_rotation(
@@ -766,6 +832,7 @@ mod tests {
             test_predicate(1),
             1,
             current_height,
+            &mut block_updates,
         );
         assert!(first.is_ok());
         assert_eq!(state.queued().len(), 1);
@@ -777,84 +844,82 @@ mod tests {
             test_predicate(2),
             2,
             current_height,
+            &mut block_updates,
         );
 
         assert_eq!(
             second,
-            Err(AdministrationError::OlStfVkUpdateAlreadyOutstanding)
+            Err(AdministrationError::UpdateAlreadyAcceptedInBlock {
+                tx_type: UpdateTxType::OlStfVkUpdate
+            })
         );
         assert_eq!(state.queued().len(), 1);
     }
 
-    /// The rejection must outlive enactment: the rotation stops being queued at `B` but keeps
-    /// occupying checkpoint's pending slot until a checkpoint covering `B + 1` is accepted.
+    /// Rotations in different blocks both queue, and at strictly increasing heights.
+    ///
+    /// That ordering is what lets checkpoint keep its transitions sorted by boundary and look
+    /// only at the front of the queue.
     #[test]
-    fn test_second_ol_rotation_rejected_while_one_awaits_activation() {
+    fn test_ol_rotations_in_separate_blocks_queue_at_increasing_heights() {
         let (params, admin_sks, _, _) = create_test_params();
         let mut state = AdministrationSubprotoState::new(&params);
         let mut relayer = MockRelayer::<CheckpointIncomingMsg>::new();
-        let activation_height = 42;
 
-        state.enqueue(QueuedUpdate::new(
-            0,
-            UpdateAction::OlStfVk(OlStfVkUpdate::new(test_predicate(1))),
-            activation_height,
-        ));
-        handle_pending_updates(&mut state, &mut relayer, activation_height);
+        for (seqno, height) in [(1, 1000), (2, 1001)] {
+            authorize_ol_rotation(
+                &mut state,
+                &mut relayer,
+                &admin_sks,
+                test_predicate(seqno as u8),
+                seqno,
+                height,
+                &mut BlockUpdateGuard::default(),
+            )
+            .expect("a rotation in a fresh block is authorized");
+        }
 
-        assert!(state.queued().is_empty());
-        assert!(state.ol_transition_pending());
-
-        let result = authorize_ol_rotation(
-            &mut state,
-            &mut relayer,
-            &admin_sks,
-            test_predicate(2),
-            1,
-            activation_height,
-        );
-
-        assert_eq!(
-            result,
-            Err(AdministrationError::OlStfVkUpdateAlreadyOutstanding)
-        );
-        assert!(state.queued().is_empty());
+        let heights: Vec<_> = state
+            .queued()
+            .iter()
+            .map(|queued| queued.activation_height())
+            .collect();
+        assert_eq!(heights.len(), 2);
+        assert!(heights[0] < heights[1]);
     }
 
-    /// Checkpoint's acknowledgement is what reopens authorization: the pending slot is not
-    /// observable from administration state, so nothing else can clear the flag.
+    /// The per-block limit applies per type and only to the two verifying-key rotations.
+    ///
+    /// `handle_action` runs every update through `admit`, so this covers the EE rotation on
+    /// the same path the OL tests above drive end to end.
     #[test]
-    fn test_ol_transition_ack_reopens_authorization() {
-        let (params, admin_sks, _, _) = create_test_params();
-        let mut state = AdministrationSubprotoState::new(&params);
-        let mut relayer = MockRelayer::<CheckpointIncomingMsg>::new();
-        let activation_height = 42;
+    fn test_per_block_limit_is_per_type_and_only_for_vk_rotations() {
+        let mut guard = BlockUpdateGuard::default();
 
-        state.enqueue(QueuedUpdate::new(
-            0,
-            UpdateAction::OlStfVk(OlStfVkUpdate::new(test_predicate(1))),
-            activation_height,
-        ));
-        handle_pending_updates(&mut state, &mut relayer, activation_height);
-        assert!(state.ol_transition_pending());
-
-        AdministrationSubprotocol::process_msgs(
-            &mut state,
-            &[AdministrationIncomingMsg::OlTransitionPromoted],
-            &L1BlockCommitment::default(),
+        assert!(guard.admit(UpdateTxType::OlStfVkUpdate).is_ok());
+        assert!(
+            guard.admit(UpdateTxType::EeStfVkUpdate).is_ok(),
+            "an EE rotation is not blocked by an OL rotation"
         );
+        for tx_type in [UpdateTxType::OlStfVkUpdate, UpdateTxType::EeStfVkUpdate] {
+            assert_eq!(
+                guard.admit(tx_type),
+                Err(AdministrationError::UpdateAlreadyAcceptedInBlock { tx_type })
+            );
+        }
 
-        assert!(!state.ol_transition_pending());
-        let result = authorize_ol_rotation(
-            &mut state,
-            &mut relayer,
-            &admin_sks,
-            test_predicate(2),
-            1,
-            activation_height,
+        // Every other type is unrestricted; repeats in one block are fine.
+        for _ in 0..3 {
+            assert!(guard.admit(UpdateTxType::AsmStfVkUpdate).is_ok());
+            assert!(guard.admit(UpdateTxType::SequencerUpdate).is_ok());
+        }
+
+        // A new block starts over.
+        assert!(
+            BlockUpdateGuard::default()
+                .admit(UpdateTxType::OlStfVkUpdate)
+                .is_ok()
         );
-        assert!(result.is_ok());
-        assert_eq!(state.queued().len(), 1);
     }
 
     /// A cancellation must not reorder the updates that survive it.
@@ -1034,7 +1099,14 @@ mod tests {
                 create_signature_set(&admin_sks, &signer_indices, &update_action, payload_seqno);
 
             let payload = SignedPayload::new(payload_seqno, update_action, sig_set);
-            handle_action(&mut state, payload, current_height, &mut relayer).unwrap();
+            handle_action(
+                &mut state,
+                payload,
+                current_height,
+                &mut relayer,
+                &mut BlockUpdateGuard::default(),
+            )
+            .unwrap();
         }
 
         // Then create a random order in which the actions are cancelled.
@@ -1056,7 +1128,14 @@ mod tests {
                 create_signature_set(&admin_sks, &signer_indices, &cancel_action, payload_seqno);
 
             let payload = SignedPayload::new(payload_seqno, cancel_action, sig_set);
-            handle_action(&mut state, payload, current_height, &mut relayer).unwrap();
+            handle_action(
+                &mut state,
+                payload,
+                current_height,
+                &mut relayer,
+                &mut BlockUpdateGuard::default(),
+            )
+            .unwrap();
 
             // Verify state changes after cancellation
             let new_last_seqno = state.authority(authorized_role).unwrap().last_seqno();
@@ -1095,7 +1174,13 @@ mod tests {
         let sig_set =
             create_signature_set(&admin_sks, &signer_indices, &cancel_action, payload_seqno);
         let payload = SignedPayload::new(payload_seqno, cancel_action, sig_set);
-        let res = handle_action(&mut state, payload, current_height, &mut relayer);
+        let res = handle_action(
+            &mut state,
+            payload,
+            current_height,
+            &mut relayer,
+            &mut BlockUpdateGuard::default(),
+        );
 
         assert!(matches!(res, Err(AdministrationError::UnknownAction(_))));
     }
@@ -1129,7 +1214,14 @@ mod tests {
             create_signature_set(&admin_sks, &signer_indices, &update_action, update_seqno);
 
         let payload = SignedPayload::new(update_seqno, update_action, sig_set);
-        handle_action(&mut state, payload, current_height, &mut relayer).unwrap();
+        handle_action(
+            &mut state,
+            payload,
+            current_height,
+            &mut relayer,
+            &mut BlockUpdateGuard::default(),
+        )
+        .unwrap();
 
         // Cancel the update action (authority seqno is now 1, use seqno 2)
         let cancel_action = MultisigAction::Cancel(CancelAction::new(update_id, update.clone()));
@@ -1138,7 +1230,13 @@ mod tests {
             create_signature_set(&admin_sks, &signer_indices, &cancel_action, cancel_seqno);
 
         let payload = SignedPayload::new(cancel_seqno, cancel_action, sig_set);
-        let res = handle_action(&mut state, payload, current_height, &mut relayer);
+        let res = handle_action(
+            &mut state,
+            payload,
+            current_height,
+            &mut relayer,
+            &mut BlockUpdateGuard::default(),
+        );
 
         assert!(res.is_ok());
 
@@ -1148,7 +1246,13 @@ mod tests {
         let sig_set =
             create_signature_set(&admin_sks, &signer_indices, &cancel_action, retry_seqno);
         let payload = SignedPayload::new(retry_seqno, cancel_action, sig_set);
-        let res = handle_action(&mut state, payload, current_height, &mut relayer);
+        let res = handle_action(
+            &mut state,
+            payload,
+            current_height,
+            &mut relayer,
+            &mut BlockUpdateGuard::default(),
+        );
         assert!(res.is_err());
         assert!(matches!(res, Err(AdministrationError::UnknownAction(_))));
     }
@@ -1169,14 +1273,27 @@ mod tests {
         let action = MultisigAction::Update(updates[0].clone());
         let sig_set = create_signature_set(&admin_sks, &signer_indices, &action, 1);
         let payload = SignedPayload::new(1, action, sig_set);
-        handle_action(&mut state, payload, current_height, &mut relayer).unwrap();
+        handle_action(
+            &mut state,
+            payload,
+            current_height,
+            &mut relayer,
+            &mut BlockUpdateGuard::default(),
+        )
+        .unwrap();
 
         // Second action at seqno 11 (last_seqno is 1, gap = 10 = max_seqno_gap)
         let gap_seqno = 1 + state.max_seqno_gap().get() as u64;
         let action = MultisigAction::Update(updates[1].clone());
         let sig_set = create_signature_set(&admin_sks, &signer_indices, &action, gap_seqno);
         let payload = SignedPayload::new(gap_seqno, action, sig_set);
-        let res = handle_action(&mut state, payload, current_height, &mut relayer);
+        let res = handle_action(
+            &mut state,
+            payload,
+            current_height,
+            &mut relayer,
+            &mut BlockUpdateGuard::default(),
+        );
 
         assert!(
             res.is_ok(),
@@ -1200,7 +1317,13 @@ mod tests {
         let action = MultisigAction::Update(update);
         let sig_set = create_signature_set(&admin_sks, &signer_indices, &action, too_far_seqno);
         let payload = SignedPayload::new(too_far_seqno, action, sig_set);
-        let res = handle_action(&mut state, payload, current_height, &mut relayer);
+        let res = handle_action(
+            &mut state,
+            payload,
+            current_height,
+            &mut relayer,
+            &mut BlockUpdateGuard::default(),
+        );
 
         assert!(res.is_err());
         assert!(matches!(

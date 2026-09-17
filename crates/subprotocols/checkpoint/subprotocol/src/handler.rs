@@ -1,7 +1,6 @@
 use strata_asm_checkpoint_types::{AsmManifestRangeHash, compute_asm_manifests_hash_from_leaves};
 use strata_asm_common::{AsmLogEntry, MsgRelayer, TxInputRef, VerifiedAuxData, logging};
 use strata_asm_logs::CheckpointTipUpdate;
-use strata_asm_proto_admin_msgs::AdministrationIncomingMsg;
 use strata_asm_proto_bridge_msgs::BridgeIncomingMsg;
 use strata_asm_proto_checkpoint_txs::extract_checkpoint_from_envelope;
 use strata_checkpoint_verification::{
@@ -105,9 +104,7 @@ pub(crate) fn handle_checkpoint_tx(
 
     // Verify the ZK proof against the precomputed hash, extract withdrawal intents, and
     // atomically apply the resulting state changes.
-    let (withdrawal_intents, promoted_transition) = match state
-        .advance(&envelope.payload, asm_manifests_hash)
-    {
+    let withdrawal_intents = match state.advance(&envelope.payload, asm_manifests_hash) {
         Ok(v) => v,
         Err(e) => {
             logging::warn!(txid = %tx.tx().compute_txid(), epoch, error = %e, "checkpoint rejected");
@@ -128,10 +125,6 @@ pub(crate) fn handle_checkpoint_tx(
     let log_entry = AsmLogEntry::from_log(&checkpoint_tip_update)
         .expect("CheckpointTipUpdate encoding is infallible for fixed-size SSZ");
     relayer.emit_log(log_entry);
-
-    if promoted_transition {
-        relayer.relay_msg(&AdministrationIncomingMsg::OlTransitionPromoted);
-    }
 
     for intent in withdrawal_intents {
         let bridge_msg = BridgeIncomingMsg::DispatchWithdrawal(intent);
