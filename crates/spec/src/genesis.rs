@@ -1,13 +1,15 @@
 //! Genesis anchor state construction from [`AsmParams`].
 
 use strata_asm_common::{
-    AnchorState, AsmHistoryAccumulatorState, ChainViewState, HeaderVerificationState, SectionState,
-    SectionStateExt,
+    AnchorState, AsmHistoryAccumulatorState, AsmSpec, ChainViewState, HeaderVerificationState,
+    SectionState, SectionStateExt,
 };
 use strata_asm_params::AsmParams;
 use strata_asm_proto_admin::{AdministrationSubprotoState, AdministrationSubprotocol};
 use strata_asm_proto_bridge::{BridgeStateV1, BridgeSubprotoV1};
 use strata_asm_proto_checkpoint::{CheckpointState, CheckpointSubprotocol};
+
+use crate::StrataAsmSpec;
 
 /// Builds the genesis [`AnchorState`] from the given [`AsmParams`].
 ///
@@ -49,6 +51,7 @@ pub fn construct_genesis_state(params: &AsmParams) -> AnchorState {
     };
 
     AnchorState {
+        spec_id: StrataAsmSpec::ID,
         magic: AnchorState::magic_ssz(params.magic),
         chain_view,
         sections: vec![

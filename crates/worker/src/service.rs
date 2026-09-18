@@ -25,7 +25,7 @@ impl<W, S> Service for AsmWorkerService<W, S>
 where
     W: WorkerContext + Send + Sync + 'static,
     S: AsmSpec + Send + Sync + 'static,
-    S::Params: Send + Sync + 'static,
+    S::GenesisParams: Send + Sync + 'static,
 {
     type State = AsmWorkerServiceState<W, S>;
     type Msg = AsmWorkerMessage;
@@ -44,7 +44,7 @@ impl<W, S> SyncService for AsmWorkerService<W, S>
 where
     W: WorkerContext + Send + Sync + 'static,
     S: AsmSpec + Send + Sync + 'static,
-    S::Params: Send + Sync + 'static,
+    S::GenesisParams: Send + Sync + 'static,
 {
     fn process_input(
         state: &mut AsmWorkerServiceState<W, S>,
@@ -125,7 +125,7 @@ fn sync_to_block<W, S>(
 where
     W: WorkerContext + Send + Sync + 'static,
     S: AsmSpec + Send + Sync + 'static,
-    S::Params: Send + Sync + 'static,
+    S::GenesisParams: Send + Sync + 'static,
 {
     // Resolve the submitted id to a height-tagged commitment. This is the only
     // height the worker takes from outside; every later height is derived from
@@ -268,7 +268,7 @@ fn apply_block<W, S>(
 where
     W: WorkerContext + Send + Sync + 'static,
     S: AsmSpec + Send + Sync + 'static,
-    S::Params: Send + Sync + 'static,
+    S::GenesisParams: Send + Sync + 'static,
 {
     // Fetch the full block now, one height at a time, so only a single block is
     // resident at any point during the forward pass.

@@ -10,13 +10,15 @@
     reason = "test dependencies shared across test suite"
 )]
 
+use std::panic::catch_unwind;
+
 use bitcoin::{
     block::{Header, Version as BlockVersion},
     hashes::Hash,
     Amount, Block, BlockHash, CompactTarget, Network, OutPoint, ScriptBuf, Transaction,
     TxMerkleNode,
 };
-use strata_asm_common::{AnchorState, AuxData};
+use strata_asm_common::{AnchorState, AsmSpec, AuxData};
 use strata_asm_params::AsmParams;
 use strata_asm_proto_bridge_txs::{
     deposit::DepositTxHeaderAux,
@@ -112,13 +114,19 @@ fn deposit_tagged_coinbase() -> Transaction {
 fn tagged_coinbase_is_ignored_by_the_stf() {
     let parent = BlockHash::all_zeros();
     let genesis = genesis_state(parent);
+    assert_eq!(genesis.spec_id, StrataAsmSpec::ID);
+    let original_parent = genesis.clone();
+    let prepared = StrataAsmSpec.prepare(&genesis);
+    assert_eq!(prepared, genesis, "compatible state needs no migration");
+    let prepared = StrataAsmSpec.prepare(&prepared);
+    assert_eq!(prepared, genesis, "preparation must be idempotent");
 
     // Control: an untagged coinbase requests nothing and transitions cleanly.
     let untagged = mine_child_block(parent, untagged_coinbase());
     let control = pre_process_asm(&StrataAsmSpec, &genesis, &untagged)
         .expect("valid untagged child block preprocesses");
     assert!(control.aux_requests.bitcoin_txs().is_empty());
-    compute_asm_transition(
+    let output = compute_asm_transition(
         &StrataAsmSpec,
         &genesis,
         &untagged,
@@ -126,6 +134,22 @@ fn tagged_coinbase_is_ignored_by_the_stf() {
         None,
     )
     .expect("valid untagged child block completes its transition");
+    assert_eq!(output.state.spec_id, StrataAsmSpec::ID);
+
+    // Both entrypoints reject a source produced by an unsupported spec.
+    let mut unsupported = genesis.clone();
+    unsupported.spec_id = StrataAsmSpec::ID + 1;
+    assert!(catch_unwind(|| { pre_process_asm(&StrataAsmSpec, &unsupported, &untagged) }).is_err());
+    assert!(catch_unwind(|| {
+        compute_asm_transition(
+            &StrataAsmSpec,
+            &unsupported,
+            &untagged,
+            &AuxData::default(),
+            None,
+        )
+    })
+    .is_err());
 
     // Attack: the miner puts a valid bridge Deposit tag on the coinbase.
     let malicious = mine_child_block(parent, deposit_tagged_coinbase());
@@ -143,7 +167,7 @@ fn tagged_coinbase_is_ignored_by_the_stf() {
 
     // With nothing requested, the block transitions on empty aux data instead of
     // stalling the worker on an unresolvable fetch.
-    compute_asm_transition(
+    let output = compute_asm_transition(
         &StrataAsmSpec,
         &genesis,
         &malicious,
@@ -151,4 +175,9 @@ fn tagged_coinbase_is_ignored_by_the_stf() {
         None,
     )
     .expect("a block with a tagged coinbase still completes its transition");
+    assert_eq!(output.state.spec_id, StrataAsmSpec::ID);
+    assert_eq!(
+        genesis, original_parent,
+        "execution must preserve the parent"
+    );
 }
