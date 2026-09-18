@@ -4,7 +4,7 @@ use std::num::NonZero;
 use arbitrary::Arbitrary;
 use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
-use strata_crypto::threshold_signature::ThresholdConfig;
+use strata_asm_admin_threshold_sig::ThresholdConfig;
 
 use crate::{ConfirmationDepths, Role};
 

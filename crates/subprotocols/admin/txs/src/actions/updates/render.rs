@@ -1,4 +1,5 @@
-use strata_crypto::{hash, threshold_signature::ThresholdConfigUpdate};
+use strata_asm_admin_threshold_sig::ThresholdConfigUpdate;
+use strata_crypto::hash;
 use strata_predicate::{PredicateKey, PredicateTypeId};
 
 use crate::actions::IndentedDetails;
@@ -56,7 +57,7 @@ pub(super) fn append_indexed_fields(
 mod tests {
     use std::num::NonZero;
 
-    use strata_crypto::keys::compressed::CompressedPublicKey;
+    use strata_asm_admin_threshold_sig::CompressedPublicKey;
     use strata_test_utils_arb::ArbitraryGenerator;
 
     use super::*;
