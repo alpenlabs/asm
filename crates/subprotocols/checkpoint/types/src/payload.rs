@@ -2,9 +2,7 @@
 
 use ssz_primitives::FixedBytes;
 use ssz_types::VariableList;
-use strata_identifiers::{
-    Buf32, Epoch, OLBlockCommitment, OLBlockId, impl_borsh_via_ssz, impl_borsh_via_ssz_fixed,
-};
+use strata_identifiers::{Buf32, Epoch, OLBlockCommitment, OLBlockId};
 use tree_hash::{Sha256Hasher, TreeHash};
 
 use crate::{
@@ -30,8 +28,6 @@ impl CheckpointTip {
         &self.l2_commitment
     }
 }
-
-impl_borsh_via_ssz_fixed!(CheckpointTip);
 
 /// Minimal subset of the terminal `OLBlockHeader` for L1 reconstruction.
 ///
@@ -157,8 +153,6 @@ impl CheckpointPayload {
         &self.proof
     }
 }
-
-impl_borsh_via_ssz!(CheckpointPayload);
 
 #[cfg(test)]
 mod tests {

@@ -2,11 +2,10 @@
 
 use std::{error::Error, fmt};
 
-use borsh::BorshDeserialize;
 use strata_asm_prover_types::RemoteProofId;
 use zkaleido::RemoteProofStatus;
 
-use super::SledProofDb;
+use super::{SledProofDb, decode_cbor, encode_cbor};
 use crate::RemoteProofStatusDb;
 
 /// Errors returned by the sled-backed [`RemoteProofStatusDb`] implementation.
@@ -60,10 +59,10 @@ impl SledProofDb {
         &self,
         remote_id: &RemoteProofId,
     ) -> Result<Option<RemoteProofStatus>, sled::Error> {
-        Ok(self.remote_proof_status.get(&remote_id.0)?.map(|v| {
-            BorshDeserialize::try_from_slice(&v)
-                .expect("stored RemoteProofStatus should be valid borsh")
-        }))
+        self.remote_proof_status
+            .get(&remote_id.0)?
+            .map(|v| decode_cbor(&v))
+            .transpose()
     }
 
     /// Lists every tracked `(remote_id, status)` pair.
@@ -72,8 +71,7 @@ impl SledProofDb {
             .iter()
             .map(|entry| {
                 let (k, v) = entry?;
-                let status: RemoteProofStatus = BorshDeserialize::try_from_slice(&v)
-                    .expect("stored RemoteProofStatus should be valid borsh");
+                let status: RemoteProofStatus = decode_cbor(&v)?;
                 Ok((RemoteProofId(k.to_vec()), status))
             })
             .collect()
@@ -107,7 +105,7 @@ impl RemoteProofStatusDb for SledProofDb {
         remote_id: &RemoteProofId,
         status: RemoteProofStatus,
     ) -> Result<(), Self::Error> {
-        let bytes = borsh::to_vec(&status).expect("borsh serialization should not fail");
+        let bytes = encode_cbor(&status)?;
         let result = self.remote_proof_status.compare_and_swap(
             &remote_id.0,
             None as Option<&[u8]>,
@@ -124,7 +122,7 @@ impl RemoteProofStatusDb for SledProofDb {
         remote_id: &RemoteProofId,
         status: RemoteProofStatus,
     ) -> Result<(), Self::Error> {
-        let bytes = borsh::to_vec(&status).expect("borsh serialization should not fail");
+        let bytes = encode_cbor(&status)?;
         let old = self
             .remote_proof_status
             .fetch_and_update(&remote_id.0, |existing| existing.map(|_| bytes.clone()))?;

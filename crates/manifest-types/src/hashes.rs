@@ -2,7 +2,6 @@
 
 #[cfg(feature = "arbitrary")]
 use arbitrary::Arbitrary;
-use borsh::{BorshDeserialize, BorshSerialize};
 use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use strata_identifiers::{Buf32, impl_buf_wrapper, impl_ssz_transparent_wrapper};
@@ -25,8 +24,6 @@ use strata_identifiers::{Buf32, impl_buf_wrapper, impl_ssz_transparent_wrapper};
     Decode,
     Serialize,
     Deserialize,
-    BorshSerialize,
-    BorshDeserialize,
 )]
 #[cfg_attr(feature = "arbitrary", derive(Arbitrary))]
 pub struct AsmManifestHash(Buf32);
@@ -57,8 +54,6 @@ impl From<[u8; 32]> for AsmManifestHash {
     Decode,
     Serialize,
     Deserialize,
-    BorshSerialize,
-    BorshDeserialize,
 )]
 #[cfg_attr(feature = "arbitrary", derive(Arbitrary))]
 pub struct AsmManifestRangeHash(Buf32);

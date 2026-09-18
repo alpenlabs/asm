@@ -137,10 +137,11 @@ tree_hash = { git = "https://github.com/alpenlabs/ssz-gen", tag = "v0.17.0" }
 tree_hash_derive = { git = "https://github.com/alpenlabs/ssz-gen", tag = "v0.17.0" }
 
 # dependencies from alpenlabs/zkaleido
-zkaleido = { git = "https://github.com/alpenlabs/zkaleido", tag = "v0.3.0", features = [
-  "borsh",
+zkaleido = { git = "https://github.com/alpenlabs/zkaleido", tag = "v0.3.0", default-features = false, features = [
+  "perf",
   "remote-prover",
   "serde",
+  "ssz",
 ] }
 zkaleido-logging = { git = "https://github.com/alpenlabs/zkaleido", tag = "v0.3.0" }
 zkaleido-native-adapter = { git = "https://github.com/alpenlabs/zkaleido", tag = "v0.3.0", features = [
@@ -166,7 +167,7 @@ bitcoind-async-client = { version = "0.10.8", default-features = false, features
   "30_2",
 ] }
 bitvec = { version = "1.0.1", features = ["serde"] }
-borsh = { version = "1.5.0", features = ["derive"] }
+ciborium = "0.2"
 clap = { version = "4.5.20", features = ["cargo", "derive", "env"] }
 corepc-node = { version = "0.12.0", features = ["30_2"] }
 futures = "0.3.31"
