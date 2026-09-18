@@ -1,8 +1,8 @@
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode as DeriveDecode, Encode as DeriveEncode};
+use strata_asm_admin_threshold_sig::SignatureSet;
 use strata_asm_admin_types::{AdminTxType, UpdateTxType};
 use strata_asm_common::{TxInputRef, logging::warn};
-use strata_crypto::threshold_signature::SignatureSet;
 use strata_l1_envelope_fmt::parser::parse_envelope_payload;
 use strata_l1_txfmt::TxType;
 
@@ -244,8 +244,8 @@ fn decode_wire<A: Encode + Decode>(
 
 #[cfg(test)]
 mod tests {
+    use strata_asm_admin_threshold_sig::IndexedSignature;
     use strata_asm_proto_txs_test_utils::{create_dummy_tx, overwrite_aux_data, parse_sps50_tx};
-    use strata_crypto::threshold_signature::IndexedSignature;
     use strata_test_utils_arb::ArbitraryGenerator;
 
     use super::*;

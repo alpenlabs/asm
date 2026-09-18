@@ -10,6 +10,7 @@ workspace = true
 moho-runtime-impl.workspace = true
 moho-runtime-interface.workspace = true
 moho-types.workspace = true
+strata-asm-admin-threshold-sig.workspace = true
 strata-asm-admin-types.workspace = true
 strata-asm-bridge-types = { workspace = true, features = ["arbitrary"] }
 strata-asm-checkpoint-types.workspace = true

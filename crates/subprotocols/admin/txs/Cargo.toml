@@ -7,6 +7,9 @@ edition = "2024"
 workspace = true
 
 [dependencies]
+strata-asm-admin-threshold-sig = { workspace = true, features = [
+  "arbitrary",
+] }
 strata-asm-admin-types.workspace = true
 strata-asm-bridge-types = { workspace = true, features = ["arbitrary"] }
 strata-asm-common.workspace = true
