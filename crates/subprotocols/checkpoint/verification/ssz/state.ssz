@@ -3,10 +3,11 @@ import strata_identifiers
 import strata_btc_types
 import strata_asm_checkpoint_types
 
-### At most one OL predicate rotation may be outstanding at a time. Administration
-### refuses to authorize a rotation while another is queued or awaiting activation, so
-### this slot is always free when an enactment arrives.
-MAX_PENDING_PREDICATE_TRANSITIONS = 1
+### How many enacted rotations may await activation at once. Administration accepts at
+### most one rotation per L1 block, so filling the queue needs this many rotations with
+### no checkpoint in between. An enactment cannot be refused — its log is already in the
+### block's manifest — so a full queue evicts its oldest entry instead.
+MAX_PENDING_PREDICATE_TRANSITIONS = 8
 
 ### Pool of bridge UTXOs available to honor withdrawals.
 ###
@@ -30,7 +31,12 @@ class CheckpointState(Container):
     #~# external_kind: container
     checkpoint_predicate: strata_predicate.PredicateKey
 
-    ### Enacted predicate transition awaiting checkpoint-sequence activation, if any.
+    ### Enacted predicate transitions awaiting activation, ordered by boundary.
+    ###
+    ### Every entry has a boundary strictly above `verified_tip.l1_height`: a transition is
+    ### enacted at the L1 height being processed, which is always above the height any
+    ### checkpoint has covered, and an entry is promoted as soon as the tip reaches it. So
+    ### `checkpoint_predicate` always governs `verified_tip.l1_height + 1`.
     #~# external_kind: container
     pending_transition: List[strata_asm_checkpoint_types.PendingPredicateTransition, MAX_PENDING_PREDICATE_TRANSITIONS]
 

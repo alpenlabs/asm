@@ -390,17 +390,31 @@ impl AsmTestHarness {
         &self,
         block_hashes: &[BlockHash],
     ) -> anyhow::Result<Option<T>> {
+        Ok(self
+            .find_logs_in_blocks::<T>(block_hashes)
+            .await?
+            .into_iter()
+            .next())
+    }
+
+    /// Find every log of the given type in the manifests of the given blocks, in order.
+    ///
+    /// Use this over [`Self::find_log_in_blocks`] when the count matters — to show that a
+    /// block announced exactly one of something, rather than merely at least one.
+    pub async fn find_logs_in_blocks<T: AsmLog>(
+        &self,
+        block_hashes: &[BlockHash],
+    ) -> anyhow::Result<Vec<T>> {
+        let mut found = Vec::new();
         for hash in block_hashes {
             let block = self.commitment_of(*hash).await?;
-            if let Some(log) = self
-                .get_logs_at(&block)
-                .iter()
-                .find_map(|log| log.try_into_log::<T>().ok())
-            {
-                return Ok(Some(log));
-            }
+            found.extend(
+                self.get_logs_at(&block)
+                    .iter()
+                    .filter_map(|log| log.try_into_log::<T>().ok()),
+            );
         }
-        Ok(None)
+        Ok(found)
     }
 
     /// Fetch a block from Bitcoin by hash.

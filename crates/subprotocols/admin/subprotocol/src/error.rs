@@ -1,6 +1,6 @@
 use std::num::NonZero;
 
-use strata_asm_admin_types::Role;
+use strata_asm_admin_types::{Role, UpdateTxType};
 use strata_asm_proto_admin_txs::actions::UpdateId;
 use strata_crypto::threshold_signature::ThresholdSignatureError;
 use strata_identifiers::L1Height;
@@ -21,14 +21,12 @@ pub enum AdministrationError {
     #[error("cancel target_id {target_id} update payload does not match queued action")]
     CancelUpdateMismatch { target_id: UpdateId },
 
-    /// An OL STF verifying-key rotation is already queued or awaiting activation.
+    /// An update of this type was already accepted in the block being processed.
     ///
-    /// Only one rotation may be outstanding at a time: the checkpoint subprotocol holds a
-    /// single pending-transition slot, and a second rotation would either overwrite a
-    /// boundary the OL has already been told about or announce an enactment that checkpoint
-    /// state cannot record.
-    #[error("an OL STF verifying key update is already queued or awaiting activation")]
-    OlStfVkUpdateAlreadyOutstanding,
+    /// Verifying-key rotations are announced outside the ASM, so only the first one in a
+    /// block counts; a second would make the announcement ambiguous.
+    #[error("an update of type {tx_type} was already accepted in this block")]
+    UpdateAlreadyAcceptedInBlock { tx_type: UpdateTxType },
 
     /// The activation height cannot be represented in the L1 height domain.
     #[error(

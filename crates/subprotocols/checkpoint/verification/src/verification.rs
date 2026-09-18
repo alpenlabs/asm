@@ -3,7 +3,7 @@ use ssz::Encode;
 use strata_asm_bridge_types::{BRIDGE_GATEWAY_ACCT_SERIAL, OperatorSelection, WithdrawalIntent};
 use strata_asm_checkpoint_types::{
     CheckpointClaim, CheckpointPayload, CheckpointSidecar, CheckpointTip, L2BlockRange, OLLog,
-    SimpleWithdrawalIntentLogData,
+    PendingPredicateTransition, SimpleWithdrawalIntentLogData,
 };
 use strata_asm_manifest_types::AsmManifestRangeHash;
 use strata_btc_types::BitcoinAmount;
@@ -36,14 +36,20 @@ pub enum CheckpointL1Range {
 
 /// Validates the checkpoint's range against progression rules — epoch advances by
 /// exactly 1, L1 height does not regress and stays strictly below the current L1 tip,
-/// and L2 slot advances.
+/// L2 slot advances, and the covered range does not cross the next predicate boundary.
+///
+/// `next_transition` is the rotation that activates next, if any — the front of the
+/// state's queue. Boundaries strictly increase, so it is the only one a checkpoint's
+/// coverage can run into.
 ///
 /// On success, returns a [`CheckpointL1Range`] describing the L1 blocks the new
-/// checkpoint covers.
+/// checkpoint covers. That range lies wholly inside the active predicate's territory,
+/// which is what makes verifying the proof under the active key correct.
 pub fn verify_progression(
     last_verified_tip: &CheckpointTip,
     new_tip: &CheckpointTip,
     current_l1_height: L1Height,
+    next_transition: Option<&PendingPredicateTransition>,
 ) -> CheckpointValidationResult<CheckpointL1Range> {
     // Validate epoch progression: each checkpoint must advance the epoch by exactly 1.
     let expected_epoch = last_verified_tip
@@ -99,11 +105,30 @@ pub fn verify_progression(
     }
 
     let coverage = if l1_height_covered_in_last_checkpoint == l1_height_covered_in_new_checkpoint {
+        // An empty range claims no new L1 heights, so it cannot cross a boundary.
         CheckpointL1Range::Empty
     } else {
+        let start_height = l1_height_covered_in_last_checkpoint + 1;
+        let end_height = l1_height_covered_in_new_checkpoint;
+
+        // Every queued transition has a boundary strictly above the verified tip, so the
+        // range always starts inside the active predicate's territory. It must also end
+        // there: a range reaching past the next boundary would claim heights the active
+        // key does not govern.
+        if let Some(next) = next_transition
+            && next.boundary() < end_height
+        {
+            return Err(InvalidCheckpointPayload::RangeStraddlesPredicateBoundary {
+                start: start_height,
+                end: end_height,
+                boundary: next.boundary(),
+            }
+            .into());
+        }
+
         CheckpointL1Range::Range {
-            start_height: l1_height_covered_in_last_checkpoint + 1,
-            end_height: l1_height_covered_in_new_checkpoint,
+            start_height,
+            end_height,
         }
     };
 
@@ -265,7 +290,7 @@ mod tests {
     use strata_test_utils_checkpoint::CheckpointTestHarness;
 
     use crate::{
-        CheckpointState, PredicateSelection,
+        CheckpointState, MAX_PENDING_PREDICATE_TRANSITIONS,
         errors::{
             CheckpointValidationError, CheckpointValidationResult, InvalidCheckpointPayload,
             InvalidSequencerKey,
@@ -285,19 +310,22 @@ mod tests {
         (state, harness)
     }
 
-    /// Drives the full progression + selection + proof pipeline with a precomputed manifest
-    /// hash, in the same order the subprotocol handler does.
+    /// Drives the full progression + proof pipeline with a precomputed manifest hash, in
+    /// the same order the subprotocol handler does.
     /// Skips sequencer authentication, which has its own dedicated tests.
     fn run_proof_pipeline(
         state: &mut CheckpointState,
         current_l1_height: u32,
         payload: &CheckpointPayload,
         asm_manifests_hash: AsmManifestRangeHash,
-    ) -> CheckpointValidationResult<(Vec<WithdrawalIntent>, bool)> {
-        let coverage =
-            verify_progression(state.verified_tip(), payload.new_tip(), current_l1_height)?;
-        let selection = state.select_predicate(&coverage)?;
-        state.advance(payload, asm_manifests_hash, selection)
+    ) -> CheckpointValidationResult<Vec<WithdrawalIntent>> {
+        verify_progression(
+            state.verified_tip(),
+            payload.new_tip(),
+            current_l1_height,
+            state.next_transition(),
+        )?;
+        state.advance(payload, asm_manifests_hash)
     }
 
     #[test]
@@ -361,8 +389,13 @@ mod tests {
         payload.new_tip.epoch = harness.verified_tip().epoch + 2;
         let current_l1_height = payload.new_tip().l1_height + 1;
 
-        let err = verify_progression(harness.verified_tip(), payload.new_tip(), current_l1_height)
-            .unwrap_err();
+        let err = verify_progression(
+            harness.verified_tip(),
+            payload.new_tip(),
+            current_l1_height,
+            None,
+        )
+        .unwrap_err();
         assert!(matches!(
             err,
             CheckpointValidationError::InvalidPayload(
@@ -377,8 +410,13 @@ mod tests {
         let payload = harness.build_payload();
         let current_l1_height = payload.new_tip().l1_height - 1;
 
-        let err = verify_progression(harness.verified_tip(), payload.new_tip(), current_l1_height)
-            .unwrap_err();
+        let err = verify_progression(
+            harness.verified_tip(),
+            payload.new_tip(),
+            current_l1_height,
+            None,
+        )
+        .unwrap_err();
         assert!(matches!(
             err,
             CheckpointValidationError::InvalidPayload(
@@ -396,8 +434,13 @@ mod tests {
         let payload = harness.build_payload();
         let current_l1_height = payload.new_tip().l1_height;
 
-        let err = verify_progression(harness.verified_tip(), payload.new_tip(), current_l1_height)
-            .unwrap_err();
+        let err = verify_progression(
+            harness.verified_tip(),
+            payload.new_tip(),
+            current_l1_height,
+            None,
+        )
+        .unwrap_err();
         assert!(matches!(
             err,
             CheckpointValidationError::InvalidPayload(
@@ -415,9 +458,13 @@ mod tests {
         let new_height = payload.new_tip().l1_height;
         let current_l1_height = new_height + 1;
 
-        let coverage =
-            verify_progression(harness.verified_tip(), payload.new_tip(), current_l1_height)
-                .expect("a checkpoint one height below the current block is accepted");
+        let coverage = verify_progression(
+            harness.verified_tip(),
+            payload.new_tip(),
+            current_l1_height,
+            None,
+        )
+        .expect("a checkpoint one height below the current block is accepted");
         assert_eq!(
             coverage,
             CheckpointL1Range::Range {
@@ -438,9 +485,13 @@ mod tests {
         let payload = harness.build_payload_with_tip(new_tip);
         let current_l1_height = harness.verified_tip().l1_height + 1;
 
-        let coverage =
-            verify_progression(harness.verified_tip(), payload.new_tip(), current_l1_height)
-                .expect("zero L1 progress is accepted");
+        let coverage = verify_progression(
+            harness.verified_tip(),
+            payload.new_tip(),
+            current_l1_height,
+            None,
+        )
+        .expect("zero L1 progress is accepted");
         assert!(matches!(coverage, CheckpointL1Range::Empty));
     }
 
@@ -451,8 +502,13 @@ mod tests {
         payload.new_tip.l1_height = harness.verified_tip().l1_height - 1;
         let current_l1_height = harness.verified_tip().l1_height + 1;
 
-        let err = verify_progression(harness.verified_tip(), payload.new_tip(), current_l1_height)
-            .unwrap_err();
+        let err = verify_progression(
+            harness.verified_tip(),
+            payload.new_tip(),
+            current_l1_height,
+            None,
+        )
+        .unwrap_err();
         assert!(matches!(
             err,
             CheckpointValidationError::InvalidPayload(
@@ -469,8 +525,13 @@ mod tests {
         payload.new_tip.l2_commitment = *harness.verified_tip().l2_commitment();
         let current_l1_height = payload.new_tip().l1_height + 1;
 
-        let err = verify_progression(harness.verified_tip(), payload.new_tip(), current_l1_height)
-            .unwrap_err();
+        let err = verify_progression(
+            harness.verified_tip(),
+            payload.new_tip(),
+            current_l1_height,
+            None,
+        )
+        .unwrap_err();
         assert!(matches!(
             err,
             CheckpointValidationError::InvalidPayload(
@@ -479,42 +540,47 @@ mod tests {
         ));
     }
 
-    // --- Predicate selection and activation ---
+    // --- Predicate boundaries and activation ---
 
     #[test]
-    fn test_select_predicate_for_each_range_branch() {
+    fn test_coverage_may_reach_the_boundary_but_not_cross_it() {
         let (mut state, harness) = test_setup();
-        let boundary = harness.verified_tip().l1_height() + 20;
+        let verified_height = harness.verified_tip().l1_height();
+        let boundary = verified_height + 20;
         state.queue_predicate_transition(PendingPredicateTransition::new(
             PredicateKey::always_accept(),
             boundary,
         ));
 
+        let coverage_up_to = |l1_height| {
+            let new_tip = CheckpointTip {
+                l1_height,
+                ..harness.gen_new_tip()
+            };
+            verify_progression(
+                state.verified_tip(),
+                &new_tip,
+                boundary + 5,
+                state.next_transition(),
+            )
+        };
+
+        // A checkpoint covering no new heights claims none, so no boundary is in the way.
         assert_eq!(
-            state
-                .select_predicate(&CheckpointL1Range::Range {
-                    start_height: boundary - 5,
-                    end_height: boundary,
-                })
-                .unwrap(),
-            PredicateSelection::Active
-        );
-        assert_eq!(
-            state
-                .select_predicate(&CheckpointL1Range::Range {
-                    start_height: boundary + 1,
-                    end_height: boundary + 5,
-                })
-                .unwrap(),
-            PredicateSelection::Pending
+            coverage_up_to(verified_height).expect("an empty range cannot cross a boundary"),
+            CheckpointL1Range::Empty
         );
 
-        let err = state
-            .select_predicate(&CheckpointL1Range::Range {
-                start_height: boundary,
-                end_height: boundary + 1,
-            })
-            .unwrap_err();
+        assert_eq!(
+            coverage_up_to(boundary)
+                .expect("a range ending at the boundary stays inside the active territory"),
+            CheckpointL1Range::Range {
+                start_height: verified_height + 1,
+                end_height: boundary,
+            }
+        );
+
+        let err = coverage_up_to(boundary + 1).unwrap_err();
         assert!(matches!(
             err,
             CheckpointValidationError::InvalidPayload(
@@ -523,109 +589,76 @@ mod tests {
                     end,
                     boundary: reported,
                 }
-            ) if start == boundary && end == boundary + 1 && reported == boundary
+            ) if start == verified_height + 1 && end == boundary + 1 && reported == boundary
         ));
     }
 
+    /// A checkpoint that carries the verified tip up to `B` activates the successor key,
+    /// and the checkpoint after it is verified under that key.
     #[test]
-    fn test_empty_range_selects_by_verified_tip() {
-        let boundary = 100;
-        for (verified_height, expected) in [
-            (boundary - 1, PredicateSelection::Active),
-            (boundary, PredicateSelection::Pending),
-            (boundary + 1, PredicateSelection::Pending),
-        ] {
-            let (mut state, harness) = test_setup();
-            state.verified_tip.l1_height = verified_height;
-            state.queue_predicate_transition(PendingPredicateTransition::new(
-                PredicateKey::always_accept(),
-                boundary,
-            ));
-            assert_eq!(
-                state.select_predicate(&CheckpointL1Range::Empty).unwrap(),
-                expected,
-                "unexpected selection for verified height {verified_height}"
-            );
-
-            // Keep the harness alive through the assertion so its randomly generated
-            // predicates cannot be optimized out of the state setup.
-            assert_eq!(state.sequencer_key(), &harness.sequencer_key());
-        }
-    }
-
-    #[test]
-    fn test_empty_range_at_u32_max_selects_pending_without_successor_arithmetic() {
-        let (mut state, _) = test_setup();
-        state.verified_tip.l1_height = u32::MAX;
-        state.queue_predicate_transition(PendingPredicateTransition::new(
-            PredicateKey::always_accept(),
-            u32::MAX,
-        ));
-
-        assert_eq!(
-            state.select_predicate(&CheckpointL1Range::Empty).unwrap(),
-            PredicateSelection::Pending
-        );
-    }
-
-    /// A checkpoint accepted under the pending key promotes it and empties the slot.
-    #[test]
-    fn test_acceptance_under_pending_key_promotes_and_clears_slot() {
+    fn test_checkpoint_reaching_the_boundary_promotes_the_transition() {
         let (mut state, mut harness) = test_setup();
-        let signer = CheckpointTestHarness::mint_checkpoint_signer();
+        let successor = CheckpointTestHarness::mint_checkpoint_signer();
         let active_predicate = state.checkpoint_predicate().clone();
+        assert_ne!(active_predicate, successor.predicate());
+
         let boundary = harness.verified_tip().l1_height() + 10;
-        let mut baseline = *harness.verified_tip();
-        baseline.l1_height = boundary;
-        harness.update_verified_tip(baseline);
-        state.verified_tip = baseline;
         state.queue_predicate_transition(PendingPredicateTransition::new(
-            signer.predicate(),
+            successor.predicate(),
             boundary,
         ));
-        assert_ne!(active_predicate, signer.predicate());
 
-        let new_tip = CheckpointTip {
+        // A checkpoint ending exactly at B is still verified under the active key.
+        let at_boundary = CheckpointTip {
+            l1_height: boundary,
+            ..harness.gen_new_tip()
+        };
+        let payload = harness.build_payload_with_tip(at_boundary);
+        let hash = harness.gen_asm_manifests_hash(&at_boundary);
+        run_proof_pipeline(&mut state, boundary + 1, &payload, hash)
+            .expect("a checkpoint ending at the boundary is verified under the active key");
+
+        assert_eq!(state.checkpoint_predicate(), &successor.predicate());
+        assert!(state.next_transition().is_none());
+
+        // The next checkpoint covers B+1 onwards and must verify under the successor key.
+        harness.update_verified_tip(at_boundary);
+        let past_boundary = CheckpointTip {
             l1_height: boundary + 5,
             ..harness.gen_new_tip()
         };
-        let payload = harness.build_payload_with_tip_and_signer(new_tip, &signer);
-        let hash = harness.gen_asm_manifests_hash(&new_tip);
-        let (_, promoted) = run_proof_pipeline(&mut state, boundary + 6, &payload, hash).unwrap();
-
-        assert!(promoted);
-        assert_eq!(state.checkpoint_predicate(), &signer.predicate());
-        assert!(state.pending_transition().is_none());
+        let payload = harness.build_payload_with_tip_and_signer(past_boundary, &successor);
+        let hash = harness.gen_asm_manifests_hash(&past_boundary);
+        run_proof_pipeline(&mut state, boundary + 6, &payload, hash)
+            .expect("the successor key governs every height past the boundary");
+        assert_eq!(state.verified_tip(), &past_boundary);
     }
 
     #[test]
-    fn test_selected_predicate_failure_leaves_state_unchanged() {
-        let (mut state, mut harness) = test_setup();
-        let signer = CheckpointTestHarness::mint_checkpoint_signer();
+    fn test_predicate_failure_leaves_state_unchanged() {
+        let (mut state, harness) = test_setup();
+        let wrong_signer = CheckpointTestHarness::mint_checkpoint_signer();
         let boundary = harness.verified_tip().l1_height() + 10;
-        let mut baseline = *harness.verified_tip();
-        baseline.l1_height = boundary;
-        harness.update_verified_tip(baseline);
-        state.verified_tip = baseline;
         state.record_deposit(
             BitcoinAmount::try_from(100_000)
                 .expect("test amount must be within the Bitcoin money supply"),
         );
         state.queue_predicate_transition(PendingPredicateTransition::new(
-            signer.predicate(),
+            wrong_signer.predicate(),
             boundary,
         ));
         let previous_tip = *state.verified_tip();
         let previous_deposits = state.available_deposit_sum();
-        let previous_transition = state.pending_transition().cloned();
+        let previous_transition = state.next_transition().cloned();
 
+        // Signed by the queued successor, but the range ends at B so the active key applies.
         let new_tip = CheckpointTip {
-            l1_height: boundary + 1,
+            l1_height: boundary,
             ..harness.gen_new_tip()
         };
-        let payload = harness.build_payload_with_tip(new_tip);
+        let payload = harness.build_payload_with_tip_and_signer(new_tip, &wrong_signer);
         let hash = harness.gen_asm_manifests_hash(&new_tip);
-        let err = run_proof_pipeline(&mut state, boundary + 2, &payload, hash).unwrap_err();
+        let err = run_proof_pipeline(&mut state, boundary + 1, &payload, hash).unwrap_err();
 
         assert!(matches!(
             err,
@@ -635,7 +668,7 @@ mod tests {
         ));
         assert_eq!(state.verified_tip(), &previous_tip);
         assert_eq!(state.available_deposit_sum(), previous_deposits);
-        assert_eq!(state.pending_transition().cloned(), previous_transition);
+        assert_eq!(state.next_transition().cloned(), previous_transition);
     }
 
     #[test]
@@ -679,10 +712,119 @@ mod tests {
         let payload = harness.build_payload_with_tip(new_tip);
         let hash = harness.gen_asm_manifests_hash(&new_tip);
 
-        let (_, promoted) = run_proof_pipeline(&mut state, boundary + 2, &payload, hash).unwrap();
-        assert!(!promoted);
+        run_proof_pipeline(&mut state, boundary + 2, &payload, hash).unwrap();
         assert_eq!(state.verified_tip(), &new_tip);
-        assert_eq!(state.pending_transition(), Some(&transition));
+        assert_eq!(state.next_transition(), Some(&transition));
+    }
+
+    /// Two rotations hand over one at a time: each checkpoint may reach the next boundary
+    /// but not cross it, and reaching it activates exactly that rotation.
+    #[test]
+    fn test_queued_rotations_hand_over_one_boundary_at_a_time() {
+        let (mut state, mut harness) = test_setup();
+        let first = CheckpointTestHarness::mint_checkpoint_signer();
+        let second = CheckpointTestHarness::mint_checkpoint_signer();
+        let first_boundary = harness.verified_tip().l1_height() + 10;
+        let second_boundary = first_boundary + 10;
+        state.queue_predicate_transition(PendingPredicateTransition::new(
+            first.predicate(),
+            first_boundary,
+        ));
+        state.queue_predicate_transition(PendingPredicateTransition::new(
+            second.predicate(),
+            second_boundary,
+        ));
+
+        // A checkpoint reaching past the first boundary is rejected even though a later
+        // boundary is what it ultimately overshoots.
+        let overshooting_tip = CheckpointTip {
+            l1_height: second_boundary,
+            ..harness.gen_new_tip()
+        };
+        let err = verify_progression(
+            state.verified_tip(),
+            &overshooting_tip,
+            second_boundary + 1,
+            state.next_transition(),
+        )
+        .unwrap_err();
+        assert!(matches!(
+            err,
+            CheckpointValidationError::InvalidPayload(
+                InvalidCheckpointPayload::RangeStraddlesPredicateBoundary { boundary, .. }
+            ) if boundary == first_boundary
+        ));
+
+        // Each checkpoint is signed by the key active at the time: the harness's own up to
+        // the first boundary, then the key the first rotation installed.
+        let steps = [
+            (first_boundary, None, &first),
+            (second_boundary, Some(&first), &second),
+        ];
+        for (boundary, active_signer, expected_signer) in steps {
+            let tip = CheckpointTip {
+                l1_height: boundary,
+                ..harness.gen_new_tip()
+            };
+            let payload = match active_signer {
+                Some(signer) => harness.build_payload_with_tip_and_signer(tip, signer),
+                None => harness.build_payload_with_tip(tip),
+            };
+            let hash = harness.gen_asm_manifests_hash(&tip);
+            run_proof_pipeline(&mut state, boundary + 1, &payload, hash)
+                .expect("a checkpoint reaching the next boundary is verified under the active key");
+            harness.update_verified_tip(tip);
+
+            assert_eq!(state.checkpoint_predicate(), &expected_signer.predicate());
+        }
+        assert!(state.pending_transitions().is_empty());
+    }
+
+    /// A full queue drops its oldest entry: that rotation's key never activates.
+    #[test]
+    fn test_full_queue_evicts_the_oldest_rotation() {
+        let (mut state, harness) = test_setup();
+        let capacity = usize::try_from(MAX_PENDING_PREDICATE_TRANSITIONS).unwrap();
+        let first_boundary = harness.verified_tip().l1_height() + 1;
+
+        for offset in 0..capacity {
+            state.queue_predicate_transition(PendingPredicateTransition::new(
+                PredicateKey::always_accept(),
+                first_boundary + offset as u32,
+            ));
+        }
+        assert_eq!(state.pending_transitions().len(), capacity);
+        assert_eq!(state.next_transition().unwrap().boundary(), first_boundary);
+
+        let overflow_boundary = first_boundary + capacity as u32;
+        state.queue_predicate_transition(PendingPredicateTransition::new(
+            PredicateKey::never_accept(),
+            overflow_boundary,
+        ));
+
+        assert_eq!(state.pending_transitions().len(), capacity);
+        assert_eq!(
+            state.next_transition().unwrap().boundary(),
+            first_boundary + 1,
+            "the oldest rotation should have been dropped"
+        );
+        assert_eq!(
+            state.pending_transitions().last().unwrap().boundary(),
+            overflow_boundary
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "boundaries must strictly increase")]
+    fn test_queueing_a_non_increasing_boundary_panics() {
+        let (mut state, harness) = test_setup();
+        let boundary = harness.verified_tip().l1_height() + 10;
+        for _ in 0..2 {
+            state.queue_predicate_transition(PendingPredicateTransition::new(
+                PredicateKey::always_accept(),
+                boundary,
+            ));
+        }
     }
 
     #[test]
@@ -701,7 +843,7 @@ mod tests {
             state.checkpoint_predicate(),
             &harness.checkpoint_predicate()
         );
-        assert!(state.pending_transition().is_none());
+        assert!(state.next_transition().is_none());
     }
 
     // --- Proof verification + withdrawal extraction ---

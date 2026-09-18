@@ -5,15 +5,14 @@
 
 use strata_asm_admin_types::AdministrationInitConfig;
 use strata_asm_common::{
-    HeaderVerificationState, MsgRelayer, Subprotocol, SubprotocolId, TxInputRef, VerifiedAuxData,
-    logging::{info, warn},
+    HeaderVerificationState, MsgRelayer, NullMsg, Subprotocol, SubprotocolId, TxInputRef,
+    VerifiedAuxData, logging::warn,
 };
-use strata_asm_proto_admin_msgs::AdministrationIncomingMsg;
 use strata_asm_proto_admin_txs::{constants::ADMINISTRATION_SUBPROTOCOL_ID, parser::parse_tx};
 use strata_identifiers::L1BlockCommitment;
 
 use crate::{
-    handler::{handle_action, handle_pending_updates},
+    handler::{BlockUpdateGuard, handle_action, handle_pending_updates},
     state::AdministrationSubprotoState,
 };
 
@@ -32,7 +31,7 @@ impl Subprotocol for AdministrationSubprotocol {
 
     type State = AdministrationSubprotoState;
 
-    type Msg = AdministrationIncomingMsg;
+    type Msg = NullMsg<ADMINISTRATION_SUBPROTOCOL_ID>;
 
     fn init(config: &Self::InitConfig) -> AdministrationSubprotoState {
         AdministrationSubprotoState::new(config)
@@ -57,29 +56,29 @@ impl Subprotocol for AdministrationSubprotocol {
 
         // Phase 2: Process incoming administration transactions. Unparseable txs are
         // logged and skipped inside `parse_tx` to maintain system resilience.
+        let mut block_updates = BlockUpdateGuard::default();
         for tx in txs {
             let Some(signed_payload) = parse_tx(tx) else {
                 continue;
             };
-            if let Err(e) = handle_action(state, signed_payload, current_height, relayer) {
+            if let Err(e) = handle_action(
+                state,
+                signed_payload,
+                current_height,
+                relayer,
+                &mut block_updates,
+            ) {
                 warn!(tx_id = %tx.tx().compute_txid(), error = %e, "Failed to handle admin action");
             }
         }
     }
 
-    /// Processes incoming administration messages.
+    /// Administration acts only on the transactions in a block; no other subprotocol has
+    /// anything to tell it.
     fn process_msgs(
-        state: &mut AdministrationSubprotoState,
-        msgs: &[Self::Msg],
+        _state: &mut AdministrationSubprotoState,
+        _msgs: &[Self::Msg],
         _l1ref: &L1BlockCommitment,
     ) {
-        for msg in msgs {
-            match msg {
-                AdministrationIncomingMsg::OlTransitionPromoted => {
-                    state.acknowledge_ol_transition_promoted();
-                    info!("accounted for promoted checkpoint predicate transition");
-                }
-            }
-        }
     }
 }

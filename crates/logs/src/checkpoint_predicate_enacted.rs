@@ -9,12 +9,12 @@ use crate::constants::AsmLogTypeId;
 /// Records an enacted OL STF verifying-key rotation.
 ///
 /// The new predicate is queued for activation rather than becoming active
-/// immediately. This log rides in the manifest at the L1 height where the
-/// rotation is enacted, so the enactment height is implicit.
+/// immediately: it governs every L1 height strictly above the one this log
+/// rides in, so the manifest carrying it fixes the boundary implicitly.
 ///
 /// Nothing on the wire names the OL protocol-rules version the rotation
-/// activates: the OL derives it from where this log appears in its own input
-/// stream, the way the ASM derives its own spec version from `AsmStfUpdate`.
+/// activates. The OL derives it from where this log appears in its own input
+/// stream.
 #[derive(Debug, Clone)]
 pub struct CheckpointPredicateEnacted {
     /// New OL STF verification predicate queued for activation.
