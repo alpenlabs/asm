@@ -24,7 +24,7 @@ use crate::{
 #[derive(Debug)]
 pub struct AsmWorkerBuilder<W, S: AsmSpec> {
     context: Option<W>,
-    params: Option<S::Params>,
+    params: Option<S::GenesisParams>,
     spec: Option<S>,
 }
 
@@ -45,7 +45,7 @@ impl<W, S: AsmSpec> AsmWorkerBuilder<W, S> {
     }
 
     /// Set the ASM parameters used to construct the genesis state.
-    pub fn with_params(mut self, params: S::Params) -> Self {
+    pub fn with_params(mut self, params: S::GenesisParams) -> Self {
         self.params = Some(params);
         self
     }
@@ -68,7 +68,7 @@ impl<W, S: AsmSpec> AsmWorkerBuilder<W, S> {
     where
         W: WorkerContext + Send + Sync + 'static,
         S: AsmSpec + Send + Sync + 'static,
-        S::Params: Send + Sync + 'static,
+        S::GenesisParams: Send + Sync + 'static,
     {
         let context = self
             .context

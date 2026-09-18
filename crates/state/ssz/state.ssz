@@ -33,6 +33,8 @@ class ChainViewState(Container):
 
 ### Top-level ASM state.
 class AnchorState(Container):
+    ### Producing ruleset and its encoding/commitment contract
+    spec_id: uint16
     magic: Bytes4
     chain_view: ChainViewState
     sections: List[SectionState, MAX_SECTIONS]

@@ -324,7 +324,7 @@ pub(crate) mod fixtures {
     use corepc_node::Node;
     use strata_asm_common::{
         AnchorState, AsmHistoryAccumulatorState, AsmSpec, ChainViewState, HeaderVerificationState,
-        Stage,
+        SpecId, Stage,
     };
     use strata_btc_types::BlockHashExt;
     use strata_btc_verification::L1Anchor;
@@ -337,7 +337,7 @@ pub(crate) mod fixtures {
     use super::{TestAsmWorkerContext, get_l1_anchor};
     use crate::{AsmWorkerServiceState, Subscribers};
 
-    /// Minimal [`AsmSpec::Params`] for the worker's own tests: just the L1 anchor
+    /// Minimal [`AsmSpec::GenesisParams`] for the worker's own tests: just the L1 anchor
     /// the genesis state pins to, plus a magic. The production `AsmParams` also
     /// carries per-subprotocol configs, which [`TestAsmSpec`] has no use for.
     #[derive(Debug)]
@@ -351,17 +351,25 @@ pub(crate) mod fixtures {
     pub(crate) struct TestAsmSpec;
 
     impl AsmSpec for TestAsmSpec {
-        type Params = TestAsmParams;
+        const ID: SpecId = 0;
+
+        fn prepare(&self, state: &AnchorState) -> AnchorState {
+            assert_eq!(state.spec_id, Self::ID, "unsupported source spec");
+            state.clone()
+        }
+
+        type GenesisParams = TestAsmParams;
 
         fn call_subprotocols(&self, _stage: &mut impl Stage) {}
 
-        fn construct_genesis_state(&self, params: &Self::Params) -> AnchorState {
+        fn construct_genesis_state(&self, params: &Self::GenesisParams) -> AnchorState {
             let genesis_height = params.anchor.block.height() as u64;
             let chain_view = ChainViewState {
                 history_accumulator: AsmHistoryAccumulatorState::new(genesis_height),
                 pow_state: HeaderVerificationState::init(params.anchor.clone()),
             };
             AnchorState {
+                spec_id: Self::ID,
                 magic: AnchorState::magic_ssz(params.magic),
                 chain_view,
                 sections: Vec::new()
@@ -370,7 +378,7 @@ pub(crate) mod fixtures {
             }
         }
 
-        fn genesis_l1_height(&self, params: &Self::Params) -> u64 {
+        fn genesis_l1_height(&self, params: &Self::GenesisParams) -> u64 {
             params.anchor.block.height() as u64
         }
     }
