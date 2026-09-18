@@ -207,7 +207,15 @@ impl AsmProofRpcServer {
 #[async_trait]
 impl AsmProofApiServer for AsmProofRpcServer {
     async fn get_prover_status(&self) -> RpcResult<ProverStatus> {
-        Ok(self.prover_status.status())
+        // Before the orchestrator's first tick the watermarks are not empty,
+        // they are unknown: startup recovery walks the canonical chain first.
+        // Serving zeros would tell a follower we have proven nothing, which on
+        // a mature chain reads as lag past `max_lag` and fires local proving
+        // on a peer that is merely still starting. An error instead looks like
+        // an unreachable peer, which the follower already waits out.
+        self.prover_status.status().ok_or_else(|| {
+            to_rpc_error("prover status not available until startup recovery completes")
+        })
     }
 
     async fn get_asm_proof(&self, block_hash: BlockHash) -> RpcResult<Option<AsmProof>> {
