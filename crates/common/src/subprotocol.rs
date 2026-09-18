@@ -11,8 +11,8 @@ use strata_identifiers::L1BlockCommitment;
 pub use strata_l1_txfmt::SubprotocolId;
 
 use crate::{
-    AsmError, AsmLogEntry, AuxRequestCollector, HeaderVerificationState, SectionState, TxInputRef,
-    VerifiedAuxData, msg::InterprotoMsg,
+    AsmError, AsmLogEntry, AuxRequestCollector, HeaderVerificationState, SectionState,
+    SectionStateVersion, TxInputRef, VerifiedAuxData, msg::InterprotoMsg,
 };
 
 /// Trait for defining subprotocol behavior within the ASM framework.
@@ -40,6 +40,7 @@ use crate::{
 ///
 /// impl Subprotocol for MySubprotocol {
 ///     const ID: SubprotocolId = 42;
+///     const STATE_VERSION: SectionStateVersion = 0;
 ///     type State = MyState;
 ///     type InitConfig = MyInitConfig;
 ///     type Msg = MyMessage;
@@ -74,6 +75,9 @@ use crate::{
 pub trait Subprotocol: 'static {
     /// The subprotocol ID used when searching for relevant transactions.
     const ID: SubprotocolId;
+
+    /// Payload schema read and written by this implementation.
+    const STATE_VERSION: SectionStateVersion;
 
     /// Configuration used to initialize the subprotocol's state.
     type InitConfig;

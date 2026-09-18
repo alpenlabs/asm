@@ -19,7 +19,7 @@ pub trait SectionStateExt: Sized {
 
 impl SectionStateExt for SectionState {
     fn from_state<S: Subprotocol>(state: &S::State) -> Result<Self, AsmError> {
-        Self::new(S::ID, state.as_ssz_bytes())
+        Self::new(S::ID, S::STATE_VERSION, state.as_ssz_bytes())
             .map_err(|source| AsmError::SectionTooLarge { id: S::ID, source })
     }
 
@@ -30,6 +30,14 @@ impl SectionStateExt for SectionState {
                 actual: self.id,
             }
             .into());
+        }
+
+        if S::STATE_VERSION != self.version {
+            return Err(AsmError::SectionVersionMismatch {
+                id: self.id,
+                expected: S::STATE_VERSION,
+                actual: self.version,
+            });
         }
 
         <S::State as Decode>::from_ssz_bytes(&self.data)
@@ -44,7 +52,8 @@ mod tests {
 
     use super::*;
     use crate::{
-        HeaderVerificationState, MsgRelayer, NullMsg, SubprotocolId, TxInputRef, VerifiedAuxData,
+        HeaderVerificationState, MsgRelayer, NullMsg, SectionStateVersion, SubprotocolId,
+        TxInputRef, VerifiedAuxData,
     };
 
     const TEST_ID: SubprotocolId = 200;
@@ -56,6 +65,7 @@ mod tests {
 
     impl Subprotocol for TestSubproto {
         const ID: SubprotocolId = TEST_ID;
+        const STATE_VERSION: SectionStateVersion = 0;
         type InitConfig = ();
         type State = u64;
         type Msg = NullMsg<TEST_ID>;
@@ -81,6 +91,7 @@ mod tests {
 
     impl Subprotocol for OversizedSubproto {
         const ID: SubprotocolId = TEST_ID;
+        const STATE_VERSION: SectionStateVersion = 0;
         type InitConfig = ();
         type State = OversizedState;
         type Msg = NullMsg<TEST_ID>;
@@ -106,6 +117,7 @@ mod tests {
     fn state_roundtrip() {
         let section = SectionState::from_state::<TestSubproto>(&7u64).expect("fits capacity");
         assert_eq!(section.id, TEST_ID);
+        assert_eq!(section.version, TestSubproto::STATE_VERSION);
         assert_eq!(
             section.try_to_state::<TestSubproto>().expect("decode"),
             7u64
@@ -113,17 +125,28 @@ mod tests {
     }
 
     #[test]
-    fn try_to_state_rejects_wrong_id() {
-        let section = SectionState::new(TEST_ID + 1, 7u64.as_ssz_bytes()).expect("fits capacity");
+    fn try_to_state_rejects_wrong_metadata() {
+        let mut section =
+            SectionState::new(TEST_ID + 1, 0, 7u64.as_ssz_bytes()).expect("fits capacity");
         assert!(matches!(
             section.try_to_state::<TestSubproto>(),
             Err(AsmError::SubprotoIdMismatch(_))
+        ));
+        section.id = TEST_ID;
+        section.version = 1;
+        assert!(matches!(
+            section.try_to_state::<TestSubproto>(),
+            Err(AsmError::SectionVersionMismatch {
+                expected: 0,
+                actual: 1,
+                ..
+            })
         ));
     }
 
     #[test]
     fn try_to_state_rejects_undecodable_data() {
-        let section = SectionState::new(TEST_ID, vec![0u8; 3]).expect("fits capacity");
+        let section = SectionState::new(TEST_ID, 0, vec![0u8; 3]).expect("fits capacity");
         assert!(matches!(
             section.try_to_state::<TestSubproto>(),
             Err(AsmError::Deserialization(TEST_ID, _))
