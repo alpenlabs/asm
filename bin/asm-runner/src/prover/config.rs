@@ -57,8 +57,9 @@ pub(crate) struct FollowerConfig {
     #[serde(default = "default_max_lag")]
     pub max_lag: u32,
 
-    /// Consecutive failed peer status probes (one per tick) tolerated before
-    /// falling back to generating proofs locally.
+    /// Consecutive failed peer ticks tolerated before falling back to
+    /// generating proofs locally. A tick fails when the peer's status probe
+    /// errors, or when the peer is reachable but a proof fetch errors.
     #[serde(default = "default_max_peer_failures")]
     pub max_peer_failures: u32,
 }
