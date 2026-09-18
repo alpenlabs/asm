@@ -39,7 +39,9 @@ pub(crate) struct ProofOrchestrator<Host: ZkVmRemoteHost> {
 
     /// Highest block the watcher has requested proofs for. Reported as
     /// [`ProverStatus::last_committed`] and used by follower mode to measure
-    /// how far a peer trails us.
+    /// how far a peer trails us. Seeded at startup from the canonical walk in
+    /// [`InputBuilder::proofs_to_backfill`], since the request channel does
+    /// not re-deliver blocks processed before the restart.
     last_committed: Option<L1BlockCommitment>,
 
     /// Highest block with a completed Moho proof, whether generated locally or
@@ -212,6 +214,23 @@ impl<R: ZkVmRemoteHost> ProofOrchestrator<R> {
         // against it.
         if let Some(block) = recovery.last_proven {
             self.advance_proven(&ProofId::Moho(block));
+        }
+
+        // Seed the committed tip from the same walk. It is otherwise only set
+        // by `drain_incoming`, and the proof request channel does not
+        // re-deliver requests for blocks the worker already processed. A
+        // restarted follower would therefore read `None` as "nothing pending"
+        // and wait with a full queue until the next L1 block arrived.
+        // `backfill` is oldest-first, so its last entry is the highest
+        // canonical block that still needs proofs; with nothing to backfill
+        // the walk stopped at the proven watermark, which is then the tip.
+        let committed = recovery.backfill.last().copied().or(recovery.last_proven);
+        if let Some(block) = committed
+            && self
+                .last_committed
+                .is_none_or(|cur| block.height() > cur.height())
+        {
+            self.last_committed = Some(block);
         }
 
         let backfill = recovery.backfill;
