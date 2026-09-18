@@ -48,7 +48,7 @@ impl<W, S> AsmWorkerServiceState<W, S>
 where
     W: WorkerContext + Send + Sync + 'static,
     S: AsmSpec + Send + Sync + 'static,
-    S::Params: Send + Sync + 'static,
+    S::GenesisParams: Send + Sync + 'static,
 {
     /// Creates a new service state, loading the latest anchor or creating genesis.
     ///
@@ -57,7 +57,7 @@ where
     pub(crate) fn new(
         context: W,
         spec: S,
-        params: S::Params,
+        params: S::GenesisParams,
         subscribers: Subscribers<L1BlockCommitment>,
     ) -> WorkerResult<Self> {
         let genesis_height = spec.genesis_l1_height(&params);
@@ -168,7 +168,7 @@ impl<W, S> ServiceState for AsmWorkerServiceState<W, S>
 where
     W: WorkerContext + Send + Sync + 'static,
     S: AsmSpec + Send + Sync + 'static,
-    S::Params: Send + Sync + 'static,
+    S::GenesisParams: Send + Sync + 'static,
 {
     fn name(&self) -> &str {
         constants::SERVICE_NAME

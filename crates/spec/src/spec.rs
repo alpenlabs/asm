@@ -1,6 +1,6 @@
 //! Strata ASM specification defining the subprotocol pipeline.
 
-use strata_asm_common::{AnchorState, AsmSpec, Stage};
+use strata_asm_common::{AnchorState, AsmSpec, SpecId, Stage};
 use strata_asm_params::AsmParams;
 use strata_asm_proto_admin::AdministrationSubprotocol;
 use strata_asm_proto_bridge::BridgeSubprotoV1;
@@ -15,7 +15,14 @@ use strata_asm_proto_checkpoint::CheckpointSubprotocol;
 pub struct StrataAsmSpec;
 
 impl AsmSpec for StrataAsmSpec {
-    type Params = AsmParams;
+    const ID: SpecId = 0;
+
+    type GenesisParams = AsmParams;
+
+    fn prepare(&self, state: &AnchorState) -> AnchorState {
+        assert_eq!(state.spec_id, Self::ID, "unsupported source spec");
+        state.clone()
+    }
 
     fn call_subprotocols(&self, stage: &mut impl Stage) {
         stage.invoke_subprotocol::<AdministrationSubprotocol>();
@@ -23,11 +30,11 @@ impl AsmSpec for StrataAsmSpec {
         stage.invoke_subprotocol::<BridgeSubprotoV1>();
     }
 
-    fn construct_genesis_state(&self, params: &Self::Params) -> AnchorState {
+    fn construct_genesis_state(&self, params: &Self::GenesisParams) -> AnchorState {
         crate::construct_genesis_state(params)
     }
 
-    fn genesis_l1_height(&self, params: &Self::Params) -> u64 {
+    fn genesis_l1_height(&self, params: &Self::GenesisParams) -> u64 {
         params.anchor.block.height() as u64
     }
 }
