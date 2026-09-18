@@ -61,15 +61,33 @@ pub struct ProverServiceState<C, H> {
     pub(crate) peer: Option<Peer>,
 }
 
-/// The peer a follower fetches proofs from, with its probe health.
+/// The peer a follower fetches proofs from, with its health.
 #[derive(Debug)]
 pub(crate) struct Peer {
     /// RPC client for the peer asm-runner, used through the
     /// `AsmProofApiClient` trait `strata-asm-rpc` generates.
     pub(crate) client: HttpClient,
 
+    /// What the follower has seen of this peer so far.
+    pub(crate) health: PeerHealth,
+}
+
+/// How well the peer has been serving this follower.
+///
+/// The two fields answer different questions and are kept apart for that
+/// reason: probe failures ask whether the peer is up right now, the invalid
+/// proof whether it is worth talking to at all.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) struct PeerHealth {
     /// Consecutive failed status probes. Reset on the first success.
     pub(crate) failures: u32,
+
+    /// Whether this peer has ever served a proof that did not verify.
+    ///
+    /// Sticky, unlike the probe count. One bad receipt is enough: it is
+    /// re-enqueued and refetched on every tick, so the peer can never carry us
+    /// past that block, and the good receipts around it change nothing.
+    pub(crate) served_invalid_proof: bool,
 }
 
 impl<C, H> ProverServiceState<C, H>
@@ -142,7 +160,7 @@ where
             last_proven,
             peer: peer.map(|client| Peer {
                 client,
-                failures: 0,
+                health: PeerHealth::default(),
             }),
         })
     }
