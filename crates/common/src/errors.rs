@@ -6,7 +6,7 @@ use strata_l1_txfmt::SubprotocolId;
 use strata_merkle::MerkleError;
 use thiserror::Error;
 
-use crate::aux_input::AuxError;
+use crate::{SectionStateVersion, aux_input::AuxError};
 
 /// Convenience result wrapper.
 pub type AsmResult<T> = Result<T, AsmError>;
@@ -14,6 +14,14 @@ pub type AsmResult<T> = Result<T, AsmError>;
 /// Errors that can occur while working with ASM subprotocols.
 #[derive(Debug, Error)]
 pub enum AsmError {
+    /// The section schema does not match the selected implementation.
+    #[error("section {id} has version {actual}; expected {expected}")]
+    SectionVersionMismatch {
+        id: SubprotocolId,
+        expected: SectionStateVersion,
+        actual: SectionStateVersion,
+    },
+
     /// Subprotocol ID of a decoded section did not match the expected subprotocol ID.
     #[error(transparent)]
     SubprotoIdMismatch(#[from] Mismatched<SubprotocolId>),
