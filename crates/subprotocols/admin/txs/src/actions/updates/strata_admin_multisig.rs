@@ -1,7 +1,7 @@
 use arbitrary::Arbitrary;
 use ssz_derive::{Decode, Encode};
+use strata_asm_admin_threshold_sig::ThresholdConfigUpdate;
 use strata_asm_admin_types::{AdminTxType, UpdateTxType};
-use strata_crypto::threshold_signature::ThresholdConfigUpdate;
 
 use crate::actions::{IndentedDetails, RenderSigningMessage};
 
@@ -37,7 +37,7 @@ impl RenderSigningMessage for StrataAdminMultisigUpdate {
 mod tests {
     use std::num::NonZero;
 
-    use strata_crypto::keys::compressed::CompressedPublicKey;
+    use strata_asm_admin_threshold_sig::CompressedPublicKey;
 
     use super::*;
     use crate::{

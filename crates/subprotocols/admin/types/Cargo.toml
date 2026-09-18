@@ -7,7 +7,7 @@ edition = "2024"
 workspace = true
 
 [dependencies]
-strata-crypto.workspace = true
+strata-asm-admin-threshold-sig.workspace = true
 
 arbitrary = { workspace = true, optional = true }
 serde.workspace = true
@@ -18,4 +18,4 @@ ssz_derive.workspace = true
 proptest.workspace = true
 
 [features]
-arbitrary = ["dep:arbitrary"]
+arbitrary = ["dep:arbitrary", "strata-asm-admin-threshold-sig/arbitrary"]

@@ -18,6 +18,7 @@ use bitcoin::{
     secp256k1::{PublicKey, Secp256k1, SecretKey},
     BlockHash, Transaction,
 };
+use strata_asm_admin_threshold_sig::{CompressedPublicKey, ThresholdConfig, ThresholdConfigUpdate};
 use strata_asm_admin_types::{AdministrationInitConfig, ConfirmationDepths, Role};
 use strata_asm_bridge_types::SafeHarbourAddress;
 use strata_asm_common::{AnchorState, SectionStateExt, Subprotocol};
@@ -35,11 +36,7 @@ use strata_asm_proto_admin_txs::{
     parser::SignedPayload,
     test_utils::create_signature_set,
 };
-use strata_crypto::{
-    keys::compressed::CompressedPublicKey,
-    threshold_signature::{ThresholdConfig, ThresholdConfigUpdate},
-    EvenPublicKey,
-};
+use strata_crypto::EvenPublicKey;
 use strata_identifiers::Buf32;
 use strata_predicate::PredicateKey;
 

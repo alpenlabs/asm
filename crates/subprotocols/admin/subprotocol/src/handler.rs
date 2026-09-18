@@ -316,6 +316,7 @@ mod tests {
 
     use bitcoin::secp256k1::{PublicKey, Secp256k1, SecretKey};
     use rand::{rngs::OsRng, seq::SliceRandom, thread_rng};
+    use strata_asm_admin_threshold_sig::{CompressedPublicKey, ThresholdConfig};
     use strata_asm_admin_types::{
         AdministrationInitConfig, ConfirmationDepths, Role, UpdateTxType,
     };
@@ -335,9 +336,6 @@ mod tests {
     };
     use strata_asm_proto_bridge_msgs::BridgeIncomingMsg;
     use strata_asm_proto_checkpoint_msgs::CheckpointIncomingMsg;
-    use strata_crypto::{
-        keys::compressed::CompressedPublicKey, threshold_signature::ThresholdConfig,
-    };
     use strata_identifiers::{Buf32, L1Height};
     use strata_predicate::{PredicateKey, PredicateTypeId};
     use strata_test_utils_arb::ArbitraryGenerator;

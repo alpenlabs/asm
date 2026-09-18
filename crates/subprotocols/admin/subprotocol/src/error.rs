@@ -1,8 +1,8 @@
 use std::num::NonZero;
 
+use strata_asm_admin_threshold_sig::ThresholdSignatureError;
 use strata_asm_admin_types::{Role, UpdateTxType};
 use strata_asm_proto_admin_txs::actions::UpdateId;
-use strata_crypto::threshold_signature::ThresholdSignatureError;
 use strata_identifiers::L1Height;
 use thiserror::Error;
 
