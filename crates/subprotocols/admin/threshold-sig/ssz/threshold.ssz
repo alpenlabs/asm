@@ -1,0 +1,44 @@
+# SSZ schema definitions for the administration threshold-signature types.
+#
+# These containers define the wire layout of the threshold-signature types. The
+# Rust wrappers encode by converting to the container generated from this file,
+# so the layout is correct by construction rather than hand-rolled.
+#
+# Signer public keys are modelled as raw 33-byte compressed points (`Bytes33`)
+# rather than the `CompressedPublicKey` wrapper. The wrapper's curve-point
+# validation is reapplied when decoding, which keeps the generated container
+# free of any dependency on the wrapper's own trait impls.
+
+### Maximum number of signers in a threshold configuration.
+###
+### Matches the `MAX_SIGNERS` runtime cap (the signer index is a `u8`, so at
+### most 256 unique signers are addressable).
+MAX_SIGNERS = 256
+
+### Wire layout of a threshold-signature configuration.
+class ThresholdConfigSsz(Container):
+    ### Compressed public keys of all authorized signers.
+    keys: List[Bytes33, MAX_SIGNERS]
+    ### Minimum number of signatures required (always >= 1).
+    threshold: uint8
+
+### Wire layout of a threshold-configuration update.
+class ThresholdConfigUpdateSsz(Container):
+    ### Compressed public keys to add.
+    add_members: List[Bytes33, MAX_SIGNERS]
+    ### Compressed public keys to remove.
+    remove_members: List[Bytes33, MAX_SIGNERS]
+    ### New minimum number of signatures required (always >= 1).
+    new_threshold: uint8
+
+### Wire layout of a single indexed ECDSA signature.
+class IndexedSignatureSsz(Container):
+    ### Index of the signer in the threshold config keys array.
+    index: uint8
+    ### 65-byte recoverable ECDSA signature (header || r || s).
+    signature: Vector[uint8, 65]
+
+### Wire layout of a set of indexed signatures (one per signer at most).
+class SignatureSetSsz(Container):
+    ### Indexed signatures, at most one per signer.
+    signatures: List[IndexedSignatureSsz, MAX_SIGNERS]
