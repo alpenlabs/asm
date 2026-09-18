@@ -119,8 +119,13 @@ pub(super) async fn follow_proofs(
             // on purpose: were the threshold to suppress the fetch, the
             // follower would never run the cycle that clears the count, and a
             // recovered peer would never be picked back up.
-            if errors == 0 {
+            // Falling back is decided inside the failure branch so it always
+            // rests on a failure just recorded. Comparing after a clean cycle
+            // would fall back on every tick when `max_peer_failures` is 0,
+            // since the reset leaves the count at the threshold.
+            let fall_back = if errors == 0 {
                 peer.failures = 0;
+                false
             } else {
                 peer.failures = peer.failures.saturating_add(1);
                 warn!(
@@ -128,15 +133,15 @@ pub(super) async fn follow_proofs(
                     failures = peer.failures,
                     "peer failed to serve some proofs"
                 );
-            }
-
-            let fall_back = peer.failures >= config.max_peer_failures;
-            if fall_back {
-                warn!(
-                    failures = peer.failures,
-                    "peer cannot serve proofs, falling back to local proof generation"
-                );
-            }
+                let fall_back = peer.failures >= config.max_peer_failures;
+                if fall_back {
+                    warn!(
+                        failures = peer.failures,
+                        "peer cannot serve proofs, falling back to local proof generation"
+                    );
+                }
+                fall_back
+            };
 
             FollowOutcome {
                 fetched: fetcher.fetched,
