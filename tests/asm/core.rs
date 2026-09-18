@@ -16,6 +16,7 @@ use integration_tests::harness;
 use strata_asm_manifest_types::AsmManifestHash;
 use strata_asm_worker::{test_utils::TestAsmWorkerContext, AnchorStateStore, L1DataProvider};
 use strata_btc_types::BlockHashExt;
+use strata_identifiers::L1_HEIGHT_MMR_PREFILL_LEAF;
 use strata_test_utils_btcio::{get_bitcoind_and_client, mine_blocks};
 
 // ============================================================================
@@ -289,7 +290,7 @@ async fn test_proven_and_external_mmr_index_alignment() {
         "final external MMR should have {prefill_count} prefill + {total_blocks_mined} real leaves"
     );
 
-    let sentinel = AsmManifestHash::from(strata_asm_common::MMR_SENTINEL_DUMMY_LEAF);
+    let sentinel = AsmManifestHash::from(L1_HEIGHT_MMR_PREFILL_LEAF);
     for mmr_index in 0..prefill_count as u64 {
         assert_eq!(
             harness.get_manifest_hash(mmr_index).expect("prefill leaf"),

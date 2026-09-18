@@ -1,4 +1,4 @@
-use strata_l1_envelope_fmt::errors::EnvelopeParseError;
+use strata_l1_envelope_fmt::EnvelopeParseError;
 use strata_l1_txfmt::TxType;
 use thiserror::Error;
 
