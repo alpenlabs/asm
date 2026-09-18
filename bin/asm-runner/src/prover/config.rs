@@ -62,6 +62,16 @@ pub(crate) struct FollowerConfig {
     /// errors, or when the peer is reachable but a proof fetch errors.
     #[serde(default = "default_max_peer_failures")]
     pub max_peer_failures: u32,
+
+    /// Maximum proof fetches attempted against the peer in one tick.
+    ///
+    /// Bounds how long a fetch cycle can hold the tick loop, which publishes
+    /// no status, drains no new requests and observes no shutdown while it
+    /// runs. A restart can enqueue two proofs per unproven block, so without
+    /// the bound a large backlog turns one tick into thousands of sequential
+    /// round trips.
+    #[serde(default = "default_max_fetches_per_tick")]
+    pub max_fetches_per_tick: usize,
 }
 
 fn default_max_lag() -> u32 {
@@ -70,6 +80,10 @@ fn default_max_lag() -> u32 {
 
 fn default_max_peer_failures() -> u32 {
     3
+}
+
+fn default_max_fetches_per_tick() -> usize {
+    256
 }
 
 /// Backend-specific orchestrator configuration.
@@ -175,6 +189,10 @@ mod tests {
         assert_eq!(follower.peer_url, "http://127.0.0.1:12400");
         assert_eq!(follower.max_lag, default_max_lag());
         assert_eq!(follower.max_peer_failures, default_max_peer_failures());
+        assert_eq!(
+            follower.max_fetches_per_tick,
+            default_max_fetches_per_tick()
+        );
     }
 
     #[test]

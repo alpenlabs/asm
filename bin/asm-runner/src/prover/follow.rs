@@ -111,28 +111,23 @@ pub(super) async fn follow_proofs(
                 peer: &peer.client,
                 fetched: Vec::new(),
             };
-            let errors = fetch_with(queue, &mut fetcher, up_to).await;
+            let failed = fetch_with(queue, &mut fetcher, up_to, config.max_fetches_per_tick).await;
 
             // A peer that answers status probes but cannot serve the proofs we
             // ask for is as useless as an unreachable one, so fetch errors
-            // advance the same counter. `follow_action` above stays probe-only
-            // on purpose: were the threshold to suppress the fetch, the
-            // follower would never run the cycle that clears the count, and a
-            // recovered peer would never be picked back up.
-            // Falling back is decided inside the failure branch so it always
-            // rests on a failure just recorded. Comparing after a clean cycle
-            // would fall back on every tick when `max_peer_failures` is 0,
-            // since the reset leaves the count at the threshold.
-            let fall_back = if errors == 0 {
-                peer.failures = 0;
-                false
-            } else {
+            // advance the same counter as failed probes.
+            //
+            // Both the decision and the reset live in this branch. Deciding
+            // inside it means falling back always rests on a failure just
+            // recorded — comparing after a clean cycle would fall back on
+            // every tick when `max_peer_failures` is 0, since the reset leaves
+            // the count at the threshold. And `follow_action` above stays
+            // probe-only, so the fetch is never suppressed: were it, the
+            // follower would stop running the cycle that clears the count and
+            // a recovered peer would never be picked back up.
+            let fall_back = if failed {
                 peer.failures = peer.failures.saturating_add(1);
-                warn!(
-                    errors,
-                    failures = peer.failures,
-                    "peer failed to serve some proofs"
-                );
+                warn!(failures = peer.failures, "peer failed to serve a proof");
                 let fall_back = peer.failures >= config.max_peer_failures;
                 if fall_back {
                     warn!(
@@ -141,6 +136,9 @@ pub(super) async fn follow_proofs(
                     );
                 }
                 fall_back
+            } else {
+                peer.failures = 0;
+                false
             };
 
             FollowOutcome {
@@ -277,27 +275,35 @@ trait ProofFetcher {
 }
 
 /// Runs the fetch loop: pulls pending proofs at or below the peer's proven
-/// frontier `up_to` and fetches each through `fetcher`.
+/// frontier `up_to` and fetches each through `fetcher`, up to `capacity`
+/// peer round trips.
 ///
-/// Proofs the peer cannot serve yet — and fetch errors — are parked and
-/// re-enqueued at the end, to be retried on a later tick. Returns how many
-/// fetches errored, which the caller folds into the peer's failure count: a
-/// peer that answers status probes while failing every fetch would otherwise
-/// keep the follower parking the same work forever. "Not available yet" is
-/// not an error — that is the peer legitimately not having proven the block.
-/// The queue pops
-/// lowest heights first, so the first item above `up_to` ends the loop:
-/// everything behind it is above the frontier too. A Moho proof at the
-/// frontier implies the peer holds every ASM and Moho proof below it, so one
-/// pass drains all currently-servable work.
+/// The cap mirrors the one [`schedule_with`](super::orchestrator) applies to
+/// submissions, and for the same reason: the tick loop publishes no status,
+/// drains no new requests and observes no shutdown while the cycle runs. Only
+/// round trips count against it — an already-stored proof is a local read, so
+/// a queue full of them drains in one pass as it does when scheduling.
 ///
-/// After a restart the queue reseeds with only the committed tip's Moho
-/// proof, so proofs pending at shutdown are not refetched and the local
-/// history can keep holes below the proven frontier. That is deliberate:
-/// the generator's prerequisite cascade exists because building `Moho(N)`
-/// consumes `Asm(N)` and `Moho(N-1)`, but fetching has no such dependency —
-/// a fetched `Moho(N)` subsumes its ancestors. The frontier, not a gapless
-/// history, is the invariant; proofs below it are prunable anyway.
+/// The first error ends the cycle. Every fetch in it goes to the same peer
+/// over the same client, so a failure is almost always about the peer rather
+/// than the proof, and working through the rest of the queue only rediscovers
+/// that once per item — at a request timeout each — while delaying the
+/// fallback the error exists to trigger. A proof the peer genuinely cannot
+/// serve is retried on later ticks, and once those trip `max_peer_failures`
+/// the local backend generates it.
+///
+/// Proofs the peer cannot serve yet — and the one that errored — are parked
+/// and re-enqueued at the end, to be retried on a later tick. "Not available
+/// yet" is not a failure: that is the peer legitimately not having proven the
+/// block. A fetch error is, and the returned flag is what the caller folds
+/// into the peer's failure count — without it, a peer that answers status
+/// probes while failing every fetch would keep the follower parking the same
+/// work forever.
+///
+/// The queue pops lowest heights first, so the first item above `up_to` ends
+/// the loop: everything behind it is above the frontier too. A Moho proof at
+/// the frontier implies the peer holds every ASM and Moho proof below it, so
+/// one pass drains all currently-servable work.
 // TODO(STR-4012): entries for blocks orphaned by our own reorg are never served by the
 // peer and are re-parked here forever (the generator at least proves its
 // orphans away). Since a Moho proof subsumes everything below it, entries at
@@ -308,30 +314,37 @@ async fn fetch_with<F: ProofFetcher>(
     queue: &mut PendingProofQueue,
     fetcher: &mut F,
     up_to: u32,
-) -> usize {
+    mut capacity: usize,
+) -> bool {
     let mut parked: Vec<ProofId> = Vec::new();
-    let mut errors = 0;
+    let mut failed = false;
 
-    while let Some(proof_id) = queue.dequeue_one() {
+    while capacity > 0 {
+        let Some(proof_id) = queue.dequeue_one() else {
+            break;
+        };
         if proof_id.height() > up_to {
             parked.push(proof_id);
             break;
         }
         match fetcher.try_fetch(proof_id).await {
             Ok(FetchOutcome::Fetched) => {
+                capacity -= 1;
                 info!(%proof_id, "proof fetched from peer");
             }
             Ok(FetchOutcome::AlreadyStored) => {
                 debug!(%proof_id, "proof already stored, skipping");
             }
             Ok(FetchOutcome::NotAvailable) => {
+                capacity -= 1;
                 debug!(%proof_id, "proof not yet available on peer, re-enqueuing");
                 parked.push(proof_id);
             }
             Err(e) => {
                 warn!(%proof_id, %e, "failed to fetch proof from peer, re-enqueuing");
-                errors += 1;
+                failed = true;
                 parked.push(proof_id);
+                break;
             }
         }
     }
@@ -340,7 +353,7 @@ async fn fetch_with<F: ProofFetcher>(
         queue.enqueue(proof_id);
     }
 
-    errors
+    failed
 }
 
 /// [`ProofFetcher`] backed by the local proof DB and the peer's
@@ -429,6 +442,7 @@ mod tests {
             peer_url: "http://127.0.0.1:0".to_owned(),
             max_lag,
             max_peer_failures,
+            max_fetches_per_tick: 256,
         }
     }
 
@@ -580,9 +594,9 @@ mod tests {
 
         let mut fetcher = FakeFetcher::default();
 
-        let errors = fetch_with(&mut queue, &mut fetcher, 3).await;
+        let failed = fetch_with(&mut queue, &mut fetcher, 3, 256).await;
 
-        assert_eq!(errors, 0);
+        assert!(!failed);
         assert_eq!(fetcher.call_log, vec![asm(3), moho(3)]);
         assert_eq!(queue.len(), 2);
         assert_eq!(queue.dequeue_one(), Some(asm(4)));
@@ -598,10 +612,10 @@ mod tests {
 
         let mut fetcher = FakeFetcher::default().with(moho(3), vec![FetchOutcome::NotAvailable]);
 
-        let errors = fetch_with(&mut queue, &mut fetcher, 3).await;
+        let failed = fetch_with(&mut queue, &mut fetcher, 3, 256).await;
 
         // A peer that has not proven the block yet is not a failing peer.
-        assert_eq!(errors, 0);
+        assert!(!failed);
         assert_eq!(fetcher.call_log, vec![asm(3), moho(3)]);
         assert_eq!(queue.len(), 1);
         assert_eq!(queue.dequeue_one(), Some(moho(3)));
@@ -615,44 +629,85 @@ mod tests {
 
         let mut fetcher = FakeFetcher::default().with(asm(3), vec![FetchOutcome::AlreadyStored]);
 
-        let errors = fetch_with(&mut queue, &mut fetcher, 3).await;
+        let failed = fetch_with(&mut queue, &mut fetcher, 3, 256).await;
 
-        assert_eq!(errors, 0);
+        assert!(!failed);
         assert_eq!(fetcher.call_log, vec![asm(3)]);
         assert!(queue.is_empty());
     }
 
-    /// A fetch error parks the item like `NotAvailable` and the loop continues
-    /// with the next one, but it is counted so the caller can fall back.
+    /// A fetch error is counted so the caller can fall back, and ends the
+    /// cycle rather than paying a request timeout per remaining item. Both the
+    /// failed item and the untouched rest stay queued.
     #[tokio::test]
-    async fn err_parks_item_and_is_counted() {
+    async fn err_is_counted_and_ends_the_cycle() {
         let mut queue = PendingProofQueue::new();
         queue.enqueue(asm(3));
         queue.enqueue(moho(3));
 
         let mut fetcher = FakeFetcher::default().with_err(asm(3));
 
-        let errors = fetch_with(&mut queue, &mut fetcher, 3).await;
+        let failed = fetch_with(&mut queue, &mut fetcher, 3, 256).await;
 
-        assert_eq!(errors, 1);
-        assert_eq!(fetcher.call_log, vec![asm(3), moho(3)]);
-        assert_eq!(queue.len(), 1);
+        assert!(failed);
+        assert_eq!(fetcher.call_log, vec![asm(3)]);
+        assert_eq!(queue.len(), 2);
         assert_eq!(queue.dequeue_one(), Some(asm(3)));
+        assert_eq!(queue.dequeue_one(), Some(moho(3)));
     }
 
-    /// Every errored fetch in a cycle is counted, not just the first.
+    /// The per-tick budget bounds peer round trips; the remainder stays queued
+    /// for the next tick.
     #[tokio::test]
-    async fn errs_counted_across_the_cycle() {
+    async fn capacity_bounds_round_trips() {
         let mut queue = PendingProofQueue::new();
         queue.enqueue(asm(3));
         queue.enqueue(moho(3));
+        queue.enqueue(asm(4));
 
-        let mut fetcher = FakeFetcher::default().with_err(asm(3)).with_err(moho(3));
+        let mut fetcher = FakeFetcher::default();
 
-        let errors = fetch_with(&mut queue, &mut fetcher, 3).await;
+        let failed = fetch_with(&mut queue, &mut fetcher, 4, 2).await;
 
-        assert_eq!(errors, 2);
-        assert_eq!(queue.len(), 2);
+        assert!(!failed);
+        assert_eq!(fetcher.call_log, vec![asm(3), moho(3)]);
+        assert_eq!(queue.len(), 1);
+        assert_eq!(queue.dequeue_one(), Some(asm(4)));
+    }
+
+    /// An already-stored proof is a local read, so it does not spend budget —
+    /// mirroring how a skipped submission does not spend scheduling capacity.
+    #[tokio::test]
+    async fn already_stored_does_not_spend_capacity() {
+        let mut queue = PendingProofQueue::new();
+        queue.enqueue(asm(3));
+        queue.enqueue(moho(3));
+        queue.enqueue(asm(4));
+
+        let mut fetcher = FakeFetcher::default()
+            .with(asm(3), vec![FetchOutcome::AlreadyStored])
+            .with(moho(3), vec![FetchOutcome::AlreadyStored]);
+
+        let failed = fetch_with(&mut queue, &mut fetcher, 4, 1).await;
+
+        assert!(!failed);
+        assert_eq!(fetcher.call_log, vec![asm(3), moho(3), asm(4)]);
+        assert!(queue.is_empty());
+    }
+
+    /// A zero budget is a no-op that leaves the queue intact.
+    #[tokio::test]
+    async fn zero_capacity_no_fetches() {
+        let mut queue = PendingProofQueue::new();
+        queue.enqueue(asm(3));
+
+        let mut fetcher = FakeFetcher::default();
+
+        let failed = fetch_with(&mut queue, &mut fetcher, 3, 0).await;
+
+        assert!(!failed);
+        assert!(fetcher.call_log.is_empty());
+        assert_eq!(queue.len(), 1);
     }
 
     /// A frontier below every queued item is a no-op: no peer round-trips,
@@ -665,9 +720,9 @@ mod tests {
 
         let mut fetcher = FakeFetcher::default();
 
-        let errors = fetch_with(&mut queue, &mut fetcher, 4).await;
+        let failed = fetch_with(&mut queue, &mut fetcher, 4, 256).await;
 
-        assert_eq!(errors, 0);
+        assert!(!failed);
         assert!(fetcher.call_log.is_empty());
         assert_eq!(queue.len(), 2);
     }
