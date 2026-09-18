@@ -11,7 +11,7 @@ moho-recursive-proof.workspace = true
 moho-runtime-impl.workspace = true
 moho-runtime-interface.workspace = true
 moho-types.workspace = true
-strata-asm-rpc.workspace = true
+strata-asm-rpc = { workspace = true, features = ["client"] }
 strata-btc-verification.workspace = true
 
 strata-asm-common.workspace = true
@@ -48,7 +48,7 @@ bitcoind-async-client.workspace = true
 clap.workspace = true
 futures.workspace = true
 hex.workspace = true
-jsonrpsee = { workspace = true, features = ["server", "macros"] }
+jsonrpsee = { workspace = true, features = ["server", "macros", "http-client"] }
 k256 = { workspace = true, features = ["schnorr"] }
 serde.workspace = true
 serde_json.workspace = true

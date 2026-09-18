@@ -16,7 +16,7 @@ use tokio::{
 use crate::{
     block_watcher::drive_asm_from_bitcoin,
     config::{AsmRpcConfig, BitcoinConfig},
-    prover::{InputBuilder, ProofBackend, ProofOrchestrator},
+    prover::{InputBuilder, ProofBackend, ProofOrchestrator, status_channel},
     rpc_server::{AsmProofRpcDeps, run_rpc_server},
     storage::{Storage, create_storage},
     worker_context::{AsmWorkerContext, MohoStorage},
@@ -97,8 +97,10 @@ pub(crate) async fn bootstrap(
         orch_prep
     {
         let (tx, rx) = mpsc::unbounded_channel();
+        let (status_reporter, status_handle) = status_channel();
         let rpc_deps = AsmProofRpcDeps {
             proof_db: proof_db.clone(),
+            prover_status: status_handle,
             moho_state_db: moho_state_db.clone(),
             export_entries_db: export_entries_db.clone(),
         };
@@ -127,7 +129,8 @@ pub(crate) async fn bootstrap(
             orch_config,
             input_builder,
             rx,
-        );
+            status_reporter,
+        )?;
 
         // ZkVmRemoteProver is !Send (#[async_trait(?Send)]), so the orchestrator
         // future cannot be spawned on a multi-threaded runtime directly. We run it
