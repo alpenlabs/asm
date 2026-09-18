@@ -2,8 +2,8 @@
 
 use strata_asm_checkpoint_types::{CheckpointInitConfig, PendingPredicateTransition};
 use strata_asm_common::{
-    AuxRequestCollector, HeaderVerificationState, MsgRelayer, Subprotocol, SubprotocolId,
-    TxInputRef, VerifiedAuxData, logging,
+    AuxRequestCollector, HeaderVerificationState, MsgRelayer, SectionStateVersion, Subprotocol,
+    SubprotocolId, TxInputRef, VerifiedAuxData, logging,
 };
 use strata_asm_proto_checkpoint_msgs::CheckpointIncomingMsg;
 use strata_asm_proto_checkpoint_txs::{
@@ -28,6 +28,7 @@ pub struct CheckpointSubprotocol;
 
 impl Subprotocol for CheckpointSubprotocol {
     const ID: SubprotocolId = CHECKPOINT_SUBPROTOCOL_ID;
+    const STATE_VERSION: SectionStateVersion = 0;
 
     type InitConfig = CheckpointInitConfig;
     type State = CheckpointState;
