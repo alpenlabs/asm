@@ -33,7 +33,7 @@ use harness::{
 use integration_tests::harness;
 use rand::rngs::OsRng;
 use strata_asm_admin_threshold_sig::{
-    CompressedPublicKey, IndexedSignature, SignatureSet, ThresholdConfig,
+    IndexedSignature, P2wpkhAddress, SignatureSet, ThresholdConfig,
 };
 use strata_asm_admin_types::Role;
 use strata_asm_proto_admin_txs::{
@@ -128,13 +128,12 @@ async fn test_multisig_update_is_queued() {
     let initial_auth = initial_state
         .authority(Role::StrataAdministrator)
         .expect("Admin authority should exist");
-    let initial_member_count = initial_auth.config().keys().len();
+    let initial_member_count = initial_auth.config().signers().len();
 
     // Generate a new public key to add
     let secp = Secp256k1::new();
     let new_privkey = SecretKey::new(&mut OsRng);
-    let new_pubkey = PublicKey::from_secret_key(&secp, &new_privkey);
-    let new_member = CompressedPublicKey::from(new_pubkey);
+    let new_member = P2wpkhAddress::from_pubkey(&PublicKey::from_secret_key(&secp, &new_privkey));
 
     harness
         .submit_admin_action(
@@ -161,7 +160,7 @@ async fn test_multisig_update_is_queued() {
         .authority(Role::StrataAdministrator)
         .expect("Admin authority should exist");
     assert_eq!(
-        current_auth.config().keys().len(),
+        current_auth.config().signers().len(),
         initial_member_count,
         "Member count should not change until update is activated"
     );
@@ -208,13 +207,12 @@ async fn test_queued_update_activates() {
     let initial_auth = initial_state
         .authority(Role::StrataAdministrator)
         .expect("Admin authority should exist");
-    let initial_member_count = initial_auth.config().keys().len();
+    let initial_member_count = initial_auth.config().signers().len();
 
     // Generate a new public key to add
     let secp = Secp256k1::new();
     let new_privkey = SecretKey::new(&mut OsRng);
-    let new_pubkey = PublicKey::from_secret_key(&secp, &new_privkey);
-    let new_member = CompressedPublicKey::from(new_pubkey);
+    let new_member = P2wpkhAddress::from_pubkey(&PublicKey::from_secret_key(&secp, &new_privkey));
 
     // Submit multisig config update (gets queued)
     harness
@@ -232,7 +230,7 @@ async fn test_queued_update_activates() {
         .authority(Role::StrataAdministrator)
         .expect("Admin authority should exist");
     assert_eq!(
-        current_auth.config().keys().len(),
+        current_auth.config().signers().len(),
         initial_member_count,
         "Member count should not change until activation"
     );
@@ -254,13 +252,13 @@ async fn test_queued_update_activates() {
         .authority(Role::StrataAdministrator)
         .expect("Admin authority should exist");
     assert_eq!(
-        final_auth.config().keys().len(),
+        final_auth.config().signers().len(),
         initial_member_count + 1,
         "Member count should increase after activation"
     );
 
     assert!(
-        final_auth.config().keys().contains(&new_member),
+        final_auth.config().signers().contains(&new_member),
         "New member should be in the multisig config"
     );
 }
@@ -316,11 +314,11 @@ async fn test_wrong_key_rejected() {
     // Create a transaction signed with WRONG key (not the operator key)
     let secp = Secp256k1::new();
     let wrong_privkey = SecretKey::new(&mut OsRng);
-    let wrong_pubkey = PublicKey::from_secret_key(&secp, &wrong_privkey);
-    let compressed_pk = CompressedPublicKey::from(wrong_pubkey);
+    let wrong_signer =
+        P2wpkhAddress::from_pubkey(&PublicKey::from_secret_key(&secp, &wrong_privkey));
 
     let _wrong_config =
-        ThresholdConfig::try_new(vec![compressed_pk], NonZero::new(1).unwrap()).unwrap();
+        ThresholdConfig::try_new(vec![wrong_signer], NonZero::new(1).unwrap()).unwrap();
 
     // Sign with wrong key
     let action = sequencer_update([2u8; 32]);

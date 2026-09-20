@@ -105,7 +105,7 @@ mod tests {
     use bitcoin::secp256k1::PublicKey;
     use rand::rngs::OsRng;
     use strata_asm_admin_threshold_sig::{
-        CompressedPublicKey, ThresholdConfig, verify_threshold_signatures,
+        P2wpkhAddress, ThresholdConfig, verify_threshold_signatures,
     };
     use strata_asm_common::TxInputRef;
     use strata_asm_proto_txs_test_utils::TEST_MAGIC_BYTES;
@@ -131,11 +131,11 @@ mod tests {
 
         // Generate test private keys
         let privkeys: Vec<SecretKey> = (0..3).map(|_| SecretKey::new(&mut OsRng)).collect();
-        let pubkeys: Vec<CompressedPublicKey> = privkeys
+        let signers: Vec<P2wpkhAddress> = privkeys
             .iter()
-            .map(|sk| CompressedPublicKey::from(PublicKey::from_secret_key(SECP256K1, sk)))
+            .map(|sk| P2wpkhAddress::from_pubkey(&PublicKey::from_secret_key(SECP256K1, sk)))
             .collect();
-        let config = ThresholdConfig::try_new(pubkeys, threshold).unwrap();
+        let config = ThresholdConfig::try_new(signers, threshold).unwrap();
 
         // Create signer indices (signers 0 and 2)
         let signer_indices = [0u8, 2u8];
@@ -163,11 +163,11 @@ mod tests {
 
         // Generate test private keys
         let privkeys: Vec<SecretKey> = (0..3).map(|_| SecretKey::new(&mut OsRng)).collect();
-        let pubkeys: Vec<CompressedPublicKey> = privkeys
+        let signers: Vec<P2wpkhAddress> = privkeys
             .iter()
-            .map(|sk| CompressedPublicKey::from(PublicKey::from_secret_key(SECP256K1, sk)))
+            .map(|sk| P2wpkhAddress::from_pubkey(&PublicKey::from_secret_key(SECP256K1, sk)))
             .collect();
-        let config = ThresholdConfig::try_new(pubkeys, threshold).unwrap();
+        let config = ThresholdConfig::try_new(signers, threshold).unwrap();
 
         // Create signer indices (signers 0 and 2)
         let signer_indices = [0u8, 2u8];

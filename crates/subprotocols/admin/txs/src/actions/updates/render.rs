@@ -13,7 +13,7 @@ pub(super) fn multisig(config: &ThresholdConfigUpdate, details: &mut IndentedDet
         config
             .add_members()
             .iter()
-            .map(|member| hex::encode(member.serialize())),
+            .map(|member| hex::encode(member.to_byte_array())),
     );
     append_indexed_fields(
         details,
@@ -22,7 +22,7 @@ pub(super) fn multisig(config: &ThresholdConfigUpdate, details: &mut IndentedDet
         config
             .remove_members()
             .iter()
-            .map(|member| hex::encode(member.serialize())),
+            .map(|member| hex::encode(member.to_byte_array())),
     );
 }
 
@@ -57,8 +57,7 @@ pub(super) fn append_indexed_fields(
 mod tests {
     use std::num::NonZero;
 
-    use strata_asm_admin_threshold_sig::CompressedPublicKey;
-    use strata_test_utils_arb::ArbitraryGenerator;
+    use strata_asm_admin_threshold_sig::P2wpkhAddress;
 
     use super::*;
     use crate::actions::IndentedDetails;
@@ -70,20 +69,20 @@ mod tests {
         lines
     }
 
-    fn arb_pubkey() -> CompressedPublicKey {
-        ArbitraryGenerator::new().generate()
+    fn signer(seed: u8) -> P2wpkhAddress {
+        P2wpkhAddress::from_byte_array([seed; 20])
     }
 
-    fn pubkey_hex(key: &CompressedPublicKey) -> String {
-        hex::encode(key.serialize())
+    fn rendered(signer: &P2wpkhAddress) -> String {
+        hex::encode(signer.to_byte_array())
     }
 
     #[test]
     fn multisig_renders_two_adds_and_two_removes() {
-        let a1 = arb_pubkey();
-        let a2 = arb_pubkey();
-        let r1 = arb_pubkey();
-        let r2 = arb_pubkey();
+        let a1 = signer(1);
+        let a2 = signer(2);
+        let r1 = signer(3);
+        let r2 = signer(4);
         let config = ThresholdConfigUpdate::try_new(
             vec![a1, a2],
             vec![r1, r2],
@@ -98,19 +97,19 @@ mod tests {
             vec![
                 "  New Threshold: 2".to_string(),
                 "  Members to Add: 2".to_string(),
-                format!("  1. Add Member: {}", pubkey_hex(&a1)),
-                format!("  2. Add Member: {}", pubkey_hex(&a2)),
+                format!("  1. Add Member: {}", rendered(&a1)),
+                format!("  2. Add Member: {}", rendered(&a2)),
                 "  Members to Remove: 2".to_string(),
-                format!("  1. Remove Member: {}", pubkey_hex(&r1)),
-                format!("  2. Remove Member: {}", pubkey_hex(&r2)),
+                format!("  1. Remove Member: {}", rendered(&r1)),
+                format!("  2. Remove Member: {}", rendered(&r2)),
             ],
         );
     }
 
     #[test]
     fn multisig_renders_two_adds_and_no_removes() {
-        let a1 = arb_pubkey();
-        let a2 = arb_pubkey();
+        let a1 = signer(1);
+        let a2 = signer(2);
         let config = ThresholdConfigUpdate::try_new(
             vec![a1, a2],
             vec![],
@@ -125,8 +124,8 @@ mod tests {
             vec![
                 "  New Threshold: 2".to_string(),
                 "  Members to Add: 2".to_string(),
-                format!("  1. Add Member: {}", pubkey_hex(&a1)),
-                format!("  2. Add Member: {}", pubkey_hex(&a2)),
+                format!("  1. Add Member: {}", rendered(&a1)),
+                format!("  2. Add Member: {}", rendered(&a2)),
                 "  Members to Remove: 0".to_string(),
             ],
         );
@@ -134,8 +133,8 @@ mod tests {
 
     #[test]
     fn multisig_renders_no_adds_and_two_removes() {
-        let r1 = arb_pubkey();
-        let r2 = arb_pubkey();
+        let r1 = signer(3);
+        let r2 = signer(4);
         let config = ThresholdConfigUpdate::try_new(
             vec![],
             vec![r1, r2],
@@ -151,8 +150,8 @@ mod tests {
                 "  New Threshold: 1".to_string(),
                 "  Members to Add: 0".to_string(),
                 "  Members to Remove: 2".to_string(),
-                format!("  1. Remove Member: {}", pubkey_hex(&r1)),
-                format!("  2. Remove Member: {}", pubkey_hex(&r2)),
+                format!("  1. Remove Member: {}", rendered(&r1)),
+                format!("  2. Remove Member: {}", rendered(&r2)),
             ],
         );
     }

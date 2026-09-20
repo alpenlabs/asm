@@ -12,15 +12,16 @@ use crate::{
 ///
 /// The set is first rebuilt through [`SignatureSet::new`] so that a repeated signer index is
 /// rejected before it can be counted twice. The signature count must then meet the
-/// configured threshold, and every signature must recover to the key its index names.
+/// configured threshold, and every signature must recover to a key whose P2WPKH address is
+/// the one its index names.
 ///
 /// # Errors
 ///
 /// Returns [`ThresholdSignatureError::DuplicateSignerIndex`] for a repeated index,
 /// [`ThresholdSignatureError::InsufficientSignatures`] when the threshold is not met,
-/// [`ThresholdSignatureError::SignerIndexOutOfBounds`] for an index outside the key list, and
-/// [`ThresholdSignatureError::InvalidSignature`] when a signature does not recover to the
-/// expected key.
+/// [`ThresholdSignatureError::SignerIndexOutOfBounds`] for an index outside the signer list,
+/// and [`ThresholdSignatureError::InvalidSignature`] when a signature does not recover to the
+/// expected signer.
 pub fn verify_threshold_signatures(
     config: &ThresholdConfig,
     signatures: &[IndexedSignature],
@@ -42,17 +43,19 @@ pub fn verify_threshold_signatures(
 mod tests {
     use std::num::NonZero;
 
+    use bitcoin::hashes::{Hash as _, hash160};
     use secp256k1::{PublicKey, SECP256K1, SecretKey};
 
     use super::*;
-    use crate::keys::CompressedPublicKey;
+    use crate::address::P2wpkhAddress;
 
-    fn generate_keypair(seed: u8) -> (SecretKey, CompressedPublicKey) {
+    /// Returns a secret key and the address of the signer that holds it.
+    fn generate_signer(seed: u8) -> (SecretKey, P2wpkhAddress) {
         let mut sk_bytes = [0u8; 32];
         sk_bytes[31] = seed.max(1);
         let sk = SecretKey::from_slice(&sk_bytes).expect("seed is a valid scalar");
-        let pk = CompressedPublicKey::from(PublicKey::from_secret_key(SECP256K1, &sk));
-        (sk, pk)
+        let signer = P2wpkhAddress::from_pubkey(&PublicKey::from_secret_key(SECP256K1, &sk));
+        (sk, signer)
     }
 
     fn nonzero(value: u8) -> NonZero<u8> {
@@ -61,11 +64,11 @@ mod tests {
 
     #[test]
     fn verifies_a_satisfied_threshold() {
-        let (sk1, pk1) = generate_keypair(1);
-        let (sk2, pk2) = generate_keypair(2);
-        let (_, pk3) = generate_keypair(3);
+        let (sk1, s1) = generate_signer(1);
+        let (sk2, s2) = generate_signer(2);
+        let (_, s3) = generate_signer(3);
 
-        let config = ThresholdConfig::try_new(vec![pk1, pk2, pk3], nonzero(2)).unwrap();
+        let config = ThresholdConfig::try_new(vec![s1, s2, s3], nonzero(2)).unwrap();
         let message_hash = [0xAB; 32];
 
         let signatures = vec![
@@ -81,11 +84,11 @@ mod tests {
 
     #[test]
     fn rejects_too_few_signatures() {
-        let (_, pk1) = generate_keypair(1);
-        let (sk2, pk2) = generate_keypair(2);
-        let (_, pk3) = generate_keypair(3);
+        let (_, s1) = generate_signer(1);
+        let (sk2, s2) = generate_signer(2);
+        let (_, s3) = generate_signer(3);
 
-        let config = ThresholdConfig::try_new(vec![pk1, pk2, pk3], nonzero(2)).unwrap();
+        let config = ThresholdConfig::try_new(vec![s1, s2, s3], nonzero(2)).unwrap();
         let message_hash = [0xAB; 32];
 
         let signatures = vec![IndexedSignature::new(
@@ -101,10 +104,10 @@ mod tests {
 
     #[test]
     fn rejects_a_signature_over_another_message() {
-        let (sk1, pk1) = generate_keypair(1);
-        let (sk2, pk2) = generate_keypair(2);
+        let (sk1, s1) = generate_signer(1);
+        let (sk2, s2) = generate_signer(2);
 
-        let config = ThresholdConfig::try_new(vec![pk1, pk2], nonzero(2)).unwrap();
+        let config = ThresholdConfig::try_new(vec![s1, s2], nonzero(2)).unwrap();
         let message_hash = [0xAB; 32];
 
         let signatures = vec![
@@ -120,10 +123,10 @@ mod tests {
 
     #[test]
     fn rejects_a_signature_filed_under_another_signers_index() {
-        let (sk1, pk1) = generate_keypair(1);
-        let (_, pk2) = generate_keypair(2);
+        let (sk1, s1) = generate_signer(1);
+        let (_, s2) = generate_signer(2);
 
-        let config = ThresholdConfig::try_new(vec![pk1, pk2], nonzero(2)).unwrap();
+        let config = ThresholdConfig::try_new(vec![s1, s2], nonzero(2)).unwrap();
         let message_hash = [0xAB; 32];
 
         // Both signatures are from sk1, but the second claims to be signer 1.
@@ -139,11 +142,11 @@ mod tests {
     }
 
     #[test]
-    fn rejects_an_index_outside_the_key_list() {
-        let (sk1, pk1) = generate_keypair(1);
-        let (sk2, pk2) = generate_keypair(2);
+    fn rejects_an_index_outside_the_signer_list() {
+        let (sk1, s1) = generate_signer(1);
+        let (sk2, s2) = generate_signer(2);
 
-        let config = ThresholdConfig::try_new(vec![pk1, pk2], nonzero(2)).unwrap();
+        let config = ThresholdConfig::try_new(vec![s1, s2], nonzero(2)).unwrap();
         let message_hash = [0xAB; 32];
 
         let signatures = vec![
@@ -159,10 +162,10 @@ mod tests {
 
     #[test]
     fn rejects_a_repeated_signer() {
-        let (sk1, pk1) = generate_keypair(1);
-        let (_, pk2) = generate_keypair(2);
+        let (sk1, s1) = generate_signer(1);
+        let (_, s2) = generate_signer(2);
 
-        let config = ThresholdConfig::try_new(vec![pk1, pk2], nonzero(2)).unwrap();
+        let config = ThresholdConfig::try_new(vec![s1, s2], nonzero(2)).unwrap();
         let message_hash = [0xAB; 32];
 
         let signatures = vec![
@@ -178,11 +181,11 @@ mod tests {
 
     #[test]
     fn verifies_bip137_signatures() {
-        let (sk1, pk1) = generate_keypair(1);
-        let (sk2, pk2) = generate_keypair(2);
-        let (_, pk3) = generate_keypair(3);
+        let (sk1, s1) = generate_signer(1);
+        let (sk2, s2) = generate_signer(2);
+        let (_, s3) = generate_signer(3);
 
-        let config = ThresholdConfig::try_new(vec![pk1, pk2, pk3], nonzero(2)).unwrap();
+        let config = ThresholdConfig::try_new(vec![s1, s2, s3], nonzero(2)).unwrap();
         let message_hash = [0xAB; 32];
 
         let sig0 = ecdsa::sign_ecdsa_bip137(&message_hash, &sk1);
@@ -203,11 +206,11 @@ mod tests {
 
     #[test]
     fn verifies_a_mix_of_raw_and_bip137_signatures() {
-        let (sk1, pk1) = generate_keypair(1);
-        let (sk2, pk2) = generate_keypair(2);
-        let (_, pk3) = generate_keypair(3);
+        let (sk1, s1) = generate_signer(1);
+        let (sk2, s2) = generate_signer(2);
+        let (_, s3) = generate_signer(3);
 
-        let config = ThresholdConfig::try_new(vec![pk1, pk2, pk3], nonzero(2)).unwrap();
+        let config = ThresholdConfig::try_new(vec![s1, s2, s3], nonzero(2)).unwrap();
         let message_hash = [0xAB; 32];
 
         let sig0 = ecdsa::sign_ecdsa_recoverable(&message_hash, &sk1);
@@ -223,6 +226,31 @@ mod tests {
         assert_eq!(
             verify_threshold_signatures(&config, &signatures, &message_hash),
             Ok(())
+        );
+    }
+
+    /// P2WPKH is only defined over compressed keys, so a signer's address is always the hash
+    /// of the compressed point. A signer configured under the uncompressed hash can never
+    /// authorize anything, whatever BIP-137 header its wallet emits.
+    #[test]
+    fn rejects_a_signer_configured_under_the_uncompressed_key_hash() {
+        let (sk1, _) = generate_signer(1);
+        let pubkey = PublicKey::from_secret_key(SECP256K1, &sk1);
+        let uncompressed = P2wpkhAddress::from_byte_array(
+            hash160::Hash::hash(&pubkey.serialize_uncompressed()).to_byte_array(),
+        );
+
+        let config = ThresholdConfig::try_new(vec![uncompressed], nonzero(1)).unwrap();
+        let message_hash = [0xAB; 32];
+
+        let signatures = vec![IndexedSignature::new(
+            0,
+            ecdsa::sign_ecdsa_recoverable(&message_hash, &sk1),
+        )];
+
+        assert_eq!(
+            verify_threshold_signatures(&config, &signatures, &message_hash),
+            Err(ThresholdSignatureError::InvalidSignature { index: 0 })
         );
     }
 }

@@ -24,7 +24,7 @@ pub struct SeqNoToken(u64);
 pub struct MultisigAuthority {
     /// The role of this threshold signature authority.
     role: Role,
-    /// The public keys of all grant-holders authorized to sign.
+    /// The addresses of all grant-holders authorized to sign.
     config: ThresholdConfig,
     /// Last sequence number that was successfully executed. Used to prevent replay attacks.
     last_seqno: u64,
@@ -112,7 +112,7 @@ mod tests {
 
     use bitcoin::secp256k1::{PublicKey, Secp256k1, SecretKey};
     use rand::rngs::OsRng;
-    use strata_asm_admin_threshold_sig::{CompressedPublicKey, ThresholdConfig};
+    use strata_asm_admin_threshold_sig::{P2wpkhAddress, ThresholdConfig};
     use strata_asm_admin_types::Role;
     use strata_asm_proto_admin_txs::{
         actions::{MultisigAction, UpdateAction, updates::SequencerUpdate},
@@ -126,8 +126,8 @@ mod tests {
     fn create_test_authority(role: Role) -> (MultisigAuthority, SecretKey) {
         let secp = Secp256k1::new();
         let secret_key = SecretKey::new(&mut OsRng);
-        let public_key = CompressedPublicKey::from(PublicKey::from_secret_key(&secp, &secret_key));
-        let config = ThresholdConfig::try_new(vec![public_key], NonZero::new(1).expect("non-zero"))
+        let signer = P2wpkhAddress::from_pubkey(&PublicKey::from_secret_key(&secp, &secret_key));
+        let config = ThresholdConfig::try_new(vec![signer], NonZero::new(1).expect("non-zero"))
             .expect("valid config");
 
         (MultisigAuthority::new(role, config), secret_key)

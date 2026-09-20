@@ -16,9 +16,11 @@ use std::{collections::HashMap, future::Future, num::NonZero};
 
 use bitcoin::{
     secp256k1::{PublicKey, Secp256k1, SecretKey},
-    BlockHash, Transaction,
+    BlockHash, Network, Transaction,
 };
-use strata_asm_admin_threshold_sig::{CompressedPublicKey, ThresholdConfig, ThresholdConfigUpdate};
+use strata_asm_admin_threshold_sig::{
+    P2wpkhAddress, ThresholdConfigUpdate, UncheckedThresholdConfig,
+};
 use strata_asm_admin_types::{AdministrationInitConfig, ConfirmationDepths, Role};
 use strata_asm_bridge_types::SafeHarbourAddress;
 use strata_asm_common::{AnchorState, SectionStateExt, Subprotocol};
@@ -44,6 +46,10 @@ use super::test_harness::AsmTestHarness;
 
 /// The default allowed seqno gap for admin subprotocol.
 const DEFAULT_MAX_SEQNO_GAP: NonZero<u8> = NonZero::new(10).expect("10 is non-zero");
+
+/// The harness runs against a Bitcoin regtest node, so signer addresses and the signing
+/// messages rendered from them use the regtest prefix.
+pub const HARNESS_NETWORK: Network = Network::Regtest;
 
 /// Default non-zero confirmation depth for admin updates in tests: large enough that updates
 /// queue rather than apply immediately, small enough to activate within a couple of blocks.
@@ -246,8 +252,8 @@ pub fn cancel_update(id: u32, state: &AdministrationSubprotoState) -> MultisigAc
 /// This updates the threshold configuration for a specific role (admin or sequencer manager).
 pub fn multisig_config_update(
     role: Role,
-    add_members: Vec<CompressedPublicKey>,
-    remove_members: Vec<CompressedPublicKey>,
+    add_members: Vec<P2wpkhAddress>,
+    remove_members: Vec<P2wpkhAddress>,
     new_threshold: u8,
 ) -> MultisigAction {
     let config = ThresholdConfigUpdate::try_new(
@@ -311,7 +317,7 @@ pub fn safe_harbour_address_update(address: SafeHarbourAddress) -> MultisigActio
 
 /// Creates matching admin subprotocol params and signing context.
 ///
-/// Generates a distinct 1-of-1 [`ThresholdConfig`] keypair for each of the four roles
+/// Generates a distinct 1-of-1 signer keypair for each of the four roles
 /// ([`Role::StrataAdministrator`], [`Role::StrataSequencerManager`],
 /// [`Role::AlpenAdministrator`], [`Role::StrataSecurityCouncil`]). The returned
 /// [`AdminContext`] holds the matching signing material per role, so by default
@@ -324,9 +330,12 @@ pub fn create_test_admin_setup(
     let secp = Secp256k1::new();
     let make_role = || {
         let sk = SecretKey::new(&mut rand::thread_rng());
-        let pk = CompressedPublicKey::from(PublicKey::from_secret_key(&secp, &sk));
-        let config =
-            ThresholdConfig::try_new(vec![pk], NonZero::new(1).unwrap()).expect("valid config");
+        let signer = P2wpkhAddress::from_pubkey(&PublicKey::from_secret_key(&secp, &sk));
+        let config = UncheckedThresholdConfig::try_new(
+            vec![signer.to_address(HARNESS_NETWORK).into_unchecked()],
+            NonZero::new(1).unwrap(),
+        )
+        .expect("single-signer config is valid");
         (config, sk)
     };
 

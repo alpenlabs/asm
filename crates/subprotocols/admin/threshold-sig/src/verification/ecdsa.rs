@@ -5,13 +5,21 @@ use secp256k1::{
     ecdsa::{RecoverableSignature, RecoveryId},
 };
 
-use crate::{config::ThresholdConfig, errors::ThresholdSignatureError, signature::SignatureSet};
+use crate::{
+    address::P2wpkhAddress, config::ThresholdConfig, errors::ThresholdSignatureError,
+    signature::SignatureSet,
+};
 
 /// Normalizes a recovery ID header byte to the raw recovery ID (0-3).
 ///
 /// Hardware wallets (Ledger/Trezor) follow BIP-137 and encode additional address type
 /// information in the header byte. This function extracts just the recovery ID needed
 /// for ECDSA public key recovery.
+///
+/// The address type the header claims is advisory and is deliberately not enforced:
+/// wallets disagree about which range to use for a given account type, and the identity
+/// check is the recovered key's P2WPKH address either way. A header claiming an
+/// uncompressed key (27-30) therefore fails on the address comparison rather than here.
 ///
 /// # Header byte formats (BIP-137):
 /// - `0-3`: Raw recovery ID (already normalized)
@@ -34,11 +42,11 @@ fn normalize_recovery_id(header: u8) -> Result<i32, ThresholdSignatureError> {
     Ok(recid as i32)
 }
 
-/// Verifies each ECDSA signature in the set against the corresponding public key.
+/// Verifies each ECDSA signature in the set against the corresponding signer address.
 ///
-/// This function recovers a public key from each ECDSA signature, then checks it
-/// against the configured key for that index. The `SignatureSet` is already
-/// deduped.
+/// This function recovers a public key from each ECDSA signature, derives its P2WPKH
+/// address, then checks it against the configured signer for that index. The
+/// `SignatureSet` is already deduped.
 ///
 /// # Hardware Wallet Compatibility
 /// Supports signatures from hardware wallets (Ledger/Trezor) that use BIP-137 format
@@ -56,18 +64,18 @@ pub(super) fn verify_ecdsa_signatures(
     for indexed_sig in signatures.signatures() {
         // Check index is in bounds
         let index = indexed_sig.index() as usize;
-        let keys_len = config.keys().len();
-        // Reject indices at/above the key count to avoid panicking on the lookup; report the last
-        // valid slot.
-        if index >= keys_len {
+        let signers_len = config.signers().len();
+        // Reject indices at/above the signer count to avoid panicking on the lookup; report the
+        // last valid slot.
+        if index >= signers_len {
             return Err(ThresholdSignatureError::SignerIndexOutOfBounds {
                 index: indexed_sig.index(),
-                max: keys_len.saturating_sub(1),
+                max: signers_len.saturating_sub(1),
             });
         }
 
-        // Get the expected public key
-        let expected_pubkey = config.keys()[index].as_inner();
+        // Get the expected signer address
+        let expected_signer = config.signers()[index];
 
         // Normalize the recovery ID from BIP-137 header format to raw 0-3
         let recid_raw = normalize_recovery_id(indexed_sig.recovery_id())?;
@@ -79,15 +87,15 @@ pub(super) fn verify_ecdsa_signatures(
                 .map_err(|_| ThresholdSignatureError::InvalidSignatureFormat)?;
 
         // Hardware wallets emit recoverable signatures with headers; recover the pubkey
-        // (honoring the header) and compare to the configured public key.
+        // (honoring the header) and compare its address to the configured signer.
         let recovered_pubkey = SECP256K1
             .recover_ecdsa(&message, &recoverable_sig)
             .map_err(|_| ThresholdSignatureError::InvalidSignature {
                 index: indexed_sig.index(),
             })?;
 
-        // Verify the recovered key matches the expected key
-        if &recovered_pubkey != expected_pubkey {
+        // Verify the recovered key belongs to the expected signer
+        if P2wpkhAddress::from_pubkey(&recovered_pubkey) != expected_signer {
             return Err(ThresholdSignatureError::InvalidSignature {
                 index: indexed_sig.index(),
             });

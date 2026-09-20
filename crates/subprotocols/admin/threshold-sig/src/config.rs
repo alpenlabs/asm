@@ -2,34 +2,33 @@
 
 use std::{collections::HashSet, num::NonZero};
 
+use bitcoin::{Address, address::NetworkUnchecked};
 use serde::{Deserialize, Serialize, de::Error as DeError};
 use ssz::DecodeError;
 use ssz_primitives::FixedBytes;
+use thiserror::Error;
 
 use crate::{
+    address::P2wpkhAddress,
     errors::ThresholdSignatureError,
-    keys::CompressedPublicKey,
     ssz_bridge::{SszContainer, impl_ssz_via_container},
     ssz_generated::ssz::threshold::{ThresholdConfigSsz, ThresholdConfigUpdateSsz},
 };
 
 /// Maximum number of signers allowed in a threshold configuration.
 ///
-/// A signer identifies itself by a `u8` index into the key list, so no more than 256 signers
-/// are addressable.
+/// A signer identifies itself by a `u8` index into the signer list, so no more than 256
+/// signers are addressable.
 pub const MAX_SIGNERS: usize = 256;
 
 /// Configuration for a threshold signature authority.
 ///
-/// Defines who may sign (`keys`) and how many of them must (`threshold`). The threshold is a
-/// `NonZero<u8>` so that a configuration no one can satisfy cannot be constructed.
-///
-/// [`Deserialize`] is implemented by hand so that decoded values go through
-/// [`Self::try_new`] and satisfy the same invariants as constructed ones.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+/// Defines who may sign (`signers`) and how many of them must (`threshold`). The threshold
+/// is a `NonZero<u8>` so that a configuration no one can satisfy cannot be constructed.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ThresholdConfig {
-    /// Public keys of all authorized signers.
-    keys: Vec<CompressedPublicKey>,
+    /// Addresses of all authorized signers.
+    signers: Vec<P2wpkhAddress>,
     /// Minimum number of signatures required (always >= 1).
     threshold: NonZero<u8>,
 }
@@ -39,26 +38,26 @@ impl ThresholdConfig {
     ///
     /// # Errors
     ///
-    /// Returns [`ThresholdSignatureError::DuplicateAddMember`] if `keys` repeats a member,
+    /// Returns [`ThresholdSignatureError::DuplicateAddMember`] if `signers` repeats a member,
     /// [`ThresholdSignatureError::TooManySigners`] if it holds more than [`MAX_SIGNERS`],
     /// and [`ThresholdSignatureError::InvalidThreshold`] if `threshold` exceeds the number
-    /// of keys.
+    /// of signers.
     pub fn try_new(
-        keys: Vec<CompressedPublicKey>,
+        signers: Vec<P2wpkhAddress>,
         threshold: NonZero<u8>,
     ) -> Result<Self, ThresholdSignatureError> {
         let mut config = ThresholdConfig {
-            keys: vec![],
+            signers: vec![],
             threshold,
         };
-        let update = ThresholdConfigUpdate::try_new(keys, vec![], threshold)?;
+        let update = ThresholdConfigUpdate::try_new(signers, vec![], threshold)?;
         config.apply_update(&update)?;
         Ok(config)
     }
 
-    /// Returns the authorized signer keys.
-    pub fn keys(&self) -> &[CompressedPublicKey] {
-        &self.keys
+    /// Returns the authorized signer addresses.
+    pub fn signers(&self) -> &[P2wpkhAddress] {
+        &self.signers
     }
 
     /// Returns the number of signatures required.
@@ -68,12 +67,12 @@ impl ThresholdConfig {
 
     /// Returns the number of authorized signers.
     pub fn len(&self) -> usize {
-        self.keys.len()
+        self.signers.len()
     }
 
     /// Returns whether there are no authorized signers.
     pub fn is_empty(&self) -> bool {
-        self.keys.is_empty()
+        self.signers.is_empty()
     }
 
     /// Checks whether an update can be applied to this configuration.
@@ -83,9 +82,8 @@ impl ThresholdConfig {
         &self,
         update: &ThresholdConfigUpdate,
     ) -> Result<(), ThresholdSignatureError> {
-        let members_to_add: HashSet<&CompressedPublicKey> = update.add_members().iter().collect();
-        let members_to_remove: HashSet<&CompressedPublicKey> =
-            update.remove_members().iter().collect();
+        let members_to_add: HashSet<&P2wpkhAddress> = update.add_members().iter().collect();
+        let members_to_remove: HashSet<&P2wpkhAddress> = update.remove_members().iter().collect();
 
         if members_to_add.len() != update.add_members().len() {
             return Err(ThresholdSignatureError::DuplicateAddMember);
@@ -95,22 +93,22 @@ impl ThresholdConfig {
             return Err(ThresholdSignatureError::DuplicateRemoveMember);
         }
 
-        if members_to_add.iter().any(|m| self.keys.contains(m)) {
+        if members_to_add.iter().any(|m| self.signers.contains(m)) {
             return Err(ThresholdSignatureError::MemberAlreadyExists);
         }
 
         for member_to_remove in update.remove_members() {
-            if !self.keys.contains(member_to_remove) {
+            if !self.signers.contains(member_to_remove) {
                 return Err(ThresholdSignatureError::MemberNotFound);
             }
         }
 
         let updated_size =
-            self.keys.len() + update.add_members().len() - update.remove_members().len();
+            self.signers.len() + update.add_members().len() - update.remove_members().len();
 
         // This is the single chokepoint for every construction, mutation and decode path
-        // (`try_new`, `apply_update`, serde and SSZ decode), so enforcing the bound here is
-        // what guarantees a `ThresholdConfig` never holds more than `MAX_SIGNERS` keys.
+        // (`try_new`, `apply_update` and SSZ decode), so enforcing the bound here is what
+        // guarantees a `ThresholdConfig` never holds more than `MAX_SIGNERS` signers.
         if updated_size > MAX_SIGNERS {
             return Err(ThresholdSignatureError::TooManySigners {
                 count: updated_size,
@@ -121,7 +119,7 @@ impl ThresholdConfig {
         if (update.new_threshold().get() as usize) > updated_size {
             return Err(ThresholdSignatureError::InvalidThreshold {
                 threshold: update.new_threshold().get(),
-                total_keys: updated_size,
+                total_signers: updated_size,
             });
         }
 
@@ -140,75 +138,163 @@ impl ThresholdConfig {
     ) -> Result<(), ThresholdSignatureError> {
         self.validate_update(update)?;
 
-        self.keys
-            .retain(|key| !update.remove_members().contains(key));
-        self.keys.extend_from_slice(update.add_members());
+        self.signers
+            .retain(|signer| !update.remove_members().contains(signer));
+        self.signers.extend_from_slice(update.add_members());
         self.threshold = update.new_threshold();
 
         Ok(())
     }
 }
 
-impl<'de> Deserialize<'de> for ThresholdConfig {
+// The schema models `signers` as a `List[Bytes20, MAX_SIGNERS]`: raw witness programs rather
+// than the wrapper, so the generated container needs nothing from this crate.
+impl SszContainer for ThresholdConfig {
+    type Container = ThresholdConfigSsz;
+
+    fn to_container(&self) -> Self::Container {
+        // Cannot fail: `validate_update` gates every construction and mutation path, and it
+        // rejects more than `MAX_SIGNERS` signers.
+        let signers = self
+            .signers
+            .iter()
+            .map(|signer| FixedBytes(signer.to_byte_array()))
+            .collect::<Vec<_>>()
+            .try_into()
+            .expect("signer count is within MAX_SIGNERS");
+
+        ThresholdConfigSsz {
+            signers,
+            threshold: self.threshold.get(),
+        }
+    }
+
+    fn from_container(container: Self::Container) -> Result<Self, DecodeError> {
+        let signers = decode_signers(container.signers.iter());
+        let threshold = NonZero::new(container.threshold)
+            .ok_or_else(|| DecodeError::BytesInvalid("threshold must be non-zero".into()))?;
+
+        // Re-applies the same invariants, so a decoded config is indistinguishable from a
+        // constructed one.
+        Self::try_new(signers, threshold).map_err(|err| DecodeError::BytesInvalid(err.to_string()))
+    }
+}
+
+impl_ssz_via_container!(ThresholdConfig);
+
+/// The parameter-file form of a [`ThresholdConfig`].
+///
+/// Signers are written as Bitcoin addresses so an operator can paste back exactly what their
+/// hardware wallet displayed. Each one is checked to be P2WPKH on the way in, and the set as
+/// a whole is checked against [`ThresholdConfig::try_new`], so
+/// [`Self::to_threshold_config`] cannot fail.
+///
+/// The address is kept as written, prefix and all, so the file round-trips. That prefix is
+/// not part of a signer's identity, and whether it matches the network the chain runs on is
+/// a question about the parameter file as a whole rather than about any one config.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct UncheckedThresholdConfig {
+    /// Addresses of all authorized signers, each one P2WPKH.
+    signers: Vec<Address<NetworkUnchecked>>,
+    /// Minimum number of signatures required (always >= 1).
+    threshold: NonZero<u8>,
+}
+
+impl UncheckedThresholdConfig {
+    /// Creates a configuration from signer addresses.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`InvalidThresholdConfig::Signer`] if an address is not P2WPKH, and
+    /// [`InvalidThresholdConfig::Config`] if the signer set is not one a
+    /// [`ThresholdConfig`] can hold.
+    pub fn try_new(
+        signers: Vec<Address<NetworkUnchecked>>,
+        threshold: NonZero<u8>,
+    ) -> Result<Self, InvalidThresholdConfig> {
+        let config = Self { signers, threshold };
+        config.resolve()?;
+        Ok(config)
+    }
+
+    /// Returns the configured signer addresses, as written.
+    pub fn signers(&self) -> &[Address<NetworkUnchecked>] {
+        &self.signers
+    }
+
+    /// Returns the number of signatures required.
+    pub fn threshold(&self) -> NonZero<u8> {
+        self.threshold
+    }
+
+    /// Resolves the addresses into the [`ThresholdConfig`] the chain stores.
+    ///
+    /// # Panics
+    ///
+    /// Never for a value that exists: every constructor runs `resolve` first, so a
+    /// configuration that could not resolve was never built.
+    pub fn to_threshold_config(&self) -> ThresholdConfig {
+        self.resolve()
+            .expect("signer set was resolved when the configuration was built")
+    }
+
+    /// The validation every constructor runs, and the conversion it proves is safe.
+    fn resolve(&self) -> Result<ThresholdConfig, InvalidThresholdConfig> {
+        let signers = self
+            .signers
+            .iter()
+            .enumerate()
+            .map(|(index, address)| {
+                P2wpkhAddress::try_from_address(address)
+                    .map_err(|_| InvalidThresholdConfig::Signer { index })
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+
+        Ok(ThresholdConfig::try_new(signers, self.threshold)?)
+    }
+}
+
+/// [`Deserialize`] is implemented by hand so that decoded values go through
+/// [`UncheckedThresholdConfig::try_new`] and satisfy the same invariants as constructed ones.
+impl<'de> Deserialize<'de> for UncheckedThresholdConfig {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: serde::Deserializer<'de>,
     {
         #[derive(Deserialize)]
         struct Raw {
-            keys: Vec<CompressedPublicKey>,
+            signers: Vec<Address<NetworkUnchecked>>,
             threshold: NonZero<u8>,
         }
 
         let raw = Raw::deserialize(deserializer)?;
-        Self::try_new(raw.keys, raw.threshold).map_err(DeError::custom)
+        Self::try_new(raw.signers, raw.threshold).map_err(DeError::custom)
     }
 }
 
-// The schema models `keys` as a `List[Bytes33, MAX_SIGNERS]`: raw compressed points rather
-// than the wrapper, so the generated container needs nothing from this crate. The curve-point
-// check the wrapper performs is reapplied in `from_container`.
-impl SszContainer for ThresholdConfig {
-    type Container = ThresholdConfigSsz;
+/// Reasons a parameter-file threshold configuration cannot be used.
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
+pub enum InvalidThresholdConfig {
+    /// A configured signer is not a P2WPKH address.
+    #[error("signer at index {index} is not a P2WPKH address")]
+    Signer {
+        /// Position of the signer in the configured list.
+        index: usize,
+    },
 
-    fn to_container(&self) -> Self::Container {
-        // Cannot fail: `validate_update` gates every construction and mutation path, and it
-        // rejects more than `MAX_SIGNERS` keys.
-        let keys = self
-            .keys
-            .iter()
-            .map(|key| FixedBytes(key.serialize()))
-            .collect::<Vec<_>>()
-            .try_into()
-            .expect("key count is within MAX_SIGNERS");
-
-        ThresholdConfigSsz {
-            keys,
-            threshold: self.threshold.get(),
-        }
-    }
-
-    fn from_container(container: Self::Container) -> Result<Self, DecodeError> {
-        let keys = decode_keys(container.keys.iter())?;
-        let threshold = NonZero::new(container.threshold)
-            .ok_or_else(|| DecodeError::BytesInvalid("threshold must be non-zero".into()))?;
-
-        // Re-applies the same invariants, so a decoded config is indistinguishable from a
-        // constructed one.
-        Self::try_new(keys, threshold).map_err(|err| DecodeError::BytesInvalid(err.to_string()))
-    }
+    /// The signer set is not one a [`ThresholdConfig`] can hold.
+    #[error(transparent)]
+    Config(#[from] ThresholdSignatureError),
 }
-
-impl_ssz_via_container!(ThresholdConfig);
 
 /// A change to a [`ThresholdConfig`]: members to add, members to drop, and the threshold
 /// that applies once both have been taken into account.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ThresholdConfigUpdate {
-    /// Public keys to add.
-    add_members: Vec<CompressedPublicKey>,
-    /// Public keys to remove.
-    remove_members: Vec<CompressedPublicKey>,
+    /// Signer addresses to add.
+    add_members: Vec<P2wpkhAddress>,
+    /// Signer addresses to remove.
+    remove_members: Vec<P2wpkhAddress>,
     /// Minimum number of signatures required (always >= 1).
     new_threshold: NonZero<u8>,
 }
@@ -223,8 +309,8 @@ impl ThresholdConfigUpdate {
     /// its own `List[_, MAX_SIGNERS]`; without the check an oversized update would panic
     /// when encoded.
     pub fn try_new(
-        add_members: Vec<CompressedPublicKey>,
-        remove_members: Vec<CompressedPublicKey>,
+        add_members: Vec<P2wpkhAddress>,
+        remove_members: Vec<P2wpkhAddress>,
         new_threshold: NonZero<u8>,
     ) -> Result<Self, ThresholdSignatureError> {
         for list in [&add_members, &remove_members] {
@@ -242,13 +328,13 @@ impl ThresholdConfigUpdate {
         })
     }
 
-    /// Returns the public keys to add.
-    pub fn add_members(&self) -> &[CompressedPublicKey] {
+    /// Returns the signer addresses to add.
+    pub fn add_members(&self) -> &[P2wpkhAddress] {
         &self.add_members
     }
 
-    /// Returns the public keys to remove.
-    pub fn remove_members(&self) -> &[CompressedPublicKey] {
+    /// Returns the signer addresses to remove.
+    pub fn remove_members(&self) -> &[P2wpkhAddress] {
         &self.remove_members
     }
 
@@ -258,13 +344,7 @@ impl ThresholdConfigUpdate {
     }
 
     /// Consumes the update and returns its parts.
-    pub fn into_inner(
-        self,
-    ) -> (
-        Vec<CompressedPublicKey>,
-        Vec<CompressedPublicKey>,
-        NonZero<u8>,
-    ) {
+    pub fn into_inner(self) -> (Vec<P2wpkhAddress>, Vec<P2wpkhAddress>, NonZero<u8>) {
         (self.add_members, self.remove_members, self.new_threshold)
     }
 }
@@ -274,9 +354,10 @@ impl SszContainer for ThresholdConfigUpdate {
 
     fn to_container(&self) -> Self::Container {
         // Cannot fail: `try_new` bounds each member list to `MAX_SIGNERS`.
-        let to_list = |keys: &[CompressedPublicKey]| {
-            keys.iter()
-                .map(|key| FixedBytes(key.serialize()))
+        let to_list = |signers: &[P2wpkhAddress]| {
+            signers
+                .iter()
+                .map(|signer| FixedBytes(signer.to_byte_array()))
                 .collect::<Vec<_>>()
                 .try_into()
                 .expect("member list is within MAX_SIGNERS")
@@ -290,8 +371,8 @@ impl SszContainer for ThresholdConfigUpdate {
     }
 
     fn from_container(container: Self::Container) -> Result<Self, DecodeError> {
-        let add_members = decode_keys(container.add_members.iter())?;
-        let remove_members = decode_keys(container.remove_members.iter())?;
+        let add_members = decode_signers(container.add_members.iter());
+        let remove_members = decode_signers(container.remove_members.iter());
         let new_threshold = NonZero::new(container.new_threshold)
             .ok_or_else(|| DecodeError::BytesInvalid("threshold must be non-zero".into()))?;
 
@@ -304,13 +385,14 @@ impl SszContainer for ThresholdConfigUpdate {
 
 impl_ssz_via_container!(ThresholdConfigUpdate);
 
-/// Converts a container's raw compressed points back into validated keys.
-fn decode_keys<'a>(
-    keys: impl Iterator<Item = &'a FixedBytes<33>>,
-) -> Result<Vec<CompressedPublicKey>, DecodeError> {
-    keys.map(|key| CompressedPublicKey::from_slice(&key.0))
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|err| DecodeError::BytesInvalid(err.to_string()))
+/// Converts a container's raw witness programs back into signer addresses.
+///
+/// This is infallible: every 20-byte value is a well-formed P2WPKH program. Whether anyone
+/// holds the key behind it is settled at verification time, not at decode time.
+fn decode_signers<'a>(signers: impl Iterator<Item = &'a FixedBytes<20>>) -> Vec<P2wpkhAddress> {
+    signers
+        .map(|signer| P2wpkhAddress::from_byte_array(signer.0))
+        .collect()
 }
 
 #[cfg(feature = "arbitrary")]
@@ -321,24 +403,61 @@ mod arbitrary_impls {
 
     impl<'a> Arbitrary<'a> for ThresholdConfig {
         fn arbitrary(u: &mut Unstructured<'a>) -> Result<Self> {
-            // Small key lists keep generated values cheap and well inside MAX_SIGNERS.
-            let num_keys: usize = u.int_in_range(1..=4)?;
-            let keys: Vec<CompressedPublicKey> = (0..num_keys)
-                .map(|_| CompressedPublicKey::arbitrary(u))
+            // Small signer lists keep generated values cheap and well inside MAX_SIGNERS.
+            let num_signers: usize = u.int_in_range(1..=4)?;
+            let signers: Vec<P2wpkhAddress> = (0..num_signers)
+                .map(|_| P2wpkhAddress::arbitrary(u))
                 .collect::<Result<Vec<_>>>()?
                 .into_iter()
                 .collect::<HashSet<_>>()
                 .into_iter()
                 .collect();
 
-            if keys.is_empty() {
+            if signers.is_empty() {
                 return Err(arbitrary::Error::IncorrectFormat);
             }
 
-            let threshold_u8 = u.int_in_range(1..=(keys.len() as u8))?;
+            let threshold_u8 = u.int_in_range(1..=(signers.len() as u8))?;
             let threshold = NonZero::new(threshold_u8).expect("threshold is at least 1");
 
-            Self::try_new(keys, threshold).map_err(|_| arbitrary::Error::IncorrectFormat)
+            Self::try_new(signers, threshold).map_err(|_| arbitrary::Error::IncorrectFormat)
+        }
+    }
+
+    impl UncheckedThresholdConfig {
+        /// Generates a configuration whose signers are all addresses on `network`.
+        ///
+        /// [`Arbitrary`] picks the network itself, which is fine for a standalone value but
+        /// not when the config has to agree with a network chosen elsewhere.
+        pub fn arbitrary_for_network(
+            u: &mut Unstructured<'_>,
+            network: bitcoin::Network,
+        ) -> Result<Self> {
+            let config = ThresholdConfig::arbitrary(u)?;
+            let signers = config
+                .signers()
+                .iter()
+                .map(|signer| signer.to_address(network).into_unchecked())
+                .collect();
+
+            Self::try_new(
+                signers,
+                NonZero::new(config.threshold()).expect("threshold is at least 1"),
+            )
+            .map_err(|_| arbitrary::Error::IncorrectFormat)
+        }
+    }
+
+    impl<'a> Arbitrary<'a> for UncheckedThresholdConfig {
+        fn arbitrary(u: &mut Unstructured<'a>) -> Result<Self> {
+            let networks = [
+                bitcoin::Network::Bitcoin,
+                bitcoin::Network::Testnet,
+                bitcoin::Network::Signet,
+                bitcoin::Network::Regtest,
+            ];
+            let network = *u.choose(&networks)?;
+            Self::arbitrary_for_network(u, network)
         }
     }
 
@@ -347,7 +466,7 @@ mod arbitrary_impls {
             let gen_members = |u: &mut Unstructured<'a>| {
                 let count = u.int_in_range(0..=4)?;
                 (0..count)
-                    .map(|_| CompressedPublicKey::arbitrary(u))
+                    .map(|_| P2wpkhAddress::arbitrary(u))
                     .collect::<Result<Vec<_>>>()
             };
             let add_members = gen_members(u)?;
@@ -365,21 +484,20 @@ mod arbitrary_impls {
 #[cfg(test)]
 mod tests {
     use proptest::prelude::*;
-    use secp256k1::{PublicKey, SECP256K1, SecretKey};
     use ssz::{Decode, Encode};
 
     use super::*;
 
-    fn make_key(seed: u8) -> CompressedPublicKey {
-        make_key_n(seed as u32)
+    /// Builds a distinct signer address from a wide seed, so more than 255 unique
+    /// addresses are reachable.
+    fn signer_n(i: u32) -> P2wpkhAddress {
+        let mut program = [0u8; 20];
+        program[16..20].copy_from_slice(&(i + 1).to_be_bytes());
+        P2wpkhAddress::from_byte_array(program)
     }
 
-    /// Builds a distinct key from a wide seed, so more than 255 unique keys are reachable.
-    fn make_key_n(i: u32) -> CompressedPublicKey {
-        let mut sk_bytes = [0u8; 32];
-        sk_bytes[28..32].copy_from_slice(&(i + 1).to_be_bytes());
-        let sk = SecretKey::from_slice(&sk_bytes).expect("seed is a valid scalar");
-        CompressedPublicKey::from(PublicKey::from_secret_key(SECP256K1, &sk))
+    fn signer(seed: u8) -> P2wpkhAddress {
+        signer_n(seed as u32)
     }
 
     fn nonzero(value: u8) -> NonZero<u8> {
@@ -387,9 +505,9 @@ mod tests {
     }
 
     #[test]
-    fn try_new_keeps_keys_and_threshold() {
-        let keys = vec![make_key(1), make_key(2), make_key(3)];
-        let config = ThresholdConfig::try_new(keys, nonzero(2)).unwrap();
+    fn try_new_keeps_signers_and_threshold() {
+        let signers = vec![signer(1), signer(2), signer(3)];
+        let config = ThresholdConfig::try_new(signers, nonzero(2)).unwrap();
 
         assert_eq!(config.len(), 3);
         assert_eq!(config.threshold(), 2);
@@ -397,43 +515,34 @@ mod tests {
 
     #[test]
     fn try_new_rejects_more_than_max_signers() {
-        let keys: Vec<_> = (0..=MAX_SIGNERS as u32).map(make_key_n).collect();
+        let signers: Vec<_> = (0..=MAX_SIGNERS as u32).map(signer_n).collect();
         assert!(matches!(
-            ThresholdConfig::try_new(keys, nonzero(1)),
+            ThresholdConfig::try_new(signers, nonzero(1)),
             Err(ThresholdSignatureError::TooManySigners { .. })
         ));
     }
 
     #[test]
-    fn try_new_rejects_duplicate_keys() {
-        let keys = vec![make_key(1), make_key(1)];
+    fn try_new_rejects_duplicate_signers() {
+        let signers = vec![signer(1), signer(1)];
         assert!(matches!(
-            ThresholdConfig::try_new(keys, nonzero(1)),
+            ThresholdConfig::try_new(signers, nonzero(1)),
             Err(ThresholdSignatureError::DuplicateAddMember)
         ));
     }
 
     #[test]
-    fn try_new_rejects_threshold_above_key_count() {
-        let keys = vec![make_key(1), make_key(2)];
+    fn try_new_rejects_threshold_above_signer_count() {
+        let signers = vec![signer(1), signer(2)];
         assert!(matches!(
-            ThresholdConfig::try_new(keys, nonzero(3)),
+            ThresholdConfig::try_new(signers, nonzero(3)),
             Err(ThresholdSignatureError::InvalidThreshold { .. })
         ));
     }
 
     #[test]
-    fn deserialize_rejects_more_than_max_signers() {
-        // The validating `Deserialize` routes through `try_new`, so an oversized key list is
-        // rejected rather than decoded into a value that later panics when encoded.
-        let keys: Vec<_> = (0..=MAX_SIGNERS as u32).map(make_key_n).collect();
-        let json = serde_json::json!({ "keys": keys, "threshold": 1 });
-        assert!(serde_json::from_value::<ThresholdConfig>(json).is_err());
-    }
-
-    #[test]
     fn update_rejects_more_than_max_signers_per_list() {
-        let oversized: Vec<_> = (0..=MAX_SIGNERS as u32).map(make_key_n).collect();
+        let oversized: Vec<_> = (0..=MAX_SIGNERS as u32).map(signer_n).collect();
 
         assert!(matches!(
             ThresholdConfigUpdate::try_new(oversized.clone(), vec![], nonzero(1)),
@@ -447,10 +556,9 @@ mod tests {
 
     #[test]
     fn apply_update_adds_a_member() {
-        let mut config =
-            ThresholdConfig::try_new(vec![make_key(1), make_key(2)], nonzero(2)).unwrap();
+        let mut config = ThresholdConfig::try_new(vec![signer(1), signer(2)], nonzero(2)).unwrap();
 
-        let update = ThresholdConfigUpdate::try_new(vec![make_key(3)], vec![], nonzero(2)).unwrap();
+        let update = ThresholdConfigUpdate::try_new(vec![signer(3)], vec![], nonzero(2)).unwrap();
         config.apply_update(&update).unwrap();
 
         assert_eq!(config.len(), 3);
@@ -458,21 +566,21 @@ mod tests {
 
     #[test]
     fn apply_update_removes_a_member() {
-        let k2 = make_key(2);
+        let s2 = signer(2);
         let mut config =
-            ThresholdConfig::try_new(vec![make_key(1), k2, make_key(3)], nonzero(2)).unwrap();
+            ThresholdConfig::try_new(vec![signer(1), s2, signer(3)], nonzero(2)).unwrap();
 
-        let update = ThresholdConfigUpdate::try_new(vec![], vec![k2], nonzero(2)).unwrap();
+        let update = ThresholdConfigUpdate::try_new(vec![], vec![s2], nonzero(2)).unwrap();
         config.apply_update(&update).unwrap();
 
         assert_eq!(config.len(), 2);
-        assert!(!config.keys().contains(&k2));
+        assert!(!config.signers().contains(&s2));
     }
 
     #[test]
     fn apply_update_rejects_an_unknown_member_removal() {
-        let mut config = ThresholdConfig::try_new(vec![make_key(1)], nonzero(1)).unwrap();
-        let update = ThresholdConfigUpdate::try_new(vec![], vec![make_key(9)], nonzero(1)).unwrap();
+        let mut config = ThresholdConfig::try_new(vec![signer(1)], nonzero(1)).unwrap();
+        let update = ThresholdConfigUpdate::try_new(vec![], vec![signer(9)], nonzero(1)).unwrap();
 
         assert_eq!(
             config.apply_update(&update),
@@ -483,9 +591,9 @@ mod tests {
 
     #[test]
     fn apply_update_rejects_an_existing_member() {
-        let k1 = make_key(1);
-        let mut config = ThresholdConfig::try_new(vec![k1], nonzero(1)).unwrap();
-        let update = ThresholdConfigUpdate::try_new(vec![k1], vec![], nonzero(1)).unwrap();
+        let s1 = signer(1);
+        let mut config = ThresholdConfig::try_new(vec![s1], nonzero(1)).unwrap();
+        let update = ThresholdConfigUpdate::try_new(vec![s1], vec![], nonzero(1)).unwrap();
 
         assert_eq!(
             config.apply_update(&update),
@@ -495,17 +603,17 @@ mod tests {
 
     #[test]
     fn apply_update_rejects_duplicates_within_a_list() {
-        let mut config = ThresholdConfig::try_new(vec![make_key(1)], nonzero(1)).unwrap();
-        let k2 = make_key(2);
+        let mut config = ThresholdConfig::try_new(vec![signer(1)], nonzero(1)).unwrap();
+        let s2 = signer(2);
 
-        let dup_add = ThresholdConfigUpdate::try_new(vec![k2, k2], vec![], nonzero(1)).unwrap();
+        let dup_add = ThresholdConfigUpdate::try_new(vec![s2, s2], vec![], nonzero(1)).unwrap();
         assert_eq!(
             config.apply_update(&dup_add),
             Err(ThresholdSignatureError::DuplicateAddMember)
         );
 
-        let k1 = make_key(1);
-        let dup_remove = ThresholdConfigUpdate::try_new(vec![], vec![k1, k1], nonzero(1)).unwrap();
+        let s1 = signer(1);
+        let dup_remove = ThresholdConfigUpdate::try_new(vec![], vec![s1, s1], nonzero(1)).unwrap();
         assert_eq!(
             config.apply_update(&dup_remove),
             Err(ThresholdSignatureError::DuplicateRemoveMember)
@@ -514,14 +622,14 @@ mod tests {
 
     #[test]
     fn config_ssz_byte_layout() {
-        let keys = vec![make_key(1), make_key(2), make_key(3)];
-        let config = ThresholdConfig::try_new(keys.clone(), nonzero(2)).unwrap();
+        let signers = vec![signer(1), signer(2), signer(3)];
+        let config = ThresholdConfig::try_new(signers.clone(), nonzero(2)).unwrap();
 
         let mut expected = Vec::new();
-        expected.extend_from_slice(&5u32.to_le_bytes()); // offset to keys
+        expected.extend_from_slice(&5u32.to_le_bytes()); // offset to signers
         expected.push(2); // threshold
-        for key in &keys {
-            expected.extend_from_slice(&key.serialize());
+        for signer in &signers {
+            expected.extend_from_slice(&signer.to_byte_array());
         }
 
         assert_eq!(config.as_ssz_bytes(), expected);
@@ -531,17 +639,17 @@ mod tests {
 
     #[test]
     fn update_ssz_byte_layout() {
-        let add = vec![make_key(1), make_key(2)];
-        let remove = vec![make_key(3)];
+        let add = vec![signer(1), signer(2)];
+        let remove = vec![signer(3)];
         let update =
             ThresholdConfigUpdate::try_new(add.clone(), remove.clone(), nonzero(2)).unwrap();
 
         let mut expected = Vec::new();
         expected.extend_from_slice(&9u32.to_le_bytes()); // offset to add_members
-        expected.extend_from_slice(&(9u32 + 2 * 33).to_le_bytes()); // offset to remove_members
+        expected.extend_from_slice(&(9u32 + 2 * 20).to_le_bytes()); // offset to remove_members
         expected.push(2); // new_threshold
-        for key in add.iter().chain(&remove) {
-            expected.extend_from_slice(&key.serialize());
+        for signer in add.iter().chain(&remove) {
+            expected.extend_from_slice(&signer.to_byte_array());
         }
 
         assert_eq!(update.as_ssz_bytes(), expected);
@@ -569,27 +677,34 @@ mod tests {
         let mut bytes = Vec::new();
         bytes.extend_from_slice(&5u32.to_le_bytes());
         bytes.push(0);
-        bytes.extend_from_slice(&make_key(1).serialize());
+        bytes.extend_from_slice(&signer(1).to_byte_array());
 
         assert!(ThresholdConfig::from_ssz_bytes(&bytes).is_err());
     }
 
+    /// Any 20-byte value is a well-formed witness program, so decoding accepts a signer
+    /// nobody holds the key for. Such a signer simply never produces a verifying signature;
+    /// there is no curve-point check to fall back on the way there was for public keys.
     #[test]
-    fn config_ssz_rejects_a_non_curve_point() {
+    fn config_ssz_accepts_any_witness_program() {
         let mut bytes = Vec::new();
         bytes.extend_from_slice(&5u32.to_le_bytes());
         bytes.push(1);
-        bytes.extend_from_slice(&[0u8; 33]);
+        bytes.extend_from_slice(&[0u8; 20]);
 
-        assert!(ThresholdConfig::from_ssz_bytes(&bytes).is_err());
+        let config = ThresholdConfig::from_ssz_bytes(&bytes).expect("any program decodes");
+        assert_eq!(
+            config.signers(),
+            [P2wpkhAddress::from_byte_array([0u8; 20])]
+        );
     }
 
     #[test]
-    fn config_ssz_rejects_a_truncated_key() {
+    fn config_ssz_rejects_a_truncated_signer() {
         let mut bytes = Vec::new();
         bytes.extend_from_slice(&5u32.to_le_bytes());
         bytes.push(1);
-        bytes.extend_from_slice(&make_key(1).serialize()[..32]);
+        bytes.extend_from_slice(&signer(1).to_byte_array()[..19]);
 
         assert!(ThresholdConfig::from_ssz_bytes(&bytes).is_err());
     }
@@ -599,7 +714,7 @@ mod tests {
         let mut bytes = Vec::new();
         bytes.extend_from_slice(&6u32.to_le_bytes()); // should be 5
         bytes.push(1);
-        bytes.extend_from_slice(&make_key(1).serialize());
+        bytes.extend_from_slice(&signer(1).to_byte_array());
 
         assert!(ThresholdConfig::from_ssz_bytes(&bytes).is_err());
     }
@@ -624,24 +739,22 @@ mod tests {
         assert!(ThresholdConfigUpdate::from_ssz_bytes(&bytes).is_err());
     }
 
-    /// Produces a valid config with distinct keys and an in-range threshold.
+    /// Produces a valid config with distinct signers and an in-range threshold.
     fn arb_threshold_config() -> impl Strategy<Value = ThresholdConfig> {
         (1usize..=8)
             .prop_flat_map(|n| (Just(n), 1u8..=(n as u8)))
             .prop_map(|(n, threshold)| {
-                let keys = (0..n as u32).map(make_key_n).collect::<Vec<_>>();
-                ThresholdConfig::try_new(keys, nonzero(threshold))
-                    .expect("keys and threshold are valid")
+                let signers = (0..n as u32).map(signer_n).collect::<Vec<_>>();
+                ThresholdConfig::try_new(signers, nonzero(threshold))
+                    .expect("signers and threshold are valid")
             })
     }
 
     /// Produces an update with disjoint add and remove lists.
     fn arb_threshold_update() -> impl Strategy<Value = ThresholdConfigUpdate> {
         (0usize..=4, 0usize..=4).prop_map(|(add, remove)| {
-            let add_members = (0..add as u32).map(make_key_n).collect::<Vec<_>>();
-            let remove_members = (100..100 + remove as u32)
-                .map(make_key_n)
-                .collect::<Vec<_>>();
+            let add_members = (0..add as u32).map(signer_n).collect::<Vec<_>>();
+            let remove_members = (100..100 + remove as u32).map(signer_n).collect::<Vec<_>>();
             ThresholdConfigUpdate::try_new(add_members, remove_members, nonzero(1))
                 .expect("update is within bounds")
         })
@@ -660,12 +773,6 @@ mod tests {
             let encoded = update.as_ssz_bytes();
             prop_assert_eq!(encoded.len(), update.ssz_bytes_len());
             prop_assert_eq!(ThresholdConfigUpdate::from_ssz_bytes(&encoded).unwrap(), update);
-        }
-
-        #[test]
-        fn config_serde_json_roundtrips(config in arb_threshold_config()) {
-            let json = serde_json::to_string(&config).unwrap();
-            prop_assert_eq!(serde_json::from_str::<ThresholdConfig>(&json).unwrap(), config);
         }
     }
 }

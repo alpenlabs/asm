@@ -15,12 +15,12 @@ pub enum ThresholdSignatureError {
     },
 
     /// Invalid threshold value.
-    #[error("invalid threshold: {threshold} exceeds total keys {total_keys}")]
+    #[error("invalid threshold: {threshold} exceeds total signers {total_signers}")]
     InvalidThreshold {
         /// Requested threshold value.
         threshold: u8,
-        /// Total number of keys in the set.
-        total_keys: usize,
+        /// Total number of signers in the set.
+        total_signers: usize,
     },
 
     /// Signature verification failed for the given signer index.

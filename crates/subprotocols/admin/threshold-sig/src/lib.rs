@@ -7,14 +7,18 @@
 //! ([`IndexedSignature`], [`SignatureSet`]), and how a set is checked
 //! ([`verify_threshold_signatures`]).
 //!
+//! Signers are named by [`P2wpkhAddress`] rather than by public key, because a hardware
+//! wallet will display an address but not a compressed point. Verification recovers the
+//! public key from each signature and compares its address against the configured one.
+//!
 //! # Encoding
 //!
 //! [`ThresholdConfig`] is part of administration subprotocol state, which the ASM commits
 //! to, so the SSZ layout of these types is consensus-critical. The layout is defined once in
 //! `ssz/threshold.ssz`, and each type encodes by converting to the container generated from
 //! that schema, so the wire format is correct by construction rather than hand-rolled. The
-//! one exception is [`CompressedPublicKey`], which the schema models inline as `Bytes33`
-//! and which therefore encodes directly as its bare 33-byte point.
+//! one exception is [`P2wpkhAddress`], which the schema models inline as `Bytes20` and
+//! which therefore encodes directly as its bare 20-byte witness program.
 
 // `ssz_derive`, `ssz_types`, `tree_hash` and `tree_hash_derive` are referenced only by the
 // containers generated from `ssz/threshold.ssz`.
@@ -38,14 +42,15 @@ mod ssz_generated {
 mod address;
 mod config;
 mod errors;
-mod keys;
 mod signature;
 mod ssz_bridge;
 mod verification;
 
 pub use address::{NotP2wpkhAddress, P2wpkhAddress};
-pub use config::{MAX_SIGNERS, ThresholdConfig, ThresholdConfigUpdate};
+pub use config::{
+    InvalidThresholdConfig, MAX_SIGNERS, ThresholdConfig, ThresholdConfigUpdate,
+    UncheckedThresholdConfig,
+};
 pub use errors::ThresholdSignatureError;
-pub use keys::CompressedPublicKey;
 pub use signature::{IndexedSignature, SignatureSet};
 pub use verification::verify_threshold_signatures;

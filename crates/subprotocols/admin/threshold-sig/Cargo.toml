@@ -10,7 +10,6 @@ workspace = true
 arbitrary = { workspace = true, optional = true }
 bitcoin.workspace = true
 borsh.workspace = true
-hex.workspace = true
 secp256k1.workspace = true
 serde.workspace = true
 ssz.workspace = true
@@ -25,8 +24,8 @@ tree_hash_derive.workspace = true
 ssz_codegen.workspace = true
 
 [dev-dependencies]
+hex.workspace = true
 proptest.workspace = true
-serde_json.workspace = true
 
 [features]
 arbitrary = ["dep:arbitrary"]

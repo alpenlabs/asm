@@ -4,10 +4,10 @@
 # Rust wrappers encode by converting to the container generated from this file,
 # so the layout is correct by construction rather than hand-rolled.
 #
-# Signer public keys are modelled as raw 33-byte compressed points (`Bytes33`)
-# rather than the `CompressedPublicKey` wrapper. The wrapper's curve-point
-# validation is reapplied when decoding, which keeps the generated container
-# free of any dependency on the wrapper's own trait impls.
+# Signers are modelled as raw 20-byte P2WPKH witness programs (`Bytes20`) rather
+# than the `P2wpkhAddress` wrapper, which keeps the generated container free of
+# any dependency on the wrapper's own trait impls. Every 20-byte value is a
+# well-formed program, so there is nothing to revalidate on decode.
 
 ### Maximum number of signers in a threshold configuration.
 ###
@@ -17,23 +17,23 @@ MAX_SIGNERS = 256
 
 ### Wire layout of a threshold-signature configuration.
 class ThresholdConfigSsz(Container):
-    ### Compressed public keys of all authorized signers.
-    keys: List[Bytes33, MAX_SIGNERS]
+    ### P2WPKH witness programs of all authorized signers.
+    signers: List[Bytes20, MAX_SIGNERS]
     ### Minimum number of signatures required (always >= 1).
     threshold: uint8
 
 ### Wire layout of a threshold-configuration update.
 class ThresholdConfigUpdateSsz(Container):
-    ### Compressed public keys to add.
-    add_members: List[Bytes33, MAX_SIGNERS]
-    ### Compressed public keys to remove.
-    remove_members: List[Bytes33, MAX_SIGNERS]
+    ### Signer addresses to add.
+    add_members: List[Bytes20, MAX_SIGNERS]
+    ### Signer addresses to remove.
+    remove_members: List[Bytes20, MAX_SIGNERS]
     ### New minimum number of signatures required (always >= 1).
     new_threshold: uint8
 
 ### Wire layout of a single indexed ECDSA signature.
 class IndexedSignatureSsz(Container):
-    ### Index of the signer in the threshold config keys array.
+    ### Index of the signer in the threshold config signer list.
     index: uint8
     ### 65-byte recoverable ECDSA signature (header || r || s).
     signature: Vector[uint8, 65]

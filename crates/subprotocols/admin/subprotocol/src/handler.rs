@@ -314,9 +314,12 @@ fn relay_bridge_safe_harbour_address_update(
 mod tests {
     use std::{any::Any, num::NonZero};
 
-    use bitcoin::secp256k1::{PublicKey, Secp256k1, SecretKey};
+    use bitcoin::{
+        Network,
+        secp256k1::{PublicKey, Secp256k1, SecretKey},
+    };
     use rand::{rngs::OsRng, seq::SliceRandom, thread_rng};
-    use strata_asm_admin_threshold_sig::{CompressedPublicKey, ThresholdConfig};
+    use strata_asm_admin_threshold_sig::{P2wpkhAddress, UncheckedThresholdConfig};
     use strata_asm_admin_types::{
         AdministrationInitConfig, ConfirmationDepths, Role, UpdateTxType,
     };
@@ -344,6 +347,30 @@ mod tests {
     use crate::{
         error::AdministrationError, queued_update::QueuedUpdate, state::AdministrationSubprotoState,
     };
+
+    /// Network the test parameters name signer addresses on.
+    const TEST_NETWORK: Network = Network::Regtest;
+
+    /// Generates `count` fresh signing keys.
+    fn new_keys(count: usize) -> Vec<SecretKey> {
+        (0..count).map(|_| SecretKey::new(&mut OsRng)).collect()
+    }
+
+    /// Builds a parameter-file signer set holding the addresses of `secret_keys`.
+    fn signer_config(secret_keys: &[SecretKey], threshold: u8) -> UncheckedThresholdConfig {
+        let secp = Secp256k1::new();
+        let signers = secret_keys
+            .iter()
+            .map(|sk| {
+                P2wpkhAddress::from_pubkey(&PublicKey::from_secret_key(&secp, sk))
+                    .to_address(TEST_NETWORK)
+                    .into_unchecked()
+            })
+            .collect();
+
+        UncheckedThresholdConfig::try_new(signers, NonZero::new(threshold).expect("non-zero"))
+            .expect("test signer set is valid")
+    }
 
     struct MockRelayer<M> {
         logs: Vec<AsmLogEntry>,
@@ -388,48 +415,16 @@ mod tests {
         Vec<SecretKey>,
         Vec<SecretKey>,
     ) {
-        let secp = Secp256k1::new();
-
-        let strata_admin_sks: Vec<SecretKey> = (0..3).map(|_| SecretKey::new(&mut OsRng)).collect();
-        let strata_admin_pks: Vec<CompressedPublicKey> = strata_admin_sks
-            .iter()
-            .map(|sk| CompressedPublicKey::from(PublicKey::from_secret_key(&secp, sk)))
-            .collect();
-        let strata_administrator =
-            ThresholdConfig::try_new(strata_admin_pks, NonZero::new(2).unwrap()).unwrap();
-
-        let strata_seq_manager_sks: Vec<SecretKey> =
-            (0..3).map(|_| SecretKey::new(&mut OsRng)).collect();
-        let strata_seq_manager_pks: Vec<CompressedPublicKey> = strata_seq_manager_sks
-            .iter()
-            .map(|sk| CompressedPublicKey::from(PublicKey::from_secret_key(&secp, sk)))
-            .collect();
-        let strata_sequencer_manager =
-            ThresholdConfig::try_new(strata_seq_manager_pks, NonZero::new(2).unwrap()).unwrap();
-
-        let alpen_admin_sks: Vec<SecretKey> = (0..3).map(|_| SecretKey::new(&mut OsRng)).collect();
-        let alpen_admin_pks: Vec<CompressedPublicKey> = alpen_admin_sks
-            .iter()
-            .map(|sk| CompressedPublicKey::from(PublicKey::from_secret_key(&secp, sk)))
-            .collect();
-        let alpen_administrator =
-            ThresholdConfig::try_new(alpen_admin_pks, NonZero::new(2).unwrap()).unwrap();
-
-        let strata_security_council_sks: Vec<SecretKey> =
-            (0..3).map(|_| SecretKey::new(&mut OsRng)).collect();
-        let strata_security_council_pks: Vec<CompressedPublicKey> = strata_security_council_sks
-            .iter()
-            .map(|sk| CompressedPublicKey::from(PublicKey::from_secret_key(&secp, sk)))
-            .collect();
-        let strata_security_council =
-            ThresholdConfig::try_new(strata_security_council_pks, NonZero::new(2).unwrap())
-                .unwrap();
+        let strata_admin_sks = new_keys(3);
+        let strata_seq_manager_sks = new_keys(3);
+        let alpen_admin_sks = new_keys(3);
+        let strata_security_council_sks = new_keys(3);
 
         let config = AdministrationInitConfig {
-            strata_administrator,
-            strata_sequencer_manager,
-            alpen_administrator,
-            strata_security_council,
+            strata_administrator: signer_config(&strata_admin_sks, 2),
+            strata_sequencer_manager: signer_config(&strata_seq_manager_sks, 2),
+            alpen_administrator: signer_config(&alpen_admin_sks, 2),
+            strata_security_council: signer_config(&strata_security_council_sks, 2),
             confirmation_depths: uniform_confirmation_depths(2016),
             max_seqno_gap: 10.try_into().unwrap(),
         };

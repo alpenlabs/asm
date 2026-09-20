@@ -30,14 +30,15 @@ const SIGNATURE_LEN: usize = 65;
 ///
 /// Verification normalizes both to a raw recovery ID.
 ///
-/// A signer supplies its own index, its position in [`ThresholdConfig::keys`]. Verification
-/// uses that index to look up the expected key and compares it against the key recovered
-/// from the signature, so a wrong index fails rather than silently matching another signer.
+/// A signer supplies its own index, its position in [`ThresholdConfig::signers`].
+/// Verification uses that index to look up the expected signer and compares it against the
+/// address of the key recovered from the signature, so a wrong index fails rather than
+/// silently matching another signer.
 ///
-/// [`ThresholdConfig::keys`]: crate::ThresholdConfig::keys
+/// [`ThresholdConfig::signers`]: crate::ThresholdConfig::signers
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub struct IndexedSignature {
-    /// Index of the signer in the [`ThresholdConfig`](crate::ThresholdConfig) key list.
+    /// Index of the signer in the [`ThresholdConfig`](crate::ThresholdConfig) signer list.
     index: u8,
     /// 65-byte recoverable ECDSA signature (`header || r || s`).
     signature: [u8; SIGNATURE_LEN],

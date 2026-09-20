@@ -41,7 +41,7 @@ impl RenderSigningMessage for StrataSecurityCouncilMultisigUpdate {
 mod tests {
     use std::num::NonZero;
 
-    use strata_asm_admin_threshold_sig::CompressedPublicKey;
+    use strata_asm_admin_threshold_sig::P2wpkhAddress;
 
     use super::*;
     use crate::{
@@ -51,7 +51,7 @@ mod tests {
 
     #[test]
     fn renders_signing_message() {
-        let member = CompressedPublicKey::from_slice(&[2u8; 33]).expect("valid compressed key");
+        let member = P2wpkhAddress::from_byte_array([2u8; 20]);
         let update = StrataSecurityCouncilMultisigUpdate::new(
             ThresholdConfigUpdate::try_new(
                 vec![member],
@@ -72,7 +72,7 @@ mod tests {
              Action Details:\n  \
              New Threshold: 2\n  \
              Members to Add: 1\n  \
-             1. Add Member: 020202020202020202020202020202020202020202020202020202020202020202\n  \
+             1. Add Member: 0202020202020202020202020202020202020202\n  \
              Members to Remove: 0",
         );
     }

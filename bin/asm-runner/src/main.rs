@@ -93,6 +93,9 @@ fn main() {
 fn load_params(params_path: &PathBuf) -> Result<AsmParams> {
     let contents = read_to_string(params_path)?;
     let params: AsmParams = serde_json::from_str(&contents)?;
+    // Individual configurations validate themselves as they deserialize; this catches what
+    // only the whole file can answer, such as signer addresses written for another network.
+    params.verify()?;
     Ok(params)
 }
 

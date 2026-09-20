@@ -7708,7 +7708,6 @@ dependencies = [
  "proptest",
  "secp256k1 0.29.1",
  "serde",
- "serde_json",
  "ssz",
  "ssz_codegen",
  "ssz_derive",
@@ -7724,6 +7723,7 @@ name = "strata-asm-admin-types"
 version = "0.1.0"
 dependencies = [
  "arbitrary",
+ "bitcoin",
  "proptest",
  "serde",
  "ssz",
@@ -7893,6 +7893,7 @@ dependencies = [
  "strata-btc-verification",
  "strata-identifiers",
  "strata-l1-txfmt",
+ "thiserror 2.0.18",
 ]
 
 [[package]]

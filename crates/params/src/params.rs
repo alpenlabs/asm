@@ -93,7 +93,9 @@ impl<'a> Arbitrary<'a> for AsmParams {
             magic: MagicBytes::new(*b"ALPN"),
             anchor,
             subprotocols: vec![
-                SubprotocolInstance::Admin(AdministrationInitConfig::arbitrary(u)?),
+                SubprotocolInstance::Admin(AdministrationInitConfig::arbitrary_for_network(
+                    u, network,
+                )?),
                 SubprotocolInstance::Checkpoint(CheckpointInitConfig::arbitrary(u)?),
                 SubprotocolInstance::Bridge(BridgeInitConfig::arbitrary(u)?),
             ],
@@ -104,92 +106,25 @@ impl<'a> Arbitrary<'a> for AsmParams {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_fixtures::regtest_params_json;
 
     #[test]
     fn test_asm_params_deserialize_from_raw_json() {
-        // Static JSON generated from arbitrary instance with seed [0..256]
-        let raw_json = r#"
-{
-  "magic": "ALPN",
-  "anchor": {
-    "block": {
-      "height": 50462976,
-      "blkid": "0405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20212223"
-    },
-    "next_target": 656811300,
-    "epoch_start_timestamp": 724183336,
-    "network": "regtest"
-  },
-  "subprotocols": [
-    {
-      "Admin": {
-        "strata_administrator": {
-          "keys": [
-            "02bedfa2fa42d906565519bee43875608a09e06640203a6c7a43569150c7cbe7c5"
-          ],
-          "threshold": 1
-        },
-        "strata_sequencer_manager": {
-          "keys": [
-            "03cf59a1a5ef092ced386f2651b610d3dd2cc6806bb74a8eab95c1f3b2f3d81772",
-            "02343edde4a056e00af99aa49de60df03859d1b79ebbc4f3f6da8fbd0053565de3"
-          ],
-          "threshold": 1
-        },
-        "alpen_administrator": {
-          "keys": [
-            "02bedfa2fa42d906565519bee43875608a09e06640203a6c7a43569150c7cbe7c5"
-          ],
-          "threshold": 1
-        },
-        "strata_security_council": {
-          "keys": [
-            "02bedfa2fa42d906565519bee43875608a09e06640203a6c7a43569150c7cbe7c5"
-          ],
-          "threshold": 1
-        },
-        "confirmation_depths": {
-          "strata_admin_multisig_update": 144,
-          "strata_seq_manager_multisig_update": 144,
-          "alpen_admin_multisig_update": 144,
-          "strata_security_council_multisig_update": 144,
-          "operator_update": 144,
-          "sequencer_update": 144,
-          "ol_stf_vk_update": 144,
-          "asm_stf_vk_update": 144,
-          "ee_stf_vk_update": 144,
-          "defcon3": 144,
-          "safe_harbour_address_update": 144
-        },
-        "max_seqno_gap": 10
-      }
-    },
-    {
-      "Checkpoint": {
-        "sequencer_key": "a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebfc0",
-        "checkpoint_predicate": "AlwaysAccept",
-        "genesis_l1_height": 3334849731,
-        "genesis_ol_blkid": "c7c8c9cacbcccdcecfd0d1d2d3d4d5d6d7d8d9dadbdcdddedfe0e1e2e3e4e5e6"
-      }
-    },
-    {
-      "Bridge": {
-        "operators": [
-          "02becdf7aab195ab0a42ba2f2eca5b7fa5a246267d802c627010e1672f08657f70"
-        ],
-        "denomination": 0,
-        "assignment_duration": 0,
-        "operator_fee": 0,
-        "recovery_delay": 0,
-        "safe_harbour_address": "0479be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"
-      }
-    }
-  ]
-}
-"#;
+        let raw_json = regtest_params_json();
 
-        let _params: AsmParams =
+        let params: AsmParams =
             serde_json::from_str(raw_json).expect("deserialization from raw JSON should succeed");
+
+        // Signers are written as addresses on the anchor's network, so resolving them is
+        // part of what the fixture pins: a params file that mixes networks would fail here.
+        // The anchor is on regtest and the signers are written as regtest addresses, which
+        // is exactly what `verify` is there to confirm.
+        params
+            .verify()
+            .expect("signer addresses match the anchor network");
+
+        let admin = params.admin_config().expect("params carry an Admin config");
+        assert_eq!(admin.strata_sequencer_manager.signers().len(), 2);
     }
 
     #[cfg(feature = "arbitrary")]
