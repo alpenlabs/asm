@@ -24,9 +24,10 @@ const SIGNATURE_LEN: usize = 65;
 /// The header byte comes in two flavours:
 ///
 /// 1. A raw recovery ID (0-3), which some signing libraries emit directly.
-/// 2. BIP-137 form (27-42), which Bitcoin message signing on hardware wallets emits. 27-30 is
-///    uncompressed P2PKH, 31-34 compressed P2PKH (the common Ledger and Trezor case), 35-38 SegWit
-///    P2SH-P2WPKH, and 39-42 native SegWit P2WPKH.
+/// 2. BIP-137 form (31-42), which Bitcoin message signing on hardware wallets emits. 31-34 is
+///    compressed P2PKH (the common Ledger and Trezor case), 35-38 SegWit P2SH-P2WPKH, and 39-42
+///    native SegWit P2WPKH. The uncompressed range (27-30) is rejected, since a signer is named by
+///    a P2WPKH address and P2WPKH is only defined over compressed keys.
 ///
 /// Verification normalizes both to a raw recovery ID.
 ///

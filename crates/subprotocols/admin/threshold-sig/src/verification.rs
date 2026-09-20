@@ -229,6 +229,30 @@ mod tests {
         );
     }
 
+    /// Recovery ignores the address type a header claims, and the signer's address always
+    /// comes from the compressed point, so a signature re-headered into the uncompressed
+    /// range would otherwise verify. The header range is what rejects it.
+    #[test]
+    fn rejects_a_header_claiming_an_uncompressed_key() {
+        let (sk1, s1) = generate_signer(1);
+
+        let config = ThresholdConfig::try_new(vec![s1], nonzero(1)).unwrap();
+        let message_hash = [0xAB; 32];
+
+        // A genuine signature from the configured signer, re-headered to claim an
+        // uncompressed key. It recovers to exactly the same public key.
+        let mut sig = ecdsa::sign_ecdsa_recoverable(&message_hash, &sk1);
+        sig[0] += 27;
+        assert!((27..=30).contains(&sig[0]));
+
+        let signatures = vec![IndexedSignature::new(0, sig)];
+
+        assert_eq!(
+            verify_threshold_signatures(&config, &signatures, &message_hash),
+            Err(ThresholdSignatureError::InvalidSignatureFormat)
+        );
+    }
+
     /// P2WPKH is only defined over compressed keys, so a signer's address is always the hash
     /// of the compressed point. A signer configured under the uncompressed hash can never
     /// authorize anything, whatever BIP-137 header its wallet emits.
