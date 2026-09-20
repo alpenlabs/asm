@@ -3,8 +3,7 @@
 //! Every subprotocol configuration validates itself as it deserializes. What is left are the
 //! questions that need the anchor, or another subprotocol's configuration, to answer.
 
-use bitcoin::Network;
-use strata_asm_admin_types::Role;
+use strata_asm_admin_types::SignerNetworkMismatch;
 use thiserror::Error;
 
 use crate::params::AsmParams;
@@ -18,14 +17,8 @@ impl AsmParams {
     ///
     /// Returns the first invariant that does not hold.
     pub fn verify(&self) -> Result<(), InvalidAsmParams> {
-        if let Some(config) = self.admin_config()
-            && let Some((role, index)) = config.find_signer_not_on_network(self.anchor.network)
-        {
-            return Err(InvalidAsmParams::AdminSignerNetwork {
-                role,
-                index,
-                network: self.anchor.network,
-            });
+        if let Some(config) = self.admin_config() {
+            config.check_signer_networks(self.anchor.network)?;
         }
 
         Ok(())
@@ -36,19 +29,14 @@ impl AsmParams {
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum InvalidAsmParams {
     /// An administration signer was written as an address on another network.
-    #[error("{role} signer at index {index} is not an address on {network}")]
-    AdminSignerNetwork {
-        /// Role the signer belongs to.
-        role: Role,
-        /// Position of the signer in that role's list.
-        index: usize,
-        /// Network the chain is anchored to.
-        network: Network,
-    },
+    #[error(transparent)]
+    AdminSignerNetwork(#[from] SignerNetworkMismatch),
 }
 
 #[cfg(test)]
 mod tests {
+    use bitcoin::Network;
+
     use super::*;
     use crate::test_fixtures::regtest_params_json;
 
@@ -62,12 +50,8 @@ mod tests {
         params.anchor.network = Network::Bitcoin;
 
         assert_eq!(
-            params.verify(),
-            Err(InvalidAsmParams::AdminSignerNetwork {
-                role: Role::StrataAdministrator,
-                index: 0,
-                network: Network::Bitcoin,
-            })
+            params.verify().unwrap_err().to_string(),
+            "Strata Administrator signer at index 0 is not an address on bitcoin"
         );
     }
 }

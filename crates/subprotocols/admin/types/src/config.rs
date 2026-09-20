@@ -63,60 +63,63 @@ impl AdministrationInitConfig {
         }
     }
 
-    /// Borrows a role's signer set as the parameter file wrote it.
-    pub fn get_config(&self, role: Role) -> &UncheckedThresholdConfig {
-        match role {
-            Role::StrataAdministrator => &self.strata_administrator,
-            Role::StrataSequencerManager => &self.strata_sequencer_manager,
-            Role::AlpenAdministrator => &self.alpen_administrator,
-            Role::StrataSecurityCouncil => &self.strata_security_council,
-        }
-    }
-
-    /// Finds the first signer whose address was not written for `network`.
-    ///
-    /// Signers are named by address, so an operator writes each one with a network prefix.
-    /// The prefix plays no part in authorization, which is why it is not stored, but a
-    /// prefix that disagrees with the chain means the file and the chain were prepared
-    /// against different networks and the operator should look again.
-    pub fn find_signer_not_on_network(&self, network: Network) -> Option<(Role, usize)> {
+    /// Pairs each role with the signer set the parameter file gave it.
+    fn configs(&self) -> [(Role, &UncheckedThresholdConfig); 4] {
         [
             (Role::StrataAdministrator, &self.strata_administrator),
             (Role::StrataSequencerManager, &self.strata_sequencer_manager),
             (Role::AlpenAdministrator, &self.alpen_administrator),
             (Role::StrataSecurityCouncil, &self.strata_security_council),
         ]
-        .into_iter()
-        .find_map(|(role, config)| {
-            config
+    }
+
+    /// Checks that every signer address was written for `network`.
+    ///
+    /// Signers are named by address, so an operator writes each one with a network prefix.
+    /// The prefix plays no part in authorization, which is why it is not stored, but a
+    /// prefix that disagrees with the chain means the file and the chain were prepared
+    /// against different networks and the operator should look again.
+    ///
+    /// # Errors
+    ///
+    /// Returns the first signer whose address belongs to another network.
+    pub fn check_signer_networks(&self, network: Network) -> Result<(), SignerNetworkMismatch> {
+        for (role, config) in self.configs() {
+            if let Some(index) = config
                 .signers()
                 .iter()
                 .position(|address| !address.is_valid_for_network(network))
-                .map(|index| (role, index))
-        })
+            {
+                return Err(SignerNetworkMismatch {
+                    role,
+                    index,
+                    network,
+                });
+            }
+        }
+
+        Ok(())
     }
 
     /// Resolves every role's signer addresses into the configuration its authority holds.
     pub fn get_all_authorities(&self) -> Vec<(Role, ThresholdConfig)> {
-        vec![
-            (
-                Role::StrataAdministrator,
-                self.strata_administrator.to_threshold_config(),
-            ),
-            (
-                Role::StrataSequencerManager,
-                self.strata_sequencer_manager.to_threshold_config(),
-            ),
-            (
-                Role::AlpenAdministrator,
-                self.alpen_administrator.to_threshold_config(),
-            ),
-            (
-                Role::StrataSecurityCouncil,
-                self.strata_security_council.to_threshold_config(),
-            ),
-        ]
+        self.configs()
+            .into_iter()
+            .map(|(role, config)| (role, config.to_threshold_config()))
+            .collect()
     }
+}
+
+/// A signer address written for a different network than the chain is anchored to.
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
+#[error("{role} signer at index {index} is not an address on {network}")]
+pub struct SignerNetworkMismatch {
+    /// Role the signer belongs to.
+    role: Role,
+    /// Position of the signer in that role's list.
+    index: usize,
+    /// Network the chain is anchored to.
+    network: Network,
 }
 
 /// The parameter-file form of a [`ThresholdConfig`].
@@ -129,7 +132,7 @@ impl AdministrationInitConfig {
 /// The address is kept as written, prefix and all, so the file round-trips. That prefix is
 /// not part of a signer's identity, and whether it matches the network the chain runs on is
 /// a question about the parameter file as a whole rather than about any one config, which is
-/// why [`AdministrationInitConfig::find_signer_not_on_network`] asks it instead.
+/// why [`AdministrationInitConfig::check_signer_networks`] asks it instead.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct UncheckedThresholdConfig {
     /// Addresses of all authorized signers, each one P2WPKH.

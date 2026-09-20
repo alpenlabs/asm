@@ -15,17 +15,19 @@ strata-identifiers = { workspace = true, optional = true }
 strata-l1-txfmt.workspace = true
 
 arbitrary = { workspace = true, optional = true }
-bitcoin.workspace = true
+bitcoin = { workspace = true, optional = true }
 serde.workspace = true
 thiserror.workspace = true
 
 [dev-dependencies]
+bitcoin.workspace = true
 proptest.workspace = true
 serde_json.workspace = true
 
 [features]
 arbitrary = [
   "dep:arbitrary",
+  "dep:bitcoin",
   "dep:strata-identifiers",
   "strata-asm-admin-types/arbitrary",
   "strata-asm-bridge-types/arbitrary",

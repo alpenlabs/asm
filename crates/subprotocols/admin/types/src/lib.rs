@@ -14,7 +14,10 @@ mod roles;
 mod updates;
 
 pub use admin_tx::AdminTxType;
-pub use config::{AdministrationInitConfig, InvalidThresholdConfig, UncheckedThresholdConfig};
+pub use config::{
+    AdministrationInitConfig, InvalidThresholdConfig, SignerNetworkMismatch,
+    UncheckedThresholdConfig,
+};
 pub use confirmation_depth::ConfirmationDepths;
 pub use roles::Role;
 pub use updates::UpdateTxType;
