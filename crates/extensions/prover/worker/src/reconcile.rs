@@ -56,6 +56,7 @@ where
     // proving key. Both hosts share the same concrete type `H`, so either works.
     let new_status = state
         .asm
+        .host()
         .get_status(&typed_id)
         .await
         .map_err(ProverError::RemoteStatus)?;
@@ -100,6 +101,7 @@ where
     // so `state.asm` works for proofs produced by either host.
     let receipt = state
         .asm
+        .host()
         .get_proof(typed_id)
         .await
         .map_err(ProverError::RemoteRetrieve)?;

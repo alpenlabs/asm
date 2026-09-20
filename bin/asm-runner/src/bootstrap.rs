@@ -93,9 +93,9 @@ pub(crate) async fn bootstrap(
         let ProofBackend {
             asm_host,
             moho_host,
-            asm_predicate,
             moho_predicate,
         } = backend;
+        let asm_predicate = asm_host.descriptor().predicate().clone();
 
         // Spin the Moho worker off onto its own service task, driven by the ASM
         // worker's per-block commit stream. It derives each block's MohoState
