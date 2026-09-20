@@ -8,12 +8,12 @@
 
 use std::collections::BTreeMap;
 
-use moho_runtime_interface::MohoProgram;
 use moho_types::{ExportState, MohoState};
 use strata_asm_common::{AnchorState, AsmLogEntry};
 use strata_asm_logs::NewExportEntry;
 use strata_asm_proof_impl::moho_program::program::{
-    AsmStfProgram, advance_export_state_with_logs, extract_next_predicate_from_logs,
+    advance_export_state_with_logs, compute_anchor_state_commitment,
+    extract_next_predicate_from_logs,
 };
 use strata_predicate::PredicateKey;
 
@@ -24,7 +24,7 @@ pub(crate) fn construct_genesis_moho_state(
     asm_predicate: PredicateKey,
     genesis: &AnchorState,
 ) -> MohoState {
-    let inner = AsmStfProgram::compute_state_commitment(genesis);
+    let inner = compute_anchor_state_commitment(genesis);
     let export_state = ExportState::new(vec![]).expect("empty export state is always valid");
     MohoState::new(inner, asm_predicate, export_state)
 }
@@ -40,7 +40,7 @@ pub(crate) fn construct_next_moho_state(
     let next_predicate =
         extract_next_predicate_from_logs(logs).unwrap_or_else(|| prev.next_predicate().clone());
     let next_export_state = advance_export_state_with_logs(prev.export_state().clone(), logs);
-    let inner = AsmStfProgram::compute_state_commitment(anchor_state);
+    let inner = compute_anchor_state_commitment(anchor_state);
     MohoState::new(inner, next_predicate, next_export_state)
 }
 
