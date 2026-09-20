@@ -232,6 +232,21 @@ pub enum InvalidThresholdConfig {
     Config(#[from] ThresholdSignatureError),
 }
 
+/// Picks the network an arbitrary configuration writes its signer addresses for.
+///
+/// A signer's identity does not include a network, but the address it is written as does,
+/// so a generated configuration has to settle on one.
+#[cfg(feature = "arbitrary")]
+fn arbitrary_network(u: &mut Unstructured<'_>) -> arbitrary::Result<Network> {
+    let networks = [
+        Network::Bitcoin,
+        Network::Testnet,
+        Network::Signet,
+        Network::Regtest,
+    ];
+    u.choose(&networks).copied()
+}
+
 #[cfg(feature = "arbitrary")]
 impl AdministrationInitConfig {
     /// Generates a configuration whose signers are all addresses on `network`.
@@ -258,18 +273,10 @@ impl AdministrationInitConfig {
     }
 }
 
-// TODO: this network choice is duplicated in `UncheckedThresholdConfig::arbitrary` below.
-// Now that both live in this file, they should share one helper that picks a network.
 #[cfg(feature = "arbitrary")]
 impl<'a> Arbitrary<'a> for AdministrationInitConfig {
     fn arbitrary(u: &mut Unstructured<'a>) -> arbitrary::Result<Self> {
-        let networks = [
-            Network::Bitcoin,
-            Network::Testnet,
-            Network::Signet,
-            Network::Regtest,
-        ];
-        let network = *u.choose(&networks)?;
+        let network = arbitrary_network(u)?;
         Self::arbitrary_for_network(u, network)
     }
 }
@@ -302,13 +309,7 @@ impl UncheckedThresholdConfig {
 #[cfg(feature = "arbitrary")]
 impl<'a> Arbitrary<'a> for UncheckedThresholdConfig {
     fn arbitrary(u: &mut Unstructured<'a>) -> arbitrary::Result<Self> {
-        let networks = [
-            Network::Bitcoin,
-            Network::Testnet,
-            Network::Signet,
-            Network::Regtest,
-        ];
-        let network = *u.choose(&networks)?;
+        let network = arbitrary_network(u)?;
         Self::arbitrary_for_network(u, network)
     }
 }
