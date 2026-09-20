@@ -7859,7 +7859,6 @@ name = "strata-asm-moho-worker"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "moho-runtime-interface",
  "moho-types",
  "serde",
  "strata-asm-common",
@@ -8169,6 +8168,7 @@ dependencies = [
  "strata-asm-prover-storage",
  "strata-asm-prover-types",
  "strata-asm-rpc",
+ "strata-asm-spec",
  "strata-asm-worker",
  "strata-btc-types",
  "strata-btc-verification",

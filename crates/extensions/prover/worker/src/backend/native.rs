@@ -43,10 +43,13 @@ pub(super) async fn build_native_hosts(
     // supplied by config.
     use moho_recursive_proof::process_recursive_moho_proof;
     use strata_asm_proof_impl::statements::process_asm_stf;
+    use strata_asm_spec::StrataAsmSpec;
     use zkaleido_native_adapter::NativeHost;
 
     Ok((
-        NativeHost::new(asm_signing_key.clone(), process_asm_stf),
+        NativeHost::new(asm_signing_key.clone(), |zkvm| {
+            process_asm_stf(zkvm, &StrataAsmSpec)
+        }),
         NativeHost::new(moho_signing_key.clone(), process_recursive_moho_proof),
     ))
 }

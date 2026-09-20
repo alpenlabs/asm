@@ -8,7 +8,7 @@ use strata_tasks::TaskExecutor;
 use zkaleido::ZkVmRemoteHost;
 
 use crate::{
-    InputBuilder, ProverContext,
+    AsmProofHost, InputBuilder, ProverContext,
     config::{OrchestratorConfig, ProverMode},
     constants,
     errors::{ProverError, ProverResult},
@@ -35,7 +35,7 @@ use crate::{
 #[derive(Debug)]
 pub struct ProverWorkerBuilder<C, H> {
     ctx: Option<C>,
-    asm_host: Option<H>,
+    asm_host: Option<AsmProofHost<H>>,
     moho_host: Option<H>,
     config: Option<OrchestratorConfig>,
     input_builder: Option<InputBuilder>,
@@ -62,7 +62,7 @@ impl<C, H> ProverWorkerBuilder<C, H> {
     }
 
     /// Sets the `(asm, moho)` remote host pair.
-    pub fn with_hosts(mut self, asm_host: H, moho_host: H) -> Self {
+    pub fn with_hosts(mut self, asm_host: AsmProofHost<H>, moho_host: H) -> Self {
         self.asm_host = Some(asm_host);
         self.moho_host = Some(moho_host);
         self

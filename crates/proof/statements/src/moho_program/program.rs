@@ -5,16 +5,22 @@
 //! hashing,
 //! transition execution, and extraction of post-transition artifacts such as predicate updates
 //! and export state entries.
+use std::marker::PhantomData;
+
 use moho_runtime_interface::MohoProgram;
 use moho_types::{ExportContainer, ExportState, InnerStateCommitment, StateReference};
-use strata_asm_common::{AnchorState, AsmLogEntry};
+use strata_asm_common::{AnchorState, AsmLogEntry, AsmSpec};
 use strata_asm_logs::{AsmStfUpdate, ExportExtraDataUpdate, NewExportEntry};
-use strata_asm_spec::StrataAsmSpec;
 use strata_asm_stf::{compute_asm_transition, AsmStfOutput};
 use strata_predicate::PredicateKey;
 use tree_hash::{Sha256Hasher, TreeHash};
 
 use crate::moho_program::input::AsmStepInput;
+
+/// Computes the commitment for the shared anchor representation.
+pub fn compute_anchor_state_commitment(state: &AnchorState) -> InnerStateCommitment {
+    InnerStateCommitment::new(state.tree_hash_root::<Sha256Hasher>().0)
+}
 
 /// Extracts the next [`PredicateKey`] advertised by an STF step, if any.
 ///
@@ -70,14 +76,14 @@ fn container_mut(containers: &mut Vec<ExportContainer>, container_id: u8) -> &mu
 /// within the recursive proof system. Each step validates a block, executes the ASM STF,
 /// and produces updated state, predicate keys, and export entries.
 #[derive(Debug)]
-pub struct AsmStfProgram;
+pub struct AsmStfProgram<S>(PhantomData<S>);
 
-impl MohoProgram for AsmStfProgram {
+impl<S: AsmSpec> MohoProgram for AsmStfProgram<S> {
     type State = AnchorState;
 
     type StepInput = AsmStepInput;
 
-    type Spec = StrataAsmSpec;
+    type Spec = S;
 
     type StepOutput = AsmStfOutput;
 
@@ -90,15 +96,10 @@ impl MohoProgram for AsmStfProgram {
     }
 
     fn compute_state_commitment(state: &AnchorState) -> InnerStateCommitment {
-        let state_commitment_root = TreeHash::tree_hash_root::<Sha256Hasher>(state);
-        InnerStateCommitment::new(state_commitment_root.0)
+        compute_anchor_state_commitment(state)
     }
 
-    fn process_transition(
-        pre_state: &AnchorState,
-        spec: &StrataAsmSpec,
-        input: &AsmStepInput,
-    ) -> AsmStfOutput {
+    fn process_transition(pre_state: &AnchorState, spec: &S, input: &AsmStepInput) -> AsmStfOutput {
         compute_asm_transition(
             spec,
             pre_state,

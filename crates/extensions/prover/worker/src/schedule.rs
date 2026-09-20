@@ -7,13 +7,12 @@
 
 use async_trait::async_trait;
 use moho_recursive_proof::MohoRecursiveProgram;
-use strata_asm_proof_impl::program::AsmStfProofProgram;
 use strata_asm_prover_types::{ProofId, RemoteProofId};
 use tracing::{debug, info, warn};
 use zkaleido::{RemoteProofStatus, ZkVmRemoteHost, ZkVmRemoteProgram};
 
 use crate::{
-    ProverContext,
+    AsmProofHost, ProverContext,
     errors::{ProverError, ProverResult},
     input::{InputBuilder, MohoInput},
     proof_store,
@@ -159,7 +158,7 @@ async fn schedule_with<S: ProofSubmitter>(
 /// scheduling cycle.
 struct StateSubmitter<'a, C, H> {
     ctx: &'a C,
-    asm: &'a H,
+    asm: &'a AsmProofHost<H>,
     moho: &'a H,
     input_builder: &'a InputBuilder,
 }
@@ -198,9 +197,7 @@ where
                     .input_builder
                     .build_asm_runtime_input(self.ctx, range)
                     .await?;
-                AsmStfProofProgram::start_proving(&runtime_input, self.asm)
-                    .await
-                    .map_err(ProverError::RemoteSubmit)?
+                self.asm.start_proving(&runtime_input).await?
             }
             ProofId::Moho(block) => {
                 let input = match self
