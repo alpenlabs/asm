@@ -35,6 +35,7 @@ mod ssz_generated {
     include!(concat!(env!("OUT_DIR"), "/generated.rs"));
 }
 
+mod address;
 mod config;
 mod errors;
 mod keys;
@@ -42,6 +43,7 @@ mod signature;
 mod ssz_bridge;
 mod verification;
 
+pub use address::{NotP2wpkhAddress, P2wpkhAddress};
 pub use config::{MAX_SIGNERS, ThresholdConfig, ThresholdConfigUpdate};
 pub use errors::ThresholdSignatureError;
 pub use keys::CompressedPublicKey;

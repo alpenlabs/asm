@@ -7702,6 +7702,7 @@ name = "strata-asm-admin-threshold-sig"
 version = "0.1.0"
 dependencies = [
  "arbitrary",
+ "bitcoin",
  "borsh",
  "hex",
  "proptest",
