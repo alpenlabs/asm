@@ -63,6 +63,7 @@ mod tests {
         assert_eq!(
             message.as_str(),
             "Strata ASM Administration v1\n\
+             Network: regtest\n\
              Action: Alpen Administrator Multisig Update\n\
              Authorized By: Alpen Administrator\n\
              Sequence: 12\n\

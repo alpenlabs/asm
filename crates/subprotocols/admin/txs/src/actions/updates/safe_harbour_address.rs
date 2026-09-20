@@ -79,6 +79,7 @@ mod tests {
             message.as_str(),
             format!(
                 "Strata ASM Administration v1\n\
+                 Network: regtest\n\
                  Action: Safe Harbour Address Update\n\
                  Authorized By: Strata Administrator\n\
                  Sequence: 17\n\

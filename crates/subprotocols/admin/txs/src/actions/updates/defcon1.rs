@@ -42,6 +42,7 @@ mod tests {
         assert_eq!(
             message.as_str(),
             "Strata ASM Administration v1\n\
+             Network: regtest\n\
              Action: Defcon 1\n\
              Authorized By: Strata Security Council\n\
              Sequence: 42",

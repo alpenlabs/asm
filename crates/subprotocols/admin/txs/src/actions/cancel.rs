@@ -62,6 +62,7 @@ mod tests {
         assert_eq!(
             message.as_str(),
             "Strata ASM Administration v1\n\
+             Network: regtest\n\
              Action: Cancel\n\
              Authorized By: Strata Sequencer Manager\n\
              Sequence: 9\n\

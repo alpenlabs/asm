@@ -55,6 +55,7 @@ mod tests {
         assert_eq!(
             message.as_str(),
             "Strata ASM Administration v1\n\
+             Network: regtest\n\
              Action: OL STF VK Update\n\
              Authorized By: Strata Administrator\n\
              Sequence: 3\n\

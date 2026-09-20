@@ -15,8 +15,9 @@ pub const ADMIN_SUBPROTOCOL_VERSION: u8 = 1;
 /// from the action via [`MultisigAction::required_role`], so signers and verifiers cannot
 /// disagree on which role's authority must validate the message.
 ///
-/// The network is part of the rendered payload wherever an action names a Bitcoin address,
-/// so it is signed over like everything else in the message.
+/// The network gets its own line rather than only shaping the address prefixes further down,
+/// so that an action carrying no Bitcoin address is still bound to one chain. Without it the
+/// same payload would hash identically on mainnet and on regtest.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SigningMessage(String);
 
@@ -26,6 +27,7 @@ impl SigningMessage {
     pub fn for_action(action: &MultisigAction, seqno: u64, network: Network) -> Self {
         let mut lines = vec![
             format!("Strata ASM Administration v{ADMIN_SUBPROTOCOL_VERSION}"),
+            format!("Network: {network}"),
             format!("Action: {}", action.tx_type()),
             format!("Authorized By: {}", action.required_role()),
             format!("Sequence: {seqno}"),
