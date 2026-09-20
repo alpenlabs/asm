@@ -32,7 +32,7 @@ mod service;
 mod state;
 mod traits;
 
-pub use backend::{ProofBackend, ProofHost};
+pub use backend::{AsmProgramDescriptor, AsmProofHost, ProofBackend, ProofHost};
 pub use builder::ProverWorkerBuilder;
 pub use config::{BackendConfig, FollowerConfig, OrchestratorConfig, ProverMode};
 pub use errors::{ProverError, ProverResult};

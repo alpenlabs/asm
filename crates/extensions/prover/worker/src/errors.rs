@@ -15,6 +15,7 @@
 
 use std::error::Error as StdError;
 
+use strata_asm_common::SpecId;
 use thiserror::Error;
 
 /// Boxed backend error. Used where the underlying error type varies per
@@ -29,6 +30,14 @@ pub type ProverResult<T> = Result<T, ProverError>;
 /// Errors surfaced while building, launching, or running the prover worker.
 #[derive(Debug, Error)]
 pub enum ProverError {
+    /// The loaded ASM host does not match the expected artifact record.
+    #[error("loaded ASM artifact does not match the expected predicate for spec {spec_id}")]
+    AsmArtifactMismatch { spec_id: SpecId },
+
+    /// The selected ASM host does not match the parent state's predicate.
+    #[error("parent predicate does not match the loaded ASM artifact for spec {spec_id}")]
+    UnsupportedAsmPredicate { spec_id: SpecId },
+
     /// A required dependency was not supplied to the builder.
     #[error("missing required dependency: {0}")]
     MissingDependency(&'static str),
