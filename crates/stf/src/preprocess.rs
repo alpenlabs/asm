@@ -25,6 +25,13 @@ use crate::{
 /// including grouped transactions and auxiliary input requests that must be fulfilled
 /// before processing can continue.
 ///
+/// Preparation runs on a working copy before subprotocol states are loaded.
+///
+/// # Panics
+///
+/// Panics if the source is unsupported by [`AsmSpec::prepare`] or a required
+/// section is missing or incompatible with the selected subprotocol.
+///
 /// # Arguments
 ///
 /// * `pre_state` - The previous anchor state to transition from
@@ -52,6 +59,9 @@ pub fn pre_process_asm<'b, S: AsmSpec>(
     pre_state: &AnchorState,
     block: &'b Block,
 ) -> AsmResult<AsmPreProcessOutput<'b>> {
+    // 0. Prepare compatible working state before loading subprotocols, preserving the parent.
+    let pre_state = spec.prepare(pre_state);
+
     // 1. Validate and update PoW header continuity for the new block.
     // This ensures the block header follows proper Bitcoin consensus rules and chain continuity.
     let mut pow_state = pre_state.chain_view.pow_state.clone();
@@ -66,13 +76,13 @@ pub fn pre_process_asm<'b, S: AsmSpec>(
     let mut manager = SubprotoManager::new();
 
     // 3. LOAD: Initialize each subprotocol in the subproto manager.
-    let mut loader_stage = LoaderStage::new(&mut manager, pre_state);
+    let mut loader_stage = LoaderStage::new(&mut manager, &pre_state);
     spec.call_subprotocols(&mut loader_stage);
 
     // 4. PROCESS: Feed each subprotocol its filtered transactions for pre-processing.
     // This stage extracts auxiliary requests that will be needed for the main STF execution.
     let mut pre_process_stage =
-        PreProcessStage::new(&mut manager, pre_state, &grouped_relevant_txs);
+        PreProcessStage::new(&mut manager, &pre_state, &grouped_relevant_txs);
     spec.call_subprotocols(&mut pre_process_stage);
 
     // 5. Export auxiliary requests collected during pre-processing.

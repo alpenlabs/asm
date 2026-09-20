@@ -5,8 +5,8 @@
 
 use strata_asm_admin_types::AdministrationInitConfig;
 use strata_asm_common::{
-    HeaderVerificationState, MsgRelayer, NullMsg, Subprotocol, SubprotocolId, TxInputRef,
-    VerifiedAuxData, logging::warn,
+    HeaderVerificationState, MsgRelayer, NullMsg, SectionStateVersion, Subprotocol, SubprotocolId,
+    TxInputRef, VerifiedAuxData, logging::warn,
 };
 use strata_asm_proto_admin_txs::{constants::ADMINISTRATION_SUBPROTOCOL_ID, parser::parse_tx};
 use strata_identifiers::L1BlockCommitment;
@@ -26,6 +26,7 @@ pub struct AdministrationSubprotocol;
 
 impl Subprotocol for AdministrationSubprotocol {
     const ID: SubprotocolId = ADMINISTRATION_SUBPROTOCOL_ID;
+    const STATE_VERSION: SectionStateVersion = 0;
 
     type InitConfig = AdministrationInitConfig;
 

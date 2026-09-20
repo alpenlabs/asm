@@ -5,7 +5,9 @@ use strata_btc_verification::HeaderVerificationState;
 use strata_identifiers::L1BlockCommitment;
 use strata_l1_txfmt::{MagicBytes, SubprotocolId};
 
-use crate::{AnchorState, AsmHistoryAccumulatorState, ChainViewState, SectionState};
+use crate::{
+    AnchorState, AsmHistoryAccumulatorState, ChainViewState, SectionState, SectionStateVersion,
+};
 
 impl AnchorState {
     /// Gets a section by protocol ID by doing a linear scan.
@@ -60,9 +62,13 @@ impl SectionState {
     ///
     /// Errors if `data` exceeds the SSZ capacity for the section data field
     /// (`MAX_SECTION_STATE_BYTES`).
-    pub fn new(id: SubprotocolId, data: Vec<u8>) -> Result<Self, ssz_types::Error> {
+    pub fn new(
+        id: SubprotocolId,
+        version: SectionStateVersion,
+        data: Vec<u8>,
+    ) -> Result<Self, ssz_types::Error> {
         let data = VariableList::new(data)?;
-        Ok(Self { id, data })
+        Ok(Self { id, version, data })
     }
 }
 
@@ -71,13 +77,15 @@ mod tests {
     use bitcoin::Network;
     use strata_btc_verification::L1Anchor;
     use strata_identifiers::L1BlockCommitment;
+    use tree_hash::{Sha256Hasher, TreeHash};
 
     use super::*;
 
     /// Byte position of the pow state's network id within an encoded
-    /// [`AnchorState`]: magic (4) + two offsets (8) put `chain_view` at 12,
+    /// [`AnchorState`]: spec ID (2) + magic (4) + two offsets (8)
+    /// put `chain_view` at 14,
     /// and the network id is the first byte of its fixed-size `pow_state`.
-    const NETWORK_ID_POS: usize = 12;
+    const NETWORK_ID_POS: usize = 14;
 
     fn sample_anchor_state() -> AnchorState {
         let anchor = L1Anchor {
@@ -87,12 +95,13 @@ mod tests {
             network: Network::Signet,
         };
         AnchorState {
+            spec_id: 0,
             magic: AnchorState::magic_ssz(MagicBytes::from(*b"alpn")),
             chain_view: crate::ChainViewState {
                 pow_state: HeaderVerificationState::init(anchor),
                 history_accumulator: AsmHistoryAccumulatorState::new(0),
             },
-            sections: vec![SectionState::new(1, vec![1, 2, 3]).expect("fits capacity")]
+            sections: vec![SectionState::new(1, 0, vec![1, 2, 3]).expect("fits capacity")]
                 .try_into()
                 .expect("fits capacity"),
         }
@@ -102,8 +111,30 @@ mod tests {
     fn anchor_state_ssz_roundtrip() {
         let state = sample_anchor_state();
         let bytes = state.as_ssz_bytes();
+        let root = state.tree_hash_root::<Sha256Hasher>().0;
+        assert_eq!(
+            root,
+            [
+                117, 195, 45, 138, 198, 74, 181, 77, 130, 18, 252, 231, 255, 18, 245, 22, 179, 121,
+                119, 31, 115, 72, 242, 242, 161, 231, 243, 169, 198, 153, 7, 146
+            ]
+        );
+        assert_eq!(&bytes[..2], &[0, 0]);
+        // Section ID, layout version, data offset, then payload.
+        assert_eq!(
+            state.sections[0].as_ssz_bytes(),
+            [1, 0, 0, 7, 0, 0, 0, 1, 2, 3]
+        );
         let decoded = AnchorState::from_ssz_bytes(&bytes).expect("decode");
         assert_eq!(state, decoded);
+
+        // Each identity is committed even when all other state is unchanged.
+        let mut changed = state.clone();
+        changed.spec_id += 1;
+        assert_ne!(root, changed.tree_hash_root::<Sha256Hasher>().0);
+        let mut changed = state;
+        changed.sections[0].version += 1;
+        assert_ne!(root, changed.tree_hash_root::<Sha256Hasher>().0);
     }
 
     #[test]

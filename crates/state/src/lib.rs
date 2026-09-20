@@ -10,6 +10,7 @@ use strata_identifiers as _;
 
 mod mmr;
 mod state;
+mod version;
 
 #[allow(
     clippy::all,
@@ -33,3 +34,4 @@ pub use ssz_generated::ssz::{
 // Re-exported so downstream crates keep a single import path for the anchor
 // state and its components; the pow state is the native verifier type now.
 pub use strata_btc_verification::{HeaderVerificationState, HeaderVerificationStateRef};
+pub use version::*;
