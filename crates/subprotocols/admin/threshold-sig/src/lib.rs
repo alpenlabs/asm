@@ -47,10 +47,7 @@ mod ssz_bridge;
 mod verification;
 
 pub use address::{NotP2wpkhAddress, P2wpkhAddress};
-pub use config::{
-    InvalidThresholdConfig, MAX_SIGNERS, ThresholdConfig, ThresholdConfigUpdate,
-    UncheckedThresholdConfig,
-};
+pub use config::{MAX_SIGNERS, ThresholdConfig, ThresholdConfigUpdate};
 pub use errors::ThresholdSignatureError;
 pub use signature::{IndexedSignature, SignatureSet};
 pub use verification::verify_threshold_signatures;

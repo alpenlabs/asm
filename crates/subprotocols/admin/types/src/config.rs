@@ -2,9 +2,10 @@ use std::num::NonZero;
 
 #[cfg(feature = "arbitrary")]
 use arbitrary::{Arbitrary, Unstructured};
-use bitcoin::Network;
-use serde::{Deserialize, Serialize};
-use strata_asm_admin_threshold_sig::{ThresholdConfig, UncheckedThresholdConfig};
+use bitcoin::{Address, Network, address::NetworkUnchecked};
+use serde::{Deserialize, Serialize, de::Error as DeError};
+use strata_asm_admin_threshold_sig::{P2wpkhAddress, ThresholdConfig, ThresholdSignatureError};
+use thiserror::Error;
 
 use crate::{ConfirmationDepths, Role};
 
@@ -118,6 +119,112 @@ impl AdministrationInitConfig {
     }
 }
 
+/// The parameter-file form of a [`ThresholdConfig`].
+///
+/// Signers are written as Bitcoin addresses so an operator can paste back exactly what their
+/// hardware wallet displayed. Each one is checked to be P2WPKH on the way in, and the set as
+/// a whole is checked against [`ThresholdConfig::try_new`], so
+/// [`Self::to_threshold_config`] cannot fail.
+///
+/// The address is kept as written, prefix and all, so the file round-trips. That prefix is
+/// not part of a signer's identity, and whether it matches the network the chain runs on is
+/// a question about the parameter file as a whole rather than about any one config, which is
+/// why [`AdministrationInitConfig::find_signer_not_on_network`] asks it instead.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct UncheckedThresholdConfig {
+    /// Addresses of all authorized signers, each one P2WPKH.
+    signers: Vec<Address<NetworkUnchecked>>,
+    /// Minimum number of signatures required (always >= 1).
+    threshold: NonZero<u8>,
+}
+
+impl UncheckedThresholdConfig {
+    /// Creates a configuration from signer addresses.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`InvalidThresholdConfig::Signer`] if an address is not P2WPKH, and
+    /// [`InvalidThresholdConfig::Config`] if the signer set is not one a
+    /// [`ThresholdConfig`] can hold.
+    pub fn try_new(
+        signers: Vec<Address<NetworkUnchecked>>,
+        threshold: NonZero<u8>,
+    ) -> Result<Self, InvalidThresholdConfig> {
+        let config = Self { signers, threshold };
+        config.resolve()?;
+        Ok(config)
+    }
+
+    /// Returns the configured signer addresses, as written.
+    pub fn signers(&self) -> &[Address<NetworkUnchecked>] {
+        &self.signers
+    }
+
+    /// Returns the number of signatures required.
+    pub fn threshold(&self) -> NonZero<u8> {
+        self.threshold
+    }
+
+    /// Resolves the addresses into the [`ThresholdConfig`] the chain stores.
+    ///
+    /// # Panics
+    ///
+    /// Never for a value that exists: every constructor runs `resolve` first, so a
+    /// configuration that could not resolve was never built.
+    pub fn to_threshold_config(&self) -> ThresholdConfig {
+        self.resolve()
+            .expect("signer set was resolved when the configuration was built")
+    }
+
+    /// The validation every constructor runs, and the conversion it proves is safe.
+    fn resolve(&self) -> Result<ThresholdConfig, InvalidThresholdConfig> {
+        let signers = self
+            .signers
+            .iter()
+            .enumerate()
+            .map(|(index, address)| {
+                P2wpkhAddress::try_from_address(address)
+                    .map_err(|_| InvalidThresholdConfig::Signer { index })
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+
+        Ok(ThresholdConfig::try_new(signers, self.threshold)?)
+    }
+}
+
+/// [`Deserialize`] is implemented by hand so that decoded values go through
+/// [`UncheckedThresholdConfig::try_new`] and satisfy the same invariants as constructed ones.
+impl<'de> Deserialize<'de> for UncheckedThresholdConfig {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        struct Raw {
+            signers: Vec<Address<NetworkUnchecked>>,
+            threshold: NonZero<u8>,
+        }
+
+        let raw = Raw::deserialize(deserializer)?;
+        Self::try_new(raw.signers, raw.threshold).map_err(DeError::custom)
+    }
+}
+
+/// Reasons a parameter-file threshold configuration cannot be used.
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
+pub enum InvalidThresholdConfig {
+    /// A configured signer is not a P2WPKH address.
+    #[error("signer at index {index} is not a P2WPKH address")]
+    Signer {
+        /// Position of the signer in the configured list.
+        index: usize,
+    },
+
+    /// The signer set is not one a [`ThresholdConfig`] can hold.
+    #[error(transparent)]
+    Config(#[from] ThresholdSignatureError),
+}
+
 #[cfg(feature = "arbitrary")]
 impl AdministrationInitConfig {
     /// Generates a configuration whose signers are all addresses on `network`.
@@ -144,8 +251,49 @@ impl AdministrationInitConfig {
     }
 }
 
+// TODO: this network choice is duplicated in `UncheckedThresholdConfig::arbitrary` below.
+// Now that both live in this file, they should share one helper that picks a network.
 #[cfg(feature = "arbitrary")]
 impl<'a> Arbitrary<'a> for AdministrationInitConfig {
+    fn arbitrary(u: &mut Unstructured<'a>) -> arbitrary::Result<Self> {
+        let networks = [
+            Network::Bitcoin,
+            Network::Testnet,
+            Network::Signet,
+            Network::Regtest,
+        ];
+        let network = *u.choose(&networks)?;
+        Self::arbitrary_for_network(u, network)
+    }
+}
+
+#[cfg(feature = "arbitrary")]
+impl UncheckedThresholdConfig {
+    /// Generates a configuration whose signers are all addresses on `network`.
+    ///
+    /// [`Arbitrary`] picks the network itself, which is fine for a standalone value but not
+    /// when the config has to agree with a network chosen elsewhere.
+    pub fn arbitrary_for_network(
+        u: &mut Unstructured<'_>,
+        network: Network,
+    ) -> arbitrary::Result<Self> {
+        let config = ThresholdConfig::arbitrary(u)?;
+        let signers = config
+            .signers()
+            .iter()
+            .map(|signer| signer.to_address(network).into_unchecked())
+            .collect();
+
+        Self::try_new(
+            signers,
+            NonZero::new(config.threshold()).expect("threshold is at least 1"),
+        )
+        .map_err(|_| arbitrary::Error::IncorrectFormat)
+    }
+}
+
+#[cfg(feature = "arbitrary")]
+impl<'a> Arbitrary<'a> for UncheckedThresholdConfig {
     fn arbitrary(u: &mut Unstructured<'a>) -> arbitrary::Result<Self> {
         let networks = [
             Network::Bitcoin,

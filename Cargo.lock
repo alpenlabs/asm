@@ -7707,7 +7707,6 @@ dependencies = [
  "hex",
  "proptest",
  "secp256k1 0.29.1",
- "serde",
  "ssz",
  "ssz_codegen",
  "ssz_derive",
@@ -7729,6 +7728,7 @@ dependencies = [
  "ssz",
  "ssz_derive",
  "strata-asm-admin-threshold-sig",
+ "thiserror 2.0.18",
 ]
 
 [[package]]

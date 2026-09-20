@@ -18,10 +18,10 @@ use bitcoin::{
     secp256k1::{PublicKey, Secp256k1, SecretKey},
     BlockHash, Network, Transaction,
 };
-use strata_asm_admin_threshold_sig::{
-    P2wpkhAddress, ThresholdConfigUpdate, UncheckedThresholdConfig,
+use strata_asm_admin_threshold_sig::{P2wpkhAddress, ThresholdConfigUpdate};
+use strata_asm_admin_types::{
+    AdministrationInitConfig, ConfirmationDepths, Role, UncheckedThresholdConfig,
 };
-use strata_asm_admin_types::{AdministrationInitConfig, ConfirmationDepths, Role};
 use strata_asm_bridge_types::SafeHarbourAddress;
 use strata_asm_common::{AnchorState, SectionStateExt, Subprotocol};
 use strata_asm_proto_admin::{AdministrationSubprotoState, AdministrationSubprotocol};

@@ -321,9 +321,9 @@ mod tests {
         secp256k1::{PublicKey, Secp256k1, SecretKey},
     };
     use rand::{rngs::OsRng, seq::SliceRandom, thread_rng};
-    use strata_asm_admin_threshold_sig::{P2wpkhAddress, UncheckedThresholdConfig};
+    use strata_asm_admin_threshold_sig::P2wpkhAddress;
     use strata_asm_admin_types::{
-        AdministrationInitConfig, ConfirmationDepths, Role, UpdateTxType,
+        AdministrationInitConfig, ConfirmationDepths, Role, UncheckedThresholdConfig, UpdateTxType,
     };
     use strata_asm_bridge_types::SafeHarbourAddress;
     use strata_asm_common::{AsmLogEntry, InterprotoMsg, MsgRelayer};

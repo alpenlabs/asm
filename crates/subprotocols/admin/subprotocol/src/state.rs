@@ -202,10 +202,10 @@ mod tests {
         secp256k1::{PublicKey, Secp256k1, SecretKey},
     };
     use rand::rngs::OsRng;
-    use strata_asm_admin_threshold_sig::{
-        P2wpkhAddress, ThresholdConfigUpdate, UncheckedThresholdConfig,
+    use strata_asm_admin_threshold_sig::{P2wpkhAddress, ThresholdConfigUpdate};
+    use strata_asm_admin_types::{
+        AdministrationInitConfig, ConfirmationDepths, Role, UncheckedThresholdConfig,
     };
-    use strata_asm_admin_types::{AdministrationInitConfig, ConfirmationDepths, Role};
     use strata_asm_proto_admin_txs::actions::UpdateAction;
     use strata_identifiers::L1Height;
     use strata_test_utils_arb::ArbitraryGenerator;

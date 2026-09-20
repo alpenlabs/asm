@@ -11,7 +11,6 @@ arbitrary = { workspace = true, optional = true }
 bitcoin.workspace = true
 borsh.workspace = true
 secp256k1.workspace = true
-serde.workspace = true
 ssz.workspace = true
 ssz_derive.workspace = true
 ssz_primitives.workspace = true
