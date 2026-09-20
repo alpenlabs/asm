@@ -5,8 +5,8 @@
 //! run an ASM instance. The per-subprotocol configurations are defined in each
 //! subprotocol's own types crate and only aggregated (and re-exported) here.
 //!
-//! [`AsmParams::verify`] covers what no single configuration can check on its own; see the
-//! `verification` module.
+//! Deserializing [`AsmParams`] also checks what no single configuration can check on its
+//! own; see the `verification` module.
 
 mod params;
 #[cfg(test)]
