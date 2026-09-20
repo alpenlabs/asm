@@ -1,7 +1,7 @@
 use std::{mem::take, num::NonZero};
 
 use ssz_derive::{Decode, Encode};
-use strata_asm_admin_threshold_sig::ThresholdConfigUpdate;
+use strata_asm_admin_threshold_sig::{ThresholdConfig, ThresholdConfigUpdate};
 use strata_asm_admin_types::{AdministrationInitConfig, ConfirmationDepths, Role, UpdateTxType};
 use strata_asm_proto_admin_txs::actions::{MultisigAction, UpdateId};
 use strata_identifiers::L1Height;
@@ -38,12 +38,22 @@ pub struct AdministrationSubprotoState {
 }
 
 impl AdministrationSubprotoState {
+    /// Builds the initial state from the signer sets the parameter file configured.
+    ///
+    /// # Panics
+    ///
+    /// Never for a configuration that exists: every
+    /// [`UncheckedThresholdConfig`](strata_asm_admin_types::UncheckedThresholdConfig)
+    /// constructor resolves its signers, so one that could not resolve was never built.
     pub fn new(config: &AdministrationInitConfig) -> Self {
         let authorities = config
-            .clone()
-            .get_all_authorities()
+            .signer_configs()
             .into_iter()
-            .map(|(role, config)| MultisigAuthority::new(role, config))
+            .map(|(role, signers)| {
+                let threshold = ThresholdConfig::try_from(signers)
+                    .expect("signer set was resolved when the configuration was built");
+                MultisigAuthority::new(role, threshold)
+            })
             .collect();
 
         Self {

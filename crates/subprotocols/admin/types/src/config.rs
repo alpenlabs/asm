@@ -13,7 +13,8 @@ use crate::{ConfirmationDepths, Role};
 /// signer set as it is written in the parameter file.
 ///
 /// Signers are named by Bitcoin address here and by witness program in the state the
-/// subprotocol builds from this; [`Self::get_all_authorities`] is the conversion.
+/// subprotocol builds from this; converting an [`UncheckedThresholdConfig`] into a
+/// [`ThresholdConfig`] is where that happens.
 ///
 /// Design choice: Uses individual named fields rather than `Vec<(Role, ThresholdConfig)>`
 /// to ensure structural completeness - the compiler guarantees all config fields are
@@ -64,7 +65,7 @@ impl AdministrationInitConfig {
     }
 
     /// Pairs each role with the signer set the parameter file gave it.
-    fn configs(&self) -> [(Role, &UncheckedThresholdConfig); 4] {
+    pub fn signer_configs(&self) -> [(Role, &UncheckedThresholdConfig); 4] {
         [
             (Role::StrataAdministrator, &self.strata_administrator),
             (Role::StrataSequencerManager, &self.strata_sequencer_manager),
@@ -84,7 +85,7 @@ impl AdministrationInitConfig {
     ///
     /// Returns the first signer whose address belongs to another network.
     pub fn check_signer_networks(&self, network: Network) -> Result<(), SignerNetworkMismatch> {
-        for (role, config) in self.configs() {
+        for (role, config) in self.signer_configs() {
             if let Some(index) = config
                 .signers()
                 .iter()
@@ -99,14 +100,6 @@ impl AdministrationInitConfig {
         }
 
         Ok(())
-    }
-
-    /// Resolves every role's signer addresses into the configuration its authority holds.
-    pub fn get_all_authorities(&self) -> Vec<(Role, ThresholdConfig)> {
-        self.configs()
-            .into_iter()
-            .map(|(role, config)| (role, config.to_threshold_config()))
-            .collect()
     }
 }
 
@@ -126,8 +119,8 @@ pub struct SignerNetworkMismatch {
 ///
 /// Signers are written as Bitcoin addresses so an operator can paste back exactly what their
 /// hardware wallet displayed. Each one is checked to be P2WPKH on the way in, and the set as
-/// a whole is checked against [`ThresholdConfig::try_new`], so
-/// [`Self::to_threshold_config`] cannot fail.
+/// a whole is checked against [`ThresholdConfig::try_new`], so converting one into a
+/// [`ThresholdConfig`] cannot fail.
 ///
 /// The address is kept as written, prefix and all, so the file round-trips. That prefix is
 /// not part of a signer's identity, and whether it matches the network the chain runs on is
@@ -167,23 +160,12 @@ impl UncheckedThresholdConfig {
     pub fn threshold(&self) -> NonZero<u8> {
         self.threshold
     }
-
-    /// Resolves the addresses into the [`ThresholdConfig`] the chain stores.
-    ///
-    /// # Panics
-    ///
-    /// Never for a value that exists: every constructor runs the conversion first, so a
-    /// configuration that could not resolve was never built.
-    pub fn to_threshold_config(&self) -> ThresholdConfig {
-        ThresholdConfig::try_from(self)
-            .expect("signer set was resolved when the configuration was built")
-    }
 }
 
 /// Resolves a parameter-file configuration into the one the chain stores.
 ///
-/// This is the validation [`UncheckedThresholdConfig::try_new`] runs, which is why
-/// [`UncheckedThresholdConfig::to_threshold_config`] can be infallible.
+/// This is the validation [`UncheckedThresholdConfig::try_new`] runs, so it cannot fail for
+/// a configuration that exists.
 impl TryFrom<&UncheckedThresholdConfig> for ThresholdConfig {
     type Error = InvalidThresholdConfig;
 
