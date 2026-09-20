@@ -151,7 +151,7 @@ impl UncheckedThresholdConfig {
         threshold: NonZero<u8>,
     ) -> Result<Self, InvalidThresholdConfig> {
         let config = Self { signers, threshold };
-        config.resolve()?;
+        ThresholdConfig::try_from(&config)?;
         Ok(config)
     }
 
@@ -169,16 +169,23 @@ impl UncheckedThresholdConfig {
     ///
     /// # Panics
     ///
-    /// Never for a value that exists: every constructor runs `resolve` first, so a
+    /// Never for a value that exists: every constructor runs the conversion first, so a
     /// configuration that could not resolve was never built.
     pub fn to_threshold_config(&self) -> ThresholdConfig {
-        self.resolve()
+        ThresholdConfig::try_from(self)
             .expect("signer set was resolved when the configuration was built")
     }
+}
 
-    /// The validation every constructor runs, and the conversion it proves is safe.
-    fn resolve(&self) -> Result<ThresholdConfig, InvalidThresholdConfig> {
-        let signers = self
+/// Resolves a parameter-file configuration into the one the chain stores.
+///
+/// This is the validation [`UncheckedThresholdConfig::try_new`] runs, which is why
+/// [`UncheckedThresholdConfig::to_threshold_config`] can be infallible.
+impl TryFrom<&UncheckedThresholdConfig> for ThresholdConfig {
+    type Error = InvalidThresholdConfig;
+
+    fn try_from(config: &UncheckedThresholdConfig) -> Result<Self, Self::Error> {
+        let signers = config
             .signers
             .iter()
             .enumerate()
@@ -188,7 +195,7 @@ impl UncheckedThresholdConfig {
             })
             .collect::<Result<Vec<_>, _>>()?;
 
-        Ok(ThresholdConfig::try_new(signers, self.threshold)?)
+        Ok(ThresholdConfig::try_new(signers, config.threshold)?)
     }
 }
 
