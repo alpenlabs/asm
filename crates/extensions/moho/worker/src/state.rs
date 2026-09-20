@@ -139,10 +139,9 @@ impl<W: MohoWorkerContext + Send + Sync + 'static> ServiceState for MohoWorkerSe
 mod tests {
     use std::{cell::RefCell, collections::HashMap};
 
-    use moho_runtime_interface::MohoProgram;
     use strata_asm_common::{AnchorState, AsmLogEntry};
     use strata_asm_params::AsmParams;
-    use strata_asm_proof_impl::moho_program::program::AsmStfProgram;
+    use strata_asm_proof_impl::moho_program::program::compute_anchor_state_commitment;
     use strata_asm_spec::construct_genesis_state;
     use strata_identifiers::{Buf32, L1BlockCommitment, L1BlockId};
     use strata_predicate::PredicateKey;
@@ -321,7 +320,7 @@ mod tests {
             .unwrap();
         assert_eq!(
             stored.inner_state(),
-            AsmStfProgram::compute_state_commitment(&anchor)
+            compute_anchor_state_commitment(&anchor)
         );
     }
 
@@ -466,7 +465,7 @@ mod tests {
         assert!(moho.contains_key(&blk_b));
         // Both fold from the shared genesis state onto the same anchor, so their
         // inner commitments match.
-        let inner = AsmStfProgram::compute_state_commitment(&anchor);
+        let inner = compute_anchor_state_commitment(&anchor);
         assert_eq!(moho.get(&blk_a).unwrap().inner_state(), inner);
         assert_eq!(moho.get(&blk_b).unwrap().inner_state(), inner);
     }

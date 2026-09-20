@@ -2,7 +2,7 @@
 
 use moho_runtime_impl::{compute_moho_attestation, RuntimeInput};
 use ssz::{Decode, Encode};
-use strata_asm_spec::StrataAsmSpec;
+use strata_asm_common::AsmSpec;
 use zkaleido::ZkVmEnv;
 
 use crate::moho_program::program::AsmStfProgram;
@@ -17,12 +17,12 @@ use crate::moho_program::program::AsmStfProgram;
 ///
 /// The `spec` must be hardcoded by the outer guest program rather than read from the ZKVM input,
 /// as it defines the trusted chain parameters that the proof is verified against.
-pub fn process_asm_stf(zkvm: &impl ZkVmEnv) {
+pub fn process_asm_stf<S: AsmSpec>(zkvm: &impl ZkVmEnv, spec: &S) {
     let runtime_input_bytes = zkvm.read_buf();
     let runtime_input = RuntimeInput::from_ssz_bytes(&runtime_input_bytes)
         .expect("failed to deserialize runtime input for SSZ bytes");
 
-    let attestation = compute_moho_attestation::<AsmStfProgram>(runtime_input, &StrataAsmSpec);
+    let attestation = compute_moho_attestation::<AsmStfProgram<S>>(runtime_input, spec);
 
     let attestation_bytes = attestation.as_ssz_bytes();
     zkvm.commit_buf(&attestation_bytes);

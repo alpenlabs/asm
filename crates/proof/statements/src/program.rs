@@ -3,6 +3,8 @@
 use moho_runtime_impl::RuntimeInput;
 use moho_types::StepMohoAttestation;
 use ssz::{decode::Decode, encode::Encode};
+use strata_asm_common::AsmSpec;
+use strata_asm_spec::StrataAsmSpec;
 use zkaleido::{
     DataFormatError, ProofType, PublicValues, ZkVmError, ZkVmHost, ZkVmInputBuilder,
     ZkVmInputResult, ZkVmProgram, ZkVmResult,
@@ -53,9 +55,9 @@ impl ZkVmProgram for AsmStfProofProgram {
 }
 
 impl AsmStfProofProgram {
-    /// Native host that can be used for testing
-    pub fn native_host() -> NativeHost {
-        NativeHost::new_with_random_key(process_asm_stf)
+    /// Builds a native test host with a concrete spec captured outside the witness.
+    pub fn native_host<S: AsmSpec + Send + Sync + 'static>(spec: S) -> NativeHost {
+        NativeHost::new_with_random_key(move |zkvm| process_asm_stf(zkvm, &spec))
     }
 
     /// Executes the program using the native host.
@@ -63,7 +65,7 @@ impl AsmStfProofProgram {
         input: &<Self as ZkVmProgram>::Input,
     ) -> ZkVmResult<<Self as ZkVmProgram>::Output> {
         // Get the native host and delegate to the trait's execute method
-        let host = Self::native_host();
+        let host = Self::native_host(StrataAsmSpec);
         let summary = <Self as ZkVmProgram>::execute(input, &host)?;
         <Self as ZkVmProgram>::process_output::<NativeHost>(summary.public_values())
     }
@@ -71,15 +73,46 @@ impl AsmStfProofProgram {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc,
+    };
 
     use moho_runtime_impl::RuntimeInput;
     use ssz::Encode;
+    use strata_asm_common::{AnchorState, AsmSpec, SpecId, Stage};
+    use strata_asm_spec::StrataAsmSpec;
     use strata_predicate::PredicateKey;
+    use zkaleido::ZkVmProgram;
 
     use crate::{
         program::AsmStfProofProgram,
         test_utils::{create_asm_step_input, create_genesis_anchor_state, create_moho_state},
     };
+
+    struct ObservedSpec(Arc<AtomicUsize>);
+
+    impl AsmSpec for ObservedSpec {
+        const ID: SpecId = StrataAsmSpec::ID;
+        type GenesisParams = <StrataAsmSpec as AsmSpec>::GenesisParams;
+
+        fn prepare(&self, state: &AnchorState) -> AnchorState {
+            self.0.fetch_add(1, Ordering::SeqCst);
+            StrataAsmSpec.prepare(state)
+        }
+
+        fn call_subprotocols(&self, stage: &mut impl Stage) {
+            StrataAsmSpec.call_subprotocols(stage);
+        }
+
+        fn construct_genesis_state(&self, params: &Self::GenesisParams) -> AnchorState {
+            StrataAsmSpec.construct_genesis_state(params)
+        }
+
+        fn genesis_l1_height(&self, params: &Self::GenesisParams) -> u64 {
+            StrataAsmSpec.genesis_l1_height(params)
+        }
+    }
 
     /// Creates a runtime input for a single ASM STF step.
     fn create_runtime_input() -> RuntimeInput {
@@ -98,6 +131,12 @@ mod tests {
         let runtime_input = create_runtime_input();
 
         let output = AsmStfProofProgram::execute(&runtime_input).unwrap();
-        dbg!(output);
+        // A wrapper with the same rules verifies that native execution uses
+        // the supplied spec, rather than silently falling back to StrataAsmSpec.
+        let preparations = Arc::new(AtomicUsize::new(0));
+        let host = AsmStfProofProgram::native_host(ObservedSpec(preparations.clone()));
+        let summary = <AsmStfProofProgram as ZkVmProgram>::execute(&runtime_input, &host).unwrap();
+        assert_eq!(summary.public_values().as_bytes(), output.as_ssz_bytes());
+        assert_eq!(preparations.load(Ordering::SeqCst), 1);
     }
 }

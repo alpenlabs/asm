@@ -11,6 +11,7 @@ moho-recursive-proof.workspace = true
 moho-runtime-impl.workspace = true
 moho-types.workspace = true
 strata-asm-common.workspace = true
+strata-asm-spec.workspace = true
 strata-asm-moho-storage.workspace = true
 strata-asm-proof-impl.workspace = true
 strata-asm-prover-storage.workspace = true
