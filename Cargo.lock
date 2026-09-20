@@ -7708,13 +7708,8 @@ dependencies = [
  "proptest",
  "secp256k1 0.29.1",
  "ssz",
- "ssz_codegen",
  "ssz_derive",
- "ssz_primitives",
- "ssz_types",
  "thiserror 2.0.18",
- "tree_hash",
- "tree_hash_derive",
 ]
 
 [[package]]

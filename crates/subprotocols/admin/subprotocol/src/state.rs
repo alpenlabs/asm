@@ -1,7 +1,7 @@
 use std::{mem::take, num::NonZero};
 
 use ssz_derive::{Decode, Encode};
-use strata_asm_admin_threshold_sig::{ThresholdConfig, ThresholdConfigUpdate};
+use strata_asm_admin_threshold_sig::{ThresholdConfig, ThresholdConfigUpdate, non_zero_u8};
 use strata_asm_admin_types::{AdministrationInitConfig, ConfirmationDepths, Role, UpdateTxType};
 use strata_asm_proto_admin_txs::actions::{MultisigAction, UpdateId};
 use strata_identifiers::L1Height;
@@ -155,51 +155,6 @@ impl AdministrationSubprotoState {
             .partition(|u| u.activation_height() <= current_height);
         self.queued = rest;
         ready
-    }
-}
-
-#[expect(unreachable_pub, reason = "used by ssz_derive field adapters")]
-mod non_zero_u8 {
-    pub mod encode {
-        use std::num::NonZero;
-
-        use ssz::Encode as SszEncode;
-
-        pub fn is_ssz_fixed_len() -> bool {
-            <u8 as SszEncode>::is_ssz_fixed_len()
-        }
-
-        pub fn ssz_fixed_len() -> usize {
-            <u8 as SszEncode>::ssz_fixed_len()
-        }
-
-        pub fn ssz_bytes_len(value: &NonZero<u8>) -> usize {
-            value.get().ssz_bytes_len()
-        }
-
-        pub fn ssz_append(value: &NonZero<u8>, buf: &mut Vec<u8>) {
-            value.get().ssz_append(buf);
-        }
-    }
-
-    pub mod decode {
-        use std::num::NonZero;
-
-        use ssz::{Decode as SszDecode, DecodeError};
-
-        pub fn is_ssz_fixed_len() -> bool {
-            <u8 as SszDecode>::is_ssz_fixed_len()
-        }
-
-        pub fn ssz_fixed_len() -> usize {
-            <u8 as SszDecode>::ssz_fixed_len()
-        }
-
-        pub fn from_ssz_bytes(bytes: &[u8]) -> Result<NonZero<u8>, DecodeError> {
-            let value = u8::from_ssz_bytes(bytes)?;
-            NonZero::new(value)
-                .ok_or_else(|| DecodeError::BytesInvalid("max_seqno_gap must be non-zero".into()))
-        }
     }
 }
 

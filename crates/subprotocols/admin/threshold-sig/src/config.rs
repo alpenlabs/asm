@@ -2,15 +2,9 @@
 
 use std::{collections::HashSet, num::NonZero};
 
-use ssz::DecodeError;
-use ssz_primitives::FixedBytes;
+use ssz_derive::{Decode, Encode};
 
-use crate::{
-    address::P2wpkhAddress,
-    errors::ThresholdSignatureError,
-    ssz_bridge::{SszContainer, impl_ssz_via_container},
-    ssz_generated::ssz::threshold::{ThresholdConfigSsz, ThresholdConfigUpdateSsz},
-};
+use crate::{address::P2wpkhAddress, errors::ThresholdSignatureError, ssz_adapters::non_zero_u8};
 
 /// Maximum number of signers allowed in a threshold configuration.
 ///
@@ -22,11 +16,18 @@ pub const MAX_SIGNERS: usize = 256;
 ///
 /// Defines who may sign (`signers`) and how many of them must (`threshold`). The threshold
 /// is a `NonZero<u8>` so that a configuration no one can satisfy cannot be constructed.
-#[derive(Debug, Clone, PartialEq, Eq)]
+///
+/// [`Self::try_new`] and [`Self::apply_update`] enforce the invariants that span both
+/// fields: no repeated signer, no more than [`MAX_SIGNERS`] of them, and a threshold the
+/// signer set can actually meet. Decoding does not re-check them. The only encoded
+/// configurations are the ones this crate wrote into administration subprotocol state, and
+/// the ASM proof binds that state.
+#[derive(Debug, Clone, PartialEq, Eq, Encode, Decode)]
 pub struct ThresholdConfig {
     /// Addresses of all authorized signers.
     signers: Vec<P2wpkhAddress>,
     /// Minimum number of signatures required (always >= 1).
+    #[ssz(with = "non_zero_u8")]
     threshold: NonZero<u8>,
 }
 
@@ -103,9 +104,9 @@ impl ThresholdConfig {
         let updated_size =
             self.signers.len() + update.add_members().len() - update.remove_members().len();
 
-        // This is the single chokepoint for every construction, mutation and decode path
-        // (`try_new`, `apply_update` and SSZ decode), so enforcing the bound here is what
-        // guarantees a `ThresholdConfig` never holds more than `MAX_SIGNERS` signers.
+        // This is the single chokepoint for every construction and mutation path (`try_new`
+        // and `apply_update`), so enforcing the bound here is what guarantees a
+        // `ThresholdConfig` built through them never holds more than `MAX_SIGNERS` signers.
         if updated_size > MAX_SIGNERS {
             return Err(ThresholdSignatureError::TooManySigners {
                 count: updated_size,
@@ -144,50 +145,16 @@ impl ThresholdConfig {
     }
 }
 
-// The schema models `signers` as a `List[Bytes20, MAX_SIGNERS]`: raw witness programs rather
-// than the wrapper, so the generated container needs nothing from this crate.
-impl SszContainer for ThresholdConfig {
-    type Container = ThresholdConfigSsz;
-
-    fn to_container(&self) -> Self::Container {
-        // Cannot fail: `validate_update` gates every construction and mutation path, and it
-        // rejects more than `MAX_SIGNERS` signers.
-        let signers = self
-            .signers
-            .iter()
-            .map(|signer| FixedBytes(signer.to_byte_array()))
-            .collect::<Vec<_>>()
-            .try_into()
-            .expect("signer count is within MAX_SIGNERS");
-
-        ThresholdConfigSsz {
-            signers,
-            threshold: self.threshold.get(),
-        }
-    }
-
-    fn from_container(container: Self::Container) -> Result<Self, DecodeError> {
-        let signers = decode_signers(container.signers.iter());
-        let threshold = NonZero::new(container.threshold)
-            .ok_or_else(|| DecodeError::BytesInvalid("threshold must be non-zero".into()))?;
-
-        // Re-applies the same invariants, so a decoded config is indistinguishable from a
-        // constructed one.
-        Self::try_new(signers, threshold).map_err(|err| DecodeError::BytesInvalid(err.to_string()))
-    }
-}
-
-impl_ssz_via_container!(ThresholdConfig);
-
 /// A change to a [`ThresholdConfig`]: members to add, members to drop, and the threshold
 /// that applies once both have been taken into account.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Encode, Decode)]
 pub struct ThresholdConfigUpdate {
     /// Signer addresses to add.
     add_members: Vec<P2wpkhAddress>,
     /// Signer addresses to remove.
     remove_members: Vec<P2wpkhAddress>,
     /// Minimum number of signatures required (always >= 1).
+    #[ssz(with = "non_zero_u8")]
     new_threshold: NonZero<u8>,
 }
 
@@ -197,9 +164,8 @@ impl ThresholdConfigUpdate {
     /// # Errors
     ///
     /// Returns [`ThresholdSignatureError::TooManySigners`] if either list holds more than
-    /// [`MAX_SIGNERS`] members. The lists are bounded independently because each encodes as
-    /// its own `List[_, MAX_SIGNERS]`; without the check an oversized update would panic
-    /// when encoded.
+    /// [`MAX_SIGNERS`] members. Each list is bounded on its own, so an update that no
+    /// configuration could ever accept cannot be built in the first place.
     pub fn try_new(
         add_members: Vec<P2wpkhAddress>,
         remove_members: Vec<P2wpkhAddress>,
@@ -239,52 +205,6 @@ impl ThresholdConfigUpdate {
     pub fn into_inner(self) -> (Vec<P2wpkhAddress>, Vec<P2wpkhAddress>, NonZero<u8>) {
         (self.add_members, self.remove_members, self.new_threshold)
     }
-}
-
-impl SszContainer for ThresholdConfigUpdate {
-    type Container = ThresholdConfigUpdateSsz;
-
-    fn to_container(&self) -> Self::Container {
-        // Cannot fail: `try_new` bounds each member list to `MAX_SIGNERS`.
-        let to_list = |signers: &[P2wpkhAddress]| {
-            signers
-                .iter()
-                .map(|signer| FixedBytes(signer.to_byte_array()))
-                .collect::<Vec<_>>()
-                .try_into()
-                .expect("member list is within MAX_SIGNERS")
-        };
-
-        ThresholdConfigUpdateSsz {
-            add_members: to_list(&self.add_members),
-            remove_members: to_list(&self.remove_members),
-            new_threshold: self.new_threshold.get(),
-        }
-    }
-
-    fn from_container(container: Self::Container) -> Result<Self, DecodeError> {
-        let add_members = decode_signers(container.add_members.iter());
-        let remove_members = decode_signers(container.remove_members.iter());
-        let new_threshold = NonZero::new(container.new_threshold)
-            .ok_or_else(|| DecodeError::BytesInvalid("threshold must be non-zero".into()))?;
-
-        // Cannot fail: each container list is bounded to `MAX_SIGNERS`, which is the bound
-        // `try_new` checks.
-        Self::try_new(add_members, remove_members, new_threshold)
-            .map_err(|err| DecodeError::BytesInvalid(err.to_string()))
-    }
-}
-
-impl_ssz_via_container!(ThresholdConfigUpdate);
-
-/// Converts a container's raw witness programs back into signer addresses.
-///
-/// This is infallible: every 20-byte value is a well-formed P2WPKH program. Whether anyone
-/// holds the key behind it is settled at verification time, not at decode time.
-fn decode_signers<'a>(signers: impl Iterator<Item = &'a FixedBytes<20>>) -> Vec<P2wpkhAddress> {
-    signers
-        .map(|signer| P2wpkhAddress::from_byte_array(signer.0))
-        .collect()
 }
 
 #[cfg(feature = "arbitrary")]
