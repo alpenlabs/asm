@@ -5,6 +5,10 @@ use strata_predicate::{PredicateKey, PredicateTypeId};
 use crate::actions::IndentedDetails;
 
 pub(super) fn multisig(config: &ThresholdConfigUpdate, details: &mut IndentedDetails<'_>) {
+    // Members are shown as bech32 addresses because that is what a signer can read off
+    // their hardware wallet and compare against; the stored witness program cannot be.
+    let network = details.network();
+
     details.push(format!("New Threshold: {}", config.new_threshold()));
     append_indexed_fields(
         details,
@@ -13,7 +17,7 @@ pub(super) fn multisig(config: &ThresholdConfigUpdate, details: &mut IndentedDet
         config
             .add_members()
             .iter()
-            .map(|member| hex::encode(member.to_byte_array())),
+            .map(|member| member.to_address(network).to_string()),
     );
     append_indexed_fields(
         details,
@@ -22,7 +26,7 @@ pub(super) fn multisig(config: &ThresholdConfigUpdate, details: &mut IndentedDet
         config
             .remove_members()
             .iter()
-            .map(|member| hex::encode(member.to_byte_array())),
+            .map(|member| member.to_address(network).to_string()),
     );
 }
 
@@ -57,14 +61,18 @@ pub(super) fn append_indexed_fields(
 mod tests {
     use std::num::NonZero;
 
+    use bitcoin::Network;
     use strata_asm_admin_threshold_sig::P2wpkhAddress;
 
     use super::*;
     use crate::actions::IndentedDetails;
 
+    /// Network these tests render addresses for.
+    const TEST_NETWORK: Network = Network::Regtest;
+
     fn render_lines<F: FnOnce(&mut IndentedDetails<'_>)>(f: F) -> Vec<String> {
         let mut lines = Vec::new();
-        let mut details = IndentedDetails::new(&mut lines);
+        let mut details = IndentedDetails::new(&mut lines, TEST_NETWORK);
         f(&mut details);
         lines
     }
@@ -74,7 +82,7 @@ mod tests {
     }
 
     fn rendered(signer: &P2wpkhAddress) -> String {
-        hex::encode(signer.to_byte_array())
+        signer.to_address(TEST_NETWORK).to_string()
     }
 
     #[test]

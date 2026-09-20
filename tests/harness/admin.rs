@@ -211,7 +211,13 @@ impl AdminContext {
 
     fn sign_impl(&self, action: &MultisigAction, signing_role: Role, seqno: u64) -> Vec<u8> {
         let keys = self.role_keys(signing_role);
-        let sig_set = create_signature_set(&keys.privkeys, &keys.signer_indices, action, seqno);
+        let sig_set = create_signature_set(
+            &keys.privkeys,
+            &keys.signer_indices,
+            action,
+            seqno,
+            HARNESS_NETWORK,
+        );
         SignedPayload::new(seqno, action.clone(), sig_set).into_envelope_bytes()
     }
 }

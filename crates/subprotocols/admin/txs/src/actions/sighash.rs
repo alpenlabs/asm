@@ -1,3 +1,4 @@
+use bitcoin::Network;
 use strata_asm_admin_types::AdminTxType;
 
 /// A buffer for the indented sub-fields under the `Action Details:` header line.
@@ -5,18 +6,28 @@ use strata_asm_admin_types::AdminTxType;
 /// Constructed only by the signing-message renderer, so per-action `render_details`
 /// implementors cannot bypass the two-space indent that hardware wallets use to
 /// distinguish detail sub-fields from top-level header lines.
+///
+/// It also carries the network any Bitcoin address in the message is rendered for. Passing
+/// it here rather than as a second `render_details` argument keeps it out of the dozen
+/// implementations that have no address to show.
 #[derive(Debug)]
 pub(crate) struct IndentedDetails<'a> {
     lines: &'a mut Vec<String>,
+    network: Network,
 }
 
 impl<'a> IndentedDetails<'a> {
-    pub(crate) fn new(lines: &'a mut Vec<String>) -> Self {
-        Self { lines }
+    pub(crate) fn new(lines: &'a mut Vec<String>, network: Network) -> Self {
+        Self { lines, network }
     }
 
     pub(crate) fn push(&mut self, line: impl Into<String>) {
         self.lines.push(format!("  {}", line.into()));
+    }
+
+    /// The network that addresses in this message are rendered for.
+    pub(crate) fn network(&self) -> Network {
+        self.network
     }
 }
 

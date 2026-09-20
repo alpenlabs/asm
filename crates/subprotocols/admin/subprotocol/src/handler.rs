@@ -1,3 +1,4 @@
+use bitcoin::Network;
 use strata_asm_admin_types::{Role, UpdateTxType};
 use strata_asm_bridge_types::SafeHarbourAddress;
 use strata_asm_common::{
@@ -114,6 +115,7 @@ pub(crate) fn handle_action(
     state: &mut AdministrationSubprotoState,
     payload: SignedPayload,
     current_height: L1Height,
+    network: Network,
     relayer: &mut impl MsgRelayer,
     block_updates: &mut BlockUpdateGuard,
 ) -> Result<(), AdministrationError> {
@@ -125,7 +127,7 @@ pub(crate) fn handle_action(
     let authority = state
         .authority_mut(role)
         .ok_or(AdministrationError::UnknownRole)?;
-    let seqno_token = authority.verify_action_signature(&payload, max_seqno_gap)?;
+    let seqno_token = authority.verify_action_signature(&payload, max_seqno_gap, network)?;
 
     // Burn the sequence number as soon as the signature verifies, before the action itself is
     // accepted or rejected. The seqno is replay protection for the signature, not a record of
@@ -498,9 +500,16 @@ mod tests {
         block_updates: &mut BlockUpdateGuard,
     ) -> Result<(), AdministrationError> {
         let action = MultisigAction::Update(UpdateAction::OlStfVk(OlStfVkUpdate::new(predicate)));
-        let sig_set = create_signature_set(admin_sks, &[0, 2], &action, seqno);
+        let sig_set = create_signature_set(admin_sks, &[0, 2], &action, seqno, TEST_NETWORK);
         let payload = SignedPayload::new(seqno, action, sig_set);
-        handle_action(state, payload, current_height, relayer, block_updates)
+        handle_action(
+            state,
+            payload,
+            current_height,
+            TEST_NETWORK,
+            relayer,
+            block_updates,
+        )
     }
 
     /// Test that Strata Administrator update actions are properly handled:
@@ -532,12 +541,14 @@ mod tests {
 
             let seqno = last_seqno + 1;
             let action = MultisigAction::Update(update.clone());
-            let sig_set = create_signature_set(&admin_sks, &signer_indices, &action, seqno);
+            let sig_set =
+                create_signature_set(&admin_sks, &signer_indices, &action, seqno, TEST_NETWORK);
             let payload = SignedPayload::new(seqno, action, sig_set);
             handle_action(
                 &mut state,
                 payload,
                 current_height,
+                TEST_NETWORK,
                 &mut relayer,
                 &mut BlockUpdateGuard::default(),
             )
@@ -588,13 +599,14 @@ mod tests {
         let update = UpdateAction::OlStfVk(OlStfVkUpdate::new(PredicateKey::always_accept()));
         let action = MultisigAction::Update(update);
         let seqno = 1;
-        let sig_set = create_signature_set(&admin_sks, &[0, 2], &action, seqno);
+        let sig_set = create_signature_set(&admin_sks, &[0, 2], &action, seqno, TEST_NETWORK);
         let payload = SignedPayload::new(seqno, action, sig_set);
 
         let result = handle_action(
             &mut state,
             payload,
             current_height,
+            TEST_NETWORK,
             &mut relayer,
             &mut BlockUpdateGuard::default(),
         );
@@ -638,12 +650,19 @@ mod tests {
         // Create an action and queue it with a valid seqno (> current authority seqno of 0).
         let valid_seqno = last_seqno + 1;
         let action = MultisigAction::Update(update.clone());
-        let sig_set = create_signature_set(&admin_sks, &signer_indices, &action, valid_seqno);
+        let sig_set = create_signature_set(
+            &admin_sks,
+            &signer_indices,
+            &action,
+            valid_seqno,
+            TEST_NETWORK,
+        );
         let payload = SignedPayload::new(valid_seqno, action, sig_set);
         let res = handle_action(
             &mut state,
             payload,
             current_height,
+            TEST_NETWORK,
             &mut relayer,
             &mut BlockUpdateGuard::default(),
         );
@@ -651,13 +670,14 @@ mod tests {
 
         // Authority seqno is now 1. Try replaying with seqno 1 (<= current).
         let action = MultisigAction::Update(update.clone());
-        let sig_set = create_signature_set(&admin_sks, &signer_indices, &action, 1);
+        let sig_set = create_signature_set(&admin_sks, &signer_indices, &action, 1, TEST_NETWORK);
 
         let payload = SignedPayload::new(1, action, sig_set);
         let res = handle_action(
             &mut state,
             payload,
             current_height,
+            TEST_NETWORK,
             &mut relayer,
             &mut BlockUpdateGuard::default(),
         );
@@ -674,12 +694,13 @@ mod tests {
 
         // Try with seqno 0, which is also <= current seqno of 1.
         let action = MultisigAction::Update(update.clone());
-        let sig_set = create_signature_set(&admin_sks, &signer_indices, &action, 0);
+        let sig_set = create_signature_set(&admin_sks, &signer_indices, &action, 0, TEST_NETWORK);
         let payload = SignedPayload::new(0, action, sig_set);
         let res = handle_action(
             &mut state,
             payload,
             current_height,
+            TEST_NETWORK,
             &mut relayer,
             &mut BlockUpdateGuard::default(),
         );
@@ -723,14 +744,20 @@ mod tests {
 
             let payload_seqno = last_seqno + 1;
             let action = MultisigAction::Update(update.clone());
-            let sig_set =
-                create_signature_set(&seq_manager_sks, &signer_indices, &action, payload_seqno);
+            let sig_set = create_signature_set(
+                &seq_manager_sks,
+                &signer_indices,
+                &action,
+                payload_seqno,
+                TEST_NETWORK,
+            );
 
             let payload = SignedPayload::new(payload_seqno, action, sig_set);
             handle_action(
                 &mut state,
                 payload,
                 current_height,
+                TEST_NETWORK,
                 &mut relayer,
                 &mut BlockUpdateGuard::default(),
             )
@@ -1147,14 +1174,20 @@ mod tests {
             let payload_seqno = last_seqno + 1;
             let update_action = MultisigAction::Update(update);
 
-            let sig_set =
-                create_signature_set(&admin_sks, &signer_indices, &update_action, payload_seqno);
+            let sig_set = create_signature_set(
+                &admin_sks,
+                &signer_indices,
+                &update_action,
+                payload_seqno,
+                TEST_NETWORK,
+            );
 
             let payload = SignedPayload::new(payload_seqno, update_action, sig_set);
             handle_action(
                 &mut state,
                 payload,
                 current_height,
+                TEST_NETWORK,
                 &mut relayer,
                 &mut BlockUpdateGuard::default(),
             )
@@ -1176,14 +1209,20 @@ mod tests {
             let initial_next_id = state.next_update_id();
             let initial_queued_len = state.queued().len();
 
-            let sig_set =
-                create_signature_set(&admin_sks, &signer_indices, &cancel_action, payload_seqno);
+            let sig_set = create_signature_set(
+                &admin_sks,
+                &signer_indices,
+                &cancel_action,
+                payload_seqno,
+                TEST_NETWORK,
+            );
 
             let payload = SignedPayload::new(payload_seqno, cancel_action, sig_set);
             handle_action(
                 &mut state,
                 payload,
                 current_height,
+                TEST_NETWORK,
                 &mut relayer,
                 &mut BlockUpdateGuard::default(),
             )
@@ -1223,13 +1262,19 @@ mod tests {
         let cancel_action = MultisigAction::Cancel(CancelAction::new(nonexistent_id, update));
 
         let payload_seqno = 1;
-        let sig_set =
-            create_signature_set(&admin_sks, &signer_indices, &cancel_action, payload_seqno);
+        let sig_set = create_signature_set(
+            &admin_sks,
+            &signer_indices,
+            &cancel_action,
+            payload_seqno,
+            TEST_NETWORK,
+        );
         let payload = SignedPayload::new(payload_seqno, cancel_action, sig_set);
         let res = handle_action(
             &mut state,
             payload,
             current_height,
+            TEST_NETWORK,
             &mut relayer,
             &mut BlockUpdateGuard::default(),
         );
@@ -1262,14 +1307,20 @@ mod tests {
 
         // Use seqno > initial (0) to pass validation
         let update_seqno = last_seqno + 1;
-        let sig_set =
-            create_signature_set(&admin_sks, &signer_indices, &update_action, update_seqno);
+        let sig_set = create_signature_set(
+            &admin_sks,
+            &signer_indices,
+            &update_action,
+            update_seqno,
+            TEST_NETWORK,
+        );
 
         let payload = SignedPayload::new(update_seqno, update_action, sig_set);
         handle_action(
             &mut state,
             payload,
             current_height,
+            TEST_NETWORK,
             &mut relayer,
             &mut BlockUpdateGuard::default(),
         )
@@ -1278,14 +1329,20 @@ mod tests {
         // Cancel the update action (authority seqno is now 1, use seqno 2)
         let cancel_action = MultisigAction::Cancel(CancelAction::new(update_id, update.clone()));
         let cancel_seqno = last_seqno + 2;
-        let sig_set =
-            create_signature_set(&admin_sks, &signer_indices, &cancel_action, cancel_seqno);
+        let sig_set = create_signature_set(
+            &admin_sks,
+            &signer_indices,
+            &cancel_action,
+            cancel_seqno,
+            TEST_NETWORK,
+        );
 
         let payload = SignedPayload::new(cancel_seqno, cancel_action, sig_set);
         let res = handle_action(
             &mut state,
             payload,
             current_height,
+            TEST_NETWORK,
             &mut relayer,
             &mut BlockUpdateGuard::default(),
         );
@@ -1295,13 +1352,19 @@ mod tests {
         // Try cancelling the update action again (authority seqno is now 2, use seqno 3)
         let cancel_action = MultisigAction::Cancel(CancelAction::new(update_id, update));
         let retry_seqno = last_seqno + 3;
-        let sig_set =
-            create_signature_set(&admin_sks, &signer_indices, &cancel_action, retry_seqno);
+        let sig_set = create_signature_set(
+            &admin_sks,
+            &signer_indices,
+            &cancel_action,
+            retry_seqno,
+            TEST_NETWORK,
+        );
         let payload = SignedPayload::new(retry_seqno, cancel_action, sig_set);
         let res = handle_action(
             &mut state,
             payload,
             current_height,
+            TEST_NETWORK,
             &mut relayer,
             &mut BlockUpdateGuard::default(),
         );
@@ -1323,12 +1386,13 @@ mod tests {
 
         // First action at seqno 1 (last_seqno is 0)
         let action = MultisigAction::Update(updates[0].clone());
-        let sig_set = create_signature_set(&admin_sks, &signer_indices, &action, 1);
+        let sig_set = create_signature_set(&admin_sks, &signer_indices, &action, 1, TEST_NETWORK);
         let payload = SignedPayload::new(1, action, sig_set);
         handle_action(
             &mut state,
             payload,
             current_height,
+            TEST_NETWORK,
             &mut relayer,
             &mut BlockUpdateGuard::default(),
         )
@@ -1337,12 +1401,19 @@ mod tests {
         // Second action at seqno 11 (last_seqno is 1, gap = 10 = max_seqno_gap)
         let gap_seqno = 1 + state.max_seqno_gap().get() as u64;
         let action = MultisigAction::Update(updates[1].clone());
-        let sig_set = create_signature_set(&admin_sks, &signer_indices, &action, gap_seqno);
+        let sig_set = create_signature_set(
+            &admin_sks,
+            &signer_indices,
+            &action,
+            gap_seqno,
+            TEST_NETWORK,
+        );
         let payload = SignedPayload::new(gap_seqno, action, sig_set);
         let res = handle_action(
             &mut state,
             payload,
             current_height,
+            TEST_NETWORK,
             &mut relayer,
             &mut BlockUpdateGuard::default(),
         );
@@ -1367,12 +1438,19 @@ mod tests {
         // Try action at seqno 11 (last_seqno is 0, gap = 11 > max_seqno_gap of 10)
         let too_far_seqno = state.max_seqno_gap().get() as u64 + 1;
         let action = MultisigAction::Update(update);
-        let sig_set = create_signature_set(&admin_sks, &signer_indices, &action, too_far_seqno);
+        let sig_set = create_signature_set(
+            &admin_sks,
+            &signer_indices,
+            &action,
+            too_far_seqno,
+            TEST_NETWORK,
+        );
         let payload = SignedPayload::new(too_far_seqno, action, sig_set);
         let res = handle_action(
             &mut state,
             payload,
             current_height,
+            TEST_NETWORK,
             &mut relayer,
             &mut BlockUpdateGuard::default(),
         );

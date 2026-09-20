@@ -43,6 +43,7 @@ impl RenderSigningMessage for CancelAction {
 
 #[cfg(test)]
 mod tests {
+    use bitcoin::Network;
     use strata_identifiers::Buf32;
 
     use crate::{
@@ -57,7 +58,7 @@ mod tests {
         let update = UpdateAction::Sequencer(SequencerUpdate::new(Buf32::from([0x11u8; 32])));
         let action = MultisigAction::Cancel(CancelAction::new(7, update));
 
-        let message = SigningMessage::for_action(&action, 9);
+        let message = SigningMessage::for_action(&action, 9, Network::Regtest);
         assert_eq!(
             message.as_str(),
             "Strata ASM Administration v1\n\

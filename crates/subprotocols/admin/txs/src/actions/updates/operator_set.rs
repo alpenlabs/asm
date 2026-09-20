@@ -68,6 +68,8 @@ impl RenderSigningMessage for OperatorSetUpdate {
 
 #[cfg(test)]
 mod tests {
+    use bitcoin::Network;
+
     use super::*;
     use crate::{
         actions::{MultisigAction, UpdateAction},
@@ -87,7 +89,7 @@ mod tests {
         let update = OperatorSetUpdate::new(vec![pk], vec![5]);
         let action = MultisigAction::Update(UpdateAction::OperatorSet(update));
 
-        let message = SigningMessage::for_action(&action, 9);
+        let message = SigningMessage::for_action(&action, 9, Network::Regtest);
         assert_eq!(
             message.as_str(),
             "Strata ASM Administration v1\n\

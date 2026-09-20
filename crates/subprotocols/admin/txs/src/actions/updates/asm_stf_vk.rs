@@ -35,6 +35,7 @@ impl RenderSigningMessage for AsmStfVkUpdate {
 
 #[cfg(test)]
 mod tests {
+    use bitcoin::Network;
     use strata_crypto::hash;
     use strata_predicate::PredicateTypeId;
 
@@ -53,7 +54,7 @@ mod tests {
         let update = AsmStfVkUpdate::new(key);
         let action = MultisigAction::Update(UpdateAction::AsmStfVk(update));
 
-        let message = SigningMessage::for_action(&action, 5);
+        let message = SigningMessage::for_action(&action, 5, Network::Regtest);
         assert_eq!(
             message.as_str(),
             format!(

@@ -35,6 +35,7 @@ impl RenderSigningMessage for OlStfVkUpdate {
 
 #[cfg(test)]
 mod tests {
+    use bitcoin::Network;
     use strata_predicate::PredicateTypeId;
 
     use super::*;
@@ -50,7 +51,7 @@ mod tests {
         let update = OlStfVkUpdate::new(key);
         let action = MultisigAction::Update(UpdateAction::OlStfVk(update));
 
-        let message = SigningMessage::for_action(&action, 3);
+        let message = SigningMessage::for_action(&action, 3, Network::Regtest);
         assert_eq!(
             message.as_str(),
             "Strata ASM Administration v1\n\

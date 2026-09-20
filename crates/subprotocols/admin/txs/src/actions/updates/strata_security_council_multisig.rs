@@ -41,6 +41,7 @@ impl RenderSigningMessage for StrataSecurityCouncilMultisigUpdate {
 mod tests {
     use std::num::NonZero;
 
+    use bitcoin::Network;
     use strata_asm_admin_threshold_sig::P2wpkhAddress;
 
     use super::*;
@@ -62,7 +63,7 @@ mod tests {
         );
         let action = MultisigAction::Update(UpdateAction::StrataSecurityCouncilMultisig(update));
 
-        let message = SigningMessage::for_action(&action, 7);
+        let message = SigningMessage::for_action(&action, 7, Network::Regtest);
         assert_eq!(
             message.as_str(),
             "Strata ASM Administration v1\n\
@@ -72,7 +73,7 @@ mod tests {
              Action Details:\n  \
              New Threshold: 2\n  \
              Members to Add: 1\n  \
-             1. Add Member: 0202020202020202020202020202020202020202\n  \
+             1. Add Member: bcrt1qqgpqyqszqgpqyqszqgpqyqszqgpqyqszazmwwa\n  \
              Members to Remove: 0",
         );
     }

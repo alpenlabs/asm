@@ -26,7 +26,7 @@ use harness::{
     admin::{
         assert_only_required_role_can_send, cancel_update, ee_stf_vk_update,
         multisig_config_update, ol_stf_vk_update, operator_set_update, sequencer_update, AdminExt,
-        DEFAULT_CONFIRMATION_DEPTH,
+        DEFAULT_CONFIRMATION_DEPTH, HARNESS_NETWORK,
     },
     test_harness::{AsmTestHarnessBuilder, Setup},
 };
@@ -323,7 +323,7 @@ async fn test_wrong_key_rejected() {
     // Sign with wrong key
     let action = sequencer_update([2u8; 32]);
     let seqno = 1;
-    let sig_set = create_signature_set(&[wrong_privkey], &[0u8], &action, seqno);
+    let sig_set = create_signature_set(&[wrong_privkey], &[0u8], &action, seqno, HARNESS_NETWORK);
     let signed = SignedPayload::new(seqno, action.clone(), sig_set);
     let payload = signed.into_envelope_bytes();
 
@@ -359,8 +359,13 @@ async fn test_corrupted_signature_rejected() {
     let action = sequencer_update([88u8; 32]);
     let seqno = 1;
     let role = action.required_role();
-    let sig_set =
-        create_signature_set(ctx.privkeys(role), ctx.signer_indices(role), &action, seqno);
+    let sig_set = create_signature_set(
+        ctx.privkeys(role),
+        ctx.signer_indices(role),
+        &action,
+        seqno,
+        HARNESS_NETWORK,
+    );
 
     // Corrupt the signature
     let mut indexed_sigs = sig_set.into_inner();

@@ -1,5 +1,6 @@
 use std::num::NonZero;
 
+use bitcoin::Network;
 use ssz_derive::{Decode, Encode};
 use strata_asm_admin_threshold_sig::{ThresholdConfig, verify_threshold_signatures};
 use strata_asm_admin_types::Role;
@@ -59,10 +60,14 @@ impl MultisigAuthority {
     }
 
     /// Verifies a set of ECDSA signatures against the canonical admin signing message.
+    ///
+    /// `network` is the network the chain is anchored to. It is what any Bitcoin address in
+    /// the action is rendered on, so it is part of what the signers signed over.
     pub fn verify_action_signature(
         &self,
         payload: &SignedPayload,
         max_seqno_gap: NonZero<u8>,
+        network: Network,
     ) -> Result<SeqNoToken, AdministrationError> {
         if payload.seqno <= self.last_seqno {
             return Err(AdministrationError::InvalidSeqno {
@@ -81,7 +86,7 @@ impl MultisigAuthority {
             });
         }
         let message_hash =
-            SigningMessage::for_action(&payload.action, payload.seqno).compute_sighash();
+            SigningMessage::for_action(&payload.action, payload.seqno, network).compute_sighash();
 
         verify_threshold_signatures(
             &self.config,
@@ -144,11 +149,15 @@ mod tests {
         let (authority, secret_key) = create_test_authority(Role::StrataSequencerManager);
         let action = sample_action();
         let seqno = 1;
-        let signatures = create_signature_set(&[secret_key], &[0], &action, seqno);
+        let signatures =
+            create_signature_set(&[secret_key], &[0], &action, seqno, Network::Regtest);
         let payload = SignedPayload::new(seqno, action, signatures);
 
-        let result =
-            authority.verify_action_signature(&payload, NonZero::new(10).expect("non-zero"));
+        let result = authority.verify_action_signature(
+            &payload,
+            NonZero::new(10).expect("non-zero"),
+            Network::Regtest,
+        );
 
         assert!(result.is_ok());
     }

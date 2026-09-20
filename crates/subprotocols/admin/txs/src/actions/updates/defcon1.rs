@@ -26,6 +26,8 @@ impl RenderSigningMessage for Defcon1Update {
 
 #[cfg(test)]
 mod tests {
+    use bitcoin::Network;
+
     use super::*;
     use crate::{
         actions::{MultisigAction, UpdateAction},
@@ -36,7 +38,7 @@ mod tests {
     fn defcon1_renders_signing_message() {
         let action = MultisigAction::Update(UpdateAction::Defcon1(Defcon1Update));
 
-        let message = SigningMessage::for_action(&action, 42);
+        let message = SigningMessage::for_action(&action, 42, Network::Regtest);
         assert_eq!(
             message.as_str(),
             "Strata ASM Administration v1\n\
