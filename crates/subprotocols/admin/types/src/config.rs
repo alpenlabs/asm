@@ -3,7 +3,6 @@ use std::num::NonZero;
 #[cfg(feature = "arbitrary")]
 use arbitrary::Arbitrary;
 use serde::{Deserialize, Serialize};
-use ssz_derive::{Decode, Encode};
 use strata_asm_admin_threshold_sig::ThresholdConfig;
 
 use crate::{ConfirmationDepths, Role};
@@ -16,7 +15,7 @@ use crate::{ConfirmationDepths, Role};
 /// provided when constructing this struct. However, it does NOT prevent logical errors
 /// like using the same config for multiple roles or mismatched role-field assignments.
 /// The benefit is avoiding missing fields at compile-time rather than runtime validation.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, Encode, Decode)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct AdministrationInitConfig {
     /// ThresholdConfig for [StrataAdministrator](Role::StrataAdministrator).
     pub strata_administrator: ThresholdConfig,
@@ -37,7 +36,6 @@ pub struct AdministrationInitConfig {
     ///
     /// A payload with `seqno > last_seqno + max_seqno_gap` is rejected. This prevents
     /// excessively large jumps in sequence numbers while still allowing non-sequential usage.
-    #[ssz(with = "non_zero_u8")]
     pub max_seqno_gap: NonZero<u8>,
 }
 
@@ -100,76 +98,5 @@ impl<'a> Arbitrary<'a> for AdministrationInitConfig {
             confirmation_depths,
             max_seqno_gap,
         })
-    }
-}
-
-#[expect(unreachable_pub, reason = "used by ssz_derive field adapters")]
-mod non_zero_u8 {
-    pub mod encode {
-        use std::num::NonZero;
-
-        use ssz::Encode as SszEncode;
-
-        pub fn is_ssz_fixed_len() -> bool {
-            <u8 as SszEncode>::is_ssz_fixed_len()
-        }
-
-        pub fn ssz_fixed_len() -> usize {
-            <u8 as SszEncode>::ssz_fixed_len()
-        }
-
-        pub fn ssz_bytes_len(value: &NonZero<u8>) -> usize {
-            value.get().ssz_bytes_len()
-        }
-
-        pub fn ssz_append(value: &NonZero<u8>, buf: &mut Vec<u8>) {
-            value.get().ssz_append(buf);
-        }
-    }
-
-    pub mod decode {
-        use std::num::NonZero;
-
-        use ssz::{Decode as SszDecode, DecodeError};
-
-        pub fn is_ssz_fixed_len() -> bool {
-            <u8 as SszDecode>::is_ssz_fixed_len()
-        }
-
-        pub fn ssz_fixed_len() -> usize {
-            <u8 as SszDecode>::ssz_fixed_len()
-        }
-
-        pub fn from_ssz_bytes(bytes: &[u8]) -> Result<NonZero<u8>, DecodeError> {
-            let value = u8::from_ssz_bytes(bytes)?;
-            NonZero::new(value)
-                .ok_or_else(|| DecodeError::BytesInvalid("max_seqno_gap must be non-zero".into()))
-        }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use std::num::NonZero;
-
-    use proptest::prelude::*;
-
-    use super::non_zero_u8;
-
-    proptest! {
-        #[test]
-        fn test_non_zero_u8_ssz_roundtrip(raw in 1u8..=u8::MAX) {
-            let value = NonZero::new(raw).expect("raw is non-zero");
-            let mut buf = Vec::new();
-            non_zero_u8::encode::ssz_append(&value, &mut buf);
-            let decoded = non_zero_u8::decode::from_ssz_bytes(&buf)
-                .expect("roundtrip should succeed for non-zero u8");
-            prop_assert_eq!(decoded, value);
-        }
-    }
-
-    #[test]
-    fn test_non_zero_u8_ssz_decode_zero_fails() {
-        assert!(non_zero_u8::decode::from_ssz_bytes(&[0u8]).is_err());
     }
 }
