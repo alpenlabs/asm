@@ -14,15 +14,6 @@ pub enum ThresholdSignatureError {
         required: usize,
     },
 
-    /// Invalid public key data.
-    #[error("invalid public key{}: {reason}", index.map(|i| format!(" at index {}", i)).unwrap_or_default())]
-    InvalidPublicKey {
-        /// Optional index of the invalid key.
-        index: Option<usize>,
-        /// Description of why the key is invalid.
-        reason: String,
-    },
-
     /// Invalid threshold value.
     #[error("invalid threshold: {threshold} exceeds total keys {total_keys}")]
     InvalidThreshold {
@@ -84,13 +75,4 @@ pub enum ThresholdSignatureError {
         /// Maximum number of signers allowed ([`MAX_SIGNERS`](crate::MAX_SIGNERS)).
         max: usize,
     },
-}
-
-impl From<secp256k1::Error> for ThresholdSignatureError {
-    fn from(e: secp256k1::Error) -> Self {
-        Self::InvalidPublicKey {
-            index: None,
-            reason: e.to_string(),
-        }
-    }
 }
