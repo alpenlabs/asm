@@ -15,7 +15,6 @@ ssz_derive.workspace = true
 strata-asm-common.workspace = true
 strata-asm-logs.workspace = true
 strata-asm-params = { workspace = true, optional = true }
-strata-asm-spec.workspace = true
 strata-asm-stf.workspace = true
 strata-btc-types = { workspace = true, optional = true }
 strata-btc-verification.workspace = true
@@ -29,7 +28,11 @@ zkaleido.workspace = true
 arbitrary = { workspace = true, optional = true }
 bitcoin.workspace = true
 
+# `strata-asm-spec` is only reachable from host-side code: `program.rs` is gated on this same
+# cfg, and `test_utils` is feature-gated and host-only. Keeping it here avoids tripping
+# `unused_crate_dependencies` in the zkVM guest build.
 [target.'cfg(not(target_os = "zkvm"))'.dependencies]
+strata-asm-spec.workspace = true
 zkaleido-native-adapter.workspace = true
 
 [features]
