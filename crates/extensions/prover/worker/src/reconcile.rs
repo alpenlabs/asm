@@ -15,7 +15,6 @@ use crate::{
     errors::{ProverError, ProverResult},
     proof_store::{self, ProofSource},
     state::ProverServiceState,
-    verify,
 };
 
 /// Polls all in-progress remote proofs and stores any that have completed.
@@ -118,12 +117,9 @@ where
     // having failed outright would not, so treat it the same way and let the
     // scheduler prove the block again. Failing to read our own state is a
     // different problem and propagates instead.
-    let expected_state = verify::expected_state_commitment(&state.ctx, &proof_id).await?;
-    if let Err(e) = state
-        .input_builder
-        .verifier()
-        .verify(&proof_id, &receipt, &expected_state)
-    {
+    let verifier = state.input_builder.verifier();
+    let expected = verifier.expected_attestation(&state.ctx, &proof_id).await?;
+    if let Err(e) = verifier.verify(&receipt, &expected) {
         error!(%proof_id, %remote_id, %e, "completed proof failed verification, discarding it");
         return discard_submission(&state.ctx, remote_id).await;
     }

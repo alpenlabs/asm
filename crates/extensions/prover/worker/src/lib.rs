@@ -43,7 +43,7 @@ pub use message::ProverMessage;
 pub use service::ProverService;
 pub use state::ProverServiceState;
 pub use traits::{AnchorStateReader, AuxDataReader, L1BlockProvider, ProverContext};
-pub use verify::{ProofVerifier, VerifyError};
+pub use verify::{EndpointMismatch, ExpectedAttestation, ProofVerifier, VerifyError};
 // In `sp1` builds the native host path is compiled out, leaving the
 // `zkaleido-native-adapter` dependency otherwise unused; this keeps the
 // `unused_crate_dependencies` lint satisfied.

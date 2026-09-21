@@ -41,7 +41,7 @@ use crate::{
     queue::PendingProofQueue,
     schedule,
     state::{PeerHealth, ProverServiceState},
-    verify::{self, ProofVerifier},
+    verify::ProofVerifier,
 };
 
 /// Probes the peer and either fetches available proofs or falls back to local
@@ -355,8 +355,11 @@ where
             return Ok(FetchOutcome::NotAvailable);
         };
 
-        let expected_state = verify::expected_state_commitment(self.ctx, &proof_id).await?;
-        if let Err(e) = self.verifier.verify(&proof_id, &receipt, &expected_state) {
+        let expected = self
+            .verifier
+            .expected_attestation(self.ctx, &proof_id)
+            .await?;
+        if let Err(e) = self.verifier.verify(&receipt, &expected) {
             warn!(%proof_id, %e, "peer served a proof that does not verify, discarding it");
             return Ok(FetchOutcome::Invalid);
         }
