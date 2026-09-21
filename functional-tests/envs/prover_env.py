@@ -34,6 +34,13 @@ class ProverEnv(BasicEnv):
             max_concurrent_proofs=4,
             proof_db_path=proof_db_path,
             backend=_backend_config(),
+            asm_predicate=(
+                os.environ["ASM_EXPECTED_PREDICATE"]
+                if os.environ.get("ASM_PROVER_BACKEND", "native") == "sp1"
+                else (
+                    "Bip340Schnorr:1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f"
+                )
+            ),
         )
 
 

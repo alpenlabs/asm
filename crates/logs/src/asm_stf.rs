@@ -1,4 +1,4 @@
-use strata_asm_common::AsmLog;
+use strata_asm_common::{AsmLog, AsmLogEntry};
 use strata_codec::{Codec, CodecError, Decoder, Encoder};
 use strata_codec_utils::CodecSsz;
 use strata_msg_fmt::TypeId;
@@ -41,6 +41,19 @@ impl Codec for AsmStfUpdate {
 
 impl AsmLog for AsmStfUpdate {
     const TY: TypeId = AsmLogTypeId::AsmStfUpdate as TypeId;
+}
+
+/// Extracts the next [`PredicateKey`] advertised by an STF step, if any.
+///
+/// Scans `logs` for an [`AsmStfUpdate`] entry and returns the new predicate.
+/// When no update is emitted the caller should carry the previous predicate
+/// forward.
+pub fn extract_next_predicate_from_logs(logs: &[AsmLogEntry]) -> Option<PredicateKey> {
+    logs.iter().find_map(|log| {
+        log.try_into_log::<AsmStfUpdate>()
+            .ok()
+            .map(|update| update.new_predicate().clone())
+    })
 }
 
 #[cfg(test)]

@@ -11,7 +11,7 @@ pub mod deposit;
 mod ee_predicate_update;
 pub mod export;
 
-pub use asm_stf::AsmStfUpdate;
+pub use asm_stf::{extract_next_predicate_from_logs, AsmStfUpdate};
 pub use checkpoint::CheckpointTipUpdate;
 pub use checkpoint_predicate_enacted::CheckpointPredicateEnacted;
 pub use deposit::DepositLog;

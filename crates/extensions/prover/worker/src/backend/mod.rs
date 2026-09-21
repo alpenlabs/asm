@@ -58,9 +58,9 @@ impl ProofBackend {
     ///   build features (e.g. `Sp1` requested without the `sp1` feature).
     /// - Returns an error if either host cannot be constructed (e.g. a guest ELF cannot be read in
     ///   `sp1` builds) or if either host's verifying key cannot be turned into a [`PredicateKey`].
-    pub async fn new(cfg: &BackendConfig) -> ProverResult<Self> {
+    pub async fn new(cfg: &BackendConfig, expected_predicate: &PredicateKey) -> ProverResult<Self> {
         let (asm_host, moho_host) = build_proof_hosts(cfg).await?;
-        let asm_host = AsmProofHost::bind::<StrataAsmSpec>(asm_host)?;
+        let asm_host = AsmProofHost::bind_expected::<StrataAsmSpec>(asm_host, expected_predicate)?;
         let moho_predicate = resolve_predicate(&moho_host)?;
         Ok(Self {
             asm_host,

@@ -1,9 +1,10 @@
-use strata_asm_common::AsmSpec;
+use strata_asm_common::AnchorState;
+use strata_predicate::PredicateKey;
 use strata_service::ServiceBuilder;
 use strata_tasks::TaskExecutor;
 
 use crate::{
-    Subscribers, constants,
+    ExecutionRegistry, Subscribers, constants,
     errors::{WorkerError, WorkerResult},
     handle::AsmWorkerHandle,
     service::AsmWorkerService,
@@ -18,23 +19,21 @@ use crate::{
 /// from leaking into the caller. The builder launches the service and returns
 /// a handle to it.
 ///
-/// Generic over the worker context `W` and the ASM spec `S`, so callers can
-/// inject alternative specs (e.g. a debug-wrapped spec for testing) without
-/// forking the worker.
+/// Receives spec-owned genesis and a registry of compiled execution targets.
 #[derive(Debug)]
-pub struct AsmWorkerBuilder<W, S: AsmSpec> {
+pub struct AsmWorkerBuilder<W> {
     context: Option<W>,
-    params: Option<S::GenesisParams>,
-    spec: Option<S>,
+    genesis: Option<(AnchorState, PredicateKey)>,
+    registry: Option<ExecutionRegistry>,
 }
 
-impl<W, S: AsmSpec> AsmWorkerBuilder<W, S> {
+impl<W> AsmWorkerBuilder<W> {
     /// Create a new builder instance.
     pub fn new() -> Self {
         Self {
             context: None,
-            params: None,
-            spec: None,
+            genesis: None,
+            registry: None,
         }
     }
 
@@ -44,18 +43,15 @@ impl<W, S: AsmSpec> AsmWorkerBuilder<W, S> {
         self
     }
 
-    /// Set the ASM parameters used to construct the genesis state.
-    pub fn with_params(mut self, params: S::GenesisParams) -> Self {
-        self.params = Some(params);
+    /// Supplies direct spec-owned genesis and its initial program authority.
+    pub fn with_genesis(mut self, state: AnchorState, predicate: PredicateKey) -> Self {
+        self.genesis = Some((state, predicate));
         self
     }
 
-    /// Set the ASM spec driving the subprotocol pipeline.
-    ///
-    /// Production deployments pass `StrataAsmSpec`; tests can pass a wrapped
-    /// debug spec to inject extra subprotocols.
-    pub fn with_asm_spec(mut self, spec: S) -> Self {
-        self.spec = Some(spec);
+    /// Supplies supported native targets without granting activation authority.
+    pub fn with_registry(mut self, registry: ExecutionRegistry) -> Self {
+        self.registry = Some(registry);
         self
     }
 
@@ -67,16 +63,16 @@ impl<W, S: AsmSpec> AsmWorkerBuilder<W, S> {
     pub fn launch(self, executor: &TaskExecutor) -> WorkerResult<AsmWorkerHandle>
     where
         W: WorkerContext + Send + Sync + 'static,
-        S: AsmSpec + Send + Sync + 'static,
-        S::GenesisParams: Send + Sync + 'static,
     {
         let context = self
             .context
             .ok_or(WorkerError::MissingDependency("context"))?;
-        let params = self
-            .params
-            .ok_or(WorkerError::MissingDependency("params"))?;
-        let spec = self.spec.ok_or(WorkerError::MissingDependency("spec"))?;
+        let (genesis, predicate) = self
+            .genesis
+            .ok_or(WorkerError::MissingDependency("genesis"))?;
+        let registry = self
+            .registry
+            .ok_or(WorkerError::MissingDependency("registry"))?;
 
         // Shared between the service state (which emits) and the handle (which
         // hands out subscriptions), so a `subscribe_blocks()` on the handle
@@ -84,11 +80,12 @@ impl<W, S: AsmSpec> AsmWorkerBuilder<W, S> {
         let subscribers = Subscribers::default();
 
         // Create the service state.
-        let service_state = AsmWorkerServiceState::new(context, spec, params, subscribers.clone())?;
+        let service_state =
+            AsmWorkerServiceState::new(context, genesis, predicate, registry, subscribers.clone())?;
 
         // Create the service builder and get command handle.
         let mut service_builder =
-            ServiceBuilder::<AsmWorkerService<W, S>, _>::new().with_state(service_state);
+            ServiceBuilder::<AsmWorkerService<W>, _>::new().with_state(service_state);
 
         // Create the command handle before launching.
         let command_handle = service_builder.create_command_handle(64);
@@ -106,7 +103,7 @@ impl<W, S: AsmSpec> AsmWorkerBuilder<W, S> {
     }
 }
 
-impl<W, S: AsmSpec> Default for AsmWorkerBuilder<W, S> {
+impl<W> Default for AsmWorkerBuilder<W> {
     fn default() -> Self {
         Self::new()
     }

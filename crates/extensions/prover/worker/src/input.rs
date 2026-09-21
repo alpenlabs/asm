@@ -29,12 +29,11 @@ const NEXT_PREDICATE_LEAF_INDEX: usize = 1;
 /// Builds [`RuntimeInput`] for proof generation, dispatching by proof type.
 ///
 /// Holds only the values that are fixed for the lifetime of the prover (the
-/// genesis commitment and the two predicate keys); all per-block data is read
+/// genesis commitment and the Moho predicate); all per-block data is read
 /// from the [`ProverContext`] passed to each method.
 #[derive(Debug)]
 pub struct InputBuilder {
     genesis: L1BlockCommitment,
-    asm_predicate: PredicateKey,
     moho_predicate: PredicateKey,
 }
 
@@ -56,14 +55,9 @@ pub enum MohoInput {
 
 impl InputBuilder {
     /// Creates a new input builder.
-    pub fn new(
-        genesis: L1BlockCommitment,
-        asm_predicate: PredicateKey,
-        moho_predicate: PredicateKey,
-    ) -> Self {
+    pub fn new(genesis: L1BlockCommitment, moho_predicate: PredicateKey) -> Self {
         Self {
             genesis,
-            asm_predicate,
             moho_predicate,
         }
     }
@@ -113,6 +107,14 @@ impl InputBuilder {
         ctx: &C,
         range: &L1Range,
     ) -> ProverResult<RuntimeInput> {
+        // The current ASM input contains one block. Reject larger ranges
+        // rather than proving only the first block of the requested range.
+        // Future multi-block support must cover every requested block and handle
+        // upgrade boundaries, where the authorized execution predicate changes:
+        // split the range at those boundaries or compose proofs across programs.
+        if range.start() != range.end() {
+            return Err(ProverError::UnsupportedAsmRange);
+        }
         let commitment = range.start();
 
         // 1. Fetch the Bitcoin block.
@@ -225,10 +227,9 @@ impl InputBuilder {
 
         let moho_predicate = self.moho_predicate.clone();
 
-        // The inner step proof is the ASM STF proof, so the step predicate is
-        // the ASM predicate.
-        let step_predicate = self.asm_predicate.clone();
+        // Verify this step under its parent's authority, not the startup artifact.
         let parent_state = self.get_moho_state(ctx, parent).await?;
+        let step_predicate = parent_state.next_predicate().clone();
 
         let leaves = [
             <_ as TreeHash>::tree_hash_root::<TreeSha256Hasher>(&parent_state.inner_state)

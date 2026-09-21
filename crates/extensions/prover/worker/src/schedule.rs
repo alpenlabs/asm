@@ -50,8 +50,7 @@ where
         moho: &state.moho,
         input_builder: &state.input_builder,
     };
-    schedule_with(&mut state.queue, &mut submitter, capacity).await;
-    Ok(())
+    schedule_with(&mut state.queue, &mut submitter, capacity).await
 }
 
 /// Outcome of a single [`ProofSubmitter::try_submit`] call.
@@ -98,7 +97,8 @@ trait ProofSubmitter {
 /// behind them — typically the next ASM step proof — still gets submitted within
 /// the same tick. Deferred proofs (and submission errors) are parked in a local
 /// buffer and re-enqueued at the end, so the same blocked item is not popped
-/// twice within one loop. All submission errors are absorbed and logged.
+/// twice within one loop. Transient submission errors are absorbed; unsupported programs stop the
+/// service.
 ///
 /// A deferral also enqueues the proof's missing prerequisites, which recurses
 /// through the loop itself: a deferred Moho proof pulls in its parent's Moho
@@ -111,7 +111,7 @@ async fn schedule_with<S: ProofSubmitter>(
     queue: &mut PendingProofQueue,
     submitter: &mut S,
     mut capacity: usize,
-) {
+) -> ProverResult<()> {
     let mut deferred: Vec<ProofId> = Vec::new();
 
     while capacity > 0 {
@@ -141,6 +141,16 @@ async fn schedule_with<S: ProofSubmitter>(
                 }
                 deferred.push(proof_id);
             }
+            Err(
+                e
+                @ (ProverError::UnsupportedAsmPredicate { .. } | ProverError::UnsupportedAsmRange),
+            ) => {
+                queue.enqueue(proof_id);
+                for id in deferred {
+                    queue.enqueue(id);
+                }
+                return Err(e);
+            }
             Err(e) => {
                 warn!(?proof_id, %e, "failed to submit proof, re-enqueuing");
                 deferred.push(proof_id);
@@ -151,6 +161,7 @@ async fn schedule_with<S: ProofSubmitter>(
     for id in deferred {
         queue.enqueue(id);
     }
+    Ok(())
 }
 
 /// [`ProofSubmitter`] backed by the service state's context, hosts, and input
@@ -274,6 +285,7 @@ mod tests {
     enum FakeResult {
         Outcome(SubmitOutcome),
         Err,
+        Unsupported,
     }
 
     /// Scriptable [`ProofSubmitter`] for unit tests.
@@ -311,10 +323,30 @@ mod tests {
                 .and_then(|v| (!v.is_empty()).then(|| v.remove(0)));
             match next {
                 Some(FakeResult::Outcome(o)) => Ok(o),
+                Some(FakeResult::Unsupported) => {
+                    Err(ProverError::UnsupportedAsmPredicate { spec_id: 0 })
+                }
                 Some(FakeResult::Err) => Err(ProverError::NotFound("scripted error")),
                 None => Ok(submitted()),
             }
         }
+    }
+
+    #[tokio::test]
+    async fn unsupported_program_stops_scheduling_without_losing_work() {
+        let mut queue = PendingProofQueue::new();
+        queue.enqueue(asm(3));
+        queue.enqueue(asm(4));
+        let mut submitter = FakeSubmitter::default();
+        submitter
+            .script
+            .insert(asm(3), vec![FakeResult::Unsupported]);
+        assert!(matches!(
+            schedule_with(&mut queue, &mut submitter, 2).await,
+            Err(ProverError::UnsupportedAsmPredicate { .. })
+        ));
+        assert_eq!(submitter.call_log, vec![asm(3)]);
+        assert_eq!(queue.len(), 2);
     }
 
     /// Regression test for the defer-and-drain fix: a Moho proof whose
@@ -329,7 +361,7 @@ mod tests {
 
         let mut submitter = FakeSubmitter::default().with(moho(3), vec![deferred()]);
 
-        schedule_with(&mut queue, &mut submitter, 2).await;
+        schedule_with(&mut queue, &mut submitter, 2).await.unwrap();
 
         assert!(submitter.call_log.contains(&asm(4)));
         assert!(submitter.call_log.contains(&asm(5)));
@@ -346,7 +378,7 @@ mod tests {
 
         let mut submitter = FakeSubmitter::default().with(moho(3), vec![deferred()]);
 
-        schedule_with(&mut queue, &mut submitter, 2).await;
+        schedule_with(&mut queue, &mut submitter, 2).await.unwrap();
 
         assert_eq!(
             submitter
@@ -371,7 +403,7 @@ mod tests {
 
         let mut submitter = FakeSubmitter::default().with(asm(3), vec![skipped()]);
 
-        schedule_with(&mut queue, &mut submitter, 1).await;
+        schedule_with(&mut queue, &mut submitter, 1).await.unwrap();
 
         assert_eq!(submitter.call_log, vec![asm(3), asm(4)]);
         assert!(queue.is_empty(), "skipped items are not re-enqueued");
@@ -387,7 +419,7 @@ mod tests {
 
         let mut submitter = FakeSubmitter::default().with_err(asm(3));
 
-        schedule_with(&mut queue, &mut submitter, 1).await;
+        schedule_with(&mut queue, &mut submitter, 1).await.unwrap();
 
         assert_eq!(submitter.call_log, vec![asm(3), asm(4)]);
         assert_eq!(queue.len(), 1);
@@ -402,7 +434,7 @@ mod tests {
 
         let mut submitter = FakeSubmitter::default();
 
-        schedule_with(&mut queue, &mut submitter, 0).await;
+        schedule_with(&mut queue, &mut submitter, 0).await.unwrap();
 
         assert!(submitter.call_log.is_empty());
         assert_eq!(queue.len(), 2);
@@ -416,7 +448,7 @@ mod tests {
 
         let mut submitter = FakeSubmitter::default();
 
-        schedule_with(&mut queue, &mut submitter, 10).await;
+        schedule_with(&mut queue, &mut submitter, 10).await.unwrap();
 
         assert_eq!(submitter.call_log, vec![asm(3), asm(4)]);
         assert!(queue.is_empty());
@@ -434,7 +466,7 @@ mod tests {
             .with(moho(3), vec![deferred_missing(vec![asm(3), moho(2)])])
             .with(moho(2), vec![deferred_missing(vec![asm(2)])]);
 
-        schedule_with(&mut queue, &mut submitter, 4).await;
+        schedule_with(&mut queue, &mut submitter, 4).await.unwrap();
 
         // moho(3) defers pulling in asm(3) + moho(2); moho(2) pops next (lower
         // height), defers pulling in asm(2); both ASM proofs then submit.
@@ -458,7 +490,7 @@ mod tests {
             .with(moho(2), vec![deferred_missing(vec![asm(2)])])
             .with(moho(3), vec![deferred_missing(vec![moho(2)])]);
 
-        schedule_with(&mut queue, &mut submitter, 4).await;
+        schedule_with(&mut queue, &mut submitter, 4).await.unwrap();
 
         // moho(2) is popped exactly once even though moho(3)'s deferral names
         // it as missing.
@@ -479,7 +511,7 @@ mod tests {
 
         // Cycle 1: moho(3) defers, asm(4) submits, moho(3) is re-enqueued.
         let mut submitter = FakeSubmitter::default().with(moho(3), vec![deferred()]);
-        schedule_with(&mut queue, &mut submitter, 2).await;
+        schedule_with(&mut queue, &mut submitter, 2).await.unwrap();
 
         assert_eq!(submitter.call_log, vec![moho(3), asm(4)]);
         assert_eq!(queue.len(), 1);
@@ -487,7 +519,7 @@ mod tests {
         // Cycle 2: moho(3) now succeeds. Reuse the same submitter and queue.
         // The script for moho(3) is exhausted, so it defaults to Submitted.
         queue.enqueue(asm(5));
-        schedule_with(&mut queue, &mut submitter, 2).await;
+        schedule_with(&mut queue, &mut submitter, 2).await.unwrap();
 
         // moho(3) called once more, asm(5) submitted, queue drained, no stray
         // re-enqueues from the previous cycle.

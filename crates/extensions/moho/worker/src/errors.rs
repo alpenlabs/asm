@@ -8,6 +8,10 @@ pub type MohoWorkerResult<T> = Result<T, MohoWorkerError>;
 
 #[derive(Debug, Error)]
 pub enum MohoWorkerError {
+    /// Supplied genesis authority disagrees with the persisted chain.
+    #[error("configured genesis does not match stored Moho genesis")]
+    GenesisMismatch,
+
     /// The ASM anchor state the Moho state derives from was not found. The ASM
     /// worker commits the anchor state before emitting its block notification,
     /// so a miss here means the ASM and Moho stores are out of sync.

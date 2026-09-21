@@ -3,9 +3,25 @@
 use std::{fmt, path::PathBuf, time::Duration};
 
 use serde::{Deserialize, Serialize};
+use strata_asm_common::SpecId;
 use strata_asm_prover_worker::OrchestratorConfig;
 use strata_logging::LoggingInitConfig;
+use strata_predicate::PredicateKey;
 use strata_retry::RetryConfig;
+
+/// Local capabilities and the chain's initial execution authority.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub(crate) struct ExecutionConfig {
+    pub genesis_predicate: PredicateKey,
+    pub targets: Vec<ExecutionTargetConfig>,
+}
+
+/// An immutable, one-to-one association between program identity and a spec ID.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub(crate) struct ExecutionTargetConfig {
+    pub predicate: PredicateKey,
+    pub spec_id: SpecId,
+}
 
 /// Main configuration structure
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -18,6 +34,8 @@ pub(crate) struct AsmRpcConfig {
     pub bitcoin: BitcoinConfig,
     /// Proof orchestrator configuration (optional — omit to disable proof generation).
     pub orchestrator: Option<OrchestratorConfig>,
+    /// Genesis authority and locally supported execution programs, independent of proving.
+    pub execution: ExecutionConfig,
     /// Logging configuration. Omit the `[logging]` section to accept defaults
     /// (stdout, compact format, `RUST_LOG`-driven filter).
     #[serde(default)]
@@ -112,6 +130,12 @@ mod tests {
     // `debug_redacts_bitcoin_rpc_credentials` can search rendered output for
     // them without matching field names or other values.
     const BASE: &str = r#"
+        [execution]
+        genesis_predicate = "AlwaysAccept"
+        [[execution.targets]]
+        predicate = "AlwaysAccept"
+        spec_id = 0
+
         [rpc]
         host = "127.0.0.1"
         port = 8000

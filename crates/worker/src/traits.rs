@@ -87,6 +87,9 @@ pub trait AnchorStateStore {
 
 /// Persists L1 manifests and maintains the manifest-hash MMR.
 pub trait ManifestMmrStore {
+    /// Loads the selected anchor's manifest to recover its child execution authority.
+    fn get_manifest(&self, block: &L1BlockCommitment) -> WorkerResult<AsmManifest>;
+
     /// Persists the full [`AsmManifest`] struct.
     ///
     /// Does not touch the MMR — pair with
