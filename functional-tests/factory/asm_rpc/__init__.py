@@ -15,6 +15,8 @@ from .config_cfg import (
     BitcoinConfig,
     DatabaseConfig,
     Duration,
+    ExecutionConfig,
+    ExecutionTargetConfig,
     OrchestratorConfig,
     RpcConfig,
 )
@@ -114,6 +116,7 @@ def generate_asm_rpc_config(
     orchestrator: OrchestratorConfig | None = None,
 ):
     """Generate ASM RPC configuration TOML file."""
+    predicate = orchestrator.asm_predicate if orchestrator else "AlwaysAccept"
     config = AsmRpcConfig(
         rpc=RpcConfig(host="127.0.0.1", port=rpc_port),
         database=DatabaseConfig(
@@ -132,6 +135,10 @@ def generate_asm_rpc_config(
             retry_interval=Duration(secs=1, nanos=0),
         ),
         orchestrator=orchestrator,
+        execution=ExecutionConfig(
+            genesis_predicate=predicate,
+            targets=[ExecutionTargetConfig(predicate=predicate, spec_id=0)],
+        ),
     )
 
     config_dict = asdict(config)

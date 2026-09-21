@@ -105,8 +105,25 @@ class OrchestratorConfig:
     max_concurrent_proofs: int
     proof_db_path: str
     backend: BackendConfig
+    asm_predicate: str
     # None omits the key, selecting generator mode on the Rust side.
     mode: ProverMode | None = None
+
+
+@dataclass
+class ExecutionTargetConfig:
+    """Association between a supported predicate and a compiled spec."""
+
+    predicate: str
+    spec_id: int
+
+
+@dataclass
+class ExecutionConfig:
+    """Execution identity independent of optional proof generation."""
+
+    genesis_predicate: str
+    targets: list[ExecutionTargetConfig]
 
 
 @dataclass
@@ -116,4 +133,5 @@ class AsmRpcConfig:
     rpc: RpcConfig
     database: DatabaseConfig
     bitcoin: BitcoinConfig
+    execution: ExecutionConfig
     orchestrator: OrchestratorConfig | None = None

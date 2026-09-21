@@ -4,6 +4,7 @@ use std::{fmt, path::PathBuf, time::Duration};
 
 use k256::schnorr::SigningKey;
 use serde::{Deserialize, Serialize};
+use strata_predicate::PredicateKey;
 
 /// Configuration for the proof orchestrator.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -22,6 +23,9 @@ pub struct OrchestratorConfig {
     /// Required in both modes: a follower still proves locally when its peer
     /// is unavailable or lagging.
     pub backend: BackendConfig,
+
+    /// Expected ASM artifact identity, independently supplied from the execution registry.
+    pub asm_predicate: PredicateKey,
 
     /// How the worker obtains proofs. Omit for [`ProverMode::Generator`].
     #[serde(default)]
@@ -148,6 +152,7 @@ mod tests {
         tick_interval = { secs = 1, nanos = 0 }
         max_concurrent_proofs = 4
         proof_db_path = "/tmp/proof-db"
+        asm_predicate = "Bip340Schnorr:1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f"
 
         [backend]
         kind = "native"
@@ -155,7 +160,16 @@ mod tests {
         moho_schnorr_signing_key = "0202020202020202020202020202020202020202020202020202020202020202"
     "#;
 
-    // Pre-existing configs carry no `[mode]` table and must keep parsing as
+    #[cfg(not(feature = "sp1"))]
+    #[tokio::test]
+    async fn native_fixture_matches_independent_expected_predicate() {
+        let config: OrchestratorConfig = toml::from_str(BASE).unwrap();
+        crate::ProofBackend::new(&config.backend, &config.asm_predicate)
+            .await
+            .unwrap();
+    }
+
+    // Configs may omit the `[mode]` table and must keep parsing as
     // generator mode.
     #[test]
     fn mode_defaults_to_generator() {

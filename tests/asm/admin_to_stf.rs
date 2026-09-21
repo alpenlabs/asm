@@ -25,6 +25,7 @@ use strata_asm_proof_impl::{
 };
 use strata_asm_spec::StrataAsmSpec;
 use strata_asm_stf::compute_asm_transition;
+use strata_asm_worker::WorkerError;
 use strata_btc_verification::TxidInclusionProof;
 use strata_predicate::PredicateKey;
 
@@ -188,4 +189,14 @@ async fn test_proof_program_reflects_predicate_update() {
         &expected_post_moho.compute_commitment(),
         "post-state commitment should reflect the updated predicate (never_accept)"
     );
+
+    // The activation block commits under the old program. Its unsupported successor
+    // must fail explicitly before advancing the anchor or waiting for Moho.
+    let committed = harness.get_latest_asm_state().unwrap();
+    let error = harness.mine_block(None).await.unwrap_err();
+    assert!(matches!(
+        error.downcast_ref::<WorkerError>(),
+        Some(WorkerError::UnsupportedExecutionPredicate(_))
+    ));
+    assert_eq!(harness.get_latest_asm_state().unwrap(), committed);
 }

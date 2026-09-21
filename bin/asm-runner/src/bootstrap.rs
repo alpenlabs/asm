@@ -1,12 +1,13 @@
 use std::sync::Arc;
 
-use anyhow::Result;
+use anyhow::{Result, ensure};
 use bitcoind_async_client::{Auth, Client};
+use strata_asm_common::AsmSpec;
 use strata_asm_moho_worker::MohoWorkerBuilder;
 use strata_asm_params::AsmParams;
 use strata_asm_prover_worker::{InputBuilder, ProofBackend, ProverWorkerBuilder};
 use strata_asm_spec::StrataAsmSpec;
-use strata_asm_worker::AsmWorkerBuilder;
+use strata_asm_worker::{AsmWorkerBuilder, ExecutionRegistry};
 use strata_tasks::TaskExecutor;
 use tokio::{runtime::Handle, task};
 
@@ -27,6 +28,19 @@ pub(crate) async fn bootstrap(
     params: AsmParams,
     executor: TaskExecutor,
 ) -> Result<()> {
+    let mut registry = ExecutionRegistry::default();
+    for entry in &config.execution.targets {
+        ensure!(
+            entry.spec_id == StrataAsmSpec::ID,
+            "unsupported compiled ASM spec {}",
+            entry.spec_id
+        );
+        registry.register(entry.predicate.clone(), StrataAsmSpec)?;
+    }
+    let genesis_predicate = config.execution.genesis_predicate.clone();
+    registry.resolve(&genesis_predicate)?;
+    let genesis_state = StrataAsmSpec.construct_genesis_state(&params);
+
     // 1. Create storage. The ASM and Moho stores live in two separate sled DBs; the proof DB is
     //    opened with the orchestrator that owns it (step 3).
     let AsmStorage {
@@ -51,7 +65,11 @@ pub(crate) async fn bootstrap(
     let runtime_handle = Handle::current();
     let orch_prep = if let Some(orch_config) = config.orchestrator {
         let proof_db = create_proof_storage(&orch_config.proof_db_path)?;
-        let backend = ProofBackend::new(&orch_config.backend).await?;
+        ensure!(
+            registry.resolve(&orch_config.asm_predicate)?.spec_id() == StrataAsmSpec::ID,
+            "proof artifact and native execution spec disagree"
+        );
+        let backend = ProofBackend::new(&orch_config.backend, &orch_config.asm_predicate).await?;
         Some((orch_config, proof_db, backend))
     } else {
         None
@@ -81,8 +99,8 @@ pub(crate) async fn bootstrap(
     let asm_worker = task::block_in_place(|| {
         AsmWorkerBuilder::new()
             .with_context(worker_context)
-            .with_asm_spec(StrataAsmSpec)
-            .with_params(params.clone())
+            .with_genesis(genesis_state, genesis_predicate.clone())
+            .with_registry(registry)
             .launch(&executor)
     })?;
 
@@ -117,7 +135,7 @@ pub(crate) async fn bootstrap(
             .with_context(moho_context)
             .with_subscription(asm_worker.subscribe_blocks())
             .with_genesis_block(params.anchor.block)
-            .with_asm_predicate(asm_predicate.clone())
+            .with_asm_predicate(genesis_predicate)
             .launch(&executor)
             .await?;
 

@@ -51,14 +51,14 @@ use bitcoind_async_client::{
 use corepc_node::Node;
 use moho_types::MohoState;
 use rand::RngCore;
-use strata_asm_common::{AnchorState, AsmLogEntry};
+use strata_asm_common::{AnchorState, AsmLogEntry, AsmSpec};
 use strata_asm_manifest_types::AsmLog;
 use strata_asm_moho_worker::{MohoStateStore, MohoWorkerBuilder, MohoWorkerHandle};
 use strata_asm_params::{AdministrationInitConfig, AsmParams, SubprotocolInstance};
 use strata_asm_spec::StrataAsmSpec;
 use strata_asm_worker::{
     test_utils::{get_l1_anchor, TestAsmWorkerContext},
-    AnchorStateStore, AsmWorkerBuilder, AsmWorkerHandle, ManifestMmrStore,
+    AnchorStateStore, AsmWorkerBuilder, AsmWorkerHandle, ExecutionRegistry, ManifestMmrStore,
 };
 use strata_btc_types::BlockHashExt;
 use strata_identifiers::L1BlockCommitment;
@@ -864,10 +864,16 @@ impl AsmTestHarnessBuilder {
         // 7. Launch ASM worker service. `launch` stores the genesis anchor
         // synchronously, so the Moho worker (step 8) can seed its genesis Moho
         // state from it.
+        let asm_predicate = PredicateKey::always_accept();
+        let mut registry = ExecutionRegistry::default();
+        registry.register(asm_predicate.clone(), StrataAsmSpec)?;
         let asm_handle = AsmWorkerBuilder::new()
             .with_context(context.clone())
-            .with_asm_spec(StrataAsmSpec)
-            .with_params((*asm_params).clone())
+            .with_genesis(
+                StrataAsmSpec.construct_genesis_state(&asm_params),
+                asm_predicate.clone(),
+            )
+            .with_registry(registry)
             .launch(&executor)?;
 
         // 8. Launch the Moho worker, driven by the ASM worker's per-block commit
