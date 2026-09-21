@@ -7,7 +7,7 @@ use strata_predicate::PredicateKey;
 use strata_service::ServiceState;
 use tracing::info;
 
-use crate::{MohoWorkerContext, MohoWorkerResult, compute, constants};
+use crate::{MohoWorkerContext, MohoWorkerError, MohoWorkerResult, compute, constants};
 
 /// In-memory state for the Moho worker.
 ///
@@ -67,6 +67,11 @@ impl<W: MohoWorkerContext> MohoWorkerServiceState<W> {
     ) -> MohoWorkerResult<Self> {
         let (cur_block, cur_moho) = match context.get_latest_moho_state()? {
             Some((blk, moho)) => {
+                let anchor = context.get_anchor_state(&genesis_block)?;
+                let expected = compute::construct_genesis_moho_state(asm_predicate, &anchor);
+                if context.get_moho_state(&genesis_block)? != expected {
+                    return Err(MohoWorkerError::GenesisMismatch);
+                }
                 info!(%blk, "resuming Moho worker from stored state");
                 (blk, moho)
             }
@@ -317,6 +322,7 @@ mod tests {
         let later_blk = commitment_after(genesis_blk);
         let later_moho =
             compute::construct_genesis_moho_state(PredicateKey::always_accept(), &anchor);
+        ctx.store_moho_state(&genesis_blk, &later_moho).unwrap();
         ctx.store_moho_state(&later_blk, &later_moho).unwrap();
 
         let state = MohoWorkerServiceState::new(
@@ -328,6 +334,27 @@ mod tests {
         .unwrap();
 
         assert_eq!(state.cur_block(), later_blk);
+    }
+
+    #[test]
+    fn restart_rejects_changed_genesis_authority() {
+        let (genesis, anchor) = genesis_anchor();
+        let ctx = MockContext::default();
+        ctx.insert_anchor(genesis, anchor.clone());
+        ctx.store_moho_state(
+            &genesis,
+            &compute::construct_genesis_moho_state(PredicateKey::always_accept(), &anchor),
+        )
+        .unwrap();
+        assert!(matches!(
+            MohoWorkerServiceState::new(
+                ctx,
+                genesis,
+                PredicateKey::never_accept(),
+                Subscribers::default(),
+            ),
+            Err(MohoWorkerError::GenesisMismatch)
+        ));
     }
 
     #[test]
