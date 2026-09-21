@@ -105,7 +105,7 @@ impl<W: MohoWorkerContext> MohoWorkerServiceState<W> {
     }
 }
 
-/// Writes the genesis [`MohoState`] unless the store already holds one,
+/// Validates the stored genesis [`MohoState`] or writes it when absent,
 /// deriving it from the ASM anchor state committed for `genesis_block` with
 /// `asm_predicate` as its Moho predicate.
 fn ensure_genesis_moho_state<W: MohoWorkerContext>(
@@ -114,10 +114,14 @@ fn ensure_genesis_moho_state<W: MohoWorkerContext>(
     asm_predicate: PredicateKey,
 ) -> MohoWorkerResult<()> {
     match context.get_moho_state(genesis_block) {
-        // Not refreshed: proofs already in the store are anchored to the stored
-        // commitment, so recomputing it under a rebuilt ASM ELF would move that
-        // base with nothing failing.
-        Ok(_) => Ok(()),
+        Ok(stored) => {
+            let anchor = context.get_anchor_state(genesis_block)?;
+            let expected = compute::construct_genesis_moho_state(asm_predicate, &anchor);
+            if stored != expected {
+                return Err(MohoWorkerError::GenesisMismatch);
+            }
+            Ok(())
+        }
         Err(MohoWorkerError::MissingMohoState(_)) => {
             let genesis_anchor = context.get_anchor_state(genesis_block)?;
             let moho = compute::construct_genesis_moho_state(asm_predicate, &genesis_anchor);
@@ -334,6 +338,7 @@ mod tests {
         let later_blk = commitment_after(genesis_blk);
         let later_moho =
             compute::construct_genesis_moho_state(PredicateKey::always_accept(), &anchor);
+        ctx.store_moho_state(&genesis_blk, &later_moho).unwrap();
         ctx.store_moho_state(&later_blk, &later_moho).unwrap();
 
         let state = MohoWorkerServiceState::new(
@@ -379,26 +384,24 @@ mod tests {
     }
 
     #[test]
-    fn keeps_the_stored_genesis_when_the_asm_predicate_changes() {
-        // Every recursive attestation is anchored to the genesis commitment, so
-        // a start under a different ASM predicate must not move it.
-        let (genesis_blk, anchor) = genesis_anchor();
+    fn restart_rejects_changed_genesis_authority() {
+        let (genesis, anchor) = genesis_anchor();
         let ctx = MockContext::default();
-        ctx.insert_anchor(genesis_blk, anchor.clone());
-
-        let seeded = compute::construct_genesis_moho_state(PredicateKey::always_accept(), &anchor);
-        ctx.store_moho_state(&genesis_blk, &seeded).unwrap();
-
-        let state = MohoWorkerServiceState::new(
-            ctx,
-            genesis_blk,
-            PredicateKey::never_accept(),
-            Subscribers::default(),
+        ctx.insert_anchor(genesis, anchor.clone());
+        ctx.store_moho_state(
+            &genesis,
+            &compute::construct_genesis_moho_state(PredicateKey::always_accept(), &anchor),
         )
         .unwrap();
-
-        let stored = state.context.get_moho_state(&genesis_blk).unwrap();
-        assert_eq!(stored.next_predicate(), &PredicateKey::always_accept());
+        assert!(matches!(
+            MohoWorkerServiceState::new(
+                ctx,
+                genesis,
+                PredicateKey::never_accept(),
+                Subscribers::default(),
+            ),
+            Err(MohoWorkerError::GenesisMismatch)
+        ));
     }
 
     #[test]
