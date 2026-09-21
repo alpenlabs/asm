@@ -1,6 +1,7 @@
 use bitcoin::Network;
 use strata_btc_types::BitcoinTxid;
 use strata_identifiers::{L1BlockCommitment, L1BlockId, L1Height};
+use strata_predicate::PredicateKey;
 use strata_service::ServiceError;
 use thiserror::Error;
 
@@ -46,6 +47,13 @@ pub enum AnchorMismatch {
 
 #[derive(Debug, Error)]
 pub enum WorkerError {
+    /// No native implementation is registered for the chain-authorized program.
+    #[error("unsupported execution predicate: {0:?}")]
+    UnsupportedExecutionPredicate(PredicateKey),
+    /// A predicate cannot name two registry entries.
+    #[error("duplicate execution predicate")]
+    DuplicateExecutionPredicate,
+
     #[error("ASM error: {0}")]
     AsmError(#[from] strata_asm_common::AsmError),
 
