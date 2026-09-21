@@ -241,7 +241,9 @@ trait ProofFetcher {
 ///
 /// Returns whether the peer served a receipt that did not verify. Such a proof
 /// is parked like the rest, since the fallback still has to prove it, but the
-/// flag is what converts a peer we cannot use into local proving.
+/// flag is what converts a peer we cannot use into local proving. The loop
+/// stops at the first one: the peer is already rejected, so every further
+/// round-trip to it can only burn the tick.
 ///
 /// After a restart the queue reseeds with only the committed tip's Moho
 /// proof, so proofs pending at shutdown are not refetched and the local
@@ -285,6 +287,7 @@ async fn fetch_with<F: ProofFetcher>(
             Ok(FetchOutcome::Invalid) => {
                 served_invalid_proof = true;
                 parked.push(proof_id);
+                break;
             }
             Err(e) => {
                 warn!(%proof_id, %e, "failed to fetch proof from peer, re-enqueuing");
@@ -681,6 +684,24 @@ mod tests {
         assert_eq!(fetcher.call_log, vec![asm(3), moho(3)]);
         assert_eq!(queue.len(), 1);
         assert_eq!(queue.dequeue_one(), Some(moho(3)));
+    }
+
+    /// One invalid receipt ends the cycle: the peer is already rejected, so
+    /// the items behind it are left queued rather than fetched from it.
+    #[tokio::test]
+    async fn invalid_proof_stops_the_fetch_loop() {
+        let mut queue = PendingProofQueue::new();
+        queue.enqueue(asm(3));
+        queue.enqueue(moho(3));
+        queue.enqueue(asm(4));
+
+        let mut fetcher = FakeFetcher::default().with(asm(3), vec![FetchOutcome::Invalid]);
+
+        let served_invalid_proof = fetch_with(&mut queue, &mut fetcher, 4).await;
+
+        assert!(served_invalid_proof);
+        assert_eq!(fetcher.call_log, vec![asm(3)]);
+        assert_eq!(queue.len(), 3);
     }
 
     /// A frontier below every queued item is a no-op: no peer round-trips,
