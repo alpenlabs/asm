@@ -43,6 +43,19 @@ impl AsmLog for AsmStfUpdate {
     const TY: TypeId = AsmLogTypeId::AsmStfUpdate as TypeId;
 }
 
+/// Extracts the next [`PredicateKey`] advertised by an STF step, if any.
+///
+/// Scans `logs` for an [`AsmStfUpdate`] entry and returns the new predicate.
+/// When no update is emitted the caller should carry the previous predicate
+/// forward.
+pub fn extract_next_predicate_from_logs(logs: &[AsmLogEntry]) -> Option<PredicateKey> {
+    logs.iter().find_map(|log| {
+        log.try_into_log::<AsmStfUpdate>()
+            .ok()
+            .map(|update| update.new_predicate().clone())
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use proptest::prelude::*;
@@ -88,17 +101,4 @@ mod tests {
             assert!(AsmLogEntry::from_log(&log).is_ok());
         }
     }
-}
-
-/// Extracts the next [`PredicateKey`] advertised by an STF step, if any.
-///
-/// Scans `logs` for an [`AsmStfUpdate`] entry and returns the new predicate.
-/// When no update is emitted the caller should carry the previous predicate
-/// forward.
-pub fn extract_next_predicate_from_logs(logs: &[AsmLogEntry]) -> Option<PredicateKey> {
-    logs.iter().find_map(|log| {
-        log.try_into_log::<AsmStfUpdate>()
-            .ok()
-            .map(|update| update.new_predicate().clone())
-    })
 }
