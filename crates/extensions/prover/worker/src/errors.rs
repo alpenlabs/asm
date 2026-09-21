@@ -30,6 +30,10 @@ pub type ProverResult<T> = Result<T, ProverError>;
 /// Errors surfaced while building, launching, or running the prover worker.
 #[derive(Debug, Error)]
 pub enum ProverError {
+    /// Only single-block ASM inputs are currently supported.
+    #[error("ASM proofs require a single-block range")]
+    UnsupportedAsmRange,
+
     /// The loaded ASM host does not match the expected artifact record.
     #[error("loaded ASM artifact does not match the expected predicate for spec {spec_id}")]
     AsmArtifactMismatch { spec_id: SpecId },
