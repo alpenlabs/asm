@@ -1,31 +1,33 @@
 use bitcoin::{Block, CompactTarget, params::Params};
-use strata_asm_common::{AnchorState, AsmSpec, AuxData, HeaderVerificationState};
+use strata_asm_common::{AnchorState, AuxData, HeaderVerificationState};
+use strata_asm_logs::extract_next_predicate_from_logs;
 use strata_asm_stf::AsmStfOutput;
 use strata_btc_types::BlockHashExt;
 use strata_btc_verification::{
     TxidInclusionProof, compute_block_hash, get_relative_difficulty_adjustment_height,
 };
 use strata_identifiers::L1BlockCommitment;
+use strata_predicate::PredicateKey;
 use strata_service::ServiceState;
 use tracing::field::Empty;
 
 use crate::{
-    AnchorMismatch, L1DataProvider, Subscribers, WorkerContext, WorkerError, WorkerResult,
-    aux_resolver::AuxDataResolver, constants,
+    AnchorMismatch, ExecutionRegistry, L1DataProvider, ManifestMmrStore, Subscribers,
+    WorkerContext, WorkerError, WorkerResult, aux_resolver::AuxDataResolver, constants,
 };
 
 /// Service state for the ASM worker.
 ///
-/// Generic over the worker context `W` and the ASM spec `S`, so callers can
-/// inject alternative specs wrapping `StrataAsmSpec` (e.g. for testing) without
-/// forking the worker.
+/// Resolves the parent's execution predicate before preprocessing and execution.
 #[derive(Debug)]
-pub struct AsmWorkerServiceState<W, S: AsmSpec> {
+pub struct AsmWorkerServiceState<W> {
     /// Context for the state to interact with outer world.
     pub(crate) context: W,
 
-    /// ASM spec driving the subprotocol pipeline.
-    pub(crate) spec: S,
+    registry: ExecutionRegistry,
+    genesis_block: L1BlockCommitment,
+    genesis_predicate: PredicateKey,
+    next_predicate: PredicateKey,
 
     /// Current ASM anchor state.
     pub anchor: AnchorState,
@@ -44,11 +46,9 @@ pub struct AsmWorkerServiceState<W, S: AsmSpec> {
     pub(crate) subscribers: Subscribers<L1BlockCommitment>,
 }
 
-impl<W, S> AsmWorkerServiceState<W, S>
+impl<W> AsmWorkerServiceState<W>
 where
     W: WorkerContext + Send + Sync + 'static,
-    S: AsmSpec + Send + Sync + 'static,
-    S::GenesisParams: Send + Sync + 'static,
 {
     /// Creates a new service state, loading the latest anchor or creating genesis.
     ///
@@ -56,11 +56,16 @@ where
     /// shared [`Subscribers`] registry — hence `pub(crate)`.
     pub(crate) fn new(
         context: W,
-        spec: S,
-        params: S::GenesisParams,
+        genesis_state: AnchorState,
+        genesis_predicate: PredicateKey,
+        registry: ExecutionRegistry,
         subscribers: Subscribers<L1BlockCommitment>,
     ) -> WorkerResult<Self> {
-        let genesis_height = spec.genesis_l1_height(&params);
+        if registry.resolve(&genesis_predicate)?.spec_id() != genesis_state.spec_id {
+            return Err(WorkerError::GenesisSpecMismatch);
+        }
+        let genesis_block = genesis_state.last_processed_block();
+        let genesis_height = u64::from(genesis_block.height());
 
         // Align the manifest MMR with L1 heights before processing any block:
         // it is height-indexed, prefilled with sentinels for heights
@@ -74,10 +79,18 @@ where
         // the genesis state once (it carries the anchor-derived header
         // verification fields) and validate it against the L1 source on every
         // startup, before adopting either stored or genesis state.
-        let genesis_state = spec.construct_genesis_state(&params);
         validate_anchor_against_l1(&context, &genesis_state.chain_view.pow_state)?;
 
-        let anchor = match context.get_latest_anchor_state()? {
+        let latest = context.get_latest_anchor_state()?;
+        match context.get_anchor_state(&genesis_block) {
+            Ok(stored) if stored != genesis_state => return Err(WorkerError::GenesisStateMismatch),
+            Err(WorkerError::MissingAsmState(_)) if latest.is_some() => {
+                return Err(WorkerError::MissingGenesisState);
+            }
+            Ok(_) | Err(WorkerError::MissingAsmState(_)) => {}
+            Err(error) => return Err(error),
+        }
+        let anchor = match latest {
             Some(state) => {
                 tracing::info!(blkid = %state.last_processed_block(), "ASM worker resuming from stored anchor state");
                 state
@@ -91,9 +104,19 @@ where
         };
         let blkid = anchor.last_processed_block();
 
+        let next_predicate = recover_from_context(
+            &context,
+            &registry,
+            genesis_block,
+            &genesis_predicate,
+            &anchor,
+        )?;
         Ok(Self {
             context,
-            spec,
+            registry,
+            genesis_block,
+            genesis_predicate,
+            next_predicate,
             anchor,
             blkid,
             genesis_height,
@@ -111,13 +134,15 @@ where
     /// A caller is responsible for ensuring the current anchor is a parent of a passed block.
     pub fn transition(&self, block: &Block) -> WorkerResult<(AsmStfOutput, AuxData)> {
         let cur_state = &self.anchor;
+        let target = self.registry.resolve(&self.next_predicate)?;
 
         // Pre process transition next block against current anchor state.
         let pre_process = {
             let span = tracing::debug_span!("asm.stf.pre_process", protocol_txs = Empty);
             let _guard = span.enter();
 
-            let result = strata_asm_stf::pre_process_asm(&self.spec, cur_state, block)
+            let result = target
+                .preprocess(cur_state, block)
                 .map_err(WorkerError::AsmError)?;
 
             span.record("protocol_txs", result.txs.len());
@@ -146,15 +171,43 @@ where
         // `L1BodyError::EmptyBlock`.
         let coinbase_inclusion_proof = TxidInclusionProof::generate(&block.txdata, 0);
 
-        strata_asm_stf::compute_asm_transition(
-            &self.spec,
-            cur_state,
-            block,
-            &aux_data,
-            coinbase_inclusion_proof.as_ref(),
-        )
-        .map(|output| (output, aux_data))
-        .map_err(WorkerError::AsmError)
+        target
+            .transition(
+                cur_state,
+                block,
+                &aux_data,
+                coinbase_inclusion_proof.as_ref(),
+            )
+            .map(|output| (output, aux_data))
+            .map_err(WorkerError::AsmError)
+    }
+
+    /// Restores authority from the selected anchor and its own committed manifest.
+    pub(crate) fn restore_anchor(
+        &mut self,
+        anchor: AnchorState,
+        block: L1BlockCommitment,
+    ) -> WorkerResult<()> {
+        if block != self.blkid {
+            let predicate = recover_from_context(
+                &self.context,
+                &self.registry,
+                self.genesis_block,
+                &self.genesis_predicate,
+                &anchor,
+            )?;
+            self.next_predicate = predicate;
+        }
+        self.update_anchor_state(anchor, block);
+        Ok(())
+    }
+
+    /// Advances execution authority only after all block writes have succeeded.
+    pub(crate) fn accept_output(&mut self, output: AsmStfOutput, block: L1BlockCommitment) {
+        if let Some(predicate) = extract_next_predicate_from_logs(output.manifest.logs()) {
+            self.next_predicate = predicate;
+        }
+        self.update_anchor_state(output.state, block);
     }
 
     /// Updates anchor related bookkeeping.
@@ -164,15 +217,32 @@ where
     }
 }
 
-impl<W, S> ServiceState for AsmWorkerServiceState<W, S>
+impl<W> ServiceState for AsmWorkerServiceState<W>
 where
     W: WorkerContext + Send + Sync + 'static,
-    S: AsmSpec + Send + Sync + 'static,
-    S::GenesisParams: Send + Sync + 'static,
 {
     fn name(&self) -> &str {
         constants::SERVICE_NAME
     }
+}
+
+fn recover_from_context<C: ManifestMmrStore>(
+    context: &C,
+    registry: &ExecutionRegistry,
+    genesis: L1BlockCommitment,
+    genesis_predicate: &PredicateKey,
+    anchor: &AnchorState,
+) -> WorkerResult<PredicateKey> {
+    let block = anchor.last_processed_block();
+    // Genesis has no STF manifest; its authority is validated during worker initialization.
+    if block == genesis {
+        return Ok(genesis_predicate.clone());
+    }
+    if block.height() <= genesis.height() {
+        return Err(WorkerError::InvalidRecoveryAnchor(block));
+    }
+    let manifest = context.get_manifest(&block)?;
+    registry.recover_predicate(anchor, &manifest)
 }
 
 /// Validates that the configured anchor matches the actual L1 chain.
@@ -261,20 +331,110 @@ fn validate_anchor_against_l1<W: L1DataProvider>(
 
 #[cfg(test)]
 mod tests {
-    use bitcoind_async_client::{Client, traits::Reader};
+    use bitcoin::Network;
+    use bitcoind_async_client::{Auth, Client, traits::Reader};
+    use strata_asm_common::{AsmLogEntry, AsmManifest, AsmSpec};
+    use strata_asm_logs::AsmStfUpdate;
     use strata_btc_verification::L1Anchor;
+    use strata_identifiers::{Buf32, L1BlockId};
+    use strata_test_utils_btc::BtcMainnetSegment;
     use strata_test_utils_btcio::mine_blocks;
 
     use super::*;
     use crate::{
-        AnchorStateStore, L1DataProvider,
+        AnchorStateStore, L1DataProvider, ManifestMmrStore,
         test_utils::{
+            TestAsmWorkerContext,
             fixtures::{self, TestAsmSpec},
             get_l1_anchor,
         },
     };
 
     /// `transition` runs the STF for a child of the current anchor.
+    #[tokio::test]
+    async fn recovery_reads_only_the_selected_manifest_and_skips_genesis() {
+        // The context uses real local stores; recovery must not need Bitcoin RPC.
+        let client = Client::new(
+            "http://127.0.0.1:1".into(),
+            Auth::UserPass("test".into(), "test".into()),
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+        let context = TestAsmWorkerContext::new(client);
+        let block = BtcMainnetSegment::load_full_block();
+        let genesis = L1BlockCommitment::new(
+            block.bip34_block_height().unwrap() as u32 - 1,
+            block.header.prev_blockhash.to_l1_block_id(),
+        );
+        let anchor = TestAsmSpec.construct_genesis_state(&fixtures::TestAsmParams {
+            anchor: L1Anchor {
+                block: genesis,
+                next_target: block.header.bits.to_consensus(),
+                epoch_start_timestamp: 0,
+                network: Network::Bitcoin,
+            },
+            magic: (*b"test").into(),
+        });
+        let initial = PredicateKey::always_accept();
+        let mut registry = ExecutionRegistry::default();
+        registry.register(initial.clone(), TestAsmSpec).unwrap();
+        assert_eq!(
+            recover_from_context(&context, &registry, genesis, &initial, &anchor).unwrap(),
+            initial
+        );
+        let mut selected = anchor.clone();
+        selected.chain_view.pow_state.last_verified_block = L1BlockCommitment::new(
+            genesis.height() + 100_000,
+            L1BlockId::from(Buf32::from([1; 32])),
+        );
+        let tip = selected.last_processed_block();
+        assert!(matches!(
+            recover_from_context(&context, &registry, genesis, &initial, &selected),
+            Err(WorkerError::MissingManifest(block)) if block == tip
+        ));
+        context
+            .put_manifest(
+                AsmManifest::new(
+                    tip.height(),
+                    *tip.blkid(),
+                    Buf32::from([0; 32]).into(),
+                    vec![],
+                )
+                .unwrap(),
+            )
+            .unwrap();
+        // No earlier manifests exist, so a backward scan would fail.
+        assert_eq!(
+            recover_from_context(&context, &registry, genesis, &initial, &selected).unwrap(),
+            initial
+        );
+        let update =
+            AsmLogEntry::from_log(&AsmStfUpdate::new(PredicateKey::never_accept())).unwrap();
+        context
+            .put_manifest(
+                AsmManifest::new(
+                    tip.height(),
+                    *tip.blkid(),
+                    Buf32::from([0; 32]).into(),
+                    vec![update],
+                )
+                .unwrap(),
+            )
+            .unwrap();
+        assert_eq!(
+            recover_from_context(&context, &registry, genesis, &initial, &selected).unwrap(),
+            PredicateKey::never_accept()
+        );
+        selected.chain_view.pow_state.last_verified_block =
+            L1BlockCommitment::new(genesis.height(), *tip.blkid());
+        assert!(matches!(
+            recover_from_context(&context, &registry, genesis, &initial, &selected),
+            Err(WorkerError::InvalidRecoveryAnchor(_))
+        ));
+    }
+
     #[tokio::test(flavor = "multi_thread")]
     async fn transition_processes_child_of_anchor() {
         let fx = fixtures::setup_state(101).await;
@@ -327,19 +487,17 @@ mod tests {
         let (out, _aux) = seed.state.transition(&block).expect("process block 102");
         seed.state
             .context
+            .record_manifest(out.manifest.clone())
+            .unwrap();
+        seed.state
+            .context
             .store_anchor_state(&out.state)
             .expect("store the processed anchor");
 
         // A fresh service over the same store resumes from that stored anchor
         // rather than reconstructing genesis.
         let params = fixtures::genesis_params(&seed.client, 101).await;
-        let reloaded = AsmWorkerServiceState::new(
-            seed.state.context.clone(),
-            TestAsmSpec,
-            params,
-            Subscribers::default(),
-        )
-        .unwrap();
+        let reloaded = fixtures::new_state(seed.state.context.clone(), params).unwrap();
 
         assert_eq!(
             reloaded.blkid, advanced,
@@ -463,7 +621,7 @@ mod tests {
 
         let context = fx.state.context.clone();
         let params = fixtures::genesis_params(&fx.client, 101).await;
-        AsmWorkerServiceState::new(context, TestAsmSpec, params, Subscribers::default()).unwrap();
+        fixtures::new_state(context, params).unwrap();
 
         assert_eq!(
             fx.state.context.mmr_leaf_count(),

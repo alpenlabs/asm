@@ -4,7 +4,7 @@ use std::marker;
 
 use anyhow::anyhow;
 use serde::{Deserialize, Serialize};
-use strata_asm_common::{AnchorState, AsmSpec};
+use strata_asm_common::AnchorState;
 use strata_btc_types::BlockHashExt;
 use strata_identifiers::{L1BlockCommitment, L1BlockId};
 use strata_service::{Response, Service, SyncService};
@@ -17,17 +17,15 @@ use crate::{
 
 /// ASM service implementation using the service framework.
 #[derive(Debug)]
-pub struct AsmWorkerService<W, S> {
-    _phantom: marker::PhantomData<(W, S)>,
+pub struct AsmWorkerService<W> {
+    _phantom: marker::PhantomData<W>,
 }
 
-impl<W, S> Service for AsmWorkerService<W, S>
+impl<W> Service for AsmWorkerService<W>
 where
     W: WorkerContext + Send + Sync + 'static,
-    S: AsmSpec + Send + Sync + 'static,
-    S::GenesisParams: Send + Sync + 'static,
 {
-    type State = AsmWorkerServiceState<W, S>;
+    type State = AsmWorkerServiceState<W>;
     type Msg = AsmWorkerMessage;
     type Status = AsmWorkerStatus;
 
@@ -40,14 +38,12 @@ where
     }
 }
 
-impl<W, S> SyncService for AsmWorkerService<W, S>
+impl<W> SyncService for AsmWorkerService<W>
 where
     W: WorkerContext + Send + Sync + 'static,
-    S: AsmSpec + Send + Sync + 'static,
-    S::GenesisParams: Send + Sync + 'static,
 {
     fn process_input(
-        state: &mut AsmWorkerServiceState<W, S>,
+        state: &mut AsmWorkerServiceState<W>,
         input: AsmWorkerMessage,
     ) -> anyhow::Result<Response> {
         match input {
@@ -118,14 +114,12 @@ where
 /// descends below genesis without finding a stored anchor state, returns
 /// `WorkerError::MissingGenesisState`. Any fetch, transition, or storage error
 /// is propagated; the caller treats it as fatal and shuts the worker down.
-fn sync_to_block<W, S>(
-    state: &mut AsmWorkerServiceState<W, S>,
+fn sync_to_block<W>(
+    state: &mut AsmWorkerServiceState<W>,
     target_blkid: &L1BlockId,
 ) -> crate::WorkerResult<Vec<L1BlockCommitment>>
 where
     W: WorkerContext + Send + Sync + 'static,
-    S: AsmSpec + Send + Sync + 'static,
-    S::GenesisParams: Send + Sync + 'static,
 {
     // Resolve the submitted id to a height-tagged commitment. This is the only
     // height the worker takes from outside; every later height is derived from
@@ -185,7 +179,7 @@ where
         );
     }
 
-    state.update_anchor_state(base_state, base_block);
+    state.restore_anchor(base_state, base_block)?;
 
     // Phase 2: process the pending blocks oldest first. Collect them in applied
     // order so the caller can drive per-block follow-up work (e.g. proof
@@ -261,14 +255,12 @@ fn plan_block_processing<W: WorkerContext>(
 /// idempotent, block-keyed overwrite (the MMR leaf is replaced by height, aux
 /// data and anchor state are keyed by block id, and the STF is deterministic,
 /// so it reproduces identical values.
-fn apply_block<W, S>(
-    state: &mut AsmWorkerServiceState<W, S>,
+fn apply_block<W>(
+    state: &mut AsmWorkerServiceState<W>,
     block_id: &L1BlockCommitment,
 ) -> crate::WorkerResult<()>
 where
     W: WorkerContext + Send + Sync + 'static,
-    S: AsmSpec + Send + Sync + 'static,
-    S::GenesisParams: Send + Sync + 'static,
 {
     // Fetch the full block now, one height at a time, so only a single block is
     // resident at any point during the forward pass.
@@ -285,9 +277,8 @@ where
     // Anchor state last: it is the block's commit point (see fn docs), so a
     // crash before it leaves the block uncommitted to be safely re-run. The
     // STF's logs are already persisted in the manifest recorded above.
-    let new_state = asm_stf_out.state;
-    state.context.store_anchor_state(&new_state)?;
-    state.update_anchor_state(new_state, *block_id);
+    state.context.store_anchor_state(&asm_stf_out.state)?;
+    state.accept_output(asm_stf_out, *block_id);
 
     // Notify subscribers only after the anchor is durably committed, so any
     // consumer that reads `AsmStateDb` for this commitment is guaranteed a
@@ -318,17 +309,14 @@ mod tests {
 
     use super::*;
     use crate::{
-        AnchorStateStore, AuxDataResolver, ManifestMmrStore, Subscribers, WorkerError,
-        test_utils::{
-            TestAsmWorkerContext,
-            fixtures::{self, TestAsmSpec},
-        },
+        AnchorStateStore, AuxDataResolver, ManifestMmrStore, WorkerError,
+        test_utils::{TestAsmWorkerContext, fixtures},
     };
 
     /// Leaf count of the accumulator carried by the current in-memory anchor —
     /// the snapshot size [`AsmWorkerServiceState::transition`] resolves aux data
     /// against.
-    fn anchor_leaf_count(state: &AsmWorkerServiceState<TestAsmWorkerContext, TestAsmSpec>) -> u64 {
+    fn anchor_leaf_count(state: &AsmWorkerServiceState<TestAsmWorkerContext>) -> u64 {
         state.anchor.chain_view.history_accumulator.num_entries()
     }
 
@@ -536,9 +524,7 @@ mod tests {
         // ...so a restart over the same store resumes at the tip.
         let context = fx.state.context.clone();
         let params = fixtures::genesis_params(&fx.client, 101).await;
-        let reloaded =
-            AsmWorkerServiceState::new(context, TestAsmSpec, params, Subscribers::default())
-                .unwrap();
+        let reloaded = fixtures::new_state(context, params).unwrap();
         assert_eq!(
             reloaded.blkid, tip,
             "restart resumes from the tip, not the stale notification",
@@ -774,11 +760,11 @@ mod tests {
     /// dedicated thread is load-bearing, not incidental. `block_in_place` keeps
     /// the runtime free to serve that fetch while this thread blocks on it.
     fn process_input_off_runtime(
-        mut state: AsmWorkerServiceState<TestAsmWorkerContext, TestAsmSpec>,
+        mut state: AsmWorkerServiceState<TestAsmWorkerContext>,
         msg: AsmWorkerMessage,
     ) -> (
         anyhow::Result<Response>,
-        AsmWorkerServiceState<TestAsmWorkerContext, TestAsmSpec>,
+        AsmWorkerServiceState<TestAsmWorkerContext>,
     ) {
         block_in_place(|| {
             thread::spawn(move || {
