@@ -113,7 +113,6 @@ pub(crate) async fn bootstrap(
             moho_host,
             moho_predicate,
         } = backend;
-        let asm_predicate = asm_host.descriptor().predicate().clone();
 
         // Spin the Moho worker off onto its own service task, driven by the ASM
         // worker's per-block commit stream. It derives each block's MohoState
@@ -152,7 +151,7 @@ pub(crate) async fn bootstrap(
             aux_db.clone(),
             bitcoin_client.clone(),
         );
-        let input_builder = InputBuilder::new(params.anchor.block, asm_predicate, moho_predicate);
+        let input_builder = InputBuilder::new(params.anchor.block, moho_predicate);
 
         // Drive the prover from the *Moho* worker's commit stream, not the ASM
         // worker's: the Moho worker emits a block only after it has persisted
