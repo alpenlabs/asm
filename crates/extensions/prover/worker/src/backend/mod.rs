@@ -8,8 +8,10 @@
 
 mod artifact;
 mod native;
+mod registry;
 
 pub use artifact::{AsmProgramDescriptor, AsmProofHost};
+pub use registry::{AsmHostLoader, AsmHostRegistry};
 mod sp1;
 
 use strata_asm_spec::StrataAsmSpec;

@@ -4,6 +4,7 @@ use std::{fmt, path::PathBuf, time::Duration};
 
 use k256::schnorr::SigningKey;
 use serde::{Deserialize, Serialize};
+use strata_asm_common::SpecId;
 use strata_predicate::PredicateKey;
 
 /// Configuration for the proof orchestrator.
@@ -141,6 +142,40 @@ mod hex_signing_key {
         let s = String::deserialize(d)?;
         let bytes = hex::decode(&s).map_err(D::Error::custom)?;
         SigningKey::from_bytes(&bytes).map_err(D::Error::custom)
+    }
+}
+
+/// Operator-declared program identity and its artifact source.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AsmArtifactConfig {
+    pub spec_id: SpecId,
+    pub predicate: PredicateKey,
+    pub source: AsmArtifactSource,
+}
+
+/// Location or native signing identity used to construct an ASM host.
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum AsmArtifactSource {
+    Sp1 {
+        elf_path: PathBuf,
+    },
+    Native {
+        #[serde(with = "hex_signing_key")]
+        signing_key: SigningKey,
+    },
+}
+
+// Rust's Debug derive cannot redact fields; format manually to keep signing keys out of logs.
+impl fmt::Debug for AsmArtifactSource {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Sp1 { elf_path } => f.debug_struct("Sp1").field("elf_path", elf_path).finish(),
+            Self::Native { .. } => f
+                .debug_struct("Native")
+                .field("signing_key", &"<redacted>")
+                .finish(),
+        }
     }
 }
 

@@ -16,6 +16,7 @@
 use std::error::Error as StdError;
 
 use strata_asm_common::SpecId;
+use strata_predicate::PredicateKey;
 use thiserror::Error;
 
 /// Boxed backend error. Used where the underlying error type varies per
@@ -30,6 +31,13 @@ pub type ProverResult<T> = Result<T, ProverError>;
 /// Errors surfaced while building, launching, or running the prover worker.
 #[derive(Debug, Error)]
 pub enum ProverError {
+    /// A configured artifact repeats an existing spec or predicate.
+    #[error("duplicate ASM artifact spec or predicate")]
+    DuplicateArtifact,
+    /// The parent requires a program absent from this node's artifact registry.
+    #[error("ASM artifact is not configured: {0:?}")]
+    UnknownArtifact(PredicateKey),
+
     /// Only single-block ASM inputs are currently supported.
     #[error("ASM proofs require a single-block range")]
     UnsupportedAsmRange,

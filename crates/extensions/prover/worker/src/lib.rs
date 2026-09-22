@@ -32,9 +32,14 @@ mod service;
 mod state;
 mod traits;
 
-pub use backend::{AsmProgramDescriptor, AsmProofHost, ProofBackend, ProofHost};
+pub use backend::{
+    AsmHostLoader, AsmHostRegistry, AsmProgramDescriptor, AsmProofHost, ProofBackend, ProofHost,
+};
 pub use builder::ProverWorkerBuilder;
-pub use config::{BackendConfig, FollowerConfig, OrchestratorConfig, ProverMode};
+pub use config::{
+    AsmArtifactConfig, AsmArtifactSource, BackendConfig, FollowerConfig, OrchestratorConfig,
+    ProverMode,
+};
 pub use errors::{ProverError, ProverResult};
 pub use handle::ProverWorkerHandle;
 pub use input::{InputBuilder, MohoInput};
