@@ -15,6 +15,11 @@ pub(crate) async fn verify_receipt<C: ProverContext, L: AsmHostLoader>(
     id: ProofId,
     receipt: &ProofReceiptWithMetadata,
 ) -> ProverResult<()> {
+    // Reject mismatched claims before loading a host or verifying the proof.
+    input
+        .validate_output(ctx, id, receipt.receipt().public_values().as_bytes())
+        .await?;
+
     let host = match id {
         ProofId::Asm(_) => {
             let predicate = input.expected_predicate(ctx, id).await?;
@@ -27,7 +32,5 @@ pub(crate) async fn verify_receipt<C: ProverContext, L: AsmHostLoader>(
         .await
         .map_err(|e| ProverError::backend("proof verification task failed", e))?
         .map_err(ProverError::InvalidProof)?;
-    input
-        .validate_output(ctx, id, receipt.receipt().public_values().as_bytes())
-        .await
+    Ok(())
 }
