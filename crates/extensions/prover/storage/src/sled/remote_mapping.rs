@@ -14,7 +14,9 @@
 use std::{error::Error, fmt};
 
 use borsh::BorshDeserialize;
+use sled::transaction::{ConflictableTransactionError, TransactionError, Transactional};
 use strata_asm_prover_types::{ProofId, RemoteProofId};
+use zkaleido::RemoteProofStatus;
 
 use super::SledProofDb;
 use crate::RemoteProofMappingDb;
@@ -136,29 +138,43 @@ impl RemoteProofMappingDb for SledProofDb {
         id: ProofId,
         remote_id: RemoteProofId,
     ) -> Result<(), Self::Error> {
-        let proof_key = borsh::to_vec(&id).expect("borsh serialization should not fail");
-
-        // Check if this remote ID is already mapped to a different proof ID.
-        if let Some(existing_bytes) = self.remote_to_proof.get(&remote_id.0)? {
-            let existing: ProofId = BorshDeserialize::try_from_slice(&existing_bytes)
-                .expect("stored ProofId should be valid borsh");
-            if existing != id {
-                return Err(RemoteProofMappingError::DuplicateRemoteId {
+        let proof_key = borsh::to_vec(&id).expect("proof ID serialization must succeed");
+        let status = borsh::to_vec(&RemoteProofStatus::Requested)
+            .expect("proof status serialization must succeed");
+        let result = (
+            &self.proof_to_remote,
+            &self.remote_to_proof,
+            &self.remote_proof_status,
+        )
+            .transaction(|(forward, reverse, statuses)| {
+                if let Some(existing_bytes) = reverse.get(&remote_id.0)? {
+                    let existing: ProofId = BorshDeserialize::try_from_slice(&existing_bytes)
+                        .expect("stored ProofId should be valid borsh");
+                    if existing != id {
+                        return Err(ConflictableTransactionError::Abort(existing));
+                    }
+                }
+                forward.insert(proof_key.as_slice(), remote_id.0.as_slice())?;
+                reverse.insert(remote_id.0.as_slice(), proof_key.as_slice())?;
+                if statuses.get(&remote_id.0)?.is_none() {
+                    statuses.insert(remote_id.0.as_slice(), status.as_slice())?;
+                }
+                Ok(())
+            });
+        match result {
+            Ok(()) => {
+                self.proof_to_remote.flush_async().await?;
+                Ok(())
+            }
+            Err(TransactionError::Storage(e)) => Err(e.into()),
+            Err(TransactionError::Abort(existing)) => {
+                Err(RemoteProofMappingError::DuplicateRemoteId {
                     remote_id,
                     existing,
                     attempted: id,
-                });
+                })
             }
-            // Same proof ID: fall through and rewrite both trees. The
-            // `proof_to_remote` entry may have been cleared on its own, and
-            // this is what restores it.
         }
-
-        self.proof_to_remote
-            .insert(proof_key.as_slice(), remote_id.0.as_slice())?;
-        self.remote_to_proof
-            .insert(remote_id.0.as_slice(), proof_key.as_slice())?;
-        Ok(())
     }
 
     async fn clear_remote_proof_id(&self, id: ProofId) -> Result<bool, Self::Error> {
@@ -176,7 +192,7 @@ mod tests {
     use tokio::runtime::Runtime;
 
     use super::*;
-    use crate::sled::test_util::*;
+    use crate::{RemoteProofStatusDb, sled::test_util::*};
 
     /// A commitment at `height` with a fixed block id, for the tests that care
     /// about heights rather than identity.
@@ -216,6 +232,7 @@ mod tests {
 
                 let got_local = db.get_proof_id(&remote_id).await.unwrap();
                 prop_assert_eq!(got_local, Some(proof_id));
+                prop_assert_eq!(db.get_status(&remote_id).await.unwrap(), Some(RemoteProofStatus::Requested));
 
                 Ok(())
             })?;
@@ -305,7 +322,9 @@ mod tests {
 
             Runtime::new().unwrap().block_on(async {
                 db.put_remote_proof_id(proof_id, remote_id.clone()).await.unwrap();
+                db.update_status(&remote_id, RemoteProofStatus::InProgress).await.unwrap();
                 db.put_remote_proof_id(proof_id, remote_id.clone()).await.unwrap();
+                prop_assert_eq!(db.get_status(&remote_id).await.unwrap(), Some(RemoteProofStatus::InProgress));
 
                 let got_remote = db.get_remote_proof_id(proof_id).await.unwrap();
                 prop_assert_eq!(got_remote.as_ref(), Some(&remote_id));

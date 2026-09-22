@@ -26,18 +26,13 @@ pub trait RemoteProofMappingDb {
         remote_id: &RemoteProofId,
     ) -> impl Future<Output = Result<Option<ProofId>, Self::Error>> + Send;
 
-    /// Stores a mapping between a local proof ID and a remote proof ID.
+    /// Atomically stores both mapping directions and an initial Requested status.
     ///
-    /// A proof may be submitted more than once. Each submission gets its own
-    /// remote ID, and the newest one wins [`Self::get_remote_proof_id`]; the
-    /// earlier ones keep resolving back to the proof.
-    ///
-    /// A remote ID belongs to exactly one proof, so passing a `remote_id`
-    /// already mapped to a different `id` returns an error.
-    ///
-    /// Re-storing a pair that is already stored is not an error. It
-    /// re-establishes the mapping in full, so a mapping cleared out of band
-    /// comes back.
+    /// A proof may have multiple remote jobs. The newest one wins the forward
+    /// lookup, while earlier jobs still resolve to their original proof.
+    /// Reusing a remote ID for a different proof returns an error.
+    /// Repeating a mapping restores its forward entry and any missing status;
+    /// an existing status is preserved.
     fn put_remote_proof_id(
         &self,
         id: ProofId,

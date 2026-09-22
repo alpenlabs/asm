@@ -9,7 +9,7 @@ use async_trait::async_trait;
 use moho_recursive_proof::MohoRecursiveProgram;
 use strata_asm_prover_types::{ProofId, RemoteProofId};
 use tracing::{debug, info, warn};
-use zkaleido::{RemoteProofStatus, ZkVmRemoteHost, ZkVmRemoteProgram};
+use zkaleido::{ZkVmRemoteHost, ZkVmRemoteProgram};
 
 use crate::{
     AsmProofHost, ProverContext,
@@ -229,16 +229,10 @@ where
 
         let remote_id = RemoteProofId(typed_id.into());
 
-        // Store mapping and initial status.
         self.ctx
             .put_remote_proof_id(proof_id, remote_id.clone())
             .await
-            .map_err(|e| ProverError::storage("failed to store proof mapping", e))?;
-
-        self.ctx
-            .put_status(&remote_id, RemoteProofStatus::Requested)
-            .await
-            .map_err(|e| ProverError::storage("failed to store initial proof status", e))?;
+            .map_err(|e| ProverError::storage("failed to persist proof submission", e))?;
 
         Ok(SubmitOutcome::Submitted(remote_id))
     }
