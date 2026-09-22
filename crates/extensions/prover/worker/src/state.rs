@@ -5,15 +5,15 @@ use strata_asm_prover_types::{L1Range, ProofId};
 use strata_identifiers::L1BlockCommitment;
 use strata_service::ServiceState;
 use tracing::{debug, info};
-use zkaleido::ZkVmRemoteHost;
 
 use crate::{
-    AsmProofHost, ProverContext,
+    AsmHostLoader, AsmHostRegistry, ProverContext,
     config::OrchestratorConfig,
     constants,
     errors::{ProverError, ProverResult},
     input::InputBuilder,
     queue::PendingProofQueue,
+    reconcile::resolve_pending_proof,
 };
 
 /// Service state for the prover worker.
@@ -21,19 +21,19 @@ use crate::{
 /// Holds everything the [`ProverService`](crate::service::ProverService) mutates
 /// or reads while processing inputs: the storage/chain context, the remote host
 /// pair, the input builder, and the in-memory pending-proof queue. Generic over
-/// the prover context `C` and the remote host `H`, mirroring how
+/// the prover context `C` and the host loader `L`, mirroring how
 /// [`AsmWorkerServiceState`](https://docs.rs/strata-asm-worker) is generic over
 /// its worker context and ASM spec.
 #[derive(Debug)]
-pub struct ProverServiceState<C, H> {
+pub struct ProverServiceState<C, L: AsmHostLoader> {
     /// Context the service reads storage and chain data through.
     pub(crate) ctx: C,
 
-    /// Remote host for ASM step proofs.
-    pub(crate) asm: AsmProofHost<H>,
+    /// Artifact registry and cache for ASM step proof hosts.
+    pub(crate) asm: AsmHostRegistry<L>,
 
     /// Remote host for Moho recursive proofs.
-    pub(crate) moho: H,
+    pub(crate) moho: L::Host,
 
     /// Orchestration tuning (tick interval, concurrency limit).
     pub(crate) config: OrchestratorConfig,
@@ -72,9 +72,10 @@ pub(crate) struct Peer {
     pub(crate) failures: u32,
 }
 
-impl<C, H> ProverServiceState<C, H>
+impl<C, L> ProverServiceState<C, L>
 where
     C: ProverContext + Send + Sync,
+    L: AsmHostLoader,
 {
     /// Creates the service state, seeding the pending queue with the Moho
     /// proof of the latest Moho-worker-committed block — mirroring how the
@@ -97,8 +98,8 @@ where
     /// commit arrives.
     pub(crate) async fn new(
         ctx: C,
-        asm: AsmProofHost<H>,
-        moho: H,
+        asm: AsmHostRegistry<L>,
+        moho: L::Host,
         config: OrchestratorConfig,
         input_builder: InputBuilder,
         peer: Option<HttpClient>,
@@ -131,7 +132,7 @@ where
             }
         }
 
-        Ok(Self {
+        let state = Self {
             ctx,
             asm,
             moho,
@@ -144,7 +145,16 @@ where
                 client,
                 failures: 0,
             }),
-        })
+        };
+        for (remote, _) in state
+            .ctx
+            .get_all_in_progress()
+            .await
+            .map_err(|e| ProverError::storage("failed to read pending submissions", e))?
+        {
+            resolve_pending_proof(&state, &remote).await?;
+        }
+        Ok(state)
     }
 
     /// Expands a committed block into the proofs it requires and enqueues them.
@@ -174,10 +184,10 @@ where
     }
 }
 
-impl<C, H> ServiceState for ProverServiceState<C, H>
+impl<C, L> ServiceState for ProverServiceState<C, L>
 where
     C: ProverContext + Send + Sync + 'static,
-    H: ZkVmRemoteHost + Send + Sync + 'static,
+    L: AsmHostLoader,
 {
     fn name(&self) -> &str {
         constants::SERVICE_NAME

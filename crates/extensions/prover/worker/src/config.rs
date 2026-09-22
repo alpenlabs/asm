@@ -1,6 +1,6 @@
 //! Configuration for the proof orchestrator.
 
-use std::{fmt, path::PathBuf, time::Duration};
+use std::{fmt, num::NonZeroUsize, path::PathBuf, time::Duration};
 
 use k256::schnorr::SigningKey;
 use serde::{Deserialize, Serialize};
@@ -28,6 +28,12 @@ pub struct OrchestratorConfig {
     /// Expected ASM artifact identity, independently supplied from the execution registry.
     pub asm_predicate: PredicateKey,
 
+    /// Additional ASM releases available to this prover; never selects activation.
+    #[serde(default)]
+    pub asm_artifacts: Vec<AsmArtifactConfig>,
+    /// Maximum cached ASM hosts. Active backend operations may retain host clones.
+    #[serde(default = "default_host_capacity")]
+    pub max_loaded_asm_hosts: NonZeroUsize,
     /// How the worker obtains proofs. Omit for [`ProverMode::Generator`].
     #[serde(default)]
     pub mode: ProverMode,
@@ -145,6 +151,10 @@ mod hex_signing_key {
     }
 }
 
+fn default_host_capacity() -> NonZeroUsize {
+    NonZeroUsize::new(1).expect("one is nonzero")
+}
+
 /// Operator-declared program identity and its artifact source.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AsmArtifactConfig {
@@ -181,6 +191,16 @@ impl fmt::Debug for AsmArtifactSource {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(not(feature = "sp1"))]
+    use {
+        crate::{
+            AsmHostLoader, AsmProofHost, ProofBackend, ProofHost, ProverError, ProverResult,
+            load_spec_host,
+        },
+        strata_asm_common::AsmSpec,
+        strata_asm_spec::StrataAsmSpec,
+    };
+
     use super::*;
 
     const BASE: &str = r#"
@@ -196,12 +216,46 @@ mod tests {
     "#;
 
     #[cfg(not(feature = "sp1"))]
+    #[derive(Debug)]
+    struct TestLoader;
+
+    #[cfg(not(feature = "sp1"))]
+    impl AsmHostLoader for TestLoader {
+        type Host = ProofHost;
+
+        fn validate_spec(&self, spec_id: SpecId) -> ProverResult<()> {
+            if spec_id != StrataAsmSpec::ID {
+                return Err(ProverError::BackendUnavailable("unsupported test spec"));
+            }
+            Ok(())
+        }
+
+        async fn load(
+            &self,
+            artifact: &AsmArtifactConfig,
+        ) -> ProverResult<AsmProofHost<Self::Host>> {
+            load_spec_host(&artifact.source, StrataAsmSpec).await
+        }
+    }
+
+    #[cfg(not(feature = "sp1"))]
     #[tokio::test]
     async fn native_fixture_matches_independent_expected_predicate() {
-        let config: OrchestratorConfig = toml::from_str(BASE).unwrap();
-        crate::ProofBackend::new(&config.backend, &config.asm_predicate)
+        let mut config: OrchestratorConfig = toml::from_str(BASE).unwrap();
+        let mut backend = ProofBackend::new(&config, StrataAsmSpec::ID, TestLoader)
             .await
             .unwrap();
+        backend.asm_host.load(&config.asm_predicate).await.unwrap();
+
+        // The registry must check the loaded key, not just trust configured metadata.
+        config.asm_predicate = PredicateKey::always_accept();
+        let mut backend = ProofBackend::new(&config, StrataAsmSpec::ID, TestLoader)
+            .await
+            .unwrap();
+        assert!(matches!(
+            backend.asm_host.load(&config.asm_predicate).await,
+            Err(ProverError::AsmArtifactMismatch { .. })
+        ));
     }
 
     // Configs may omit the `[mode]` table and must keep parsing as

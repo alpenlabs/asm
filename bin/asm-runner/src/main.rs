@@ -10,6 +10,7 @@ mod config;
 mod moho_context;
 mod prover_context;
 mod rpc_server;
+mod specs;
 mod storage;
 mod worker_context;
 

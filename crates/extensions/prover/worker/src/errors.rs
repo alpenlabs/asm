@@ -31,6 +31,17 @@ pub type ProverResult<T> = Result<T, ProverError>;
 /// Errors surfaced while building, launching, or running the prover worker.
 #[derive(Debug, Error)]
 pub enum ProverError {
+    /// A completed receipt failed verification under the required program key.
+    #[error("proof receipt failed verification: {0}")]
+    InvalidProof(#[source] zkaleido::ZkVmError),
+
+    /// An active remote job has no reverse proof mapping.
+    #[error("remote job is missing its proof mapping")]
+    MissingProofMapping,
+    /// A receipt proves different public values than the requested chain transition.
+    #[error("proof receipt does not attest the requested state transition")]
+    ReceiptMismatch,
+
     /// A configured artifact repeats an existing spec or predicate.
     #[error("duplicate ASM artifact spec or predicate")]
     DuplicateArtifact,
@@ -177,5 +188,22 @@ impl ProverError {
             context,
             source: Box::new(source),
         }
+    }
+}
+
+impl ProverError {
+    pub(crate) fn is_terminal(&self) -> bool {
+        matches!(
+            self,
+            Self::InvalidProof(_)
+                | Self::ReceiptMismatch
+                | Self::UnsupportedAsmPredicate { .. }
+                | Self::UnsupportedAsmRange
+                | Self::UnknownArtifact(_)
+                | Self::AsmArtifactMismatch { .. }
+                | Self::DuplicateArtifact
+                | Self::MissingProofMapping
+                | Self::BackendUnavailable(_)
+        )
     }
 }

@@ -5,10 +5,9 @@ use strata_asm_worker::Subscription;
 use strata_identifiers::L1BlockCommitment;
 use strata_service::{ServiceBuilder, StreamInput, TickingInput};
 use strata_tasks::TaskExecutor;
-use zkaleido::ZkVmRemoteHost;
 
 use crate::{
-    AsmProofHost, InputBuilder, ProverContext,
+    AsmHostLoader, AsmHostRegistry, InputBuilder, ProverContext,
     config::{OrchestratorConfig, ProverMode},
     constants,
     errors::{ProverError, ProverResult},
@@ -33,16 +32,16 @@ use crate::{
 /// time the prover assembles a block's proof inputs that block's `MohoState` is
 /// available — the ASM → Moho → prover chain is serialized.
 #[derive(Debug)]
-pub struct ProverWorkerBuilder<C, H> {
+pub struct ProverWorkerBuilder<C, L: AsmHostLoader> {
     ctx: Option<C>,
-    asm_host: Option<AsmProofHost<H>>,
-    moho_host: Option<H>,
+    asm_host: Option<AsmHostRegistry<L>>,
+    moho_host: Option<L::Host>,
     config: Option<OrchestratorConfig>,
     input_builder: Option<InputBuilder>,
     subscription: Option<Subscription<L1BlockCommitment>>,
 }
 
-impl<C, H> ProverWorkerBuilder<C, H> {
+impl<C, L: AsmHostLoader> ProverWorkerBuilder<C, L> {
     /// Creates a new, empty builder.
     pub fn new() -> Self {
         Self {
@@ -61,8 +60,8 @@ impl<C, H> ProverWorkerBuilder<C, H> {
         self
     }
 
-    /// Sets the `(asm, moho)` remote host pair.
-    pub fn with_hosts(mut self, asm_host: AsmProofHost<H>, moho_host: H) -> Self {
+    /// Sets the ASM host registry and the fixed Moho proof host.
+    pub fn with_hosts(mut self, asm_host: AsmHostRegistry<L>, moho_host: L::Host) -> Self {
         self.asm_host = Some(asm_host);
         self.moho_host = Some(moho_host);
         self
@@ -94,11 +93,10 @@ impl<C, H> ProverWorkerBuilder<C, H> {
     }
 }
 
-impl<C, H> ProverWorkerBuilder<C, H>
+impl<C, L> ProverWorkerBuilder<C, L>
 where
     C: ProverContext + Send + Sync + 'static,
-    H: ZkVmRemoteHost + Send + Sync + 'static,
-    H::ProofId: Send + Sync,
+    L: AsmHostLoader,
 {
     /// Validates the supplied dependencies, then launches the prover service and
     /// returns a handle to it.
@@ -143,7 +141,7 @@ where
         // service input and overlay the periodic wakeup tick.
         let input = TickingInput::new(tick_interval, StreamInput::new(subscription));
 
-        let monitor = ServiceBuilder::<ProverService<C, H>, _>::new()
+        let monitor = ServiceBuilder::<ProverService<C, L>, _>::new()
             .with_state(state)
             .with_input(input)
             .launch_async(constants::SERVICE_NAME, executor)
@@ -154,7 +152,7 @@ where
     }
 }
 
-impl<C, H> Default for ProverWorkerBuilder<C, H> {
+impl<C, L: AsmHostLoader> Default for ProverWorkerBuilder<C, L> {
     fn default() -> Self {
         Self::new()
     }

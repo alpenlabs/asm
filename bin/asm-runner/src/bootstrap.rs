@@ -2,11 +2,9 @@ use std::sync::Arc;
 
 use anyhow::{Result, ensure};
 use bitcoind_async_client::{Auth, Client};
-use strata_asm_common::AsmSpec;
 use strata_asm_moho_worker::MohoWorkerBuilder;
 use strata_asm_params::AsmParams;
 use strata_asm_prover_worker::{InputBuilder, ProofBackend, ProverWorkerBuilder};
-use strata_asm_spec::StrataAsmSpec;
 use strata_asm_worker::{AsmWorkerBuilder, ExecutionRegistry};
 use strata_tasks::TaskExecutor;
 use tokio::{runtime::Handle, task};
@@ -18,6 +16,7 @@ use crate::{
     moho_context::MohoWorkerContextImpl,
     prover_context::AsmProverContext,
     rpc_server::{AsmProofRpcDeps, run_rpc_server},
+    specs::{CompiledSpec, CompiledSpecLoader},
     storage::{
         AsmStorage, MohoStorage, create_asm_storage, create_moho_storage, create_proof_storage,
     },
@@ -30,16 +29,12 @@ pub(crate) async fn bootstrap(
 ) -> Result<()> {
     let mut registry = ExecutionRegistry::default();
     for entry in &config.execution.targets {
-        ensure!(
-            entry.spec_id == StrataAsmSpec::ID,
-            "unsupported compiled ASM spec {}",
-            entry.spec_id
-        );
-        registry.register(entry.predicate.clone(), StrataAsmSpec)?;
+        CompiledSpec::resolve(entry.spec_id)?
+            .register_execution(&mut registry, entry.predicate.clone())?;
     }
     let genesis_predicate = config.execution.genesis_predicate.clone();
-    registry.resolve(&genesis_predicate)?;
-    let genesis_state = StrataAsmSpec.construct_genesis_state(&params);
+    let genesis_spec = registry.resolve(&genesis_predicate)?.spec_id();
+    let genesis_state = CompiledSpec::resolve(genesis_spec)?.genesis(&params);
 
     // 1. Create storage. The ASM and Moho stores live in two separate sled DBs; the proof DB is
     //    opened with the orchestrator that owns it (step 3).
@@ -65,11 +60,14 @@ pub(crate) async fn bootstrap(
     let runtime_handle = Handle::current();
     let orch_prep = if let Some(orch_config) = config.orchestrator {
         let proof_db = create_proof_storage(&orch_config.proof_db_path)?;
-        ensure!(
-            registry.resolve(&orch_config.asm_predicate)?.spec_id() == StrataAsmSpec::ID,
-            "proof artifact and native execution spec disagree"
-        );
-        let backend = ProofBackend::new(&orch_config.backend, &orch_config.asm_predicate).await?;
+        let initial_spec = registry.resolve(&orch_config.asm_predicate)?.spec_id();
+        for artifact in &orch_config.asm_artifacts {
+            ensure!(
+                registry.resolve(&artifact.predicate)?.spec_id() == artifact.spec_id,
+                "proof artifact and native execution spec disagree"
+            );
+        }
+        let backend = ProofBackend::new(&orch_config, initial_spec, CompiledSpecLoader).await?;
         Some((orch_config, proof_db, backend))
     } else {
         None

@@ -31,9 +31,11 @@ mod schedule;
 mod service;
 mod state;
 mod traits;
+mod verification;
 
 pub use backend::{
     AsmHostLoader, AsmHostRegistry, AsmProgramDescriptor, AsmProofHost, ProofBackend, ProofHost,
+    load_spec_host,
 };
 pub use builder::ProverWorkerBuilder;
 pub use config::{

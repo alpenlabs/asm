@@ -6,24 +6,25 @@
 //! discarded so the scheduler can submit the block again, and everything else
 //! just has its stored status refreshed.
 
-use strata_asm_prover_types::RemoteProofId;
+use strata_asm_prover_types::{ProofId, RemoteProofId};
 use tracing::{debug, error, warn};
-use zkaleido::{RemoteProofStatus, ZkVmRemoteHost};
+use zkaleido::{RemoteProofStatus, ZkVmRemoteHost, ZkVmRemoteProver};
 
 use crate::{
-    ProverContext,
+    AsmHostLoader, ProverContext,
     errors::{ProverError, ProverResult},
     proof_store::{self, ProofSource},
     state::ProverServiceState,
+    verification::verify_receipt,
 };
 
 /// Polls all in-progress remote proofs and stores any that have completed.
-pub(crate) async fn reconcile_active_proofs<C, H>(
-    state: &mut ProverServiceState<C, H>,
+pub(crate) async fn reconcile_active_proofs<C, L>(
+    state: &mut ProverServiceState<C, L>,
 ) -> ProverResult<()>
 where
     C: ProverContext + Send + Sync,
-    H: ZkVmRemoteHost + Send + Sync,
+    L: AsmHostLoader,
 {
     let in_progress = state
         .ctx
@@ -33,6 +34,9 @@ where
 
     for (remote_id, old_status) in in_progress {
         if let Err(e) = reconcile_one(state, &remote_id, &old_status).await {
+            if e.is_terminal() {
+                return Err(e);
+            }
             warn!(%remote_id, ?e, "failed to reconcile remote proof");
         }
     }
@@ -40,23 +44,21 @@ where
 }
 
 /// Reconciles a single remote proof.
-async fn reconcile_one<C, H>(
-    state: &mut ProverServiceState<C, H>,
+async fn reconcile_one<C, L>(
+    state: &mut ProverServiceState<C, L>,
     remote_id: &RemoteProofId,
     old_status: &RemoteProofStatus,
 ) -> ProverResult<()>
 where
     C: ProverContext + Send + Sync,
-    H: ZkVmRemoteHost + Send + Sync,
+    L: AsmHostLoader,
 {
-    let typed_id = to_typed_proof_id::<H>(remote_id)?;
+    let typed_id = to_typed_proof_id::<L::Host>(remote_id)?;
 
-    // NOTE: We use `state.asm` here but this could be any host instance.
-    // `get_status` only requires a network client and proof ID — not the ELF or
-    // proving key. Both hosts share the same concrete type `H`, so either works.
+    let proof_id = resolve_pending_proof(state, remote_id).await?;
+    // One provider per node: the fixed Moho host supplies its network client.
     let new_status = state
-        .asm
-        .host()
+        .moho
         .get_status(&typed_id)
         .await
         .map_err(ProverError::RemoteStatus)?;
@@ -69,11 +71,12 @@ where
 
     match &new_status {
         RemoteProofStatus::Completed => {
-            handle_completed(state, remote_id, &typed_id).await?;
+            handle_completed(state, proof_id, remote_id, &typed_id).await?;
         }
         RemoteProofStatus::Failed(reason) => {
             error!(%remote_id, %reason, "remote proof generation failed. discarding submission");
-            discard_submission(&state.ctx, remote_id).await?;
+            discard_submission(&state.ctx, proof_id, remote_id).await?;
+            state.queue.enqueue(proof_id);
         }
         _ => {
             state
@@ -88,33 +91,31 @@ where
 
 /// Retrieves a completed proof, stores it in the proof store, and advances the
 /// proven frontier surfaced through the service status.
-async fn handle_completed<C, H>(
-    state: &mut ProverServiceState<C, H>,
+async fn handle_completed<C, L>(
+    state: &mut ProverServiceState<C, L>,
+    proof_id: ProofId,
     remote_id: &RemoteProofId,
-    typed_id: &H::ProofId,
+    typed_id: &<L::Host as ZkVmRemoteProver>::ProofId,
 ) -> ProverResult<()>
 where
     C: ProverContext + Send + Sync,
-    H: ZkVmRemoteHost + Send + Sync,
+    L: AsmHostLoader,
 {
-    // NOTE: As above, `get_proof` only needs a network client and the proof ID,
-    // so `state.asm` works for proofs produced by either host.
     let receipt = state
-        .asm
-        .host()
+        .moho
         .get_proof(typed_id)
         .await
         .map_err(ProverError::RemoteRetrieve)?;
 
-    let proof_id = state
-        .ctx
-        .get_proof_id(remote_id)
-        .await
-        .map_err(|e| ProverError::storage("failed to look up proof ID from remote ID", e))?
-        .ok_or(ProverError::NotFound(
-            "no mapping found for completed remote proof",
-        ))?;
-
+    verify_receipt(
+        &state.ctx,
+        &state.input_builder,
+        &mut state.asm,
+        &state.moho,
+        proof_id,
+        &receipt,
+    )
+    .await?;
     proof_store::store_completed_proof(&state.ctx, proof_id, receipt, ProofSource::Backend).await?;
 
     state.advance_proven(&proof_id);
@@ -137,14 +138,16 @@ where
 /// proven again, not even after a restart.
 async fn discard_submission<C: ProverContext>(
     ctx: &C,
+    proof_id: ProofId,
     remote_id: &RemoteProofId,
 ) -> ProverResult<()> {
-    let proof_id = ctx
-        .get_proof_id(remote_id)
+    if ctx
+        .get_remote_proof_id(proof_id)
         .await
-        .map_err(|e| ProverError::storage("failed to look up proof ID from remote ID", e))?;
-
-    if let Some(proof_id) = proof_id {
+        .map_err(|e| ProverError::storage("failed to read current submission", e))?
+        .as_ref()
+        == Some(remote_id)
+    {
         ctx.clear_remote_proof_id(proof_id)
             .await
             .map_err(|e| ProverError::storage("failed to clear remote proof mapping", e))?;
@@ -160,4 +163,31 @@ async fn discard_submission<C: ProverContext>(
 /// Converts a persisted [`RemoteProofId`] back into the host's typed proof ID.
 fn to_typed_proof_id<H: ZkVmRemoteHost>(remote_id: &RemoteProofId) -> ProverResult<H::ProofId> {
     H::ProofId::try_from(remote_id.0.clone()).map_err(|_| ProverError::RemoteIdDecode)
+}
+
+/// Resolves a pending job and checks that its required program is available.
+pub(crate) async fn resolve_pending_proof<C, L>(
+    state: &ProverServiceState<C, L>,
+    remote_id: &RemoteProofId,
+) -> ProverResult<ProofId>
+where
+    C: ProverContext + Send + Sync,
+    L: AsmHostLoader,
+{
+    let proof_id = state
+        .ctx
+        .get_proof_id(remote_id)
+        .await
+        .map_err(|e| ProverError::storage("failed to read remote proof mapping", e))?
+        .ok_or(ProverError::MissingProofMapping)?;
+    // ASM authority comes from this job's persisted parent, even after a newer
+    // spec activates. The node uses one fixed Moho program across restarts.
+    if matches!(proof_id, ProofId::Asm(_)) {
+        let predicate = state
+            .input_builder
+            .expected_predicate(&state.ctx, proof_id)
+            .await?;
+        state.asm.spec_id(&predicate)?;
+    }
+    Ok(proof_id)
 }

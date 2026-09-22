@@ -30,24 +30,24 @@ use strata_asm_rpc::traits::AsmProofApiClient;
 use strata_btc_types::L1BlockIdBitcoinExt;
 use strata_identifiers::L1BlockCommitment;
 use tracing::{debug, info, warn};
-use zkaleido::ZkVmRemoteHost;
 
 use crate::{
-    ProverContext,
+    AsmHostLoader, AsmHostRegistry, InputBuilder, ProverContext,
     config::{FollowerConfig, ProverMode},
     errors::{ProverError, ProverResult},
     proof_store::{self, ProofSource},
     queue::PendingProofQueue,
     schedule,
     state::ProverServiceState,
+    verification::verify_receipt,
 };
 
 /// Probes the peer and either fetches available proofs or falls back to local
 /// generation.
-pub(crate) async fn follow_proofs<C, H>(state: &mut ProverServiceState<C, H>) -> ProverResult<()>
+pub(crate) async fn follow_proofs<C, L>(state: &mut ProverServiceState<C, L>) -> ProverResult<()>
 where
     C: ProverContext + Send + Sync,
-    H: ZkVmRemoteHost + Send + Sync,
+    L: AsmHostLoader,
 {
     let ProverMode::Follower(config) = state.config.mode.clone() else {
         return Ok(());
@@ -82,6 +82,9 @@ where
             let mut fetcher = StateFetcher {
                 ctx: &state.ctx,
                 peer: &client,
+                hosts: &mut state.asm,
+                moho: &state.moho,
+                input: &state.input_builder,
                 fetched: Vec::new(),
             };
             fetch_with(&mut state.queue, &mut fetcher, up_to).await;
@@ -264,25 +267,23 @@ async fn fetch_with<F: ProofFetcher>(queue: &mut PendingProofQueue, fetcher: &mu
 /// tick and tolerates a configured number of consecutive failures before
 /// falling back to local proving, so the tick loop *is* the retry policy.
 ///
-/// Fetched receipts are stored unverified. That trusts the peer exactly as
-/// far as the generator path trusts its own proving backend, which holds for
-/// the same-operator HA setup this mode is built for.
-// TODO(STR-4011): if a follower is ever pointed at a third-party peer, verify fetched
-// receipts against the expected verification key and public values before
-// storing — hash-keyed lookups bind an *honest* peer's proofs to the right
-// block, but nothing checks the receipt itself.
-struct StateFetcher<'a, C> {
+/// Receipts are checked against the requested program and public state before storage.
+struct StateFetcher<'a, C, L: AsmHostLoader> {
     ctx: &'a C,
     peer: &'a HttpClient,
+    hosts: &'a mut AsmHostRegistry<L>,
+    moho: &'a L::Host,
+    input: &'a InputBuilder,
     /// Proofs fetched this cycle, for advancing the proven frontier once the
     /// loop's borrows are released.
     fetched: Vec<ProofId>,
 }
 
 #[async_trait]
-impl<C> ProofFetcher for StateFetcher<'_, C>
+impl<C, L> ProofFetcher for StateFetcher<'_, C, L>
 where
     C: ProverContext + Send + Sync,
+    L: AsmHostLoader,
 {
     async fn try_fetch(&mut self, proof_id: ProofId) -> ProverResult<FetchOutcome> {
         if proof_store::proof_exists(self.ctx, &proof_id).await? {
@@ -313,6 +314,10 @@ where
             return Ok(FetchOutcome::NotAvailable);
         };
 
+        verify_receipt(
+            self.ctx, self.input, self.hosts, self.moho, proof_id, &receipt,
+        )
+        .await?;
         proof_store::store_completed_proof(self.ctx, proof_id, receipt, ProofSource::Peer).await?;
         self.fetched.push(proof_id);
         Ok(FetchOutcome::Fetched)

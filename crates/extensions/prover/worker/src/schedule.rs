@@ -9,10 +9,10 @@ use async_trait::async_trait;
 use moho_recursive_proof::MohoRecursiveProgram;
 use strata_asm_prover_types::{ProofId, RemoteProofId};
 use tracing::{debug, info, warn};
-use zkaleido::{ZkVmRemoteHost, ZkVmRemoteProgram};
+use zkaleido::{RemoteProofStatus, ZkVmRemoteProgram};
 
 use crate::{
-    AsmProofHost, ProverContext,
+    AsmHostLoader, AsmHostRegistry, ProverContext,
     errors::{ProverError, ProverResult},
     input::{InputBuilder, MohoInput},
     proof_store,
@@ -25,10 +25,10 @@ use crate::{
 /// Computes the available submission capacity, then delegates the loop control
 /// flow to [`schedule_with`] through a short-lived [`StateSubmitter`] so the
 /// scheduling loop itself can be unit-tested with a fake submitter.
-pub(crate) async fn schedule_proofs<C, H>(state: &mut ProverServiceState<C, H>) -> ProverResult<()>
+pub(crate) async fn schedule_proofs<C, L>(state: &mut ProverServiceState<C, L>) -> ProverResult<()>
 where
     C: ProverContext + Send + Sync,
-    H: ZkVmRemoteHost + Send + Sync,
+    L: AsmHostLoader,
 {
     let in_flight = state
         .ctx
@@ -46,7 +46,7 @@ where
     // `schedule_with` mutates the queue.
     let mut submitter = StateSubmitter {
         ctx: &state.ctx,
-        asm: &state.asm,
+        asm: &mut state.asm,
         moho: &state.moho,
         input_builder: &state.input_builder,
     };
@@ -141,10 +141,7 @@ async fn schedule_with<S: ProofSubmitter>(
                 }
                 deferred.push(proof_id);
             }
-            Err(
-                e
-                @ (ProverError::UnsupportedAsmPredicate { .. } | ProverError::UnsupportedAsmRange),
-            ) => {
+            Err(e) if e.is_terminal() => {
                 queue.enqueue(proof_id);
                 for id in deferred {
                     queue.enqueue(id);
@@ -167,18 +164,18 @@ async fn schedule_with<S: ProofSubmitter>(
 /// [`ProofSubmitter`] backed by the service state's context, hosts, and input
 /// builder. Constructed inline by [`schedule_proofs`] for the duration of one
 /// scheduling cycle.
-struct StateSubmitter<'a, C, H> {
+struct StateSubmitter<'a, C, L: AsmHostLoader> {
     ctx: &'a C,
-    asm: &'a AsmProofHost<H>,
-    moho: &'a H,
+    asm: &'a mut AsmHostRegistry<L>,
+    moho: &'a L::Host,
     input_builder: &'a InputBuilder,
 }
 
 #[async_trait]
-impl<C, H> ProofSubmitter for StateSubmitter<'_, C, H>
+impl<C, L> ProofSubmitter for StateSubmitter<'_, C, L>
 where
     C: ProverContext + Send + Sync,
-    H: ZkVmRemoteHost + Send + Sync,
+    L: AsmHostLoader,
 {
     async fn try_submit(&mut self, proof_id: ProofId) -> ProverResult<SubmitOutcome> {
         // Skip if proof already exists locally.
@@ -186,14 +183,39 @@ where
             return Ok(SubmitOutcome::Skipped(SkipReason::ProofExists));
         }
 
-        // Skip if already submitted.
-        if self
+        if let Some(remote) = self
             .ctx
             .get_remote_proof_id(proof_id)
             .await
             .map_err(|e| ProverError::storage("failed to check remote proof mapping", e))?
-            .is_some()
         {
+            self.ctx
+                .get_proof_id(&remote)
+                .await
+                .map_err(|e| ProverError::storage("failed to read remote proof mapping", e))?
+                .ok_or(ProverError::MissingProofMapping)?;
+            // Completed receipts can be pruned independently of their durable job
+            // mappings. Reactivate retrieval instead of leaving the request stuck.
+            match self
+                .ctx
+                .get_status(&remote)
+                .await
+                .map_err(|e| ProverError::storage("failed to read submission status", e))?
+            {
+                Some(RemoteProofStatus::Requested | RemoteProofStatus::InProgress) => {}
+                Some(_) => self
+                    .ctx
+                    .update_status(&remote, RemoteProofStatus::Requested)
+                    .await
+                    .map_err(|e| ProverError::storage("failed to reactivate submission", e))?,
+                None => self
+                    .ctx
+                    .put_status(&remote, RemoteProofStatus::Requested)
+                    .await
+                    .map_err(|e| {
+                        ProverError::storage("failed to resume submission retrieval", e)
+                    })?,
+            }
             return Ok(SubmitOutcome::Skipped(SkipReason::AlreadySubmitted));
         }
 
@@ -208,7 +230,11 @@ where
                     .input_builder
                     .build_asm_runtime_input(self.ctx, range)
                     .await?;
-                self.asm.start_proving(&runtime_input).await?
+                let host = self
+                    .asm
+                    .load(runtime_input.moho_pre_state().next_predicate())
+                    .await?;
+                host.start_proving(&runtime_input).await?
             }
             ProofId::Moho(block) => {
                 let input = match self

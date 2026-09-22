@@ -9,6 +9,7 @@ use {
     sp1_sdk::{HashableKey, SP1VerifyingKey},
     sp1_verifier::{GROTH16_VK_BYTES, VK_ROOT_BYTES},
     strata_predicate::PredicateTypeId,
+    tokio::{fs::read, task::spawn},
     zkaleido_sp1_groth16_verifier::SP1Groth16Verifier,
     zkaleido_sp1_host::SP1Host,
 };
@@ -17,30 +18,19 @@ use super::ProofHost;
 use crate::errors::{ProverError, ProverResult};
 
 #[cfg(feature = "sp1")]
-pub(super) async fn build_sp1_hosts(
-    asm_elf_path: &Path,
-    moho_elf_path: &Path,
-) -> ProverResult<(ProofHost, ProofHost)> {
-    use std::fs;
-
-    let asm_elf = fs::read(asm_elf_path)
-        .map_err(|e| ProverError::backend("failed to read ASM guest ELF", e))?;
-    let moho_elf = fs::read(moho_elf_path)
-        .map_err(|e| ProverError::backend("failed to read Moho guest ELF", e))?;
-
-    Ok((
-        SP1Host::init(&asm_elf).await,
-        SP1Host::init(&moho_elf).await,
-    ))
+pub(super) async fn load_host(path: &Path) -> ProverResult<ProofHost> {
+    let bytes = read(path)
+        .await
+        .map_err(|e| ProverError::backend("failed to read guest ELF", e))?;
+    spawn(async move { SP1Host::init(&bytes).await })
+        .await
+        .map_err(|e| ProverError::backend("SP1 host initialization failed", e))
 }
 
 #[cfg(not(feature = "sp1"))]
-pub(super) async fn build_sp1_hosts(
-    _asm_elf_path: &Path,
-    _moho_elf_path: &Path,
-) -> ProverResult<(ProofHost, ProofHost)> {
+pub(super) async fn load_host(_path: &Path) -> ProverResult<ProofHost> {
     Err(ProverError::BackendUnavailable(
-        "sp1 backend requested but binary was built without the `sp1` feature",
+        "SP1 requires the sp1 build feature",
     ))
 }
 

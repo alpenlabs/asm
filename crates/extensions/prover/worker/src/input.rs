@@ -1,12 +1,16 @@
-//! Input preparation for proof generation.
+//! Proof input preparation and validation of expected public outputs.
 //!
 //! Builds the [`RuntimeInput`] required by the ZkVM program for each proof type,
 //! reading every dependency (proofs, Moho state, anchor state, aux data, L1
 //! blocks) through the [`ProverContext`] rather than holding concrete handles.
+//! Uses the same persisted chain state to resolve program authority and check outputs.
 
 use moho_recursive_proof::{MohoRecursiveInput, MohoRecursiveOutput};
 use moho_runtime_impl::RuntimeInput;
-use moho_types::{MohoState, RecursiveMohoProof, StepMohoAttestation, StepMohoProof};
+use moho_types::{
+    MohoState, RecursiveMohoAttestation, RecursiveMohoProof, StateRefAttestation, StateReference,
+    StepMohoAttestation, StepMohoProof,
+};
 use ssz::{Decode, Encode};
 use strata_asm_proof_impl::moho_program::input::AsmStepInput;
 use strata_asm_prover_types::{L1Range, ProofId};
@@ -26,7 +30,7 @@ use crate::{
 /// leaves are `inner_state`, `next_predicate`, `export_state`, and padding.
 const NEXT_PREDICATE_LEAF_INDEX: usize = 1;
 
-/// Builds [`RuntimeInput`] for proof generation, dispatching by proof type.
+/// Builds proof inputs and checks expected program authority and public outputs.
 ///
 /// Holds only the values that are fixed for the lifetime of the prover (the
 /// genesis commitment and the Moho predicate); all per-block data is read
@@ -254,5 +258,68 @@ impl InputBuilder {
             step_predicate,
             step_predicate_merkle_proof,
         ))))
+    }
+
+    /// Resolves the required program from the ASM parent state or fixed Moho predicate.
+    pub(crate) async fn expected_predicate<C: ProverContext>(
+        &self,
+        ctx: &C,
+        id: ProofId,
+    ) -> ProverResult<PredicateKey> {
+        match id {
+            ProofId::Asm(range) => {
+                if range.start() != range.end() {
+                    return Err(ProverError::UnsupportedAsmRange);
+                }
+                let parent = self.get_parent_commitment(ctx, range.start()).await?;
+                Ok(self
+                    .get_moho_state(ctx, parent)
+                    .await?
+                    .next_predicate()
+                    .clone())
+            }
+            ProofId::Moho(_) => Ok(self.moho_predicate.clone()),
+        }
+    }
+
+    /// Checks decoded public outputs against the requested transition and persisted states.
+    pub(crate) async fn validate_output<C: ProverContext>(
+        &self,
+        ctx: &C,
+        id: ProofId,
+        bytes: &[u8],
+    ) -> ProverResult<()> {
+        let (from, to) = match id {
+            ProofId::Asm(range) => (
+                self.get_parent_commitment(ctx, range.start()).await?,
+                range.end(),
+            ),
+            ProofId::Moho(block) => (self.genesis, block),
+        };
+        let from_state = self.get_moho_state(ctx, from).await?;
+        let to_state = self.get_moho_state(ctx, to).await?;
+        let from = StateRefAttestation::new(
+            StateReference::new(*from.blkid().as_ref()),
+            from_state.compute_commitment(),
+        );
+        let to = StateRefAttestation::new(
+            StateReference::new(*to.blkid().as_ref()),
+            to_state.compute_commitment(),
+        );
+        let matches = match id {
+            ProofId::Asm(_) => StepMohoAttestation::from_ssz_bytes(bytes)
+                .map(|actual| actual == StepMohoAttestation::new(from, to))
+                .unwrap_or(false),
+            ProofId::Moho(_) => MohoRecursiveOutput::from_ssz_bytes(bytes)
+                .map(|actual| {
+                    actual.attestation() == &RecursiveMohoAttestation::new(from, to)
+                        && actual.moho_predicate() == &self.moho_predicate
+                })
+                .unwrap_or(false),
+        };
+        if !matches {
+            return Err(ProverError::ReceiptMismatch);
+        }
+        Ok(())
     }
 }

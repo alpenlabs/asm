@@ -17,28 +17,27 @@ use std::marker;
 use strata_asm_prover_types::ProverStatus;
 use strata_service::{AsyncService, Response, Service, TickMsg};
 use tracing::{debug, error};
-use zkaleido::ZkVmRemoteHost;
 
 use crate::{
-    ProverContext, ProverError, config::ProverMode, errors::ProverResult, follow,
+    AsmHostLoader, ProverContext, config::ProverMode, errors::ProverResult, follow,
     message::ProverMessage, reconcile, schedule, state::ProverServiceState,
 };
 
 /// Prover service implementation using the service framework.
 ///
 /// A zero-sized logic holder generic over the prover context `C` and the remote
-/// host `H`; all state lives in [`ProverServiceState`].
+/// host loader `L`; all state lives in [`ProverServiceState`].
 #[derive(Debug)]
-pub struct ProverService<C, H> {
-    _phantom: marker::PhantomData<(C, H)>,
+pub struct ProverService<C, L> {
+    _phantom: marker::PhantomData<(C, L)>,
 }
 
-impl<C, H> Service for ProverService<C, H>
+impl<C, L> Service for ProverService<C, L>
 where
     C: ProverContext + Send + Sync + 'static,
-    H: ZkVmRemoteHost + Send + Sync + 'static,
+    L: AsmHostLoader,
 {
-    type State = ProverServiceState<C, H>;
+    type State = ProverServiceState<C, L>;
     type Msg = ProverMessage;
     type Status = ProverStatus;
 
@@ -51,10 +50,10 @@ where
     }
 }
 
-impl<C, H> AsyncService for ProverService<C, H>
+impl<C, L> AsyncService for ProverService<C, L>
 where
     C: ProverContext + Send + Sync + 'static,
-    H: ZkVmRemoteHost + Send + Sync + 'static,
+    L: AsmHostLoader,
 {
     async fn process_input(state: &mut Self::State, input: Self::Msg) -> anyhow::Result<Response> {
         match input {
@@ -67,11 +66,7 @@ where
             // pre-framework orchestrator loop.
             TickMsg::Tick => {
                 if let Err(e) = tick(state).await {
-                    if matches!(
-                        e,
-                        ProverError::UnsupportedAsmPredicate { .. }
-                            | ProverError::UnsupportedAsmRange
-                    ) {
+                    if e.is_terminal() {
                         return Err(e.into());
                     }
                     error!(?e, "prover tick failed");
@@ -87,10 +82,10 @@ where
 ///
 /// Reconciliation runs in both modes: a follower may have local jobs in
 /// flight from an earlier fallback, and it is a no-op when nothing is.
-async fn tick<C, H>(state: &mut ProverServiceState<C, H>) -> ProverResult<()>
+async fn tick<C, L>(state: &mut ProverServiceState<C, L>) -> ProverResult<()>
 where
     C: ProverContext + Send + Sync,
-    H: ZkVmRemoteHost + Send + Sync,
+    L: AsmHostLoader,
 {
     if !state.queue.is_empty() {
         debug!(pending = state.queue.len(), "prover tick");
