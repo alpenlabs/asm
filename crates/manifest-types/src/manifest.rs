@@ -2,13 +2,17 @@
 use arbitrary::Arbitrary;
 use ssz_types::VariableList;
 use strata_crypto::hash;
-use strata_identifiers::{L1BlockId, L1Height, WtxidsRoot};
+use strata_identifiers::{L1_HEIGHT_MMR_PREFILL_LEAF, L1BlockId, L1Height, WtxidsRoot};
 use tree_hash::{Sha256Hasher, TreeHash};
 
 use crate::{
     AsmManifestError, AsmManifestHash, AsmManifestRangeHash, AsmManifestResult,
     ssz_generated::ssz::{log::AsmLogEntry, manifest::AsmManifest},
 };
+
+/// We could potentially have a different prefill value for ASM manifest MMR.
+/// So defining a separate constant. The prefill value can be changed if necessary.
+pub const ASM_MANIFEST_MMR_PREFILL_LEAF: [u8; 32] = L1_HEIGHT_MMR_PREFILL_LEAF;
 
 impl AsmManifest {
     /// Creates a new ASM manifest.

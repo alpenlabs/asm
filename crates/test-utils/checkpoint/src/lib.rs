@@ -14,7 +14,9 @@ use strata_asm_checkpoint_types::{
 use strata_asm_common::{
     AsmHistoryAccumulatorState, AuxData, VerifiableManifestHash, VerifiedAuxData,
 };
-use strata_asm_manifest_types::{AsmManifestHash, AsmManifestRangeHash};
+use strata_asm_manifest_types::{
+    AsmManifestHash, AsmManifestRangeHash, ASM_MANIFEST_MMR_PREFILL_LEAF,
+};
 use strata_asm_proto_checkpoint_txs::EnvelopeCheckpoint;
 use strata_crypto::hash;
 use strata_identifiers::{Buf32, OLBlockCommitment, OLBlockId};
@@ -222,7 +224,7 @@ impl CheckpointTestHarness {
         // prefill positions are never returned to callers.
         let prefill_count = self.genesis_l1_height as u64 + 1;
         let mut manifest_mmr = <Mmr64B32 as Mmr<Sha256Hasher>>::new_repeated(
-            strata_asm_common::MMR_SENTINEL_DUMMY_LEAF,
+            ASM_MANIFEST_MMR_PREFILL_LEAF,
             prefill_count,
         );
         let mut proof_list = Vec::with_capacity(leaves.len());
