@@ -20,6 +20,7 @@ use tree_hash::{Sha256Hasher as TreeSha256Hasher, TreeHash};
 use crate::{
     ProverContext,
     errors::{ProverError, ProverResult},
+    verify::ProofVerifier,
 };
 
 /// Leaf index of `next_predicate` in the [`MohoState`] commitment tree, whose
@@ -68,22 +69,6 @@ impl InputBuilder {
         }
     }
 
-    async fn get_parent_commitment<C: ProverContext>(
-        &self,
-        ctx: &C,
-        l1_ref: L1BlockCommitment,
-    ) -> ProverResult<L1BlockCommitment> {
-        let header = ctx.get_l1_block_header(l1_ref.blkid()).await?;
-        let parent_hash = header.prev_blockhash;
-
-        let parent_height = l1_ref.height().checked_sub(1).ok_or(ProverError::NotFound(
-            "cannot generate ASM proof for height 0 — no parent block",
-        ))?;
-
-        let parent = L1BlockCommitment::new(parent_height, parent_hash.to_l1_block_id());
-        Ok(parent)
-    }
-
     /// Fetches the persisted [`MohoState`] for the given L1 block. The worker
     /// materializes this alongside each anchor state — see the runner's
     /// `AsmWorkerContext::store_anchor_state`.
@@ -102,6 +87,16 @@ impl InputBuilder {
     /// Proofs exist only for blocks strictly above it.
     pub(crate) fn genesis(&self) -> L1BlockCommitment {
         self.genesis
+    }
+
+    /// A verifier over the predicate keys and genesis block held here.
+    ///
+    /// The keys are what a receipt is checked against, and this is the only
+    /// place both are held, so pairing them stays here rather than at each
+    /// call site. Borrows only this builder, which lets the follower hold a
+    /// verifier while the fetch loop borrows the queue mutably.
+    pub(crate) fn verifier(&self) -> ProofVerifier<'_> {
+        ProofVerifier::new(&self.asm_predicate, &self.moho_predicate, self.genesis)
     }
 
     /// Builds the [`RuntimeInput`] for a single-block ASM proof.
@@ -129,12 +124,12 @@ impl InputBuilder {
         let step_input = AsmStepInput::new(block, aux_data, coinbase_inclusion_proof);
 
         // 4. Fetch the pre-state (anchor state for the parent block).
-        let parent_commitment = self.get_parent_commitment(ctx, commitment).await?;
+        let parent = parent_commitment(ctx, commitment).await?;
 
-        let anchor_state = ctx.get_anchor_state(&parent_commitment)?;
+        let anchor_state = ctx.get_anchor_state(&parent)?;
 
         // 5. Compute the Moho pre-state from the anchor state.
-        let moho_pre_state = self.get_moho_state(ctx, parent_commitment).await?;
+        let moho_pre_state = self.get_moho_state(ctx, parent).await?;
 
         // 6. Build RuntimeInput.
         let runtime_input = RuntimeInput::new(
@@ -170,7 +165,7 @@ impl InputBuilder {
             .await
             .map_err(|e| ProverError::storage("failed to fetch ASM step proof", e))?;
 
-        let parent = self.get_parent_commitment(ctx, l1_ref).await?;
+        let parent = parent_commitment(ctx, l1_ref).await?;
         let requires_prev = parent != self.genesis;
         let prev_moho = if requires_prev {
             ctx.get_moho_proof(parent)
@@ -254,4 +249,30 @@ impl InputBuilder {
             step_predicate_merkle_proof,
         ))))
     }
+}
+
+/// Resolves the commitment of the block `l1_ref` builds on, by reading its
+/// header and pairing `prev_blockhash` with the height below it.
+///
+/// Shared by input assembly and verification: the ASM step proof runs over the
+/// parent's state and attests to the transition out of it, so both the input
+/// the guest is given and the attestation it must produce are anchored there.
+///
+/// Costs a chain-source round trip. Proofs are handled at L1 block cadence, so
+/// it is not on any hot path.
+pub(crate) async fn parent_commitment<C: ProverContext>(
+    ctx: &C,
+    l1_ref: L1BlockCommitment,
+) -> ProverResult<L1BlockCommitment> {
+    let header = ctx.get_l1_block_header(l1_ref.blkid()).await?;
+    let parent_hash = header.prev_blockhash;
+
+    let parent_height = l1_ref.height().checked_sub(1).ok_or(ProverError::NotFound(
+        "block at height 0 has no parent block",
+    ))?;
+
+    Ok(L1BlockCommitment::new(
+        parent_height,
+        parent_hash.to_l1_block_id(),
+    ))
 }
