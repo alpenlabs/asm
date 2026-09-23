@@ -9,17 +9,22 @@ use asm_storage::{SledAsmAuxDataDb, SledAsmStateDb};
 use bitcoind_async_client::{Client, traits::Reader};
 use moho_recursive_proof::{MohoRecursiveInput, MohoRecursiveOutput};
 use moho_runtime_impl::RuntimeInput;
-use moho_types::{MohoState, RecursiveMohoProof, StepMohoAttestation, StepMohoProof};
+use moho_types::{
+    MohoState, RecursiveMohoAttestation, RecursiveMohoProof, StateRefAttestation,
+    StepMohoAttestation, StepMohoProof,
+};
 use ssz::{Decode, Encode};
 use strata_asm_proof_db::{MohoStateDb, ProofDb, SledMohoStateDb, SledProofDb};
 use strata_asm_proof_impl::moho_program::input::AsmStepInput;
-use strata_asm_proof_types::L1Range;
+use strata_asm_proof_types::{L1Range, ProofId};
 use strata_btc_types::{BlockHashExt, L1BlockIdBitcoinExt};
 use strata_btc_verification::{self, TxidInclusionProof};
 use strata_identifiers::L1BlockCommitment;
 use strata_merkle::{BinaryMerkleTree, MerkleProofB32, Sha256NoPrefixHasher};
 use strata_predicate::PredicateKey;
 use tree_hash::{Sha256Hasher as TreeSha256Hasher, TreeHash};
+
+use super::verify::{ExpectedAttestation, ProofVerifier, state_reference};
 
 /// Builds [`RuntimeInput`] for proof generation, dispatching by proof type.
 pub(crate) struct InputBuilder {
@@ -80,6 +85,62 @@ impl InputBuilder {
     /// The genesis block the proof chain is anchored at.
     pub(crate) fn genesis(&self) -> L1BlockCommitment {
         self.genesis
+    }
+
+    /// A verifier over the predicate keys held here.
+    ///
+    /// Returned by value rather than stored, so the orchestrator can hold the
+    /// verifier while the fetch loop borrows the queue mutably.
+    pub(crate) fn verifier(&self) -> ProofVerifier<'_> {
+        ProofVerifier::new(&self.asm_predicate, &self.moho_predicate)
+    }
+
+    /// Builds the transition a receipt filed under `proof_id` has to attest
+    /// to, out of the Moho states this node derived for itself.
+    ///
+    /// Kept apart from [`ProofVerifier::verify`] because the two failures mean
+    /// different things: failing to read our own state says nothing about the
+    /// source that served the receipt, while a receipt that does not match it
+    /// says everything. Callers propagate the first and blame the source for
+    /// the second.
+    ///
+    /// Every block involved has a stored Moho state. The worker materializes
+    /// one alongside each anchor state it commits, so a block that reaches
+    /// verification is one whose state — and its parent's, committed earlier
+    /// — is already on disk. The recursive arm also reads the genesis state,
+    /// which the worker seeds before any block above it is processed.
+    pub(crate) async fn expected_attestation(
+        &self,
+        proof_id: &ProofId,
+    ) -> Result<ExpectedAttestation> {
+        match proof_id {
+            // The orchestrator only ever proves single-block ranges, and a
+            // step runs from the block's parent into the block.
+            ProofId::Asm(range) => {
+                let block = range.end();
+                let parent = self.get_parent_commitment(block).await?;
+                Ok(ExpectedAttestation::Step(StepMohoAttestation::new(
+                    self.attested(parent).await?,
+                    self.attested(block).await?,
+                )))
+            }
+            ProofId::Moho(block) => Ok(ExpectedAttestation::Recursive(
+                RecursiveMohoAttestation::new(
+                    self.attested(self.genesis).await?,
+                    self.attested(*block).await?,
+                ),
+            )),
+        }
+    }
+
+    /// The attestation this node derived for `block`: its Moho state reference
+    /// paired with the commitment of the state stored for it.
+    async fn attested(&self, block: L1BlockCommitment) -> Result<StateRefAttestation> {
+        let state = self.get_moho_state(block).await?;
+        Ok(StateRefAttestation::new(
+            state_reference(&block),
+            state.compute_commitment(),
+        ))
     }
 
     async fn get_parent_commitment(&self, l1_ref: L1BlockCommitment) -> Result<L1BlockCommitment> {

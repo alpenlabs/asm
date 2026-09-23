@@ -11,6 +11,7 @@ mod orchestrator;
 mod proof_store;
 mod queue;
 mod status;
+mod verify;
 
 pub(crate) use self::{
     backend::ProofBackend,

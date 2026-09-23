@@ -1,7 +1,7 @@
 //! Proof orchestrator — schedules and reconciles remote proof jobs.
 //!
 //! The orchestrator runs a periodic tick loop that:
-//! 1. Reconciles active remote proofs: completed proofs are retrieved and persisted, jobs that will
+//! 1. Reconciles active remote proofs: completed proofs are verified and persisted, jobs that will
 //!    not yield a proof are discarded so the block can be submitted again, and everything else just
 //!    has its stored status refreshed.
 //! 2. Schedules new proofs from the pending queue, enforcing prerequisites.
@@ -279,8 +279,8 @@ impl<R: ZkVmRemoteHost> ProofOrchestrator<R> {
     /// The decision is re-taken every tick, so a recovered peer immediately
     /// stops new local submissions.
     async fn follow_proofs(&mut self, follower: &FollowerConfig) -> Result<()> {
-        let genesis_height = self.input_builder.genesis().height();
         let last_committed = self.last_committed;
+        let input_builder = &self.input_builder;
 
         let Some(peer) = self.peer.as_mut() else {
             // Unreachable: the constructor builds a peer for every follower
@@ -294,8 +294,8 @@ impl<R: ZkVmRemoteHost> ProofOrchestrator<R> {
             &mut self.queue,
             peer,
             follower,
+            input_builder,
             last_committed,
-            genesis_height,
         )
         .await;
 
@@ -396,6 +396,16 @@ impl<R: ZkVmRemoteHost> ProofOrchestrator<R> {
             .await
             .context("failed to look up proof ID from remote ID")?
             .context("no mapping found for completed remote proof")?;
+
+        // A receipt that is not a proof of this block tells us nothing the job
+        // having failed outright would not, so treat it the same way and let
+        // the scheduler prove the block again. Failing to read our own state
+        // is a different problem and propagates instead.
+        let expected = self.input_builder.expected_attestation(&proof_id).await?;
+        if let Err(e) = self.input_builder.verifier().verify(&receipt, &expected) {
+            error!(?proof_id, %remote_id, %e, "completed proof failed verification, discarding it");
+            return discard_submission(&self.db, remote_id).await;
+        }
 
         proof_store::store_completed_proof(&self.db, proof_id, receipt, ProofSource::Backend)
             .await?;
