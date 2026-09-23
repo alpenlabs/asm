@@ -185,7 +185,9 @@ impl<'a> ProofVerifier<'a> {
     /// Every block involved has a stored Moho state. The queue is fed by the
     /// Moho commit stream, and the worker stores a block's state before it
     /// announces the commit, so a block that reaches verification is one whose
-    /// state — and its parent's, committed earlier — is already on disk.
+    /// state — and its parent's, committed earlier — is already on disk. The
+    /// recursive arm also reads the genesis state, which the Moho worker
+    /// ensures at construction, before this worker launches.
     pub async fn expected_attestation<C: ProverContext>(
         &self,
         ctx: &C,

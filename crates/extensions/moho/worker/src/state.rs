@@ -7,7 +7,7 @@ use strata_predicate::PredicateKey;
 use strata_service::ServiceState;
 use tracing::info;
 
-use crate::{MohoWorkerContext, MohoWorkerResult, compute, constants};
+use crate::{MohoWorkerContext, MohoWorkerError, MohoWorkerResult, compute, constants};
 
 /// In-memory state for the Moho worker.
 ///
@@ -47,11 +47,8 @@ pub struct MohoWorkerServiceState<W> {
 }
 
 impl<W: MohoWorkerContext> MohoWorkerServiceState<W> {
-    /// Creates the service state, resuming from the latest stored Moho state or
-    /// seeding the genesis entry when the store is empty.
-    ///
-    /// Genesis is seeded from the ASM anchor state already committed for
-    /// `genesis_block`; `asm_predicate` becomes the genesis Moho predicate.
+    /// Creates the service state: ensures the genesis Moho state for
+    /// `genesis_block` is present, then resumes from the latest stored one.
     ///
     /// `subscribers` is the same registry the handle hands out [`Subscription`]s
     /// from, so the service emits into the list the handle registers into.
@@ -65,19 +62,15 @@ impl<W: MohoWorkerContext> MohoWorkerServiceState<W> {
         asm_predicate: PredicateKey,
         subscribers: Subscribers<L1BlockCommitment>,
     ) -> MohoWorkerResult<Self> {
-        let (cur_block, cur_moho) = match context.get_latest_moho_state()? {
-            Some((blk, moho)) => {
-                info!(%blk, "resuming Moho worker from stored state");
-                (blk, moho)
-            }
-            None => {
-                let genesis_anchor = context.get_anchor_state(&genesis_block)?;
-                let moho = compute::construct_genesis_moho_state(asm_predicate, &genesis_anchor);
-                context.store_moho_state(&genesis_block, &moho)?;
-                info!(%genesis_block, "seeded genesis Moho state");
-                (genesis_block, moho)
-            }
-        };
+        // Every start, not just an empty store: pruning by height can drop
+        // genesis while a higher snapshot remains, and every recursive
+        // attestation is anchored to it.
+        ensure_genesis_moho_state(&context, &genesis_block, asm_predicate)?;
+
+        let (cur_block, cur_moho) = context
+            .get_latest_moho_state()?
+            .expect("genesis Moho state is present, so the store is not empty");
+        info!(%cur_block, "resuming Moho worker from stored state");
 
         Ok(Self {
             context,
@@ -109,6 +102,30 @@ impl<W: MohoWorkerContext> MohoWorkerServiceState<W> {
     pub(crate) fn update_moho_state(&mut self, moho: MohoState, blk: L1BlockCommitment) {
         self.cur_moho = moho;
         self.cur_block = blk;
+    }
+}
+
+/// Writes the genesis [`MohoState`] unless the store already holds one,
+/// deriving it from the ASM anchor state committed for `genesis_block` with
+/// `asm_predicate` as its Moho predicate.
+fn ensure_genesis_moho_state<W: MohoWorkerContext>(
+    context: &W,
+    genesis_block: &L1BlockCommitment,
+    asm_predicate: PredicateKey,
+) -> MohoWorkerResult<()> {
+    match context.get_moho_state(genesis_block) {
+        // Not refreshed: proofs already in the store are anchored to the stored
+        // commitment, so recomputing it under a rebuilt ASM ELF would move that
+        // base with nothing failing.
+        Ok(_) => Ok(()),
+        Err(MohoWorkerError::MissingMohoState(_)) => {
+            let genesis_anchor = context.get_anchor_state(genesis_block)?;
+            let moho = compute::construct_genesis_moho_state(asm_predicate, &genesis_anchor);
+            context.store_moho_state(genesis_block, &moho)?;
+            info!(%genesis_block, "seeded genesis Moho state");
+            Ok(())
+        }
+        Err(e) => Err(e),
     }
 }
 
@@ -309,7 +326,7 @@ mod tests {
     }
 
     #[test]
-    fn resumes_from_latest_without_reseeding_genesis() {
+    fn resumes_from_latest_stored_state() {
         let (genesis_blk, anchor) = genesis_anchor();
         let ctx = MockContext::default();
         ctx.insert_anchor(genesis_blk, anchor.clone());
@@ -329,6 +346,60 @@ mod tests {
         .unwrap();
 
         assert_eq!(state.cur_block(), later_blk);
+    }
+
+    #[test]
+    fn restores_genesis_missing_below_a_retained_state() {
+        // What an offline `moho state prune --before` leaves behind: no genesis
+        // entry, a higher snapshot kept. The snapshot is still the resume point,
+        // but genesis has to come back — the prover reads it to build the
+        // expected attestation for every Moho recursion.
+        let (genesis_blk, anchor) = genesis_anchor();
+        let ctx = MockContext::default();
+        ctx.insert_anchor(genesis_blk, anchor.clone());
+
+        let later_blk = commitment_after(genesis_blk);
+        let later_moho =
+            compute::construct_genesis_moho_state(PredicateKey::always_accept(), &anchor);
+        ctx.store_moho_state(&later_blk, &later_moho).unwrap();
+
+        let state = MohoWorkerServiceState::new(
+            ctx,
+            genesis_blk,
+            PredicateKey::always_accept(),
+            Subscribers::default(),
+        )
+        .unwrap();
+
+        assert_eq!(state.cur_block(), later_blk);
+        let restored = state.context.get_moho_state(&genesis_blk).unwrap();
+        assert_eq!(
+            restored.inner_state(),
+            AsmStfProgram::compute_state_commitment(&anchor)
+        );
+    }
+
+    #[test]
+    fn keeps_the_stored_genesis_when_the_asm_predicate_changes() {
+        // Every recursive attestation is anchored to the genesis commitment, so
+        // a start under a different ASM predicate must not move it.
+        let (genesis_blk, anchor) = genesis_anchor();
+        let ctx = MockContext::default();
+        ctx.insert_anchor(genesis_blk, anchor.clone());
+
+        let seeded = compute::construct_genesis_moho_state(PredicateKey::always_accept(), &anchor);
+        ctx.store_moho_state(&genesis_blk, &seeded).unwrap();
+
+        let state = MohoWorkerServiceState::new(
+            ctx,
+            genesis_blk,
+            PredicateKey::never_accept(),
+            Subscribers::default(),
+        )
+        .unwrap();
+
+        let stored = state.context.get_moho_state(&genesis_blk).unwrap();
+        assert_eq!(stored.next_predicate(), &PredicateKey::always_accept());
     }
 
     #[test]
