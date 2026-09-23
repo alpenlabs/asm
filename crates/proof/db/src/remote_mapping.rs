@@ -43,4 +43,15 @@ pub trait RemoteProofMappingDb {
         id: ProofId,
         remote_id: RemoteProofId,
     ) -> impl Future<Output = Result<(), Self::Error>> + Send;
+
+    /// Forgets that `id` was submitted to the remote prover, so it can be
+    /// submitted again. Returns whether a submission was on record.
+    ///
+    /// Only the proof → remote direction is cleared. The remote ids the proof
+    /// has already had stay resolvable, so a late reply from one of them still
+    /// names the proof it belongs to.
+    fn clear_remote_proof_id(
+        &self,
+        id: ProofId,
+    ) -> impl Future<Output = Result<bool, Self::Error>> + Send;
 }

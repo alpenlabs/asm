@@ -1,7 +1,9 @@
 //! Proof orchestrator — schedules and reconciles remote proof jobs.
 //!
 //! The orchestrator runs a periodic tick loop that:
-//! 1. Reconciles active remote proofs (polls status, stores completed proofs).
+//! 1. Reconciles active remote proofs: completed proofs are retrieved and persisted, jobs that will
+//!    not yield a proof are discarded so the block can be submitted again, and everything else just
+//!    has its stored status refreshed.
 //! 2. Schedules new proofs from the pending queue, enforcing prerequisites.
 
 use anyhow::{Context, Result};
@@ -319,7 +321,7 @@ impl<R: ZkVmRemoteHost> ProofOrchestrator<R> {
 
         for (remote_id, old_status) in in_progress {
             if let Err(e) = self.reconcile_one(&remote_id, &old_status).await {
-                warn!(?remote_id, ?e, "failed to reconcile remote proof");
+                warn!(%remote_id, ?e, "failed to reconcile remote proof");
             }
         }
         Ok(())
@@ -359,11 +361,8 @@ impl<R: ZkVmRemoteHost> ProofOrchestrator<R> {
                 self.handle_completed(remote_id, &typed_id).await?;
             }
             RemoteProofStatus::Failed(reason) => {
-                error!(?remote_id, %reason, "remote proof generation failed");
-                self.db
-                    .remove(remote_id)
-                    .await
-                    .context("failed to remove failed proof status")?;
+                error!(%remote_id, %reason, "remote proof generation failed. discarding submission");
+                discard_submission(&self.db, remote_id).await?;
             }
             _ => {
                 self.db
@@ -404,7 +403,7 @@ impl<R: ZkVmRemoteHost> ProofOrchestrator<R> {
         self.advance_proven(&proof_id);
 
         self.db
-            .remove(remote_id)
+            .remove_status(remote_id)
             .await
             .context("failed to remove completed proof status")?;
 
@@ -521,6 +520,15 @@ struct OrchestratorSubmitter<'a, R: ZkVmRemoteHost> {
 #[async_trait(?Send)]
 impl<R: ZkVmRemoteHost> ProofSubmitter for OrchestratorSubmitter<'_, R> {
     async fn try_submit(&mut self, proof_id: ProofId) -> Result<SubmitOutcome> {
+        // Skip if proof already exists locally. Checked before the mapping:
+        // `handle_completed` leaves the mapping behind, so a block that is
+        // already proven and stored would otherwise be reported as still
+        // working at the remote prover.
+        if proof_store::proof_exists(self.db, &proof_id).await? {
+            debug!(?proof_id, "proof already exists, skipping");
+            return Ok(SubmitOutcome::Skipped);
+        }
+
         // Skip if already submitted.
         if self
             .db
@@ -530,12 +538,6 @@ impl<R: ZkVmRemoteHost> ProofSubmitter for OrchestratorSubmitter<'_, R> {
             .is_some()
         {
             debug!(?proof_id, "proof already submitted, skipping");
-            return Ok(SubmitOutcome::Skipped);
-        }
-
-        // Skip if proof already exists locally.
-        if proof_store::proof_exists(self.db, &proof_id).await? {
-            debug!(?proof_id, "proof already exists, skipping");
             return Ok(SubmitOutcome::Skipped);
         }
 
@@ -581,6 +583,32 @@ impl<R: ZkVmRemoteHost> ProofSubmitter for OrchestratorSubmitter<'_, R> {
 
         Ok(SubmitOutcome::Submitted)
     }
+}
+
+/// Forgets a remote job that will never yield a proof, so its proof can be
+/// submitted again.
+///
+/// Dropping the status entry alone is not enough. The proof's mapping is what
+/// [`OrchestratorSubmitter::try_submit`] reads to decide the proof is already
+/// in flight, and it is durable — leaving it behind means the block is never
+/// proven again, not even after a restart.
+async fn discard_submission(db: &SledProofDb, remote_id: &RemoteProofId) -> Result<()> {
+    let proof_id = db
+        .get_proof_id(remote_id)
+        .await
+        .context("failed to look up proof ID from remote ID")?;
+
+    if let Some(proof_id) = proof_id {
+        db.clear_remote_proof_id(proof_id)
+            .await
+            .context("failed to clear remote proof mapping")?;
+    }
+
+    db.remove_status(remote_id)
+        .await
+        .context("failed to remove proof status")?;
+
+    Ok(())
 }
 
 /// Converts a persisted [`RemoteProofId`] back into the host's typed proof ID.
