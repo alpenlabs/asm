@@ -123,7 +123,7 @@ impl DepositPool {
         }
 
         let denom = self.denomination.to_sat();
-        let mut required: u32 = 0;
+        let mut required: u64 = 0;
         for intent in intents {
             let amt = intent.amt().to_sat();
             if amt == 0 || !amt.is_multiple_of(denom) {
@@ -132,11 +132,14 @@ impl DepositPool {
                     actual: intent.amt(),
                 });
             }
-            // u32 is sufficient: pool count is u32, and we reject below if required exceeds it.
-            required = required.saturating_add((amt / denom) as u32);
+            // Accumulate at full width. Each quotient is bounded by the money supply and
+            // the intent count is capped, so the sum cannot overflow u64.
+            required += amt / denom;
         }
 
-        if required > self.count {
+        // Compare before narrowing: a total wider than the pool count is insufficient by
+        // definition, so this subsumes the capacity check.
+        if required > u64::from(self.count) {
             return Err(InvalidCheckpointPayload::InsufficientFunds {
                 available: self.total(),
                 required: total_withdrawal_amount(intents)?,
@@ -144,7 +147,8 @@ impl DepositPool {
         }
 
         Ok(VerifiedWithdrawals {
-            remaining_count: self.count - required,
+            // Narrowing is safe: the check above proved `required <= self.count`, a u32.
+            remaining_count: self.count - required as u32,
         })
     }
 
@@ -383,6 +387,29 @@ mod tests {
             InvalidCheckpointPayload::DenominationMismatch { expected, actual }
             if expected == denom && actual == BitcoinAmount::default()
         ));
+    }
+
+    /// A quotient past `u32::MAX` must be rejected, not truncated.
+    ///
+    /// With a 1000 sat denomination, an amount of `(2^32 + 1) * 1000` is still under the
+    /// money supply, so it survives the upstream `BitcoinAmount` bound and reaches the
+    /// pool. Truncating that quotient to u32 yields 1, which a single-UTXO pool would
+    /// have accepted, under-deducting while the bridge dispatches the full count.
+    #[test]
+    fn quotient_exceeding_u32_is_rejected() {
+        let mut pool = DepositPool::default();
+        let denom = bitcoin_amount(1_000);
+        pool.record(denom);
+
+        let amt = (u64::from(u32::MAX) + 2) * 1_000;
+        let intents = vec![withdrawal(amt)];
+        let err = pool.verify_withdrawals(&intents).unwrap_err();
+
+        assert!(matches!(
+            err,
+            InvalidCheckpointPayload::InsufficientFunds { .. }
+        ));
+        assert_eq!(pool.total(), denom);
     }
 
     #[test]
