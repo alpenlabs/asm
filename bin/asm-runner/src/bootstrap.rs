@@ -19,7 +19,7 @@ use crate::{
     prover::{InputBuilder, ProofBackend, ProofOrchestrator, status_channel},
     rpc_server::{AsmProofRpcDeps, run_rpc_server},
     storage::{Storage, create_storage},
-    worker_context::{AsmWorkerContext, MohoStorage},
+    worker_context::{AsmWorkerContext, MohoStorage, ensure_genesis_moho_state},
 };
 pub(crate) async fn bootstrap(
     config: AsmRpcConfig,
@@ -111,6 +111,15 @@ pub(crate) async fn bootstrap(
             asm_predicate,
             moho_predicate,
         } = backend;
+
+        // After the worker has launched, so the genesis anchor this derives
+        // from is on disk either way: seeded just now, or already there.
+        ensure_genesis_moho_state(
+            &state_db,
+            &moho_state_db,
+            &params.anchor.block,
+            asm_predicate.clone(),
+        )?;
 
         let input_builder = InputBuilder::new(
             state_db.clone(),
