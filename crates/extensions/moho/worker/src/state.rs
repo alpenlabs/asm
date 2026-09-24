@@ -374,7 +374,7 @@ mod tests {
         let restored = state.context.get_moho_state(&genesis_blk).unwrap();
         assert_eq!(
             restored.inner_state(),
-            AsmStfProgram::compute_state_commitment(&anchor)
+            compute_anchor_state_commitment(&anchor)
         );
     }
 
