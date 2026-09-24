@@ -1,0 +1,307 @@
+name: Docker Publish to ECR
+
+# Builds the strata-asm-runner image from a chosen ref, scans it with Trivy, and
+# pushes it to public ECR tagged with the short SHA of the built ASM commit.
+# Mirrors alpenlabs/mosaic's workflow of the same name; see docker/README.md.
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Git branch, tag, or commit SHA to build. Defaults to the branch HEAD selected in the UI.
+        required: false
+        type: string
+      image_tag:
+        description: Optional image tag override. Must start with dev-, manual- or test-. Defaults to the resolved short SHA.
+        required: false
+        type: string
+
+env:
+  PUBLIC_ECR_REGISTRY: public.ecr.aws
+  PUBLIC_ECR_NAMESPACE: z5c7y9u9
+  PUBLIC_ECR_REPOSITORY: strata-asm-runner
+  PUBLIC_ECR_REGION: us-east-1
+  DOCKER_PLATFORMS: linux/amd64
+
+permissions:
+  contents: read
+
+# One publish at a time, whatever ref alias was dispatched: two aliases of the same
+# commit resolve to the same tag, and the write-once check below is check-then-push.
+concurrency:
+  group: docker-publish-ecr
+  cancel-in-progress: false
+
+jobs:
+  build_and_publish:
+    name: Build and Publish ASM Runner Image
+    # Only the reviewed main copy of this workflow may publish; other code is built
+    # through inputs.ref (belt-and-suspenders with the environment's branch policy).
+    if: ${{ github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-latest
+    environment: AWS
+    permissions:
+      contents: read
+      id-token: write
+      security-events: write
+    # The runner is compiled from scratch with --features sp1 on every run,
+    # which takes far longer than mosaic's 30-minute budget.
+    timeout-minutes: 120
+    steps:
+      - name: Validate manual inputs
+        env:
+          INPUT_REF: ${{ inputs.ref }}
+          INPUT_IMAGE_TAG: ${{ inputs.image_tag }}
+        run: |
+          set -euo pipefail
+
+          if [[ -n "${INPUT_REF}" && ! "${INPUT_REF}" =~ ^[A-Za-z0-9._/@:-]+$ ]]; then
+            echo "::error::ref contains unsupported characters"
+            exit 1
+          fi
+
+          # Allowlist for user-supplied image_tag values. The only production tag
+          # namespace is the short SHA that the default path pushes to public ECR,
+          # and a dispatcher could supply that exact SHA as an
+          # override to overwrite a trusted tag from an arbitrary ref. A denylist of
+          # reserved names cannot cover this: the trusted namespace is exactly the
+          # shape an attacker would reuse. Accept only explicitly non-production
+          # prefixes.
+          if [[ -n "${INPUT_IMAGE_TAG}" && ! "${INPUT_IMAGE_TAG}" =~ ^(dev|manual|test)-[A-Za-z0-9._-]{1,120}$ ]]; then
+            echo "::error::image_tag '${INPUT_IMAGE_TAG}' must start with dev-, manual- or test- and match [A-Za-z0-9._-]{1,120} after the prefix"
+            exit 1
+          fi
+
+      # Workflow scripts (render_trivy_summary.py, cleanup action) always come from
+      # main so they are reviewed code regardless of what inputs.ref points to.
+      - name: Checkout workflow scripts from main
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: main
+
+      # The requested build ref is checked out into build-src/ as the Docker build
+      # context. Its Dockerfile, build scripts and proc macros run inside the
+      # BuildKit sandbox, so only dispatch refs whose code you trust.
+      - name: Checkout build ref into build-src/
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ inputs.ref || github.sha }}
+          path: build-src
+
+      - name: Resolve build metadata
+        env:
+          INPUT_REF: ${{ inputs.ref }}
+          INPUT_IMAGE_TAG: ${{ inputs.image_tag }}
+        run: |
+          set -euo pipefail
+
+          # Resolve SHA from build-src/ (the requested ref), not the main checkout.
+          resolved_sha="$(git -C build-src rev-parse HEAD)"
+          short_sha="${resolved_sha:0:8}"
+          # Only reviewed commits (main's head or a protected git tag) get the bare
+          # short-SHA tag; any other branch is published under dev-<sha>.
+          trusted_refs="$(git -C build-src ls-remote origin refs/heads/main 'refs/tags/*')"
+          if ! grep -q "^${resolved_sha}" <<<"${trusted_refs}"; then
+            short_sha="dev-${short_sha}"
+          fi
+          checkout_ref="${INPUT_REF:-${GITHUB_SHA}}"
+          image_tag="${INPUT_IMAGE_TAG:-${short_sha}}"
+          image_ref="${PUBLIC_ECR_REGISTRY}/${PUBLIC_ECR_NAMESPACE}/${PUBLIC_ECR_REPOSITORY}:${image_tag}"
+
+          {
+            echo "CHECKOUT_REF=${checkout_ref}"
+            echo "RESOLVED_SHA=${resolved_sha}"
+            echo "IMAGE_TAG=${image_tag}"
+            echo "IMAGE_REF=${image_ref}"
+          } >> "${GITHUB_ENV}"
+
+      - name: Cleanup space
+        uses: $/.github/actions/cleanup # zizmor: ignore[unpinned-uses]
+
+      - name: Validate AWS publish configuration
+        env:
+          PUBLIC_AWS_ROLE_TO_ASSUME: ${{ vars.PUBLIC_AWS_ROLE_TO_ASSUME }}
+        run: |
+          if [[ -z "${PUBLIC_AWS_ROLE_TO_ASSUME}" ]]; then
+            echo "::error::Repository variable PUBLIC_AWS_ROLE_TO_ASSUME is required for public ECR publishing"
+            exit 1
+          fi
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
+
+      # Build to local Docker daemon so Trivy can scan the image before any push.
+      - name: Build ASM runner image
+        run: |
+          set -euo pipefail
+          docker buildx build \
+            --platform "${DOCKER_PLATFORMS}" \
+            --file build-src/docker/Dockerfile \
+            --tag "${IMAGE_REF}" \
+            --load \
+            build-src
+
+      - name: Create Trivy output directory
+        run: mkdir -p trivy-results
+
+      # .trivyignore lives in the root checkout (always main) so only reviewed,
+      # merged code can suppress CVEs; an untrusted inputs.ref cannot manipulate it.
+      # Guard creates an empty file for runs against refs that pre-date the file.
+      - name: Ensure .trivyignore exists
+        run: |
+          if [[ ! -f .trivyignore ]]; then
+            touch .trivyignore
+          fi
+
+      # Hard gate: the run fails and no image is pushed if a CRITICAL or HIGH
+      # vulnerability with an available fix is found. CVEs with no fix yet are not
+      # gated (same policy as mosaic and strata-bridge); justify exceptions for
+      # fixable ones in .trivyignore via PR.
+      - name: Scan ASM runner image with Trivy (hard gate)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: ${{ env.IMAGE_REF }}
+          format: json
+          output: trivy-results/strata-asm-runner.json
+          scanners: vuln
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          exit-code: "1"
+          trivyignores: .trivyignore
+
+      # Advisory SARIF scan: runs even if the hard gate failed so that findings
+      # are always visible in the Security tab for triage.
+      - name: Scan ASM runner image with Trivy (SARIF, Security tab)
+        if: always()
+        continue-on-error: true
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: ${{ env.IMAGE_REF }}
+          format: sarif
+          output: trivy-results/strata-asm-runner.sarif
+          scanners: vuln
+          severity: CRITICAL,HIGH,MEDIUM,LOW
+          ignore-unfixed: true
+          exit-code: "0"
+          trivyignores: .trivyignore
+
+      # Advisory SBOM: CycloneDX artifact for supply chain tracking.
+      - name: Generate SBOM with Trivy (CycloneDX)
+        if: always()
+        continue-on-error: true
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: ${{ env.IMAGE_REF }}
+          format: cyclonedx
+          output: trivy-results/strata-asm-runner.sbom.json
+          scanners: vuln
+          exit-code: "0"
+          trivyignores: .trivyignore
+
+      # The rendered .md is appended to $GITHUB_STEP_SUMMARY by "Append publish
+      # summary" below; IMAGE_REF and IMAGE_TAG reach the script via GITHUB_ENV.
+      - name: Render Trivy markdown summary
+        if: always()
+        continue-on-error: true
+        run: python3 .github/scripts/render_trivy_summary.py
+
+      # Uploads SARIF to the repository's Security -> Code scanning tab.
+      # Requires security-events: write permission (set at job level above).
+      - name: Upload Trivy SARIF to GitHub Security tab
+        if: always()
+        continue-on-error: true
+        uses: github/codeql-action/upload-sarif@ff2f1c621b7f889edc0d3c761ac2e6a3f8cdb0dd # v4
+        with:
+          sarif_file: trivy-results/strata-asm-runner.sarif
+          category: strata-asm-runner-ecr
+
+      # Bundles JSON, SARIF, SBOM, and Markdown as a downloadable artifact.
+      # Artifact name includes the image tag so runs can be compared side-by-side.
+      - name: Upload Trivy results artifact
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: trivy-strata-asm-runner-${{ env.IMAGE_TAG }}
+          if-no-files-found: ignore
+          path: |
+            trivy-results/strata-asm-runner.json
+            trivy-results/strata-asm-runner.sarif
+            trivy-results/strata-asm-runner.sbom.json
+            trivy-results/strata-asm-runner.md
+
+      # Credentials are assumed only after the hard gate, so no push session exists
+      # while code from the build ref runs.
+      - name: Configure public ECR credentials
+        uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c # v6.2.3
+        with:
+          role-to-assume: ${{ vars.PUBLIC_AWS_ROLE_TO_ASSUME }}
+          aws-region: ${{ env.PUBLIC_ECR_REGION }}
+
+      - name: Login to public ECR
+        run: |
+          aws ecr-public get-login-password --region "${PUBLIC_ECR_REGION}" \
+            | docker login --username AWS --password-stdin "${PUBLIC_ECR_REGISTRY}"
+
+      # ECR Public has no tag immutability, and a rebuild is not byte-identical, so
+      # re-pushing would silently move a tag deployments pin. Bare short-SHA tags
+      # are therefore write-once; dev-/manual-/test- tags may be overwritten.
+      - name: Refuse to overwrite a published short-SHA tag
+        run: |
+          set -euo pipefail
+          [[ "${IMAGE_TAG}" =~ ^(dev|manual|test)- ]] && exit 0
+          if existing="$(aws ecr-public describe-images \
+            --region "${PUBLIC_ECR_REGION}" \
+            --repository-name "${PUBLIC_ECR_REPOSITORY}" \
+            --image-ids imageTag="${IMAGE_TAG}" \
+            --query 'imageDetails[0].imageDigest' \
+            --output text 2>&1)"; then
+            echo "::error::${IMAGE_REF} is already published (${existing}); dispatch with a dev-, manual- or test- image_tag to publish a rebuild"
+            exit 1
+          elif [[ "${existing}" != *ImageNotFoundException* ]]; then
+            echo "::error::could not check whether ${IMAGE_REF} exists: ${existing}"
+            exit 1
+          fi
+
+      # Push only reaches this step if the hard gate scan above passed.
+      - name: Push image to public ECR
+        run: docker push "${IMAGE_REF}"
+
+      - name: Resolve pushed image digest
+        id: digest
+        run: |
+          set -euo pipefail
+          digest="$(aws ecr-public describe-images \
+            --region "${PUBLIC_ECR_REGION}" \
+            --repository-name "${PUBLIC_ECR_REPOSITORY}" \
+            --image-ids imageTag="${IMAGE_TAG}" \
+            --query 'imageDetails[0].imageDigest' \
+            --output text)"
+          echo "digest=${digest}" >> "${GITHUB_OUTPUT}"
+
+      - name: Append publish summary
+        if: always()
+        env:
+          IMAGE_DIGEST: ${{ steps.digest.outputs.digest }}
+        run: |
+          trivy_artifact="trivy-strata-asm-runner-${IMAGE_TAG}"
+          {
+            echo "## ASM runner image publish"
+            echo
+            echo "- Checkout ref: \`${CHECKOUT_REF}\`"
+            echo "- Resolved SHA: \`${RESOLVED_SHA}\`"
+            echo "- Image: \`${IMAGE_REF}\`"
+            echo "- Digest: \`${IMAGE_DIGEST:-not pushed}\`"
+            echo "- Trivy artifact: \`${trivy_artifact}\`"
+            echo
+            # Render the Trivy markdown table produced by render_trivy_summary.py.
+            # Falls back to a plain message if the script did not produce output.
+            if [[ -f trivy-results/strata-asm-runner.md ]]; then
+              cat trivy-results/strata-asm-runner.md
+            else
+              echo "### Trivy summary"
+              echo
+              echo "Trivy scan output was not generated."
+            fi
+          } >> "${GITHUB_STEP_SUMMARY}"
