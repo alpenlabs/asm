@@ -1,7 +1,9 @@
 //! Proof orchestrator — schedules and reconciles remote proof jobs.
 //!
 //! The orchestrator runs a periodic tick loop that:
-//! 1. Reconciles active remote proofs (polls status, stores completed proofs).
+//! 1. Reconciles active remote proofs: completed proofs are verified and persisted, jobs that will
+//!    not yield a proof are discarded so the block can be submitted again, and everything else just
+//!    has its stored status refreshed.
 //! 2. Schedules new proofs from the pending queue, enforcing prerequisites.
 
 use anyhow::{Context, Result};
@@ -277,8 +279,8 @@ impl<R: ZkVmRemoteHost> ProofOrchestrator<R> {
     /// The decision is re-taken every tick, so a recovered peer immediately
     /// stops new local submissions.
     async fn follow_proofs(&mut self, follower: &FollowerConfig) -> Result<()> {
-        let genesis_height = self.input_builder.genesis().height();
         let last_committed = self.last_committed;
+        let input_builder = &self.input_builder;
 
         let Some(peer) = self.peer.as_mut() else {
             // Unreachable: the constructor builds a peer for every follower
@@ -292,8 +294,8 @@ impl<R: ZkVmRemoteHost> ProofOrchestrator<R> {
             &mut self.queue,
             peer,
             follower,
+            input_builder,
             last_committed,
-            genesis_height,
         )
         .await;
 
@@ -319,7 +321,7 @@ impl<R: ZkVmRemoteHost> ProofOrchestrator<R> {
 
         for (remote_id, old_status) in in_progress {
             if let Err(e) = self.reconcile_one(&remote_id, &old_status).await {
-                warn!(?remote_id, ?e, "failed to reconcile remote proof");
+                warn!(%remote_id, ?e, "failed to reconcile remote proof");
             }
         }
         Ok(())
@@ -359,11 +361,18 @@ impl<R: ZkVmRemoteHost> ProofOrchestrator<R> {
                 self.handle_completed(remote_id, &typed_id).await?;
             }
             RemoteProofStatus::Failed(reason) => {
-                error!(?remote_id, %reason, "remote proof generation failed");
-                self.db
-                    .remove(remote_id)
-                    .await
-                    .context("failed to remove failed proof status")?;
+                error!(%remote_id, %reason, "remote proof generation failed. discarding submission");
+                // Discarding only makes the proof submittable; the queue is
+                // what gets it submitted, and a proof leaves the queue when it
+                // is submitted. The watcher does not resend a request for a
+                // block it has already processed, so without this the block
+                // waits for the restart backfill while every Moho proof above
+                // it defers behind the gap. Upstream re-enqueues through the
+                // #194 prerequisite cascade, which is not on this branch.
+                if let Some(proof_id) = discard_submission(&self.db, remote_id).await? {
+                    debug!(?proof_id, "re-enqueuing discarded proof");
+                    self.queue.enqueue(proof_id);
+                }
             }
             _ => {
                 self.db
@@ -398,13 +407,25 @@ impl<R: ZkVmRemoteHost> ProofOrchestrator<R> {
             .context("failed to look up proof ID from remote ID")?
             .context("no mapping found for completed remote proof")?;
 
+        // A receipt that is not a proof of this block tells us nothing the job
+        // having failed outright would not, so treat it the same way and let
+        // the scheduler prove the block again. Failing to read our own state
+        // is a different problem and propagates instead.
+        let expected = self.input_builder.expected_attestation(&proof_id).await?;
+        if let Err(e) = self.input_builder.verifier().verify(&receipt, &expected) {
+            error!(?proof_id, %remote_id, %e, "completed proof failed verification, discarding it");
+            discard_submission(&self.db, remote_id).await?;
+            self.queue.enqueue(proof_id);
+            return Ok(());
+        }
+
         proof_store::store_completed_proof(&self.db, proof_id, receipt, ProofSource::Backend)
             .await?;
 
         self.advance_proven(&proof_id);
 
         self.db
-            .remove(remote_id)
+            .remove_status(remote_id)
             .await
             .context("failed to remove completed proof status")?;
 
@@ -521,6 +542,15 @@ struct OrchestratorSubmitter<'a, R: ZkVmRemoteHost> {
 #[async_trait(?Send)]
 impl<R: ZkVmRemoteHost> ProofSubmitter for OrchestratorSubmitter<'_, R> {
     async fn try_submit(&mut self, proof_id: ProofId) -> Result<SubmitOutcome> {
+        // Skip if proof already exists locally. Checked before the mapping:
+        // `handle_completed` leaves the mapping behind, so a block that is
+        // already proven and stored would otherwise be reported as still
+        // working at the remote prover.
+        if proof_store::proof_exists(self.db, &proof_id).await? {
+            debug!(?proof_id, "proof already exists, skipping");
+            return Ok(SubmitOutcome::Skipped);
+        }
+
         // Skip if already submitted.
         if self
             .db
@@ -530,12 +560,6 @@ impl<R: ZkVmRemoteHost> ProofSubmitter for OrchestratorSubmitter<'_, R> {
             .is_some()
         {
             debug!(?proof_id, "proof already submitted, skipping");
-            return Ok(SubmitOutcome::Skipped);
-        }
-
-        // Skip if proof already exists locally.
-        if proof_store::proof_exists(self.db, &proof_id).await? {
-            debug!(?proof_id, "proof already exists, skipping");
             return Ok(SubmitOutcome::Skipped);
         }
 
@@ -581,6 +605,36 @@ impl<R: ZkVmRemoteHost> ProofSubmitter for OrchestratorSubmitter<'_, R> {
 
         Ok(SubmitOutcome::Submitted)
     }
+}
+
+/// Forgets a remote job that will never yield a proof, so its proof can be
+/// submitted again. Returns the proof the job was for, for callers that do not
+/// already have it in hand.
+///
+/// Dropping the status entry alone is not enough. The proof's mapping is what
+/// [`OrchestratorSubmitter::try_submit`] reads to decide the proof is already
+/// in flight, and it is durable — leaving it behind means the block is never
+/// proven again, not even after a restart.
+async fn discard_submission(
+    db: &SledProofDb,
+    remote_id: &RemoteProofId,
+) -> Result<Option<ProofId>> {
+    let proof_id = db
+        .get_proof_id(remote_id)
+        .await
+        .context("failed to look up proof ID from remote ID")?;
+
+    if let Some(proof_id) = proof_id {
+        db.clear_remote_proof_id(proof_id)
+            .await
+            .context("failed to clear remote proof mapping")?;
+    }
+
+    db.remove_status(remote_id)
+        .await
+        .context("failed to remove proof status")?;
+
+    Ok(proof_id)
 }
 
 /// Converts a persisted [`RemoteProofId`] back into the host's typed proof ID.
@@ -787,5 +841,82 @@ mod tests {
         // re-enqueues from the previous cycle.
         assert_eq!(submitter.call_log, vec![moho(3), asm(4), moho(3), asm(5)]);
         assert!(queue.is_empty());
+    }
+}
+
+#[cfg(test)]
+mod discard_tests {
+    //! Tests for [`discard_submission`] against real sled storage.
+
+    use strata_asm_proof_types::{L1Range, ProofId, RemoteProofId};
+    use strata_identifiers::{L1BlockCommitment, L1BlockId};
+    use zkaleido::RemoteProofStatus;
+
+    use super::*;
+
+    fn temp_db() -> (SledProofDb, tempfile::TempDir) {
+        let dir = tempfile::tempdir().unwrap();
+        let sled_db = sled::open(dir.path()).unwrap();
+        (SledProofDb::open(&sled_db).unwrap(), dir)
+    }
+
+    fn proof() -> ProofId {
+        ProofId::Asm(L1Range::single(L1BlockCommitment::new(
+            104,
+            L1BlockId::default(),
+        )))
+    }
+
+    fn remote() -> RemoteProofId {
+        RemoteProofId(vec![9u8; 32])
+    }
+
+    /// Both halves go: the status entry that tracks the job, and the mapping
+    /// the scheduler reads to decide the proof is already in flight. The proof
+    /// comes back so the caller can re-enqueue it.
+    #[tokio::test]
+    async fn discard_clears_both_halves_and_names_the_proof() {
+        let (db, _dir) = temp_db();
+        db.put_remote_proof_id(proof(), remote()).await.unwrap();
+        db.put_status(&remote(), RemoteProofStatus::Requested)
+            .await
+            .unwrap();
+
+        let discarded = discard_submission(&db, &remote()).await.unwrap();
+
+        assert_eq!(discarded, Some(proof()));
+        assert_eq!(db.get_remote_proof_id(proof()).await.unwrap(), None);
+        assert_eq!(db.get_status(&remote()).await.unwrap(), None);
+    }
+
+    /// Only the proof -> remote direction is cleared, so a late reply from the
+    /// job we just gave up on can still name the proof it belongs to instead
+    /// of being an unattributable orphan.
+    #[tokio::test]
+    async fn discard_keeps_the_remote_resolvable() {
+        let (db, _dir) = temp_db();
+        db.put_remote_proof_id(proof(), remote()).await.unwrap();
+        db.put_status(&remote(), RemoteProofStatus::Requested)
+            .await
+            .unwrap();
+
+        discard_submission(&db, &remote()).await.unwrap();
+
+        assert_eq!(db.get_proof_id(&remote()).await.unwrap(), Some(proof()));
+    }
+
+    /// A status entry whose mapping is already gone still clears, and reports
+    /// no proof to re-enqueue rather than failing the reconcile pass.
+    #[tokio::test]
+    async fn discard_without_a_mapping_is_not_an_error() {
+        let (db, _dir) = temp_db();
+        db.put_status(&remote(), RemoteProofStatus::Requested)
+            .await
+            .unwrap();
+
+        let discarded = discard_submission(&db, &remote()).await.unwrap();
+
+        assert_eq!(discarded, None);
+        assert_eq!(db.get_status(&remote()).await.unwrap(), None);
     }
 }

@@ -147,7 +147,7 @@ impl RemoteProofStatusDb for SledProofDb {
         Ok(self.in_progress()?)
     }
 
-    async fn remove(&self, remote_id: &RemoteProofId) -> Result<(), Self::Error> {
+    async fn remove_status(&self, remote_id: &RemoteProofId) -> Result<(), Self::Error> {
         self.delete_status(remote_id)?;
         Ok(())
     }
@@ -311,7 +311,7 @@ mod tests {
 
             Runtime::new().unwrap().block_on(async {
                 db.put_status(&remote_id, status).await.unwrap();
-                db.remove(&remote_id).await.unwrap();
+                db.remove_status(&remote_id).await.unwrap();
 
                 let got = db.get_status(&remote_id).await.unwrap();
                 prop_assert_eq!(got, None);

@@ -8,9 +8,9 @@
 //! - **Fetch** — the peer is healthy: pull every pending proof at or below the peer's proven
 //!   frontier.
 //! - **Fallback** — the peer cannot serve us (too many consecutive failed ticks, whether the status
-//!   probe or the proof fetches failed) or its proven frontier trails our committed tip beyond the
-//!   configured lag: schedule pending proofs on the local proving backend, exactly as in generator
-//!   mode.
+//!   probe or the proof fetches failed), its proven frontier trails our committed tip beyond the
+//!   configured lag, or it has served a receipt that does not verify: schedule pending proofs on
+//!   the local proving backend, exactly as in generator mode.
 //! - **Wait** — the peer is healthy but has not proven what we need yet, or is flaky but still
 //!   within tolerance.
 //!
@@ -36,28 +36,48 @@ use tracing::{debug, info, warn};
 
 use super::{
     config::FollowerConfig,
+    input::InputBuilder,
     proof_store::{self, ProofSource},
     queue::PendingProofQueue,
+    verify::ProofVerifier,
 };
 
-/// The peer a follower fetches proofs from, with its probe health.
+/// The peer a follower fetches proofs from, with its health.
 pub(super) struct Peer {
     /// RPC client for the peer asm-runner.
     pub(super) client: HttpClient,
 
-    /// Consecutive failed ticks: a status probe that failed, or a fetch cycle
-    /// in which at least one proof fetch errored. Reset by the first tick that
-    /// finds the peer both reachable and able to serve what it was asked for.
-    pub(super) failures: u32,
+    /// What the follower has seen of this peer so far.
+    health: PeerHealth,
 }
 
 impl Peer {
     pub(super) fn new(client: HttpClient) -> Self {
         Self {
             client,
-            failures: 0,
+            health: PeerHealth::default(),
         }
     }
+}
+
+/// How well the peer has been serving this follower.
+///
+/// The two fields answer different questions and are kept apart for that
+/// reason: the failure count asks whether the peer is serving us right now,
+/// the invalid proof whether it is worth talking to at all.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+struct PeerHealth {
+    /// Consecutive failed ticks: a status probe that failed, or a fetch cycle
+    /// in which at least one proof fetch errored. Reset by the first tick that
+    /// finds the peer both reachable and able to serve what it was asked for.
+    failures: u32,
+
+    /// Whether this peer has ever served a proof that did not verify.
+    ///
+    /// Sticky, unlike the failure count. One bad receipt is enough: it is
+    /// re-enqueued and refetched on every tick, so the peer can never carry us
+    /// past that block, and the good receipts around it change nothing.
+    served_invalid_proof: bool,
 }
 
 /// What one [`follow_proofs`] cycle did, for the orchestrator to act on.
@@ -84,16 +104,18 @@ pub(super) async fn follow_proofs(
     queue: &mut PendingProofQueue,
     peer: &mut Peer,
     config: &FollowerConfig,
+    input_builder: &InputBuilder,
     last_committed: Option<L1BlockCommitment>,
-    genesis_height: u32,
 ) -> FollowOutcome {
+    let genesis_height = input_builder.genesis().height();
+
     // The reset on success is deferred to the arms below: a peer that answers
     // probes but cannot serve proofs must not clear its own failure count.
     let status = match peer.client.get_prover_status().await {
         Ok(status) => Some(status),
         Err(e) => {
-            peer.failures = peer.failures.saturating_add(1);
-            warn!(%e, failures = peer.failures, "failed to probe peer prover status");
+            peer.health.failures = peer.health.failures.saturating_add(1);
+            warn!(%e, failures = peer.health.failures, "failed to probe peer prover status");
             None
         }
     };
@@ -103,15 +125,23 @@ pub(super) async fn follow_proofs(
         last_committed,
         genesis_height,
         config,
-        peer.failures,
+        peer.health,
     ) {
         FollowAction::Fetch { up_to } => {
             let mut fetcher = DbFetcher {
                 db,
                 peer: &peer.client,
+                input_builder,
+                verifier: input_builder.verifier(),
                 fetched: Vec::new(),
             };
-            let failed = fetch_with(queue, &mut fetcher, up_to, config.max_fetches_per_tick).await;
+            let cycle = fetch_with(queue, &mut fetcher, up_to, config.max_fetches_per_tick).await;
+
+            // Sticky: the next tick falls back before it probes, and never
+            // fetches from this peer again.
+            if cycle.served_invalid_proof {
+                peer.health.served_invalid_proof = true;
+            }
 
             // A peer that answers status probes but cannot serve the proofs we
             // ask for is as useless as an unreachable one, so fetch errors
@@ -125,25 +155,30 @@ pub(super) async fn follow_proofs(
             // probe-only, so the fetch is never suppressed: were it, the
             // follower would stop running the cycle that clears the count and
             // a recovered peer would never be picked back up.
-            let fall_back = if failed {
-                peer.failures = peer.failures.saturating_add(1);
-                warn!(failures = peer.failures, "peer failed to serve a proof");
-                let fall_back = peer.failures >= config.max_peer_failures;
+            let fall_back = if cycle.failed {
+                peer.health.failures = peer.health.failures.saturating_add(1);
+                warn!(
+                    failures = peer.health.failures,
+                    "peer failed to serve a proof"
+                );
+                let fall_back = peer.health.failures >= config.max_peer_failures;
                 if fall_back {
                     warn!(
-                        failures = peer.failures,
+                        failures = peer.health.failures,
                         "peer cannot serve proofs, falling back to local proof generation"
                     );
                 }
                 fall_back
             } else {
-                peer.failures = 0;
+                peer.health.failures = 0;
                 false
             };
 
             FollowOutcome {
                 fetched: fetcher.fetched,
-                fall_back,
+                // An invalid receipt is not a fetch error, so it does not touch
+                // the failure count. It falls back on its own, this tick.
+                fall_back: fall_back || cycle.served_invalid_proof,
             }
         }
         FollowAction::Fallback(reason) => {
@@ -157,10 +192,15 @@ pub(super) async fn follow_proofs(
                 FallbackReason::PeerLagging { lag } => {
                     // Reachable, just behind: lag drives this fallback on its
                     // own, so the failure count starts clean.
-                    peer.failures = 0;
+                    peer.health.failures = 0;
                     warn!(
                         lag,
                         "peer lagging excessively, falling back to local proof generation"
+                    );
+                }
+                FallbackReason::InvalidProofs => {
+                    warn!(
+                        "peer served a proof that does not verify, falling back to local proof generation"
                     );
                 }
             }
@@ -174,7 +214,7 @@ pub(super) async fn follow_proofs(
             // failed probe is a blip still within tolerance, and that count
             // must stand.
             if status.is_some() {
-                peer.failures = 0;
+                peer.health.failures = 0;
             }
             FollowOutcome {
                 fetched: Vec::new(),
@@ -204,16 +244,22 @@ enum FallbackReason {
     /// The peer's proven frontier trails our committed tip beyond the
     /// configured tolerance.
     PeerLagging { lag: u32 },
+    /// The peer has served a receipt that does not verify locally.
+    InvalidProofs,
 }
 
 /// Decides the follower's action from the latest peer probe.
 ///
 /// `peer_status` is `None` when this tick's probe failed; the probe-failure
 /// count decides between waiting out a blip and declaring the peer
-/// unavailable. A reachable peer is judged on lag alone: how far its proven
+/// unavailable. A reachable peer is judged on lag: how far its proven
 /// frontier (or `genesis_height`, when it has proven nothing yet) trails our
 /// committed tip. A young chain therefore never trips the lag fallback, while
 /// a peer that never proves anything eventually does.
+///
+/// A peer that has served even one receipt this node cannot verify is given up
+/// on regardless of either, since it is by definition serving proofs this node
+/// cannot use.
 // TODO(STR-4062): a peer on a different fork passes both checks forever — probes
 // succeed and its proven frontier keeps pace — yet every hash-keyed fetch
 // misses, so proof acquisition silently stalls. Judge lag against the peer's
@@ -225,12 +271,19 @@ fn follow_action(
     last_committed: Option<L1BlockCommitment>,
     genesis_height: u32,
     config: &FollowerConfig,
-    peer_failures: u32,
+    health: PeerHealth,
 ) -> FollowAction {
+    // Checked before anything else, and against a flag that never clears: a
+    // peer proving under a different backend identity is reachable and keeping
+    // pace, so neither of the checks below would ever fire on it.
+    if health.served_invalid_proof {
+        return FollowAction::Fallback(FallbackReason::InvalidProofs);
+    }
+
     let Some(status) = peer_status else {
-        if peer_failures >= config.max_peer_failures {
+        if health.failures >= config.max_peer_failures {
             return FollowAction::Fallback(FallbackReason::PeerUnavailable {
-                failures: peer_failures,
+                failures: health.failures,
             });
         }
         return FollowAction::Wait;
@@ -263,6 +316,20 @@ enum FetchOutcome {
     AlreadyStored,
     /// The peer does not have this proof yet; caller should re-enqueue it.
     NotAvailable,
+    /// The peer served a receipt that does not verify. It was not stored; the
+    /// caller re-enqueues the proof and stops following the peer.
+    Invalid,
+}
+
+/// What one [`fetch_with`] cycle observed about the peer.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+struct CycleOutcome {
+    /// A fetch errored, which counts against the peer's failure tolerance.
+    failed: bool,
+
+    /// The peer served a receipt that did not verify. Not a failure to count:
+    /// it drops the peer outright.
+    served_invalid_proof: bool,
 }
 
 /// Fetches a single proof from the peer.
@@ -300,6 +367,14 @@ trait ProofFetcher {
 /// probes while failing every fetch would keep the follower parking the same
 /// work forever.
 ///
+/// A receipt that does not verify ends the cycle the way an error does, and is
+/// reported separately: it does not count against the failure tolerance
+/// because it drops the peer outright. Carrying on would only spend round
+/// trips on a peer whose answers we have already decided not to use, each one
+/// delaying the tick by up to the RPC timeout. The items left queued are not
+/// lost — the fallback scheduler drains the same queue and proves them
+/// locally.
+///
 /// The queue pops lowest heights first, so the first item above `up_to` ends
 /// the loop: everything behind it is above the frontier too. A Moho proof at
 /// the frontier implies the peer holds every ASM and Moho proof below it, so
@@ -315,9 +390,9 @@ async fn fetch_with<F: ProofFetcher>(
     fetcher: &mut F,
     up_to: u32,
     mut capacity: usize,
-) -> bool {
+) -> CycleOutcome {
     let mut parked: Vec<ProofId> = Vec::new();
-    let mut failed = false;
+    let mut outcome = CycleOutcome::default();
 
     while capacity > 0 {
         let Some(proof_id) = queue.dequeue_one() else {
@@ -340,9 +415,16 @@ async fn fetch_with<F: ProofFetcher>(
                 debug!(%proof_id, "proof not yet available on peer, re-enqueuing");
                 parked.push(proof_id);
             }
+            // Already logged with its cause by the fetcher, which is the only
+            // place that still has the verification error.
+            Ok(FetchOutcome::Invalid) => {
+                outcome.served_invalid_proof = true;
+                parked.push(proof_id);
+                break;
+            }
             Err(e) => {
                 warn!(%proof_id, %e, "failed to fetch proof from peer, re-enqueuing");
-                failed = true;
+                outcome.failed = true;
                 parked.push(proof_id);
                 break;
             }
@@ -353,7 +435,7 @@ async fn fetch_with<F: ProofFetcher>(
         queue.enqueue(proof_id);
     }
 
-    failed
+    outcome
 }
 
 /// [`ProofFetcher`] backed by the local proof DB and the peer's
@@ -364,16 +446,15 @@ async fn fetch_with<F: ProofFetcher>(
 /// tick and tolerates a configured number of consecutive failures before
 /// falling back to local proving, so the tick loop *is* the retry policy.
 ///
-/// Fetched receipts are stored unverified. That trusts the peer exactly as
-/// far as the generator path trusts its own proving backend, which holds for
-/// the same-operator HA setup this mode is built for.
-// TODO(STR-4011): if a follower is ever pointed at a third-party peer, verify fetched
-// receipts against the expected verification key and public values before
-// storing — hash-keyed lookups bind an *honest* peer's proofs to the right
-// block, but nothing checks the receipt itself.
+/// Every fetched receipt is verified before it is stored. Hash-keyed lookups
+/// bind an *honest* peer's proofs to the right block; the verification is what
+/// makes that hold for a peer that is buggy or compromised, and it keeps a
+/// poisoned entry out of the store this node also serves to its own followers.
 struct DbFetcher<'a> {
     db: &'a SledProofDb,
     peer: &'a HttpClient,
+    input_builder: &'a InputBuilder,
+    verifier: ProofVerifier<'a>,
     /// Proofs fetched this cycle, for advancing the proven watermark once the
     /// loop's borrows are released.
     fetched: Vec<ProofId>,
@@ -409,6 +490,12 @@ impl ProofFetcher for DbFetcher<'_> {
         let Some(receipt) = receipt else {
             return Ok(FetchOutcome::NotAvailable);
         };
+
+        let expected = self.input_builder.expected_attestation(&proof_id).await?;
+        if let Err(e) = self.verifier.verify(&receipt, &expected) {
+            warn!(%proof_id, %e, "peer served a proof that does not verify, discarding it");
+            return Ok(FetchOutcome::Invalid);
+        }
 
         proof_store::store_completed_proof(self.db, proof_id, receipt, ProofSource::Peer).await?;
         self.fetched.push(proof_id);
@@ -446,6 +533,14 @@ mod tests {
         }
     }
 
+    /// A peer with `failures` failed ticks that has served nothing invalid.
+    fn probes(failures: u32) -> PeerHealth {
+        PeerHealth {
+            failures,
+            served_invalid_proof: false,
+        }
+    }
+
     fn peer_status(last_proven: Option<u32>) -> ProverStatus {
         ProverStatus {
             pending: 0,
@@ -461,14 +556,14 @@ mod tests {
     #[test]
     fn probe_failures_below_threshold_wait() {
         let config = follower_config(6, 3);
-        let action = follow_action(None, Some(commitment(105)), GENESIS, &config, 2);
+        let action = follow_action(None, Some(commitment(105)), GENESIS, &config, probes(2));
         assert_eq!(action, FollowAction::Wait);
     }
 
     #[test]
     fn probe_failures_at_threshold_fall_back() {
         let config = follower_config(6, 3);
-        let action = follow_action(None, Some(commitment(105)), GENESIS, &config, 3);
+        let action = follow_action(None, Some(commitment(105)), GENESIS, &config, probes(3));
         assert_eq!(
             action,
             FollowAction::Fallback(FallbackReason::PeerUnavailable { failures: 3 })
@@ -479,7 +574,7 @@ mod tests {
     fn nothing_committed_waits() {
         let config = follower_config(6, 3);
         let status = peer_status(Some(104));
-        let action = follow_action(Some(&status), None, GENESIS, &config, 0);
+        let action = follow_action(Some(&status), None, GENESIS, &config, probes(0));
         assert_eq!(action, FollowAction::Wait);
     }
 
@@ -487,7 +582,13 @@ mod tests {
     fn peer_within_lag_fetches_up_to_its_frontier() {
         let config = follower_config(6, 3);
         let status = peer_status(Some(104));
-        let action = follow_action(Some(&status), Some(commitment(106)), GENESIS, &config, 0);
+        let action = follow_action(
+            Some(&status),
+            Some(commitment(106)),
+            GENESIS,
+            &config,
+            probes(0),
+        );
         assert_eq!(action, FollowAction::Fetch { up_to: 104 });
     }
 
@@ -496,7 +597,13 @@ mod tests {
     fn lag_at_threshold_still_fetches() {
         let config = follower_config(6, 3);
         let status = peer_status(Some(100));
-        let action = follow_action(Some(&status), Some(commitment(106)), GENESIS, &config, 0);
+        let action = follow_action(
+            Some(&status),
+            Some(commitment(106)),
+            GENESIS,
+            &config,
+            probes(0),
+        );
         assert_eq!(action, FollowAction::Fetch { up_to: 100 });
     }
 
@@ -504,7 +611,13 @@ mod tests {
     fn lag_beyond_threshold_falls_back() {
         let config = follower_config(6, 3);
         let status = peer_status(Some(100));
-        let action = follow_action(Some(&status), Some(commitment(107)), GENESIS, &config, 0);
+        let action = follow_action(
+            Some(&status),
+            Some(commitment(107)),
+            GENESIS,
+            &config,
+            probes(0),
+        );
         assert_eq!(
             action,
             FollowAction::Fallback(FallbackReason::PeerLagging { lag: 7 })
@@ -517,8 +630,38 @@ mod tests {
     fn unproven_peer_on_young_chain_fetches() {
         let config = follower_config(6, 3);
         let status = peer_status(None);
-        let action = follow_action(Some(&status), Some(commitment(104)), GENESIS, &config, 0);
+        let action = follow_action(
+            Some(&status),
+            Some(commitment(104)),
+            GENESIS,
+            &config,
+            probes(0),
+        );
         assert_eq!(action, FollowAction::Fetch { up_to: GENESIS });
+    }
+
+    /// One invalid proof drops the peer, even though it answers every probe
+    /// and keeps pace with our tip — neither of the other two checks would
+    /// ever fire on it.
+    #[test]
+    fn one_invalid_proof_falls_back() {
+        let config = follower_config(6, 3);
+        let status = peer_status(Some(104));
+        let health = PeerHealth {
+            failures: 0,
+            served_invalid_proof: true,
+        };
+        let action = follow_action(
+            Some(&status),
+            Some(commitment(106)),
+            GENESIS,
+            &config,
+            health,
+        );
+        assert_eq!(
+            action,
+            FollowAction::Fallback(FallbackReason::InvalidProofs)
+        );
     }
 
     /// ...but a peer that never proves anything eventually does.
@@ -526,7 +669,13 @@ mod tests {
     fn unproven_peer_far_behind_falls_back() {
         let config = follower_config(6, 3);
         let status = peer_status(None);
-        let action = follow_action(Some(&status), Some(commitment(120)), GENESIS, &config, 0);
+        let action = follow_action(
+            Some(&status),
+            Some(commitment(120)),
+            GENESIS,
+            &config,
+            probes(0),
+        );
         assert_eq!(
             action,
             FollowAction::Fallback(FallbackReason::PeerLagging { lag: 20 })
@@ -594,9 +743,10 @@ mod tests {
 
         let mut fetcher = FakeFetcher::default();
 
-        let failed = fetch_with(&mut queue, &mut fetcher, 3, 256).await;
+        let cycle = fetch_with(&mut queue, &mut fetcher, 3, 256).await;
 
-        assert!(!failed);
+        assert!(!cycle.failed);
+        assert!(!cycle.served_invalid_proof);
         assert_eq!(fetcher.call_log, vec![asm(3), moho(3)]);
         assert_eq!(queue.len(), 2);
         assert_eq!(queue.dequeue_one(), Some(asm(4)));
@@ -612,10 +762,11 @@ mod tests {
 
         let mut fetcher = FakeFetcher::default().with(moho(3), vec![FetchOutcome::NotAvailable]);
 
-        let failed = fetch_with(&mut queue, &mut fetcher, 3, 256).await;
+        let cycle = fetch_with(&mut queue, &mut fetcher, 3, 256).await;
 
         // A peer that has not proven the block yet is not a failing peer.
-        assert!(!failed);
+        assert!(!cycle.failed);
+        assert!(!cycle.served_invalid_proof);
         assert_eq!(fetcher.call_log, vec![asm(3), moho(3)]);
         assert_eq!(queue.len(), 1);
         assert_eq!(queue.dequeue_one(), Some(moho(3)));
@@ -629,9 +780,10 @@ mod tests {
 
         let mut fetcher = FakeFetcher::default().with(asm(3), vec![FetchOutcome::AlreadyStored]);
 
-        let failed = fetch_with(&mut queue, &mut fetcher, 3, 256).await;
+        let cycle = fetch_with(&mut queue, &mut fetcher, 3, 256).await;
 
-        assert!(!failed);
+        assert!(!cycle.failed);
+        assert!(!cycle.served_invalid_proof);
         assert_eq!(fetcher.call_log, vec![asm(3)]);
         assert!(queue.is_empty());
     }
@@ -647,13 +799,34 @@ mod tests {
 
         let mut fetcher = FakeFetcher::default().with_err(asm(3));
 
-        let failed = fetch_with(&mut queue, &mut fetcher, 3, 256).await;
+        let cycle = fetch_with(&mut queue, &mut fetcher, 3, 256).await;
 
-        assert!(failed);
+        assert!(cycle.failed);
         assert_eq!(fetcher.call_log, vec![asm(3)]);
         assert_eq!(queue.len(), 2);
         assert_eq!(queue.dequeue_one(), Some(asm(3)));
         assert_eq!(queue.dequeue_one(), Some(moho(3)));
+    }
+
+    /// A receipt that does not verify is never stored: the proof goes back on
+    /// the queue, the peer is reported, and the cycle ends rather than spending
+    /// round trips on a peer whose answers are already rejected.
+    #[tokio::test]
+    async fn invalid_proof_reported_and_ends_the_cycle() {
+        let mut queue = PendingProofQueue::new();
+        queue.enqueue(asm(3));
+        queue.enqueue(moho(3));
+
+        let mut fetcher = FakeFetcher::default().with(asm(3), vec![FetchOutcome::Invalid]);
+
+        let cycle = fetch_with(&mut queue, &mut fetcher, 3, 256).await;
+
+        // Not a fetch failure: it drops the peer outright instead of counting
+        // against its tolerance.
+        assert!(!cycle.failed);
+        assert!(cycle.served_invalid_proof);
+        assert_eq!(fetcher.call_log, vec![asm(3)]);
+        assert_eq!(queue.len(), 2);
     }
 
     /// The per-tick budget bounds peer round trips; the remainder stays queued
@@ -667,9 +840,10 @@ mod tests {
 
         let mut fetcher = FakeFetcher::default();
 
-        let failed = fetch_with(&mut queue, &mut fetcher, 4, 2).await;
+        let cycle = fetch_with(&mut queue, &mut fetcher, 4, 2).await;
 
-        assert!(!failed);
+        assert!(!cycle.failed);
+        assert!(!cycle.served_invalid_proof);
         assert_eq!(fetcher.call_log, vec![asm(3), moho(3)]);
         assert_eq!(queue.len(), 1);
         assert_eq!(queue.dequeue_one(), Some(asm(4)));
@@ -688,9 +862,10 @@ mod tests {
             .with(asm(3), vec![FetchOutcome::AlreadyStored])
             .with(moho(3), vec![FetchOutcome::AlreadyStored]);
 
-        let failed = fetch_with(&mut queue, &mut fetcher, 4, 1).await;
+        let cycle = fetch_with(&mut queue, &mut fetcher, 4, 1).await;
 
-        assert!(!failed);
+        assert!(!cycle.failed);
+        assert!(!cycle.served_invalid_proof);
         assert_eq!(fetcher.call_log, vec![asm(3), moho(3), asm(4)]);
         assert!(queue.is_empty());
     }
@@ -703,9 +878,10 @@ mod tests {
 
         let mut fetcher = FakeFetcher::default();
 
-        let failed = fetch_with(&mut queue, &mut fetcher, 3, 0).await;
+        let cycle = fetch_with(&mut queue, &mut fetcher, 3, 0).await;
 
-        assert!(!failed);
+        assert!(!cycle.failed);
+        assert!(!cycle.served_invalid_proof);
         assert!(fetcher.call_log.is_empty());
         assert_eq!(queue.len(), 1);
     }
@@ -720,9 +896,10 @@ mod tests {
 
         let mut fetcher = FakeFetcher::default();
 
-        let failed = fetch_with(&mut queue, &mut fetcher, 4, 256).await;
+        let cycle = fetch_with(&mut queue, &mut fetcher, 4, 256).await;
 
-        assert!(!failed);
+        assert!(!cycle.failed);
+        assert!(!cycle.served_invalid_proof);
         assert!(fetcher.call_log.is_empty());
         assert_eq!(queue.len(), 2);
     }

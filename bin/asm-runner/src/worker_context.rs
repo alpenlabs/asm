@@ -14,9 +14,14 @@
 //! does not manage its own chain view. Whatever block sequence the ASM worker
 //! decides to apply (including any future reorg handling it gains) is the
 //! sequence Moho sees, for free.
+//!
+//! Genesis is the exception, because it is written once and never revisited:
+//! [`ensure_genesis_moho_state`] backstops it from bootstrap. See its docs for
+//! why the piggyback alone is not enough.
 
 use std::sync::Arc;
 
+use anyhow::{Context as _, Result};
 use asm_storage::{
     ExportEntriesDb, SledAsmAuxDataDb, SledAsmManifestDb, SledAsmManifestMmrDb, SledAsmStateDb,
 };
@@ -39,6 +44,7 @@ use strata_identifiers::{L1BlockCommitment, L1BlockId};
 use strata_merkle::MerkleProofB32;
 use strata_predicate::PredicateKey;
 use tokio::runtime::Handle;
+use tracing::info;
 
 use crate::retry::{ExponentialBackoff, RetryConfig, retry_with_backoff_async};
 
@@ -382,6 +388,54 @@ impl AuxDataStore for AsmWorkerContext {
     }
 }
 
+/// Writes the genesis [`MohoState`] unless the store already holds one.
+///
+/// The per-block piggyback covers every block the worker processes, but the
+/// genesis entry is written on exactly one path: the anchor-state seed the ASM
+/// worker performs when *its* store is empty. The two stores are separate
+/// databases — anchor states live in the storage DB, Moho states in the proof
+/// DB — so a proof DB that is fresh while the storage DB is not never gets a
+/// genesis entry. Enabling the orchestrator on a node that has been running
+/// without it does exactly that, as does wiping the proof DB to recover it.
+///
+/// Missing genesis used to stall Moho proving only near the anchor. It now
+/// fails verification for every Moho recursion, since the expected attestation
+/// of each one is anchored at the genesis state.
+///
+/// The entry is never rewritten. Every recursive attestation already in the
+/// store is anchored to the stored commitment, so recomputing it from current
+/// configuration on each start would let a rebuilt ASM ELF move that base with
+/// nothing failing.
+pub(crate) fn ensure_genesis_moho_state(
+    state_db: &SledAsmStateDb,
+    moho_state_db: &SledMohoStateDb,
+    genesis_block: &L1BlockCommitment,
+    asm_predicate: PredicateKey,
+) -> Result<()> {
+    if moho_state_db
+        .get(*genesis_block)
+        .context("failed to read the genesis moho state")?
+        .is_some()
+    {
+        return Ok(());
+    }
+
+    let anchor = state_db
+        .get(genesis_block)
+        .context("failed to read the genesis anchor state")?
+        .context("no anchor state stored for the configured genesis block")?;
+
+    moho_state_db
+        .store(
+            *genesis_block,
+            construct_genesis_moho_state(asm_predicate, &anchor),
+        )
+        .context("failed to store the genesis moho state")?;
+    info!(%genesis_block, "seeded genesis Moho state");
+
+    Ok(())
+}
+
 /// Seed the genesis [`MohoState`]: no prior state to chain forward from, so we
 /// use the configured `asm_predicate` and an empty export state.
 fn construct_genesis_moho_state(
@@ -402,4 +456,114 @@ fn construct_next_moho_state(prev_moho: &MohoState, state: &AsmState) -> MohoSta
         advance_export_state_with_logs(prev_moho.export_state().clone(), state.logs());
     let inner = AsmStfProgram::compute_state_commitment(state.state());
     MohoState::new(inner, next_predicate, next_export_state)
+}
+
+#[cfg(test)]
+mod tests {
+    //! Tests for [`ensure_genesis_moho_state`] against real sled storage.
+
+    use strata_asm_common::{AsmHistoryAccumulatorState, ChainViewState, HeaderVerificationState};
+    use strata_btc_verification::L1Anchor;
+    use strata_identifiers::{Buf32, L1BlockId};
+
+    use super::*;
+
+    const GENESIS_HEIGHT: u32 = 101;
+
+    fn temp_dbs() -> (SledAsmStateDb, SledMohoStateDb, tempfile::TempDir) {
+        let dir = tempfile::tempdir().unwrap();
+        let sled_db = sled::open(dir.path()).unwrap();
+        let state_db = SledAsmStateDb::open(&sled_db).unwrap();
+        let moho_state_db = SledMohoStateDb::open(&sled_db).unwrap();
+        (state_db, moho_state_db, dir)
+    }
+
+    fn genesis_block() -> L1BlockCommitment {
+        L1BlockCommitment::new(GENESIS_HEIGHT, L1BlockId::from(Buf32::from([7u8; 32])))
+    }
+
+    /// The anchor state the worker would seed for [`genesis_block`].
+    fn genesis_anchor() -> AnchorState {
+        let anchor = L1Anchor {
+            block: genesis_block(),
+            next_target: 0x1d00_ffff,
+            epoch_start_timestamp: 1_700_000_000,
+            network: Network::Regtest,
+        };
+        AnchorState {
+            magic: (*b"ALPN").into(),
+            chain_view: ChainViewState {
+                history_accumulator: AsmHistoryAccumulatorState::new(GENESIS_HEIGHT as u64),
+                pow_state: HeaderVerificationState::init(anchor),
+            },
+            sections: Vec::new().try_into().expect("empty sections fit"),
+        }
+    }
+
+    /// The shape a proof DB opened beside a populated storage DB has: anchor
+    /// states present, no Moho state for genesis. The ASM worker will not seed
+    /// it, because its own store is not empty.
+    #[test]
+    fn seeds_genesis_when_the_moho_store_lacks_it() {
+        let (state_db, moho_state_db, _dir) = temp_dbs();
+        let genesis = genesis_block();
+        state_db.put(&genesis_anchor()).unwrap();
+
+        ensure_genesis_moho_state(
+            &state_db,
+            &moho_state_db,
+            &genesis,
+            PredicateKey::always_accept(),
+        )
+        .unwrap();
+
+        let seeded = moho_state_db.get(genesis).unwrap().expect("genesis seeded");
+        assert_eq!(
+            seeded.inner_state(),
+            AsmStfProgram::compute_state_commitment(&genesis_anchor())
+        );
+    }
+
+    /// Every recursive attestation is anchored to the stored genesis
+    /// commitment, so a start under a different ASM predicate must not move it.
+    #[test]
+    fn keeps_the_stored_genesis_when_the_asm_predicate_changes() {
+        let (state_db, moho_state_db, _dir) = temp_dbs();
+        let genesis = genesis_block();
+        state_db.put(&genesis_anchor()).unwrap();
+
+        let seeded = construct_genesis_moho_state(PredicateKey::always_accept(), &genesis_anchor());
+        moho_state_db.store(genesis, seeded).unwrap();
+
+        ensure_genesis_moho_state(
+            &state_db,
+            &moho_state_db,
+            &genesis,
+            PredicateKey::never_accept(),
+        )
+        .unwrap();
+
+        let stored = moho_state_db
+            .get(genesis)
+            .unwrap()
+            .expect("genesis present");
+        assert_eq!(stored.next_predicate(), &PredicateKey::always_accept());
+    }
+
+    /// Nothing to derive genesis from is an error rather than a silently
+    /// missing entry, which would only surface later as a verification failure.
+    #[test]
+    fn errors_when_the_genesis_anchor_is_missing() {
+        let (state_db, moho_state_db, _dir) = temp_dbs();
+
+        assert!(
+            ensure_genesis_moho_state(
+                &state_db,
+                &moho_state_db,
+                &genesis_block(),
+                PredicateKey::always_accept(),
+            )
+            .is_err()
+        );
+    }
 }
