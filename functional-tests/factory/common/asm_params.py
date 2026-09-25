@@ -5,6 +5,8 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
+from bitcoinlib.keys import Key
+
 from constants import ASM_MAGIC_BYTES
 
 # BOSD-encoded P2TR descriptor used as the default safe harbour address in
@@ -28,7 +30,7 @@ class L1Anchor:
 
 @dataclass
 class ThresholdConfig:
-    keys: list[str]
+    signers: list[str]
     threshold: int
 
 
@@ -131,6 +133,17 @@ def build_l1_anchor(
     )
 
 
+def p2wpkh_address(compressed_key: str, network: str) -> str:
+    """P2WPKH address of a compressed public key, on `network`.
+
+    Admin signers are named by address in the params file, and the runner rejects a
+    signer whose address prefix disagrees with the anchor's network.
+    """
+    return Key(import_key=compressed_key, network=network, is_private=False).address(
+        encoding="bech32"
+    )
+
+
 def build_subprotocols(
     musig2_keys: list[str],
     genesis_height: int,
@@ -139,17 +152,19 @@ def build_subprotocols(
     operator_fee: int = 100_000_000,
     recovery_delay: int = 1_008,
     safe_harbour_address: str = DEFAULT_SAFE_HARBOUR_ADDRESS,
+    network: str = "regtest",
 ) -> list[dict[str, Any]]:
     compressed_keys = [f"02{key}" for key in musig2_keys]
+    signer_addresses = [p2wpkh_address(key, network) for key in compressed_keys]
     confirmation_depth = 144
 
     admin = {
         "Admin": asdict(
             AdminSubprotocol(
-                alpen_administrator=ThresholdConfig(keys=compressed_keys, threshold=1),
-                strata_administrator=ThresholdConfig(keys=compressed_keys, threshold=1),
-                strata_sequencer_manager=ThresholdConfig(keys=compressed_keys, threshold=1),
-                strata_security_council=ThresholdConfig(keys=compressed_keys, threshold=1),
+                alpen_administrator=ThresholdConfig(signers=signer_addresses, threshold=1),
+                strata_administrator=ThresholdConfig(signers=signer_addresses, threshold=1),
+                strata_sequencer_manager=ThresholdConfig(signers=signer_addresses, threshold=1),
+                strata_security_council=ThresholdConfig(signers=signer_addresses, threshold=1),
                 confirmation_depths=ConfirmationDepths(
                     strata_admin_multisig_update=confirmation_depth,
                     strata_seq_manager_multisig_update=confirmation_depth,
@@ -209,8 +224,11 @@ def build_asm_params(
     operator_fee: int = 100_000_000,
     recovery_delay: int = 1_008,
     safe_harbour_address: str = DEFAULT_SAFE_HARBOUR_ADDRESS,
+    network: str = "regtest",
 ) -> AsmParams:
-    anchor = build_l1_anchor(genesis_height, block_hash, header, epoch_start_header)
+    anchor = build_l1_anchor(
+        genesis_height, block_hash, header, epoch_start_header, network=network
+    )
     subprotocols = build_subprotocols(
         musig2_keys,
         genesis_height,
@@ -219,6 +237,7 @@ def build_asm_params(
         operator_fee=operator_fee,
         recovery_delay=recovery_delay,
         safe_harbour_address=safe_harbour_address,
+        network=network,
     )
     return AsmParams(
         magic=magic,

@@ -1,5 +1,5 @@
 use bitcoin::{
-    Transaction,
+    Network, Transaction,
     secp256k1::{Message, SECP256K1, SecretKey},
     sign_message::MessageSignature,
 };
@@ -41,6 +41,7 @@ pub fn sign_ecdsa_bip137(message_hash: &[u8; 32], secret_key: &SecretKey) -> [u8
 /// * `signer_indices` - Indices of signers participating in this signature
 /// * `action` - The action being signed
 /// * `seqno` - The sequence number bound to the action
+/// * `network` - Network any address in the rendered message is shown on
 ///
 /// # Returns
 /// A SignatureSet that can be used to authorize this action
@@ -49,8 +50,9 @@ pub fn create_signature_set(
     signer_indices: &[u8],
     action: &MultisigAction,
     seqno: u64,
+    network: Network,
 ) -> SignatureSet {
-    let message_hash = SigningMessage::for_action(action, seqno).compute_sighash();
+    let message_hash = SigningMessage::for_action(action, seqno, network).compute_sighash();
     let signatures: Vec<IndexedSignature> = signer_indices
         .iter()
         .map(|&index| {
@@ -76,6 +78,7 @@ pub fn create_signature_set(
 /// * `signer_indices` - Indices of signers participating in this signature
 /// * `action` - The MultisigAction to sign and embed (Update or Cancel)
 /// * `seqno` - The sequence number for this operation
+/// * `network` - Network any address in the rendered message is shown on
 ///
 /// # Returns
 /// A Bitcoin transaction that serves as the reveal transaction containing the administration
@@ -85,8 +88,9 @@ pub fn create_test_admin_tx(
     signer_indices: &[u8],
     action: &MultisigAction,
     seqno: u64,
+    network: Network,
 ) -> Transaction {
-    let signature_set = create_signature_set(privkeys, signer_indices, action, seqno);
+    let signature_set = create_signature_set(privkeys, signer_indices, action, seqno, network);
 
     // Create the signed payload (action + signatures) for the envelope
     let signed_payload = SignedPayload::new(seqno, action.clone(), signature_set);
@@ -105,7 +109,7 @@ mod tests {
     use bitcoin::secp256k1::PublicKey;
     use rand::rngs::OsRng;
     use strata_asm_admin_threshold_sig::{
-        CompressedPublicKey, ThresholdConfig, verify_threshold_signatures,
+        P2wpkhAddress, ThresholdConfig, verify_threshold_signatures,
     };
     use strata_asm_common::TxInputRef;
     use strata_asm_proto_txs_test_utils::TEST_MAGIC_BYTES;
@@ -131,18 +135,19 @@ mod tests {
 
         // Generate test private keys
         let privkeys: Vec<SecretKey> = (0..3).map(|_| SecretKey::new(&mut OsRng)).collect();
-        let pubkeys: Vec<CompressedPublicKey> = privkeys
+        let signers: Vec<P2wpkhAddress> = privkeys
             .iter()
-            .map(|sk| CompressedPublicKey::from(PublicKey::from_secret_key(SECP256K1, sk)))
+            .map(|sk| P2wpkhAddress::from_pubkey(&PublicKey::from_secret_key(SECP256K1, sk)))
             .collect();
-        let config = ThresholdConfig::try_new(pubkeys, threshold).unwrap();
+        let config = ThresholdConfig::try_new(signers, threshold).unwrap();
 
         // Create signer indices (signers 0 and 2)
         let signer_indices = [0u8, 2u8];
 
         // Create a test multisig action with a self-describing role.
         let action = sample_update_action();
-        let signature_set = create_signature_set(&privkeys, &signer_indices, &action, seqno);
+        let signature_set =
+            create_signature_set(&privkeys, &signer_indices, &action, seqno, Network::Regtest);
 
         // Verify the signature set has the expected structure
         assert_eq!(signature_set.len(), 2);
@@ -150,7 +155,8 @@ mod tests {
         assert_eq!(indices, vec![0, 2]);
 
         // Verify the signatures
-        let sign_message_hash = SigningMessage::for_action(&action, seqno).compute_sighash();
+        let sign_message_hash =
+            SigningMessage::for_action(&action, seqno, Network::Regtest).compute_sighash();
         let res =
             verify_threshold_signatures(&config, signature_set.signatures(), &sign_message_hash.0);
         assert!(res.is_ok());
@@ -163,17 +169,17 @@ mod tests {
 
         // Generate test private keys
         let privkeys: Vec<SecretKey> = (0..3).map(|_| SecretKey::new(&mut OsRng)).collect();
-        let pubkeys: Vec<CompressedPublicKey> = privkeys
+        let signers: Vec<P2wpkhAddress> = privkeys
             .iter()
-            .map(|sk| CompressedPublicKey::from(PublicKey::from_secret_key(SECP256K1, sk)))
+            .map(|sk| P2wpkhAddress::from_pubkey(&PublicKey::from_secret_key(SECP256K1, sk)))
             .collect();
-        let config = ThresholdConfig::try_new(pubkeys, threshold).unwrap();
+        let config = ThresholdConfig::try_new(signers, threshold).unwrap();
 
         // Create signer indices (signers 0 and 2)
         let signer_indices = [0u8, 2u8];
 
         let action = sample_update_action();
-        let tx = create_test_admin_tx(&privkeys, &signer_indices, &action, seqno);
+        let tx = create_test_admin_tx(&privkeys, &signer_indices, &action, seqno, Network::Regtest);
         let tag_data_ref = ParseConfig::new(TEST_MAGIC_BYTES)
             .try_parse_tx(&tx)
             .unwrap();
@@ -183,7 +189,8 @@ mod tests {
         assert_eq!(action, parsed.action);
 
         // Verify the signatures
-        let sign_message_hash = SigningMessage::for_action(&action, seqno).compute_sighash();
+        let sign_message_hash =
+            SigningMessage::for_action(&action, seqno, Network::Regtest).compute_sighash();
         let res = verify_threshold_signatures(
             &config,
             parsed.signatures.signatures(),

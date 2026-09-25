@@ -92,8 +92,9 @@ fn main() {
 /// Load ASM parameters
 fn load_params(params_path: &PathBuf) -> Result<AsmParams> {
     let contents = read_to_string(params_path)?;
-    let params: AsmParams = serde_json::from_str(&contents)?;
-    Ok(params)
+    // Deserialization validates the file, including what only the whole file can answer,
+    // such as signer addresses written for another network.
+    Ok(serde_json::from_str(&contents)?)
 }
 
 /// Load configuration from file

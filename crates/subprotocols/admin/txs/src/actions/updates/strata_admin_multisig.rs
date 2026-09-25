@@ -37,7 +37,8 @@ impl RenderSigningMessage for StrataAdminMultisigUpdate {
 mod tests {
     use std::num::NonZero;
 
-    use strata_asm_admin_threshold_sig::CompressedPublicKey;
+    use bitcoin::Network;
+    use strata_asm_admin_threshold_sig::P2wpkhAddress;
 
     use super::*;
     use crate::{
@@ -47,7 +48,7 @@ mod tests {
 
     #[test]
     fn renders_signing_message() {
-        let member = CompressedPublicKey::from_slice(&[2u8; 33]).expect("valid compressed key");
+        let member = P2wpkhAddress::from_byte_array([2u8; 20]);
         let update = StrataAdminMultisigUpdate::new(
             ThresholdConfigUpdate::try_new(
                 vec![member],
@@ -58,17 +59,18 @@ mod tests {
         );
         let action = MultisigAction::Update(UpdateAction::StrataAdminMultisig(update));
 
-        let message = SigningMessage::for_action(&action, 4);
+        let message = SigningMessage::for_action(&action, 4, Network::Regtest);
         assert_eq!(
             message.as_str(),
             "Strata ASM Administration v1\n\
+             Network: regtest\n\
              Action: Strata Administrator Multisig Update\n\
              Authorized By: Strata Administrator\n\
              Sequence: 4\n\
              Action Details:\n  \
              New Threshold: 2\n  \
              Members to Add: 1\n  \
-             1. Add Member: 020202020202020202020202020202020202020202020202020202020202020202\n  \
+             1. Add Member: bcrt1qqgpqyqszqgpqyqszqgpqyqszqgpqyqszazmwwa\n  \
              Members to Remove: 0",
         );
     }

@@ -40,6 +40,8 @@ impl RenderSigningMessage for SequencerUpdate {
 
 #[cfg(test)]
 mod tests {
+    use bitcoin::Network;
+
     use super::*;
     use crate::{
         actions::{MultisigAction, UpdateAction},
@@ -51,10 +53,11 @@ mod tests {
         let update = SequencerUpdate::new(Buf32::from([7u8; 32]));
         let action = MultisigAction::Update(UpdateAction::Sequencer(update));
 
-        let message = SigningMessage::for_action(&action, 42);
+        let message = SigningMessage::for_action(&action, 42, Network::Regtest);
         assert_eq!(
             message.as_str(),
             "Strata ASM Administration v1\n\
+             Network: regtest\n\
              Action: Sequencer Update\n\
              Authorized By: Strata Sequencer Manager\n\
              Sequence: 42\n\

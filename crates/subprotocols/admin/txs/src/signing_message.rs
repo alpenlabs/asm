@@ -1,4 +1,4 @@
-use bitcoin::{hashes::Hash as _, sign_message::signed_msg_hash};
+use bitcoin::{Network, hashes::Hash as _, sign_message::signed_msg_hash};
 use strata_identifiers::Buf32;
 
 use crate::actions::{IndentedDetails, MultisigAction, RenderSigningMessage};
@@ -10,24 +10,30 @@ pub const ADMIN_SUBPROTOCOL_VERSION: u8 = 1;
 
 /// The canonical Bitcoin `signMessage` payload an admin signer signs over.
 ///
-/// Constructed via [`SigningMessage::for_action`] from a [`MultisigAction`] and its sequence
-/// number. The `Authorized By:` line is derived from the action via
-/// [`MultisigAction::required_role`], so signers and verifiers cannot disagree on which role's
-/// authority must validate the message.
+/// Constructed via [`SigningMessage::for_action`] from a [`MultisigAction`], its sequence
+/// number and the network the chain is anchored to. The `Authorized By:` line is derived
+/// from the action via [`MultisigAction::required_role`], so signers and verifiers cannot
+/// disagree on which role's authority must validate the message.
+///
+/// The network gets its own line rather than only shaping the address prefixes further down,
+/// so that an action carrying no Bitcoin address is still bound to one chain. Without it the
+/// same payload would hash identically on mainnet and on regtest.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SigningMessage(String);
 
 impl SigningMessage {
-    /// Renders the canonical signing-message payload for `action` at `seqno`.
-    pub fn for_action(action: &MultisigAction, seqno: u64) -> Self {
+    /// Renders the canonical signing-message payload for `action` at `seqno`, showing any
+    /// Bitcoin address it carries on `network`.
+    pub fn for_action(action: &MultisigAction, seqno: u64, network: Network) -> Self {
         let mut lines = vec![
             format!("Strata ASM Administration v{ADMIN_SUBPROTOCOL_VERSION}"),
+            format!("Network: {network}"),
             format!("Action: {}", action.tx_type()),
             format!("Authorized By: {}", action.required_role()),
             format!("Sequence: {seqno}"),
         ];
         let mut detail_lines = Vec::new();
-        let mut details = IndentedDetails::new(&mut detail_lines);
+        let mut details = IndentedDetails::new(&mut detail_lines, network);
         action.render_details(&mut details);
         if !detail_lines.is_empty() {
             lines.push("Action Details:".to_string());
@@ -49,6 +55,7 @@ impl SigningMessage {
 
 #[cfg(test)]
 mod tests {
+    use bitcoin::Network;
     use strata_test_utils_arb::ArbitraryGenerator;
 
     use crate::{actions::MultisigAction, signing_message::SigningMessage};
@@ -58,6 +65,6 @@ mod tests {
         let mut arb = ArbitraryGenerator::new();
         let action: MultisigAction = arb.generate();
         let seqno: u64 = arb.generate();
-        SigningMessage::for_action(&action, seqno).compute_sighash();
+        SigningMessage::for_action(&action, seqno, Network::Regtest).compute_sighash();
     }
 }

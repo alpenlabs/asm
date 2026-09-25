@@ -7702,20 +7702,15 @@ name = "strata-asm-admin-threshold-sig"
 version = "0.1.0"
 dependencies = [
  "arbitrary",
+ "bitcoin",
  "borsh",
  "hex",
  "proptest",
  "secp256k1 0.29.1",
- "serde",
- "serde_json",
  "ssz",
- "ssz_codegen",
  "ssz_derive",
- "ssz_primitives",
  "ssz_types",
  "thiserror 2.0.18",
- "tree_hash",
- "tree_hash_derive",
 ]
 
 [[package]]
@@ -7723,11 +7718,13 @@ name = "strata-asm-admin-types"
 version = "0.1.0"
 dependencies = [
  "arbitrary",
+ "bitcoin",
  "proptest",
  "serde",
  "ssz",
  "ssz_derive",
  "strata-asm-admin-threshold-sig",
+ "thiserror 2.0.18",
 ]
 
 [[package]]
@@ -7891,6 +7888,7 @@ dependencies = [
  "strata-btc-verification",
  "strata-identifiers",
  "strata-l1-txfmt",
+ "thiserror 2.0.18",
 ]
 
 [[package]]

@@ -7,43 +7,34 @@
 //! ([`IndexedSignature`], [`SignatureSet`]), and how a set is checked
 //! ([`verify_threshold_signatures`]).
 //!
+//! Signers are named by [`P2wpkhAddress`] rather than by public key, because a hardware
+//! wallet will display an address but not a compressed point. Verification recovers the
+//! public key from each signature and compares its address against the configured one.
+//!
 //! # Encoding
 //!
-//! [`ThresholdConfig`] is part of administration subprotocol state, which the ASM commits
-//! to, so the SSZ layout of these types is consensus-critical. The layout is defined once in
-//! `ssz/threshold.ssz`, and each type encodes by converting to the container generated from
-//! that schema, so the wire format is correct by construction rather than hand-rolled. The
-//! one exception is [`CompressedPublicKey`], which the schema models inline as `Bytes33`
-//! and which therefore encodes directly as its bare 33-byte point.
+//! [`ThresholdConfig`] is part of administration subprotocol state, and
+//! [`ThresholdConfigUpdate`] and [`SignatureSet`] travel in administration transactions, so
+//! the SSZ layout of these types is consensus-critical. Each derives that layout from its
+//! field order, and a byte-layout test beside each one pins it against an accidental
+//! reorder. [`P2wpkhAddress`] encodes as its bare 20-byte witness program.
+//!
+//! Decoding checks layout, not meaning: it does not re-run the constructors. Encoded
+//! configurations come only from state this crate wrote and the ASM proof binds, and the two
+//! types that do arrive from transactions are re-validated by whatever consumes them —
+//! [`ThresholdConfig::apply_update`] for an update, and [`verify_threshold_signatures`] for a
+//! signature set.
 
-// `ssz_derive`, `ssz_types`, `tree_hash` and `tree_hash_derive` are referenced only by the
-// containers generated from `ssz/threshold.ssz`.
-use ssz_derive as _;
-use ssz_types as _;
-use tree_hash as _;
-use tree_hash_derive as _;
-
-#[allow(
-    clippy::all,
-    unreachable_pub,
-    missing_docs,
-    clippy::allow_attributes,
-    clippy::absolute_paths,
-    reason = "generated code"
-)]
-mod ssz_generated {
-    include!(concat!(env!("OUT_DIR"), "/generated.rs"));
-}
-
+mod address;
 mod config;
 mod errors;
-mod keys;
 mod signature;
-mod ssz_bridge;
+mod ssz_adapters;
 mod verification;
 
+pub use address::{NotP2wpkhAddress, P2wpkhAddress};
 pub use config::{MAX_SIGNERS, ThresholdConfig, ThresholdConfigUpdate};
 pub use errors::ThresholdSignatureError;
-pub use keys::CompressedPublicKey;
 pub use signature::{IndexedSignature, SignatureSet};
+pub use ssz_adapters::non_zero_u8;
 pub use verification::verify_threshold_signatures;

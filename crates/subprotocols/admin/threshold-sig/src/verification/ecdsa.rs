@@ -5,7 +5,10 @@ use secp256k1::{
     ecdsa::{RecoverableSignature, RecoveryId},
 };
 
-use crate::{config::ThresholdConfig, errors::ThresholdSignatureError, signature::SignatureSet};
+use crate::{
+    address::P2wpkhAddress, config::ThresholdConfig, errors::ThresholdSignatureError,
+    signature::SignatureSet,
+};
 
 /// Normalizes a recovery ID header byte to the raw recovery ID (0-3).
 ///
@@ -13,9 +16,18 @@ use crate::{config::ThresholdConfig, errors::ThresholdSignatureError, signature:
 /// information in the header byte. This function extracts just the recovery ID needed
 /// for ECDSA public key recovery.
 ///
+/// Which of the compressed-key ranges a wallet picks is advisory and is deliberately not
+/// enforced: wallets disagree about which range belongs to a given account type, and the
+/// identity check is the recovered key's P2WPKH address either way.
+///
+/// The uncompressed range (27-30) is the exception. P2WPKH is only defined over compressed
+/// keys, so a header in that range claims a key that no signer here can be. Recovery ignores
+/// the claim and the address is always derived from the compressed point, so nothing further
+/// along would catch it. It is rejected here instead.
+///
 /// # Header byte formats (BIP-137):
 /// - `0-3`: Raw recovery ID (already normalized)
-/// - `27-30`: Uncompressed P2PKH (subtract 27)
+/// - `27-30`: Uncompressed P2PKH (rejected)
 /// - `31-34`: Compressed P2PKH (subtract 31)
 /// - `35-38`: SegWit P2SH-P2WPKH (subtract 35)
 /// - `39-42`: Native SegWit P2WPKH (subtract 39)
@@ -25,7 +37,6 @@ use crate::{config::ThresholdConfig, errors::ThresholdSignatureError, signature:
 fn normalize_recovery_id(header: u8) -> Result<i32, ThresholdSignatureError> {
     let recid = match header {
         0..=3 => header,        // Raw format
-        27..=30 => header - 27, // Uncompressed P2PKH
         31..=34 => header - 31, // Compressed P2PKH
         35..=38 => header - 35, // SegWit P2SH
         39..=42 => header - 39, // Native SegWit
@@ -34,15 +45,15 @@ fn normalize_recovery_id(header: u8) -> Result<i32, ThresholdSignatureError> {
     Ok(recid as i32)
 }
 
-/// Verifies each ECDSA signature in the set against the corresponding public key.
+/// Verifies each ECDSA signature in the set against the corresponding signer address.
 ///
-/// This function recovers a public key from each ECDSA signature, then checks it
-/// against the configured key for that index. The `SignatureSet` is already
-/// deduped.
+/// This function recovers a public key from each ECDSA signature, derives its P2WPKH
+/// address, then checks it against the configured signer for that index. The
+/// `SignatureSet` is already deduped.
 ///
 /// # Hardware Wallet Compatibility
 /// Supports signatures from hardware wallets (Ledger/Trezor) that use BIP-137 format
-/// with header bytes 27-42, as well as raw format with recovery ID 0-3.
+/// with header bytes 31-42, as well as raw format with recovery ID 0-3.
 pub(super) fn verify_ecdsa_signatures(
     config: &ThresholdConfig,
     signatures: &SignatureSet,
@@ -56,18 +67,18 @@ pub(super) fn verify_ecdsa_signatures(
     for indexed_sig in signatures.signatures() {
         // Check index is in bounds
         let index = indexed_sig.index() as usize;
-        let keys_len = config.keys().len();
-        // Reject indices at/above the key count to avoid panicking on the lookup; report the last
-        // valid slot.
-        if index >= keys_len {
+        let signers_len = config.signers().len();
+        // Reject indices at/above the signer count to avoid panicking on the lookup; report the
+        // last valid slot.
+        if index >= signers_len {
             return Err(ThresholdSignatureError::SignerIndexOutOfBounds {
                 index: indexed_sig.index(),
-                max: keys_len.saturating_sub(1),
+                max: signers_len.saturating_sub(1),
             });
         }
 
-        // Get the expected public key
-        let expected_pubkey = config.keys()[index].as_inner();
+        // Get the expected signer address
+        let expected_signer = config.signers()[index];
 
         // Normalize the recovery ID from BIP-137 header format to raw 0-3
         let recid_raw = normalize_recovery_id(indexed_sig.recovery_id())?;
@@ -79,15 +90,15 @@ pub(super) fn verify_ecdsa_signatures(
                 .map_err(|_| ThresholdSignatureError::InvalidSignatureFormat)?;
 
         // Hardware wallets emit recoverable signatures with headers; recover the pubkey
-        // (honoring the header) and compare to the configured public key.
+        // (honoring the header) and compare its address to the configured signer.
         let recovered_pubkey = SECP256K1
             .recover_ecdsa(&message, &recoverable_sig)
             .map_err(|_| ThresholdSignatureError::InvalidSignature {
                 index: indexed_sig.index(),
             })?;
 
-        // Verify the recovered key matches the expected key
-        if &recovered_pubkey != expected_pubkey {
+        // Verify the recovered key belongs to the expected signer
+        if P2wpkhAddress::from_pubkey(&recovered_pubkey) != expected_signer {
             return Err(ThresholdSignatureError::InvalidSignature {
                 index: indexed_sig.index(),
             });
@@ -142,13 +153,16 @@ mod normalization_tests {
         assert_eq!(normalize_recovery_id(3).unwrap(), 3);
     }
 
+    /// A signer is a P2WPKH address, which only exists for a compressed key, so a header
+    /// claiming an uncompressed one describes a signer this configuration cannot hold.
     #[test]
-    fn test_normalize_bip137_uncompressed_p2pkh() {
-        // 27-30 = uncompressed P2PKH
-        assert_eq!(normalize_recovery_id(27).unwrap(), 0);
-        assert_eq!(normalize_recovery_id(28).unwrap(), 1);
-        assert_eq!(normalize_recovery_id(29).unwrap(), 2);
-        assert_eq!(normalize_recovery_id(30).unwrap(), 3);
+    fn test_normalize_rejects_bip137_uncompressed_p2pkh() {
+        for header in 27..=30 {
+            assert_eq!(
+                normalize_recovery_id(header),
+                Err(ThresholdSignatureError::InvalidSignatureFormat)
+            );
+        }
     }
 
     #[test]
@@ -180,8 +194,8 @@ mod normalization_tests {
 
     #[test]
     fn test_normalize_invalid_values() {
-        // Values between 4 and 26 are invalid
-        for v in 4..27 {
+        // Values between 4 and 30 are invalid
+        for v in 4..31 {
             assert!(normalize_recovery_id(v).is_err());
         }
         // Values above 42 are invalid

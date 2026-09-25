@@ -1,7 +1,7 @@
 use std::{mem::take, num::NonZero};
 
 use ssz_derive::{Decode, Encode};
-use strata_asm_admin_threshold_sig::ThresholdConfigUpdate;
+use strata_asm_admin_threshold_sig::{ThresholdConfig, ThresholdConfigUpdate, non_zero_u8};
 use strata_asm_admin_types::{AdministrationInitConfig, ConfirmationDepths, Role, UpdateTxType};
 use strata_asm_proto_admin_txs::actions::{MultisigAction, UpdateId};
 use strata_identifiers::L1Height;
@@ -38,12 +38,22 @@ pub struct AdministrationSubprotoState {
 }
 
 impl AdministrationSubprotoState {
+    /// Builds the initial state from the signer sets the parameter file configured.
+    ///
+    /// # Panics
+    ///
+    /// Never for a configuration that exists: every
+    /// [`UncheckedThresholdConfig`](strata_asm_admin_types::UncheckedThresholdConfig)
+    /// constructor resolves its signers, so one that could not resolve was never built.
     pub fn new(config: &AdministrationInitConfig) -> Self {
         let authorities = config
-            .clone()
-            .get_all_authorities()
+            .signer_configs()
             .into_iter()
-            .map(|(role, config)| MultisigAuthority::new(role, config))
+            .map(|(role, signers)| {
+                let threshold = ThresholdConfig::try_from(signers)
+                    .expect("signer set was resolved when the configuration was built");
+                MultisigAuthority::new(role, threshold)
+            })
             .collect();
 
         Self {
@@ -148,129 +158,31 @@ impl AdministrationSubprotoState {
     }
 }
 
-#[expect(unreachable_pub, reason = "used by ssz_derive field adapters")]
-mod non_zero_u8 {
-    pub mod encode {
-        use std::num::NonZero;
-
-        use ssz::Encode as SszEncode;
-
-        pub fn is_ssz_fixed_len() -> bool {
-            <u8 as SszEncode>::is_ssz_fixed_len()
-        }
-
-        pub fn ssz_fixed_len() -> usize {
-            <u8 as SszEncode>::ssz_fixed_len()
-        }
-
-        pub fn ssz_bytes_len(value: &NonZero<u8>) -> usize {
-            value.get().ssz_bytes_len()
-        }
-
-        pub fn ssz_append(value: &NonZero<u8>, buf: &mut Vec<u8>) {
-            value.get().ssz_append(buf);
-        }
-    }
-
-    pub mod decode {
-        use std::num::NonZero;
-
-        use ssz::{Decode as SszDecode, DecodeError};
-
-        pub fn is_ssz_fixed_len() -> bool {
-            <u8 as SszDecode>::is_ssz_fixed_len()
-        }
-
-        pub fn ssz_fixed_len() -> usize {
-            <u8 as SszDecode>::ssz_fixed_len()
-        }
-
-        pub fn from_ssz_bytes(bytes: &[u8]) -> Result<NonZero<u8>, DecodeError> {
-            let value = u8::from_ssz_bytes(bytes)?;
-            NonZero::new(value)
-                .ok_or_else(|| DecodeError::BytesInvalid("max_seqno_gap must be non-zero".into()))
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use std::num::NonZero;
 
-    use bitcoin::secp256k1::{PublicKey, Secp256k1, SecretKey};
-    use rand::rngs::OsRng;
-    use strata_asm_admin_threshold_sig::{
-        CompressedPublicKey, ThresholdConfig, ThresholdConfigUpdate,
-    };
-    use strata_asm_admin_types::{AdministrationInitConfig, ConfirmationDepths, Role};
+    use bitcoin::secp256k1::{PublicKey, Secp256k1};
+    use strata_asm_admin_threshold_sig::{P2wpkhAddress, ThresholdConfigUpdate};
+    use strata_asm_admin_types::{AdministrationInitConfig, Role};
     use strata_asm_proto_admin_txs::actions::UpdateAction;
     use strata_identifiers::L1Height;
     use strata_test_utils_arb::ArbitraryGenerator;
 
-    use crate::{queued_update::QueuedUpdate, state::AdministrationSubprotoState};
+    use crate::{
+        queued_update::QueuedUpdate,
+        state::AdministrationSubprotoState,
+        test_utils::{new_keys, signer_config, uniform_confirmation_depths},
+    };
 
     fn create_test_config() -> AdministrationInitConfig {
-        let secp = Secp256k1::new();
-
-        // Create admin keys
-        let admin_sks: Vec<SecretKey> = (0..3).map(|_| SecretKey::new(&mut OsRng)).collect();
-        let admin_pks: Vec<CompressedPublicKey> = admin_sks
-            .iter()
-            .map(|sk| CompressedPublicKey::from(PublicKey::from_secret_key(&secp, sk)))
-            .collect();
-        let strata_administrator =
-            ThresholdConfig::try_new(admin_pks, NonZero::new(2).unwrap()).unwrap();
-
-        // Create seq manager keys
-        let seq_sks: Vec<SecretKey> = (0..3).map(|_| SecretKey::new(&mut OsRng)).collect();
-        let seq_pks: Vec<CompressedPublicKey> = seq_sks
-            .iter()
-            .map(|sk| CompressedPublicKey::from(PublicKey::from_secret_key(&secp, sk)))
-            .collect();
-        let strata_sequencer_manager =
-            ThresholdConfig::try_new(seq_pks, NonZero::new(2).unwrap()).unwrap();
-
-        // Create alpen administrator keys
-        let alpen_sks: Vec<SecretKey> = (0..3).map(|_| SecretKey::new(&mut OsRng)).collect();
-        let alpen_pks: Vec<CompressedPublicKey> = alpen_sks
-            .iter()
-            .map(|sk| CompressedPublicKey::from(PublicKey::from_secret_key(&secp, sk)))
-            .collect();
-        let alpen_administrator =
-            ThresholdConfig::try_new(alpen_pks, NonZero::new(2).unwrap()).unwrap();
-
-        // Create security council keys
-        let council_sks: Vec<SecretKey> = (0..3).map(|_| SecretKey::new(&mut OsRng)).collect();
-        let council_pks: Vec<CompressedPublicKey> = council_sks
-            .iter()
-            .map(|sk| CompressedPublicKey::from(PublicKey::from_secret_key(&secp, sk)))
-            .collect();
-        let strata_security_council =
-            ThresholdConfig::try_new(council_pks, NonZero::new(2).unwrap()).unwrap();
-
         AdministrationInitConfig {
-            strata_administrator,
-            strata_sequencer_manager,
-            alpen_administrator,
-            strata_security_council,
+            strata_administrator: signer_config(&new_keys(3), 2),
+            strata_sequencer_manager: signer_config(&new_keys(3), 2),
+            alpen_administrator: signer_config(&new_keys(3), 2),
+            strata_security_council: signer_config(&new_keys(3), 2),
             confirmation_depths: uniform_confirmation_depths(2016),
             max_seqno_gap: NonZero::new(10).unwrap(),
-        }
-    }
-
-    fn uniform_confirmation_depths(depth: u16) -> ConfirmationDepths {
-        ConfirmationDepths {
-            strata_admin_multisig_update: depth,
-            strata_seq_manager_multisig_update: depth,
-            alpen_admin_multisig_update: depth,
-            strata_security_council_multisig_update: depth,
-            operator_update: depth,
-            sequencer_update: depth,
-            ol_stf_vk_update: depth,
-            asm_stf_vk_update: depth,
-            ee_stf_vk_update: depth,
-            defcon3: depth,
-            safe_harbour_address_update: depth,
         }
     }
 
@@ -381,13 +293,13 @@ mod tests {
         let role = Role::StrataAdministrator;
 
         let initial_auth = state.authority(role).unwrap().config();
-        let initial_members: Vec<CompressedPublicKey> = initial_auth.keys().to_vec();
+        let initial_members: Vec<P2wpkhAddress> = initial_auth.signers().to_vec();
 
         // Generate new members to add
-        let add_sks: Vec<SecretKey> = (0..2).map(|_| SecretKey::new(&mut OsRng)).collect();
-        let add_members: Vec<CompressedPublicKey> = add_sks
+        let add_sks = new_keys(2);
+        let add_members: Vec<P2wpkhAddress> = add_sks
             .iter()
-            .map(|sk| CompressedPublicKey::from(PublicKey::from_secret_key(&secp, sk)))
+            .map(|sk| P2wpkhAddress::from_pubkey(&PublicKey::from_secret_key(&secp, sk)))
             .collect();
 
         // Remove the first member
@@ -411,12 +323,12 @@ mod tests {
         assert_eq!(updated_auth.threshold(), new_threshold.get());
 
         // Verify size is correct
-        assert_eq!(updated_auth.keys().len(), new_size);
+        assert_eq!(updated_auth.signers().len(), new_size);
 
         // Verify that specified members were removed
         for member_to_remove in &remove_members {
             assert!(
-                !updated_auth.keys().contains(member_to_remove),
+                !updated_auth.signers().contains(member_to_remove),
                 "Member {:?} was not removed",
                 member_to_remove
             );
@@ -425,7 +337,7 @@ mod tests {
         // Verify that new members were added
         for new_member in &add_members {
             assert!(
-                updated_auth.keys().contains(new_member),
+                updated_auth.signers().contains(new_member),
                 "New member {:?} was not added",
                 new_member
             );

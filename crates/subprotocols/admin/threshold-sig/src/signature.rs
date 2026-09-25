@@ -3,14 +3,10 @@
 use std::collections::HashSet;
 
 use borsh::{BorshDeserialize, BorshSerialize};
-use ssz::DecodeError;
-use ssz_primitives::FixedBytes;
+use ssz_derive::{Decode, Encode};
+use ssz_types::VariableList;
 
-use crate::{
-    errors::ThresholdSignatureError,
-    ssz_bridge::{SszContainer, impl_ssz_via_container},
-    ssz_generated::ssz::threshold::{IndexedSignatureSsz, SignatureSetSsz},
-};
+use crate::{config::MAX_SIGNERS, errors::ThresholdSignatureError};
 
 /// Length of a recoverable ECDSA signature: a header byte plus `r` and `s`.
 const SIGNATURE_LEN: usize = 65;
@@ -24,20 +20,22 @@ const SIGNATURE_LEN: usize = 65;
 /// The header byte comes in two flavours:
 ///
 /// 1. A raw recovery ID (0-3), which some signing libraries emit directly.
-/// 2. BIP-137 form (27-42), which Bitcoin message signing on hardware wallets emits. 27-30 is
-///    uncompressed P2PKH, 31-34 compressed P2PKH (the common Ledger and Trezor case), 35-38 SegWit
-///    P2SH-P2WPKH, and 39-42 native SegWit P2WPKH.
+/// 2. BIP-137 form (31-42), which Bitcoin message signing on hardware wallets emits. 31-34 is
+///    compressed P2PKH (the common Ledger and Trezor case), 35-38 SegWit P2SH-P2WPKH, and 39-42
+///    native SegWit P2WPKH. The uncompressed range (27-30) is rejected, since a signer is named by
+///    a P2WPKH address and P2WPKH is only defined over compressed keys.
 ///
 /// Verification normalizes both to a raw recovery ID.
 ///
-/// A signer supplies its own index, its position in [`ThresholdConfig::keys`]. Verification
-/// uses that index to look up the expected key and compares it against the key recovered
-/// from the signature, so a wrong index fails rather than silently matching another signer.
+/// A signer supplies its own index, its position in [`ThresholdConfig::signers`].
+/// Verification uses that index to look up the expected signer and compares it against the
+/// address of the key recovered from the signature, so a wrong index fails rather than
+/// silently matching another signer.
 ///
-/// [`ThresholdConfig::keys`]: crate::ThresholdConfig::keys
-#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+/// [`ThresholdConfig::signers`]: crate::ThresholdConfig::signers
+#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, Encode, Decode)]
 pub struct IndexedSignature {
-    /// Index of the signer in the [`ThresholdConfig`](crate::ThresholdConfig) key list.
+    /// Index of the signer in the [`ThresholdConfig`](crate::ThresholdConfig) signer list.
     index: u8,
     /// 65-byte recoverable ECDSA signature (`header || r || s`).
     signature: [u8; SIGNATURE_LEN],
@@ -81,32 +79,25 @@ impl IndexedSignature {
     }
 }
 
-impl SszContainer for IndexedSignature {
-    type Container = IndexedSignatureSsz;
-
-    fn to_container(&self) -> Self::Container {
-        IndexedSignatureSsz {
-            index: self.index,
-            signature: FixedBytes(self.signature),
-        }
-    }
-
-    fn from_container(container: Self::Container) -> Result<Self, DecodeError> {
-        Ok(Self::new(container.index, container.signature.0))
-    }
-}
-
-impl_ssz_via_container!(IndexedSignature);
-
 /// A set of indexed ECDSA signatures offered against a threshold configuration.
 ///
-/// The set is guaranteed to hold at most one signature per signer index, so counting its
-/// members is the same as counting distinct signers.
-#[derive(Debug, Clone, PartialEq, Eq, Default, BorshSerialize, BorshDeserialize)]
+/// [`Self::new`] rejects a repeated signer index, so for a set built through it, counting
+/// members is the same as counting distinct signers. Decoding does not re-check that: these
+/// sets arrive in transactions anyone can write, and
+/// [`verify_threshold_signatures`](crate::verify_threshold_signatures) rebuilds the set
+/// through [`Self::new`] before it counts anything towards a threshold.
+///
+/// The length is the one thing decoding does settle. A signer is addressed by a `u8` index,
+/// so a set offering more than [`MAX_SIGNERS`] signatures cannot name that many distinct
+/// signers, and the list carries the bound in its type rather than leaving it implied.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Encode, Decode)]
 pub struct SignatureSet {
-    /// Signatures, with no repeated index.
-    signatures: Vec<IndexedSignature>,
+    /// Signatures, with no repeated index for a set built through [`Self::new`].
+    signatures: SignatureList,
 }
+
+/// The signatures offered in one [`SignatureSet`].
+type SignatureList = VariableList<IndexedSignature, MAX_SIGNERS>;
 
 impl SignatureSet {
     /// Creates a signature set, rejecting a repeated signer index.
@@ -115,6 +106,8 @@ impl SignatureSet {
     ///
     /// Returns [`ThresholdSignatureError::DuplicateSignerIndex`] if an index appears twice.
     /// Without the check one signer could be counted several times towards the threshold.
+    /// Returns [`ThresholdSignatureError::TooManySigners`] for more signatures than there
+    /// are addressable signers, which the duplicate check would catch anyway.
     pub fn new(signatures: Vec<IndexedSignature>) -> Result<Self, ThresholdSignatureError> {
         let mut seen = HashSet::new();
         for sig in &signatures {
@@ -123,13 +116,21 @@ impl SignatureSet {
             }
         }
 
+        let count = signatures.len();
+        let signatures = SignatureList::new(signatures).map_err(|_| {
+            ThresholdSignatureError::TooManySigners {
+                count,
+                max: MAX_SIGNERS,
+            }
+        })?;
+
         Ok(Self { signatures })
     }
 
     /// Creates an empty signature set.
     pub fn empty() -> Self {
         Self {
-            signatures: Vec::new(),
+            signatures: SignatureList::empty(),
         }
     }
 
@@ -155,42 +156,9 @@ impl SignatureSet {
 
     /// Consumes the set and returns the signatures.
     pub fn into_inner(self) -> Vec<IndexedSignature> {
-        self.signatures
+        self.signatures.into()
     }
 }
-
-impl SszContainer for SignatureSet {
-    type Container = SignatureSetSsz;
-
-    fn to_container(&self) -> Self::Container {
-        // Cannot fail: a set holds at most one signature per signer index, and there are at
-        // most `MAX_SIGNERS` of those.
-        let signatures = self
-            .signatures
-            .iter()
-            .map(SszContainer::to_container)
-            .collect::<Vec<_>>()
-            .try_into()
-            .expect("set is within MAX_SIGNERS");
-
-        SignatureSetSsz { signatures }
-    }
-
-    fn from_container(container: Self::Container) -> Result<Self, DecodeError> {
-        let signatures = container
-            .signatures
-            .iter()
-            .cloned()
-            .map(IndexedSignature::from_container)
-            .collect::<Result<Vec<_>, _>>()?;
-
-        // Re-applies the duplicate-free invariant, so a decoded set cannot over-count a
-        // signer towards the threshold.
-        Self::new(signatures).map_err(|err| DecodeError::BytesInvalid(err.to_string()))
-    }
-}
-
-impl_ssz_via_container!(SignatureSet);
 
 #[cfg(test)]
 mod tests {
@@ -218,14 +186,6 @@ mod tests {
             SignatureSet::new(vec![make_sig(1), make_sig(1)]),
             Err(ThresholdSignatureError::DuplicateSignerIndex(1))
         );
-    }
-
-    #[test]
-    fn borsh_roundtrips() {
-        let set = SignatureSet::new(vec![make_sig(0), make_sig(2), make_sig(5)]).unwrap();
-        let encoded = borsh::to_vec(&set).unwrap();
-
-        assert_eq!(borsh::from_slice::<SignatureSet>(&encoded).unwrap(), set);
     }
 
     #[test]
@@ -294,14 +254,54 @@ mod tests {
         );
     }
 
+    /// Decoding is layout-only, so a set with a repeated index round-trips. Counting it
+    /// towards a threshold is what rejects it, in `verify_threshold_signatures`.
     #[test]
-    fn signature_set_ssz_rejects_a_duplicate_index() {
+    fn signature_set_ssz_accepts_a_duplicate_index() {
         let mut bytes = Vec::new();
         bytes.extend_from_slice(&4u32.to_le_bytes());
         bytes.extend_from_slice(&make_sig(1).as_ssz_bytes());
         bytes.extend_from_slice(&make_sig(1).as_ssz_bytes());
 
-        assert!(SignatureSet::from_ssz_bytes(&bytes).is_err());
+        let decoded = SignatureSet::from_ssz_bytes(&bytes).expect("layout is well-formed");
+
+        assert_eq!(decoded.indices().collect::<Vec<_>>(), vec![1, 1]);
+        assert_eq!(
+            SignatureSet::new(decoded.into_inner()),
+            Err(ThresholdSignatureError::DuplicateSignerIndex(1))
+        );
+    }
+
+    /// Encodes the set container by hand, so more signatures than [`MAX_SIGNERS`] can be
+    /// offered to the decoder. `new` refuses to build such a set, so there is no encoding
+    /// path to it.
+    fn encode_signature_set_bytes(signatures: &[IndexedSignature]) -> Vec<u8> {
+        let mut bytes = 4u32.to_le_bytes().to_vec(); // offset to signatures
+        for sig in signatures {
+            bytes.extend_from_slice(&sig.as_ssz_bytes());
+        }
+        bytes
+    }
+
+    #[test]
+    fn signature_set_ssz_accepts_one_signature_per_addressable_signer() {
+        let full: Vec<_> = (0..MAX_SIGNERS).map(|i| make_sig(i as u8)).collect();
+        let set = SignatureSet::new(full).expect("one signature per signer fits");
+
+        let decoded =
+            SignatureSet::from_ssz_bytes(&set.as_ssz_bytes()).expect("a full set round-trips");
+
+        assert_eq!(decoded, set);
+        assert_eq!(decoded.len(), MAX_SIGNERS);
+    }
+
+    /// A `u8` index cannot name more signers than this, so a longer list is refused where the
+    /// bytes are read rather than left for the duplicate check to catch.
+    #[test]
+    fn signature_set_ssz_rejects_more_signatures_than_signers() {
+        let oversized: Vec<_> = (0..=MAX_SIGNERS).map(|i| make_sig(i as u8)).collect();
+
+        assert!(SignatureSet::from_ssz_bytes(&encode_signature_set_bytes(&oversized)).is_err());
     }
 
     #[test]

@@ -1,5 +1,6 @@
 use std::num::NonZero;
 
+use bitcoin::Network;
 use ssz_derive::{Decode, Encode};
 use strata_asm_admin_threshold_sig::{ThresholdConfig, verify_threshold_signatures};
 use strata_asm_admin_types::Role;
@@ -24,7 +25,7 @@ pub struct SeqNoToken(u64);
 pub struct MultisigAuthority {
     /// The role of this threshold signature authority.
     role: Role,
-    /// The public keys of all grant-holders authorized to sign.
+    /// The addresses of all grant-holders authorized to sign.
     config: ThresholdConfig,
     /// Last sequence number that was successfully executed. Used to prevent replay attacks.
     last_seqno: u64,
@@ -59,10 +60,14 @@ impl MultisigAuthority {
     }
 
     /// Verifies a set of ECDSA signatures against the canonical admin signing message.
+    ///
+    /// `network` is the network the chain is anchored to. It is what any Bitcoin address in
+    /// the action is rendered on, so it is part of what the signers signed over.
     pub fn verify_action_signature(
         &self,
         payload: &SignedPayload,
         max_seqno_gap: NonZero<u8>,
+        network: Network,
     ) -> Result<SeqNoToken, AdministrationError> {
         if payload.seqno <= self.last_seqno {
             return Err(AdministrationError::InvalidSeqno {
@@ -81,7 +86,7 @@ impl MultisigAuthority {
             });
         }
         let message_hash =
-            SigningMessage::for_action(&payload.action, payload.seqno).compute_sighash();
+            SigningMessage::for_action(&payload.action, payload.seqno, network).compute_sighash();
 
         verify_threshold_signatures(
             &self.config,
@@ -112,7 +117,7 @@ mod tests {
 
     use bitcoin::secp256k1::{PublicKey, Secp256k1, SecretKey};
     use rand::rngs::OsRng;
-    use strata_asm_admin_threshold_sig::{CompressedPublicKey, ThresholdConfig};
+    use strata_asm_admin_threshold_sig::{P2wpkhAddress, ThresholdConfig};
     use strata_asm_admin_types::Role;
     use strata_asm_proto_admin_txs::{
         actions::{MultisigAction, UpdateAction, updates::SequencerUpdate},
@@ -126,8 +131,8 @@ mod tests {
     fn create_test_authority(role: Role) -> (MultisigAuthority, SecretKey) {
         let secp = Secp256k1::new();
         let secret_key = SecretKey::new(&mut OsRng);
-        let public_key = CompressedPublicKey::from(PublicKey::from_secret_key(&secp, &secret_key));
-        let config = ThresholdConfig::try_new(vec![public_key], NonZero::new(1).expect("non-zero"))
+        let signer = P2wpkhAddress::from_pubkey(&PublicKey::from_secret_key(&secp, &secret_key));
+        let config = ThresholdConfig::try_new(vec![signer], NonZero::new(1).expect("non-zero"))
             .expect("valid config");
 
         (MultisigAuthority::new(role, config), secret_key)
@@ -144,11 +149,15 @@ mod tests {
         let (authority, secret_key) = create_test_authority(Role::StrataSequencerManager);
         let action = sample_action();
         let seqno = 1;
-        let signatures = create_signature_set(&[secret_key], &[0], &action, seqno);
+        let signatures =
+            create_signature_set(&[secret_key], &[0], &action, seqno, Network::Regtest);
         let payload = SignedPayload::new(seqno, action, signatures);
 
-        let result =
-            authority.verify_action_signature(&payload, NonZero::new(10).expect("non-zero"));
+        let result = authority.verify_action_signature(
+            &payload,
+            NonZero::new(10).expect("non-zero"),
+            Network::Regtest,
+        );
 
         assert!(result.is_ok());
     }

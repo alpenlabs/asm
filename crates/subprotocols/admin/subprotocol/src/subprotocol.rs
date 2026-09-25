@@ -51,6 +51,9 @@ impl Subprotocol for AdministrationSubprotocol {
         relayer: &mut impl MsgRelayer,
     ) {
         let current_height = header_vs.last_verified_block.height();
+        // Signers sign over the rendered message, which shows any Bitcoin address on the
+        // network the chain is anchored to.
+        let network = header_vs.network();
 
         // Phase 1: Execute any pending updates that have reached their activation height
         handle_pending_updates(state, relayer, current_height);
@@ -66,6 +69,7 @@ impl Subprotocol for AdministrationSubprotocol {
                 state,
                 signed_payload,
                 current_height,
+                network,
                 relayer,
                 &mut block_updates,
             ) {
