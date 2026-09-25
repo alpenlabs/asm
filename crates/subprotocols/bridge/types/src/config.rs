@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use strata_btc_types::BitcoinAmount;
 use strata_crypto::EvenPublicKey;
 
-use crate::SafeHarbourAddress;
+use crate::SafeHarborAddress;
 
 /// Initialization configuration for the bridge subprotocol.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -19,11 +19,11 @@ pub struct BridgeInitConfig {
     /// Number of Bitcoin blocks after Deposit Request Transaction that the depositor can reclaim
     /// funds if operators fail to process the deposit.
     pub recovery_delay: u16,
-    /// Predefined safe harbour address. Deactivated at init; the strata security council
+    /// Predefined safe harbor address. Deactivated at init; the strata security council
     /// toggles activation (via Defcon signals), and the strata administrator rotates the
     /// destination address — keeping the sweep trigger and the sweep destination under
     /// separate authorities.
-    pub safe_harbour_address: SafeHarbourAddress,
+    pub safe_harbor_address: SafeHarborAddress,
 }
 
 #[cfg(feature = "arbitrary")]
@@ -41,7 +41,7 @@ impl<'a> arbitrary::Arbitrary<'a> for BridgeInitConfig {
             assignment_duration: u.arbitrary()?,
             operator_fee: u.arbitrary()?,
             recovery_delay: u.arbitrary()?,
-            safe_harbour_address: u.arbitrary()?,
+            safe_harbor_address: u.arbitrary()?,
         })
     }
 }

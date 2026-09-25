@@ -22,14 +22,14 @@ use strata_asm_admin_threshold_sig::{P2wpkhAddress, ThresholdConfigUpdate};
 use strata_asm_admin_types::{
     AdministrationInitConfig, ConfirmationDepths, Role, UncheckedThresholdConfig,
 };
-use strata_asm_bridge_types::SafeHarbourAddress;
+use strata_asm_bridge_types::SafeHarborAddress;
 use strata_asm_common::{AnchorState, SectionStateExt, Subprotocol};
 use strata_asm_proto_admin::{AdministrationSubprotoState, AdministrationSubprotocol};
 use strata_asm_proto_admin_txs::{
     actions::{
         updates::{
             AlpenAdminMultisigUpdate, AsmStfVkUpdate, Defcon1Update, Defcon3Update, EeStfVkUpdate,
-            OlStfVkUpdate, OperatorSetUpdate, SafeHarbourAddressUpdate, SequencerUpdate,
+            OlStfVkUpdate, OperatorSetUpdate, SafeHarborAddressUpdate, SequencerUpdate,
             StrataAdminMultisigUpdate, StrataSecurityCouncilMultisigUpdate,
             StrataSeqManagerMultisigUpdate,
         },
@@ -310,10 +310,10 @@ pub fn defcon3_update() -> MultisigAction {
     MultisigAction::Update(UpdateAction::Defcon3(Defcon3Update))
 }
 
-/// Create a safe harbour address update action.
-pub fn safe_harbour_address_update(address: SafeHarbourAddress) -> MultisigAction {
-    MultisigAction::Update(UpdateAction::SafeHarbourAddress(
-        SafeHarbourAddressUpdate::new(address),
+/// Create a safe harbor address update action.
+pub fn safe_harbor_address_update(address: SafeHarborAddress) -> MultisigAction {
+    MultisigAction::Update(UpdateAction::SafeHarborAddress(
+        SafeHarborAddressUpdate::new(address),
     ))
 }
 
@@ -366,7 +366,7 @@ pub fn create_test_admin_setup(
             asm_stf_vk_update: confirmation_depth,
             ee_stf_vk_update: confirmation_depth,
             defcon3: confirmation_depth,
-            safe_harbour_address_update: confirmation_depth,
+            safe_harbor_address_update: confirmation_depth,
         },
         max_seqno_gap: DEFAULT_MAX_SEQNO_GAP,
     };
@@ -425,7 +425,7 @@ pub async fn submit_and_activate(
 ///
 /// Baselines are captured from the live admin state, so this tolerates a harness that already
 /// has unrelated admin history. Subprotocol-specific "the effect did not happen" assertions
-/// (e.g. a checkpoint predicate or bridge safe harbour left unchanged) are left to the caller,
+/// (e.g. a checkpoint predicate or bridge safe harbor left unchanged) are left to the caller,
 /// which already holds the harness.
 ///
 /// The activation window mined through is the action's own configured confirmation depth (see

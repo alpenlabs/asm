@@ -230,19 +230,19 @@ impl Subprotocol for BridgeSubprotoV1 {
                     state.apply_operator_set_update(add_members, remove_members);
                 }
 
-                BridgeIncomingMsg::UpdateSafeHarbourAddress(address) => {
-                    // Only claim success when the update actually applied; rejection (safe harbour
-                    // already activated) is warned inside `update_safe_harbour_address`.
-                    if state.update_safe_harbour_address(address.clone()) {
-                        info!("Updated safe harbour address from admin subprotocol");
+                BridgeIncomingMsg::UpdateSafeHarborAddress(address) => {
+                    // Only claim success when the update actually applied; rejection (safe harbor
+                    // already activated) is warned inside `update_safe_harbor_address`.
+                    if state.update_safe_harbor_address(address.clone()) {
+                        info!("Updated safe harbor address from admin subprotocol");
                     }
                 }
 
                 BridgeIncomingMsg::Defcon(_) => {
-                    state.activate_safe_harbour();
+                    state.activate_safe_harbor();
                     info!(
-                        active_address = ?state.safe_harbour().address(),
-                        "Activated safe harbour on Defcon signal from admin subprotocol"
+                        active_address = ?state.safe_harbor().address(),
+                        "Activated safe harbor on Defcon signal from admin subprotocol"
                     );
                 }
             }
@@ -252,7 +252,7 @@ impl Subprotocol for BridgeSubprotoV1 {
 
 #[cfg(test)]
 mod tests {
-    use strata_asm_bridge_types::{SafeHarbourAddress, WithdrawalIntent};
+    use strata_asm_bridge_types::{SafeHarborAddress, WithdrawalIntent};
     use strata_asm_common::{HeaderVerificationState, Subprotocol};
     use strata_asm_proto_bridge_msgs::{BridgeIncomingMsg, DefconPayload};
     use strata_btc_types::BitcoinAmount;
@@ -264,29 +264,29 @@ mod tests {
         MockMsgRelayer, add_deposits, create_test_state, create_verified_aux_data,
     };
 
-    /// The safe harbour must start deactivated so it has no effect until the
+    /// The safe harbor must start deactivated so it has no effect until the
     /// admin subprotocol explicitly triggers a defcon signal.
     #[test]
-    fn safe_harbour_starts_deactivated() {
+    fn safe_harbor_starts_deactivated() {
         let (state, _privkeys) = create_test_state();
-        assert!(!state.safe_harbour().is_activated());
-        assert_eq!(state.safe_harbour().active_address(), None);
+        assert!(!state.safe_harbor().is_activated());
+        assert_eq!(state.safe_harbor().active_address(), None);
     }
 
     #[test]
-    fn process_msgs_update_safe_harbour_address() {
+    fn process_msgs_update_safe_harbor_address() {
         let (mut state, _privkeys) = create_test_state();
         let l1ref: L1BlockCommitment = ArbitraryGenerator::new().generate();
 
-        let new_address: SafeHarbourAddress = ArbitraryGenerator::new().generate();
-        let msgs = vec![BridgeIncomingMsg::UpdateSafeHarbourAddress(
+        let new_address: SafeHarborAddress = ArbitraryGenerator::new().generate();
+        let msgs = vec![BridgeIncomingMsg::UpdateSafeHarborAddress(
             new_address.clone(),
         )];
         BridgeSubprotoV1::process_msgs(&mut state, &msgs, &l1ref);
 
-        assert_eq!(state.safe_harbour().address(), &new_address);
-        // Address updates alone must not activate the safe harbour.
-        assert!(!state.safe_harbour().is_activated());
+        assert_eq!(state.safe_harbor().address(), &new_address);
+        // Address updates alone must not activate the safe harbor.
+        assert!(!state.safe_harbor().is_activated());
     }
 
     /// A `DispatchWithdrawal` for `N * denomination` must decompose into `N` assignments, each
@@ -363,21 +363,21 @@ mod tests {
     }
 
     #[test]
-    fn process_msgs_defcon_activates_safe_harbour() {
+    fn process_msgs_defcon_activates_safe_harbor() {
         let (mut state, _privkeys) = create_test_state();
         let l1ref: L1BlockCommitment = ArbitraryGenerator::new().generate();
 
         let msgs = vec![BridgeIncomingMsg::Defcon(DefconPayload::default())];
         BridgeSubprotoV1::process_msgs(&mut state, &msgs, &l1ref);
 
-        assert!(state.safe_harbour().is_activated());
+        assert!(state.safe_harbor().is_activated());
         assert_eq!(
-            state.safe_harbour().active_address(),
-            Some(state.safe_harbour().address())
+            state.safe_harbor().active_address(),
+            Some(state.safe_harbor().address())
         );
     }
 
-    /// Once the safe harbour is activated, the address must be frozen so
+    /// Once the safe harbor is activated, the address must be frozen so
     /// bridge nodes see a single sweep destination. Allowing it to change
     /// mid-sweep would split funds across two addresses with no coherent
     /// destination for the bridge node to drive the rest of the sweep to.
@@ -386,20 +386,20 @@ mod tests {
         let (mut state, _privkeys) = create_test_state();
         let l1ref: L1BlockCommitment = ArbitraryGenerator::new().generate();
 
-        let original_address = state.safe_harbour().address().clone();
+        let original_address = state.safe_harbor().address().clone();
 
-        let rejected_address: SafeHarbourAddress = ArbitraryGenerator::new().generate();
+        let rejected_address: SafeHarborAddress = ArbitraryGenerator::new().generate();
         let msgs = vec![
             BridgeIncomingMsg::Defcon(DefconPayload::default()),
-            BridgeIncomingMsg::UpdateSafeHarbourAddress(rejected_address),
+            BridgeIncomingMsg::UpdateSafeHarborAddress(rejected_address),
         ];
         BridgeSubprotoV1::process_msgs(&mut state, &msgs, &l1ref);
 
-        assert!(state.safe_harbour().is_activated());
+        assert!(state.safe_harbor().is_activated());
         // Address must be unchanged from before the rejected update.
-        assert_eq!(state.safe_harbour().address(), &original_address);
+        assert_eq!(state.safe_harbor().address(), &original_address);
         assert_eq!(
-            state.safe_harbour().active_address(),
+            state.safe_harbor().active_address(),
             Some(&original_address)
         );
     }

@@ -5,7 +5,7 @@ pub mod defcon3;
 pub mod ee_stf_vk;
 pub mod ol_stf_vk;
 pub mod operator_set;
-pub mod safe_harbour_address;
+pub mod safe_harbor_address;
 pub mod strata_admin_multisig;
 pub mod strata_security_council_multisig;
 pub mod strata_seq_manager_multisig;
@@ -21,7 +21,7 @@ pub use defcon3::Defcon3Update;
 pub use ee_stf_vk::EeStfVkUpdate;
 pub use ol_stf_vk::OlStfVkUpdate;
 pub use operator_set::OperatorSetUpdate;
-pub use safe_harbour_address::SafeHarbourAddressUpdate;
+pub use safe_harbor_address::SafeHarborAddressUpdate;
 use ssz_derive::{Decode, Encode};
 pub use strata_admin_multisig::StrataAdminMultisigUpdate;
 use strata_asm_admin_types::{AdminTxType, Role, UpdateTxType};
@@ -50,7 +50,7 @@ pub enum UpdateAction {
     EeStfVk(EeStfVkUpdate),
     Defcon1(Defcon1Update),
     Defcon3(Defcon3Update),
-    SafeHarbourAddress(SafeHarbourAddressUpdate),
+    SafeHarborAddress(SafeHarborAddressUpdate),
 }
 
 impl UpdateAction {
@@ -72,7 +72,7 @@ impl UpdateAction {
             UpdateAction::EeStfVk(_) => UpdateTxType::EeStfVkUpdate,
             UpdateAction::Defcon1(_) => UpdateTxType::Defcon1,
             UpdateAction::Defcon3(_) => UpdateTxType::Defcon3,
-            UpdateAction::SafeHarbourAddress(_) => UpdateTxType::SafeHarbourAddressUpdate,
+            UpdateAction::SafeHarborAddress(_) => UpdateTxType::SafeHarborAddressUpdate,
         }
     }
 
@@ -96,7 +96,7 @@ impl RenderSigningMessage for UpdateAction {
             UpdateAction::EeStfVk(u) => u.tx_type(),
             UpdateAction::Defcon1(u) => u.tx_type(),
             UpdateAction::Defcon3(u) => u.tx_type(),
-            UpdateAction::SafeHarbourAddress(u) => u.tx_type(),
+            UpdateAction::SafeHarborAddress(u) => u.tx_type(),
         }
     }
 
@@ -113,7 +113,7 @@ impl RenderSigningMessage for UpdateAction {
             UpdateAction::EeStfVk(u) => u.render_details(details),
             UpdateAction::Defcon1(u) => u.render_details(details),
             UpdateAction::Defcon3(u) => u.render_details(details),
-            UpdateAction::SafeHarbourAddress(u) => u.render_details(details),
+            UpdateAction::SafeHarborAddress(u) => u.render_details(details),
         }
     }
 }
@@ -184,8 +184,8 @@ impl From<Defcon3Update> for UpdateAction {
     }
 }
 
-impl From<SafeHarbourAddressUpdate> for UpdateAction {
-    fn from(update: SafeHarbourAddressUpdate) -> Self {
-        UpdateAction::SafeHarbourAddress(update)
+impl From<SafeHarborAddressUpdate> for UpdateAction {
+    fn from(update: SafeHarborAddressUpdate) -> Self {
+        UpdateAction::SafeHarborAddress(update)
     }
 }

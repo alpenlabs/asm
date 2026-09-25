@@ -1,49 +1,49 @@
 use arbitrary::Arbitrary;
 use ssz_derive::{Decode, Encode};
 use strata_asm_admin_types::{AdminTxType, UpdateTxType};
-use strata_asm_bridge_types::SafeHarbourAddress;
+use strata_asm_bridge_types::SafeHarborAddress;
 
 use crate::actions::{IndentedDetails, RenderSigningMessage};
 
-/// Rotate the bridge's safe harbour destination address.
+/// Rotate the bridge's safe harbor destination address.
 ///
 /// Authorized by the
 /// [`Role::StrataAdministrator`](strata_asm_admin_types::Role::StrataAdministrator) — the
-/// security council can sweep funds to the safe harbour via Defcon signals but must not
+/// security council can sweep funds to the safe harbor via Defcon signals but must not
 /// also choose where they land, otherwise the same authority could both trigger a sweep
 /// and pick its destination. Carries the new P2TR destination that the bridge will adopt;
-/// activation state of the safe harbour is unaffected (only Defcon signals toggle
+/// activation state of the safe harbor is unaffected (only Defcon signals toggle
 /// activation).
 #[derive(Clone, Debug, Eq, PartialEq, Arbitrary, Encode, Decode)]
-pub struct SafeHarbourAddressUpdate {
-    address: SafeHarbourAddress,
+pub struct SafeHarborAddressUpdate {
+    address: SafeHarborAddress,
 }
 
-impl SafeHarbourAddressUpdate {
-    /// Create a new `SafeHarbourAddressUpdate` for the given P2TR address.
-    pub fn new(address: SafeHarbourAddress) -> Self {
+impl SafeHarborAddressUpdate {
+    /// Create a new `SafeHarborAddressUpdate` for the given P2TR address.
+    pub fn new(address: SafeHarborAddress) -> Self {
         Self { address }
     }
 
-    /// Borrow the new safe harbour address.
-    pub fn address(&self) -> &SafeHarbourAddress {
+    /// Borrow the new safe harbor address.
+    pub fn address(&self) -> &SafeHarborAddress {
         &self.address
     }
 
-    /// Consume and return the inner safe harbour address.
-    pub fn into_inner(self) -> SafeHarbourAddress {
+    /// Consume and return the inner safe harbor address.
+    pub fn into_inner(self) -> SafeHarborAddress {
         self.address
     }
 }
 
-impl RenderSigningMessage for SafeHarbourAddressUpdate {
+impl RenderSigningMessage for SafeHarborAddressUpdate {
     fn tx_type(&self) -> AdminTxType {
-        AdminTxType::Update(UpdateTxType::SafeHarbourAddressUpdate)
+        AdminTxType::Update(UpdateTxType::SafeHarborAddressUpdate)
     }
 
     fn render_details(&self, details: &mut IndentedDetails<'_>) {
         details.push(format!(
-            "New Safe Harbour Address: {}",
+            "New Safe Harbor Address: {}",
             hex::encode(self.address.as_descriptor().to_bytes())
         ));
     }
@@ -70,9 +70,9 @@ mod tests {
         ];
         let descriptor = Descriptor::new_p2tr(&payload).expect("valid x-only public key");
         let expected_hex = hex::encode(descriptor.to_bytes());
-        let address = SafeHarbourAddress::try_from(descriptor).expect("p2tr descriptor accepted");
-        let update = SafeHarbourAddressUpdate::new(address);
-        let action = MultisigAction::Update(UpdateAction::SafeHarbourAddress(update));
+        let address = SafeHarborAddress::try_from(descriptor).expect("p2tr descriptor accepted");
+        let update = SafeHarborAddressUpdate::new(address);
+        let action = MultisigAction::Update(UpdateAction::SafeHarborAddress(update));
 
         let message = SigningMessage::for_action(&action, 17, Network::Regtest);
         assert_eq!(
@@ -80,11 +80,11 @@ mod tests {
             format!(
                 "Strata ASM Administration v1\n\
                  Network: regtest\n\
-                 Action: Safe Harbour Address Update\n\
+                 Action: Safe Harbor Address Update\n\
                  Authorized By: Strata Administrator\n\
                  Sequence: 17\n\
                  Action Details:\n  \
-                 New Safe Harbour Address: {expected_hex}"
+                 New Safe Harbor Address: {expected_hex}"
             )
         );
     }
