@@ -8,7 +8,7 @@ use crate::actions::{IndentedDetails, RenderSigningMessage};
 ///
 /// Authorized by the
 /// [`Role::StrataSecurityCouncil`](strata_asm_admin_types::Role::StrataSecurityCouncil) to
-/// signal the bridge to immediately activate its safe harbour. Carries no payload: the action's
+/// signal the bridge to immediately activate its safe harbor. Carries no payload: the action's
 /// identity is the signal. Defcon 1 is enacted immediately on receipt — by definition the emergency
 /// lever bypasses the confirmation queue, so it has no entry in
 /// [`ConfirmationDepths`](strata_asm_admin_types::ConfirmationDepths) and cannot be

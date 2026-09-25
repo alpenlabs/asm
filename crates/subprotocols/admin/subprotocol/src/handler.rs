@@ -1,6 +1,6 @@
 use bitcoin::Network;
 use strata_asm_admin_types::{Role, UpdateTxType};
-use strata_asm_bridge_types::SafeHarbourAddress;
+use strata_asm_bridge_types::SafeHarborAddress;
 use strata_asm_common::{
     AsmLogEntry, MsgRelayer,
     logging::{debug, error, info},
@@ -249,8 +249,8 @@ fn handle_update(
             relay_alpen_predicate_update(relayer, update.into_key());
         }
         UpdateAction::Defcon1(_) | UpdateAction::Defcon3(_) => relay_bridge_defcon(relayer),
-        UpdateAction::SafeHarbourAddress(update) => {
-            relay_bridge_safe_harbour_address_update(relayer, update.into_inner());
+        UpdateAction::SafeHarborAddress(update) => {
+            relay_bridge_safe_harbor_address_update(relayer, update.into_inner());
         }
     }
 
@@ -303,13 +303,13 @@ fn relay_bridge_defcon(relayer: &mut impl MsgRelayer) {
     info!("forwarded Defcon signal to bridge subprotocol");
 }
 
-fn relay_bridge_safe_harbour_address_update(
+fn relay_bridge_safe_harbor_address_update(
     relayer: &mut impl MsgRelayer,
-    address: SafeHarbourAddress,
+    address: SafeHarborAddress,
 ) {
-    debug!(?address, "new safe harbour address");
-    relayer.relay_msg(&BridgeIncomingMsg::UpdateSafeHarbourAddress(address));
-    info!("forwarded safe harbour address update to bridge subprotocol");
+    debug!(?address, "new safe harbor address");
+    relayer.relay_msg(&BridgeIncomingMsg::UpdateSafeHarborAddress(address));
+    info!("forwarded safe harbor address update to bridge subprotocol");
 }
 
 #[cfg(test)]
@@ -319,7 +319,7 @@ mod tests {
     use bitcoin::secp256k1::SecretKey;
     use rand::{seq::SliceRandom, thread_rng};
     use strata_asm_admin_types::{AdministrationInitConfig, Role, UpdateTxType};
-    use strata_asm_bridge_types::SafeHarbourAddress;
+    use strata_asm_bridge_types::SafeHarborAddress;
     use strata_asm_common::{AsmLogEntry, InterprotoMsg, MsgRelayer};
     use strata_asm_logs::{AsmStfUpdate, CheckpointPredicateEnacted};
     use strata_asm_proto_admin_txs::{
@@ -327,7 +327,7 @@ mod tests {
             CancelAction, MultisigAction, UpdateAction,
             updates::{
                 AsmStfVkUpdate, Defcon1Update, Defcon3Update, OlStfVkUpdate,
-                SafeHarbourAddressUpdate, SequencerUpdate,
+                SafeHarborAddressUpdate, SequencerUpdate,
             },
         },
         parser::SignedPayload,
@@ -1050,14 +1050,14 @@ mod tests {
     }
 
     #[test]
-    fn test_safe_harbour_address_update_forwarded_to_bridge() {
+    fn test_safe_harbor_address_update_forwarded_to_bridge() {
         let (params, _, _, _) = create_test_params();
         let mut state = AdministrationSubprotoState::new(&params);
         let mut relayer = MockRelayer::<BridgeIncomingMsg>::new();
 
-        let new_address: SafeHarbourAddress = ArbitraryGenerator::new().generate();
+        let new_address: SafeHarborAddress = ArbitraryGenerator::new().generate();
         let expected_address = new_address.clone();
-        let update = UpdateAction::SafeHarbourAddress(SafeHarbourAddressUpdate::new(new_address));
+        let update = UpdateAction::SafeHarborAddress(SafeHarborAddressUpdate::new(new_address));
         let update_id = state.next_update_id();
         let activation_height = 42;
         state.enqueue(QueuedUpdate::new(update_id, update, activation_height));
@@ -1070,9 +1070,9 @@ mod tests {
         assert!(
             matches!(
                 bridge_msgs.first(),
-                Some(BridgeIncomingMsg::UpdateSafeHarbourAddress(addr)) if addr == &expected_address
+                Some(BridgeIncomingMsg::UpdateSafeHarborAddress(addr)) if addr == &expected_address
             ),
-            "expected UpdateSafeHarbourAddress message to bridge, got {:?}",
+            "expected UpdateSafeHarborAddress message to bridge, got {:?}",
             bridge_msgs.first()
         );
     }

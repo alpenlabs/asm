@@ -55,7 +55,7 @@ pub(crate) fn regtest_params_json() -> &'static str {
       "asm_stf_vk_update": 144,
       "ee_stf_vk_update": 144,
       "defcon3": 144,
-      "safe_harbour_address_update": 144
+      "safe_harbor_address_update": 144
     },
     "max_seqno_gap": 10
   }
@@ -77,7 +77,7 @@ pub(crate) fn regtest_params_json() -> &'static str {
     "assignment_duration": 0,
     "operator_fee": 0,
     "recovery_delay": 0,
-    "safe_harbour_address": "0479be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"
+    "safe_harbor_address": "0479be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"
   }
 }
   ]

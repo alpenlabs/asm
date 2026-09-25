@@ -2,7 +2,7 @@ import logging
 
 import flexitest
 
-from factory.common.asm_params import DEFAULT_SAFE_HARBOUR_ADDRESS
+from factory.common.asm_params import DEFAULT_SAFE_HARBOR_ADDRESS
 from utils.utils import (
     wait_until_asm_reaches_height,
     wait_until_asm_ready,
@@ -11,12 +11,12 @@ from utils.utils import (
 
 
 @flexitest.register
-class AsmSafeHarbourTest(flexitest.Test):
-    """Verify `strata_asm_getSafeHarbour` returns the configured address
+class AsmSafeHarborTest(flexitest.Test):
+    """Verify `strata_asm_getSafeHarbor` returns the configured address
     in its initial deactivated state.
 
     The bridge subprotocol is initialised from `asm_params.json` with
-    `DEFAULT_SAFE_HARBOUR_ADDRESS` and `activated=false`. Without any
+    `DEFAULT_SAFE_HARBOR_ADDRESS` and `activated=false`. Without any
     admin defcon signal, every processed block must surface that exact
     pair via the RPC.
     """
@@ -44,30 +44,30 @@ class AsmSafeHarbourTest(flexitest.Test):
         logging.info("ASM progressed to height %s", asm_height)
 
         # Tip and an earlier processed block must both return the same payload —
-        # the safe harbour is consensus state, so it must be consistent across history
+        # the safe harbor is consensus state, so it must be consistent across history
         # while no admin message has touched it.
         heights = (initial_btc_height + 1, target_height)
         previous = None
         for height in heights:
             block_hash = bitcoin_rpc.proxy.getblockhash(height)
-            result = asm_rpc.strata_asm_getSafeHarbour(block_hash)
+            result = asm_rpc.strata_asm_getSafeHarbor(block_hash)
             assert result is not None, (
-                f"strata_asm_getSafeHarbour returned None for processed block at height {height}"
+                f"strata_asm_getSafeHarbor returned None for processed block at height {height}"
             )
             assert set(result.keys()) >= {"address", "activated"}, (
-                f"unexpected safe harbour payload at height {height}: {result!r}"
+                f"unexpected safe harbor payload at height {height}: {result!r}"
             )
             normalized = result["address"].lower().removeprefix("0x")
-            assert normalized == DEFAULT_SAFE_HARBOUR_ADDRESS, (
-                f"expected configured safe harbour address {DEFAULT_SAFE_HARBOUR_ADDRESS}, "
+            assert normalized == DEFAULT_SAFE_HARBOR_ADDRESS, (
+                f"expected configured safe harbor address {DEFAULT_SAFE_HARBOR_ADDRESS}, "
                 f"got {result['address']}"
             )
             assert result["activated"] is False, (
-                f"safe harbour should start deactivated, got activated={result['activated']!r}"
+                f"safe harbor should start deactivated, got activated={result['activated']!r}"
             )
             if previous is not None:
                 assert result == previous, (
-                    "safe harbour should be identical across processed blocks: "
+                    "safe harbor should be identical across processed blocks: "
                     f"{previous} vs {result}"
                 )
             previous = result

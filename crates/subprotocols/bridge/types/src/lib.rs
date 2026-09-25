@@ -28,12 +28,12 @@
 
 mod config;
 mod operator;
-mod safe_harbour;
+mod safe_harbor;
 mod withdrawal;
 
 pub use config::BridgeInitConfig;
 pub use operator::{
     OperatorBitmap, OperatorBitmapError, OperatorIdx, OperatorSelection, filter_eligible_operators,
 };
-pub use safe_harbour::{SafeHarbour, SafeHarbourAddress};
+pub use safe_harbor::{SafeHarbor, SafeHarborAddress};
 pub use withdrawal::{OperatorClaimUnlock, WithdrawalIntent, WithdrawalOutput};

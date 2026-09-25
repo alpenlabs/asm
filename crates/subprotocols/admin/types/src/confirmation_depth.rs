@@ -29,7 +29,7 @@ pub struct ConfirmationDepths {
     pub asm_stf_vk_update: u16,
     pub ee_stf_vk_update: u16,
     pub defcon3: u16,
-    pub safe_harbour_address_update: u16,
+    pub safe_harbor_address_update: u16,
 }
 
 impl ConfirmationDepths {
@@ -52,7 +52,7 @@ impl ConfirmationDepths {
             // so there is no per-deployment knob for it.
             UpdateTxType::Defcon1 => 0,
             UpdateTxType::Defcon3 => self.defcon3,
-            UpdateTxType::SafeHarbourAddressUpdate => self.safe_harbour_address_update,
+            UpdateTxType::SafeHarborAddressUpdate => self.safe_harbor_address_update,
         };
         (depth != 0).then_some(depth)
     }
