@@ -3,6 +3,7 @@
 use std::{collections::HashSet, num::NonZero};
 
 use ssz_derive::{Decode, Encode};
+use ssz_types::VariableList;
 
 use crate::{address::P2wpkhAddress, errors::ThresholdSignatureError, ssz_adapters::non_zero_u8};
 
@@ -147,16 +148,26 @@ impl ThresholdConfig {
 
 /// A change to a [`ThresholdConfig`]: members to add, members to drop, and the threshold
 /// that applies once both have been taken into account.
+///
+/// Unlike [`ThresholdConfig`], these arrive in transactions anyone can write, and the
+/// signing message renders every member an update holds before any signature is checked. So
+/// the member lists carry [`MAX_SIGNERS`] in their type: decoding refuses an oversized list
+/// on the byte length alone, before a member is read. The bound cannot wait for
+/// [`ThresholdConfig::validate_update`], which runs against the configuration as it stands
+/// when the update is enacted, blocks after the transaction carrying it was admitted.
 #[derive(Debug, Clone, PartialEq, Eq, Encode, Decode)]
 pub struct ThresholdConfigUpdate {
     /// Signer addresses to add.
-    add_members: Vec<P2wpkhAddress>,
+    add_members: MemberList,
     /// Signer addresses to remove.
-    remove_members: Vec<P2wpkhAddress>,
+    remove_members: MemberList,
     /// Minimum number of signatures required (always >= 1).
     #[ssz(with = "non_zero_u8")]
     new_threshold: NonZero<u8>,
 }
+
+/// The signer addresses named by one side of a [`ThresholdConfigUpdate`].
+type MemberList = VariableList<P2wpkhAddress, MAX_SIGNERS>;
 
 impl ThresholdConfigUpdate {
     /// Creates a new threshold configuration update.
@@ -171,17 +182,9 @@ impl ThresholdConfigUpdate {
         remove_members: Vec<P2wpkhAddress>,
         new_threshold: NonZero<u8>,
     ) -> Result<Self, ThresholdSignatureError> {
-        for list in [&add_members, &remove_members] {
-            if list.len() > MAX_SIGNERS {
-                return Err(ThresholdSignatureError::TooManySigners {
-                    count: list.len(),
-                    max: MAX_SIGNERS,
-                });
-            }
-        }
         Ok(Self {
-            add_members,
-            remove_members,
+            add_members: bounded_members(add_members)?,
+            remove_members: bounded_members(remove_members)?,
             new_threshold,
         })
     }
@@ -203,8 +206,21 @@ impl ThresholdConfigUpdate {
 
     /// Consumes the update and returns its parts.
     pub fn into_inner(self) -> (Vec<P2wpkhAddress>, Vec<P2wpkhAddress>, NonZero<u8>) {
-        (self.add_members, self.remove_members, self.new_threshold)
+        (
+            self.add_members.into(),
+            self.remove_members.into(),
+            self.new_threshold,
+        )
     }
+}
+
+/// Puts one member list behind its bound, reporting the length that overran it.
+fn bounded_members(members: Vec<P2wpkhAddress>) -> Result<MemberList, ThresholdSignatureError> {
+    let count = members.len();
+    MemberList::new(members).map_err(|_| ThresholdSignatureError::TooManySigners {
+        count,
+        max: MAX_SIGNERS,
+    })
 }
 
 #[cfg(feature = "arbitrary")]
@@ -492,6 +508,56 @@ mod tests {
         bytes.extend_from_slice(&signer(1).to_byte_array());
 
         assert!(ThresholdConfig::from_ssz_bytes(&bytes).is_err());
+    }
+
+    /// Encodes the update container by hand, so a list past [`MAX_SIGNERS`] can be offered
+    /// to the decoder. `try_new` refuses to build one, so there is no encoding path to it.
+    fn encode_update_bytes(
+        add: &[P2wpkhAddress],
+        remove: &[P2wpkhAddress],
+        threshold: u8,
+    ) -> Vec<u8> {
+        let add_offset = 9u32;
+        let remove_offset = add_offset + (add.len() * 20) as u32;
+
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(&add_offset.to_le_bytes());
+        bytes.extend_from_slice(&remove_offset.to_le_bytes());
+        bytes.push(threshold);
+        for signer in add.iter().chain(remove) {
+            bytes.extend_from_slice(&signer.to_byte_array());
+        }
+        bytes
+    }
+
+    #[test]
+    fn update_ssz_accepts_a_full_member_list() {
+        let full: Vec<_> = (0..MAX_SIGNERS as u32).map(signer_n).collect();
+        let update = ThresholdConfigUpdate::try_new(full, vec![], nonzero(1))
+            .expect("MAX_SIGNERS members fit");
+
+        let decoded = ThresholdConfigUpdate::from_ssz_bytes(&update.as_ssz_bytes())
+            .expect("a full list round-trips");
+
+        assert_eq!(decoded, update);
+        assert_eq!(decoded.add_members().len(), MAX_SIGNERS);
+    }
+
+    /// The lists arrive in transactions anyone can write, and the signing message renders
+    /// every member before a signature is checked, so the bound holds at the wire rather
+    /// than waiting for the update to be applied.
+    #[test]
+    fn update_ssz_rejects_an_oversized_member_list() {
+        let oversized: Vec<_> = (0..=MAX_SIGNERS as u32).map(signer_n).collect();
+
+        assert!(
+            ThresholdConfigUpdate::from_ssz_bytes(&encode_update_bytes(&oversized, &[], 1))
+                .is_err()
+        );
+        assert!(
+            ThresholdConfigUpdate::from_ssz_bytes(&encode_update_bytes(&[], &oversized, 1))
+                .is_err()
+        );
     }
 
     #[test]

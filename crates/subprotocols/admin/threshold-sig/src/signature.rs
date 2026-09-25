@@ -4,8 +4,9 @@ use std::collections::HashSet;
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use ssz_derive::{Decode, Encode};
+use ssz_types::VariableList;
 
-use crate::errors::ThresholdSignatureError;
+use crate::{config::MAX_SIGNERS, errors::ThresholdSignatureError};
 
 /// Length of a recoverable ECDSA signature: a header byte plus `r` and `s`.
 const SIGNATURE_LEN: usize = 65;
@@ -85,13 +86,18 @@ impl IndexedSignature {
 /// sets arrive in transactions anyone can write, and
 /// [`verify_threshold_signatures`](crate::verify_threshold_signatures) rebuilds the set
 /// through [`Self::new`] before it counts anything towards a threshold.
-#[derive(
-    Debug, Clone, PartialEq, Eq, Default, BorshSerialize, BorshDeserialize, Encode, Decode,
-)]
+///
+/// The length is the one thing decoding does settle. A signer is addressed by a `u8` index,
+/// so a set offering more than [`MAX_SIGNERS`] signatures cannot name that many distinct
+/// signers, and the list carries the bound in its type rather than leaving it implied.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Encode, Decode)]
 pub struct SignatureSet {
     /// Signatures, with no repeated index for a set built through [`Self::new`].
-    signatures: Vec<IndexedSignature>,
+    signatures: SignatureList,
 }
+
+/// The signatures offered in one [`SignatureSet`].
+type SignatureList = VariableList<IndexedSignature, MAX_SIGNERS>;
 
 impl SignatureSet {
     /// Creates a signature set, rejecting a repeated signer index.
@@ -100,6 +106,8 @@ impl SignatureSet {
     ///
     /// Returns [`ThresholdSignatureError::DuplicateSignerIndex`] if an index appears twice.
     /// Without the check one signer could be counted several times towards the threshold.
+    /// Returns [`ThresholdSignatureError::TooManySigners`] for more signatures than there
+    /// are addressable signers, which the duplicate check would catch anyway.
     pub fn new(signatures: Vec<IndexedSignature>) -> Result<Self, ThresholdSignatureError> {
         let mut seen = HashSet::new();
         for sig in &signatures {
@@ -108,13 +116,21 @@ impl SignatureSet {
             }
         }
 
+        let count = signatures.len();
+        let signatures = SignatureList::new(signatures).map_err(|_| {
+            ThresholdSignatureError::TooManySigners {
+                count,
+                max: MAX_SIGNERS,
+            }
+        })?;
+
         Ok(Self { signatures })
     }
 
     /// Creates an empty signature set.
     pub fn empty() -> Self {
         Self {
-            signatures: Vec::new(),
+            signatures: SignatureList::empty(),
         }
     }
 
@@ -140,7 +156,7 @@ impl SignatureSet {
 
     /// Consumes the set and returns the signatures.
     pub fn into_inner(self) -> Vec<IndexedSignature> {
-        self.signatures
+        self.signatures.into()
     }
 }
 
@@ -170,14 +186,6 @@ mod tests {
             SignatureSet::new(vec![make_sig(1), make_sig(1)]),
             Err(ThresholdSignatureError::DuplicateSignerIndex(1))
         );
-    }
-
-    #[test]
-    fn borsh_roundtrips() {
-        let set = SignatureSet::new(vec![make_sig(0), make_sig(2), make_sig(5)]).unwrap();
-        let encoded = borsh::to_vec(&set).unwrap();
-
-        assert_eq!(borsh::from_slice::<SignatureSet>(&encoded).unwrap(), set);
     }
 
     #[test]
@@ -262,6 +270,38 @@ mod tests {
             SignatureSet::new(decoded.into_inner()),
             Err(ThresholdSignatureError::DuplicateSignerIndex(1))
         );
+    }
+
+    /// Encodes the set container by hand, so more signatures than [`MAX_SIGNERS`] can be
+    /// offered to the decoder. `new` refuses to build such a set, so there is no encoding
+    /// path to it.
+    fn encode_signature_set_bytes(signatures: &[IndexedSignature]) -> Vec<u8> {
+        let mut bytes = 4u32.to_le_bytes().to_vec(); // offset to signatures
+        for sig in signatures {
+            bytes.extend_from_slice(&sig.as_ssz_bytes());
+        }
+        bytes
+    }
+
+    #[test]
+    fn signature_set_ssz_accepts_one_signature_per_addressable_signer() {
+        let full: Vec<_> = (0..MAX_SIGNERS).map(|i| make_sig(i as u8)).collect();
+        let set = SignatureSet::new(full).expect("one signature per signer fits");
+
+        let decoded =
+            SignatureSet::from_ssz_bytes(&set.as_ssz_bytes()).expect("a full set round-trips");
+
+        assert_eq!(decoded, set);
+        assert_eq!(decoded.len(), MAX_SIGNERS);
+    }
+
+    /// A `u8` index cannot name more signers than this, so a longer list is refused where the
+    /// bytes are read rather than left for the duplicate check to catch.
+    #[test]
+    fn signature_set_ssz_rejects_more_signatures_than_signers() {
+        let oversized: Vec<_> = (0..=MAX_SIGNERS).map(|i| make_sig(i as u8)).collect();
+
+        assert!(SignatureSet::from_ssz_bytes(&encode_signature_set_bytes(&oversized)).is_err());
     }
 
     #[test]

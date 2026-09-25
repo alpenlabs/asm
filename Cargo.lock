@@ -7709,6 +7709,7 @@ dependencies = [
  "secp256k1 0.29.1",
  "ssz",
  "ssz_derive",
+ "ssz_types",
  "thiserror 2.0.18",
 ]
 
