@@ -162,44 +162,18 @@ impl AdministrationSubprotoState {
 mod tests {
     use std::num::NonZero;
 
-    use bitcoin::{
-        Network,
-        secp256k1::{PublicKey, Secp256k1, SecretKey},
-    };
-    use rand::rngs::OsRng;
+    use bitcoin::secp256k1::{PublicKey, Secp256k1};
     use strata_asm_admin_threshold_sig::{P2wpkhAddress, ThresholdConfigUpdate};
-    use strata_asm_admin_types::{
-        AdministrationInitConfig, ConfirmationDepths, Role, UncheckedThresholdConfig,
-    };
+    use strata_asm_admin_types::{AdministrationInitConfig, Role};
     use strata_asm_proto_admin_txs::actions::UpdateAction;
     use strata_identifiers::L1Height;
     use strata_test_utils_arb::ArbitraryGenerator;
 
-    use crate::{queued_update::QueuedUpdate, state::AdministrationSubprotoState};
-
-    /// Network the test parameters name signer addresses on.
-    const TEST_NETWORK: Network = Network::Regtest;
-
-    /// Generates `count` fresh signing keys.
-    fn new_keys(count: usize) -> Vec<SecretKey> {
-        (0..count).map(|_| SecretKey::new(&mut OsRng)).collect()
-    }
-
-    /// Builds a parameter-file signer set holding the addresses of `secret_keys`.
-    fn signer_config(secret_keys: &[SecretKey], threshold: u8) -> UncheckedThresholdConfig {
-        let secp = Secp256k1::new();
-        let signers = secret_keys
-            .iter()
-            .map(|sk| {
-                P2wpkhAddress::from_pubkey(&PublicKey::from_secret_key(&secp, sk))
-                    .to_address(TEST_NETWORK)
-                    .into_unchecked()
-            })
-            .collect();
-
-        UncheckedThresholdConfig::try_new(signers, NonZero::new(threshold).expect("non-zero"))
-            .expect("test signer set is valid")
-    }
+    use crate::{
+        queued_update::QueuedUpdate,
+        state::AdministrationSubprotoState,
+        test_utils::{new_keys, signer_config, uniform_confirmation_depths},
+    };
 
     fn create_test_config() -> AdministrationInitConfig {
         AdministrationInitConfig {
@@ -209,22 +183,6 @@ mod tests {
             strata_security_council: signer_config(&new_keys(3), 2),
             confirmation_depths: uniform_confirmation_depths(2016),
             max_seqno_gap: NonZero::new(10).unwrap(),
-        }
-    }
-
-    fn uniform_confirmation_depths(depth: u16) -> ConfirmationDepths {
-        ConfirmationDepths {
-            strata_admin_multisig_update: depth,
-            strata_seq_manager_multisig_update: depth,
-            alpen_admin_multisig_update: depth,
-            strata_security_council_multisig_update: depth,
-            operator_update: depth,
-            sequencer_update: depth,
-            ol_stf_vk_update: depth,
-            asm_stf_vk_update: depth,
-            ee_stf_vk_update: depth,
-            defcon3: depth,
-            safe_harbour_address_update: depth,
         }
     }
 
@@ -338,7 +296,7 @@ mod tests {
         let initial_members: Vec<P2wpkhAddress> = initial_auth.signers().to_vec();
 
         // Generate new members to add
-        let add_sks: Vec<SecretKey> = (0..2).map(|_| SecretKey::new(&mut OsRng)).collect();
+        let add_sks = new_keys(2);
         let add_members: Vec<P2wpkhAddress> = add_sks
             .iter()
             .map(|sk| P2wpkhAddress::from_pubkey(&PublicKey::from_secret_key(&secp, sk)))

@@ -12,6 +12,9 @@ mod queued_update;
 mod state;
 mod subprotocol;
 
+#[cfg(test)]
+mod test_utils;
+
 pub use queued_update::QueuedUpdate;
 pub use state::AdministrationSubprotoState;
 pub use subprotocol::AdministrationSubprotocol;
