@@ -8,7 +8,7 @@ use tracing::{debug, info};
 use zkaleido::ZkVmRemoteHost;
 
 use crate::{
-    ProverContext,
+    AsmProofHost, ProverContext,
     config::OrchestratorConfig,
     constants,
     errors::{ProverError, ProverResult},
@@ -30,7 +30,7 @@ pub struct ProverServiceState<C, H> {
     pub(crate) ctx: C,
 
     /// Remote host for ASM step proofs.
-    pub(crate) asm: H,
+    pub(crate) asm: AsmProofHost<H>,
 
     /// Remote host for Moho recursive proofs.
     pub(crate) moho: H,
@@ -115,7 +115,7 @@ where
     /// commit arrives.
     pub(crate) async fn new(
         ctx: C,
-        asm: H,
+        asm: AsmProofHost<H>,
         moho: H,
         config: OrchestratorConfig,
         input_builder: InputBuilder,

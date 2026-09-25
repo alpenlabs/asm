@@ -6,9 +6,13 @@
 //! exposed as a single [`ProofBackend`] value that the runner builds once at
 //! startup and threads into the proof orchestrator and the input builder.
 
+mod artifact;
 mod native;
+
+pub use artifact::{AsmProgramDescriptor, AsmProofHost};
 mod sp1;
 
+use strata_asm_spec::StrataAsmSpec;
 use strata_predicate::PredicateKey;
 use zkaleido::{ZkVm, ZkVmHost};
 #[cfg(feature = "sp1")]
@@ -37,9 +41,8 @@ pub type ProofHost = zkaleido_native_adapter::NativeHost;
 /// the input builder (predicates).
 #[derive(Debug)]
 pub struct ProofBackend {
-    pub asm_host: ProofHost,
+    pub asm_host: AsmProofHost<ProofHost>,
     pub moho_host: ProofHost,
-    pub asm_predicate: PredicateKey,
     pub moho_predicate: PredicateKey,
 }
 
@@ -57,12 +60,11 @@ impl ProofBackend {
     ///   `sp1` builds) or if either host's verifying key cannot be turned into a [`PredicateKey`].
     pub async fn new(cfg: &BackendConfig) -> ProverResult<Self> {
         let (asm_host, moho_host) = build_proof_hosts(cfg).await?;
-        let asm_predicate = resolve_predicate(&asm_host)?;
+        let asm_host = AsmProofHost::bind::<StrataAsmSpec>(asm_host)?;
         let moho_predicate = resolve_predicate(&moho_host)?;
         Ok(Self {
             asm_host,
             moho_host,
-            asm_predicate,
             moho_predicate,
         })
     }

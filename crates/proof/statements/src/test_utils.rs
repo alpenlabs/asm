@@ -5,7 +5,6 @@
 
 use arbitrary::{Arbitrary, Unstructured};
 use bitcoin::Block;
-use moho_runtime_interface::MohoProgram;
 use moho_types::{ExportState, MohoState};
 use strata_asm_common::{AnchorState, AuxData};
 use strata_asm_params::AsmParams;
@@ -17,7 +16,7 @@ use strata_predicate::PredicateKey;
 use strata_test_utils_arb::ArbitraryGenerator;
 use strata_test_utils_btc::BtcMainnetSegment;
 
-use crate::moho_program::{input::AsmStepInput, program::AsmStfProgram};
+use crate::moho_program::{input::AsmStepInput, program::compute_anchor_state_commitment};
 
 /// Creates a single-step input from a fixed test Bitcoin block.
 pub fn create_asm_step_input() -> AsmStepInput {
@@ -68,7 +67,7 @@ pub fn create_deterministic_genesis_anchor_state(block: &Block) -> AnchorState {
 
 /// Creates the Moho state from an [`AnchorState`] and [`PredicateKey`] with empty export state.
 pub fn create_moho_state(anchor_state: &AnchorState, next_predicate: PredicateKey) -> MohoState {
-    let inner_state = AsmStfProgram::compute_state_commitment(anchor_state)
+    let inner_state = compute_anchor_state_commitment(anchor_state)
         .into_inner()
         .into();
 
