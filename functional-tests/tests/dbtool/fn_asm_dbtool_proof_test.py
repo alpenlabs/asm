@@ -76,7 +76,7 @@ class AsmDbtoolProofTest(flexitest.Test):
         assert asm_list["count"] > 0, f"expected ASM proofs, got {asm_list}"
         asm_range = asm_list["entries"][0]["range"]
         asm_got = run_dbtool_json(proof_db, "proof", "asm", "get", asm_range)
-        assert asm_got["found"] is True and asm_got["borsh_hex"], asm_got
+        assert asm_got["found"] is True and asm_got["proof_hex"], asm_got
         asm_missing = run_dbtool_json(proof_db, "proof", "asm", "get", f"999999:{'00' * 32}")
         assert asm_missing["found"] is False, asm_missing
 
@@ -84,14 +84,14 @@ class AsmDbtoolProofTest(flexitest.Test):
         moho_list = run_dbtool_json(proof_db, "proof", "moho", "list")
         assert moho_list["count"] > 0, moho_list
         latest = run_dbtool_json(proof_db, "proof", "moho", "latest")
-        assert latest["found"] is True and latest["borsh_hex"], latest
+        assert latest["found"] is True and latest["proof_hex"], latest
 
         # The printed `commitment` field must feed straight back into `get`.
         moho_block = moho_list["entries"][0]
         commitment = moho_block["commitment"]
         assert commitment == f"{moho_block['height']}:{moho_block['blkid']}", moho_block
         moho_got = run_dbtool_json(proof_db, "proof", "moho", "get", commitment)
-        assert moho_got["found"] is True and moho_got["borsh_hex"], moho_got
+        assert moho_got["found"] is True and moho_got["proof_hex"], moho_got
         moho_missing = run_dbtool_json(proof_db, "proof", "moho", "get", f"999999:{'00' * 32}")
         assert moho_missing["found"] is False, moho_missing
 

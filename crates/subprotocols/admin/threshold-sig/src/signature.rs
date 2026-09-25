@@ -2,7 +2,6 @@
 
 use std::collections::HashSet;
 
-use borsh::{BorshDeserialize, BorshSerialize};
 use ssz_derive::{Decode, Encode};
 use ssz_types::VariableList;
 
@@ -33,7 +32,7 @@ const SIGNATURE_LEN: usize = 65;
 /// silently matching another signer.
 ///
 /// [`ThresholdConfig::signers`]: crate::ThresholdConfig::signers
-#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, Encode, Decode)]
+#[derive(Debug, Clone, PartialEq, Eq, Encode, Decode)]
 pub struct IndexedSignature {
     /// Index of the signer in the [`ThresholdConfig`](crate::ThresholdConfig) signer list.
     index: u8,

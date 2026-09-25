@@ -851,7 +851,6 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "asm-storage",
- "borsh",
  "clap",
  "hex",
  "moho-types",
@@ -871,7 +870,6 @@ name = "asm-storage"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "borsh",
  "sled",
  "ssz",
  "strata-asm-common",
@@ -1920,6 +1918,33 @@ dependencies = [
  "num-traits",
  "serde",
  "windows-link",
+]
+
+[[package]]
+name = "ciborium"
+version = "0.2.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "42e69ffd6f0917f5c029256a24d0161db17cea3997d185db0d35926308770f0e"
+dependencies = [
+ "ciborium-io",
+ "ciborium-ll",
+ "serde",
+]
+
+[[package]]
+name = "ciborium-io"
+version = "0.2.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "05afea1e0a06c9be33d539b876f1ce3692f4afea2cb41f740e7743225ed1c757"
+
+[[package]]
+name = "ciborium-ll"
+version = "0.2.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "57663b653d948a338bfb3eeba9bb2fd5fcfaecb9e199e87e1eda4d9e8b240fd9"
+dependencies = [
+ "ciborium-io",
+ "half",
 ]
 
 [[package]]
@@ -3226,6 +3251,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "half"
+version = "2.7.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6ea2d84b969582b4b1864a92dc5d27cd2b77b622a8d79306834f1be5ba20d84b"
+dependencies = [
+ "cfg-if 1.0.4",
+ "crunchy",
+ "zerocopy",
+]
+
+[[package]]
 name = "hashbrown"
 version = "0.12.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3694,7 +3730,6 @@ dependencies = [
  "bitcoin",
  "bitcoin-bosd",
  "bitcoind-async-client",
- "borsh",
  "corepc-node",
  "moho-runtime-impl",
  "moho-runtime-interface",
@@ -7703,7 +7738,6 @@ version = "0.1.0"
 dependencies = [
  "arbitrary",
  "bitcoin",
- "borsh",
  "hex",
  "proptest",
  "secp256k1 0.29.1",
@@ -7735,7 +7769,6 @@ dependencies = [
  "bitcoin",
  "bitcoin-bosd",
  "bitvec",
- "borsh",
  "hex",
  "proptest",
  "serde",
@@ -7755,7 +7788,6 @@ name = "strata-asm-checkpoint-types"
 version = "0.1.0"
 dependencies = [
  "arbitrary",
- "borsh",
  "proptest",
  "serde",
  "ssz",
@@ -7778,7 +7810,6 @@ name = "strata-asm-common"
 version = "0.1.0"
 dependencies = [
  "bitcoin",
- "borsh",
  "ssz",
  "ssz_derive",
  "ssz_types",
@@ -7815,7 +7846,6 @@ name = "strata-asm-manifest-types"
 version = "0.1.0"
 dependencies = [
  "arbitrary",
- "borsh",
  "proptest",
  "serde",
  "ssz",
@@ -8122,8 +8152,9 @@ dependencies = [
 name = "strata-asm-prover-storage"
 version = "0.1.0"
 dependencies = [
- "borsh",
+ "ciborium",
  "proptest",
+ "serde",
  "sled",
  "strata-asm-prover-types",
  "strata-identifiers",
@@ -8136,7 +8167,6 @@ dependencies = [
 name = "strata-asm-prover-types"
 version = "0.1.0"
 dependencies = [
- "borsh",
  "serde",
  "strata-identifiers",
  "zkaleido",
@@ -8253,7 +8283,6 @@ name = "strata-asm-sp1-guest-builder"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "borsh",
  "serde_json",
  "sp1-build",
  "sp1-sdk",
@@ -8363,7 +8392,6 @@ version = "0.1.0"
 dependencies = [
  "arbitrary",
  "bitcoin",
- "borsh",
  "rand 0.8.6",
  "serde",
  "sha2 0.10.9",
@@ -8680,7 +8708,6 @@ dependencies = [
 name = "strata-test-utils-checkpoint"
 version = "0.3.0-alpha.1"
 dependencies = [
- "borsh",
  "k256",
  "rand 0.8.6",
  "ssz",

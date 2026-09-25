@@ -7,7 +7,8 @@ edition = "2024"
 strata-asm-prover-types.workspace = true
 strata-identifiers.workspace = true
 
-borsh.workspace = true
+ciborium.workspace = true
+serde.workspace = true
 sled.workspace = true
 zkaleido.workspace = true
 
