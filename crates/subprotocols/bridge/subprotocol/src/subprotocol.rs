@@ -5,8 +5,8 @@
 
 use strata_asm_bridge_types::BridgeInitConfig;
 use strata_asm_common::{
-    AsmLogEntry, AuxRequestCollector, HeaderVerificationState, MsgRelayer, Subprotocol,
-    SubprotocolId, TxInputRef, VerifiedAuxData,
+    AsmLogEntry, AuxRequestCollector, HeaderVerificationState, MsgRelayer, SectionStateVersion,
+    Subprotocol, SubprotocolId, TxInputRef, VerifiedAuxData,
     logging::{debug, error, info},
 };
 use strata_asm_logs::ExportExtraDataUpdate;
@@ -30,6 +30,7 @@ pub struct BridgeSubprotoV1;
 
 impl Subprotocol for BridgeSubprotoV1 {
     const ID: SubprotocolId = BRIDGE_SUBPROTOCOL_ID;
+    const STATE_VERSION: SectionStateVersion = 0;
 
     type State = BridgeStateV1;
 

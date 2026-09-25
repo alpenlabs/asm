@@ -31,6 +31,9 @@ pub fn compute_asm_transition<S: AsmSpec>(
     aux_data: &AuxData,
     coinbase_inclusion_proof: Option<&TxidInclusionProof>,
 ) -> AsmResult<AsmStfOutput> {
+    // 0. Prepare compatible working state before loading subprotocols, preserving the parent.
+    let pre_state = spec.prepare(pre_state);
+
     // 1. Validate that the block body merkle is consistent with the header.
     // Returns the witness txids root (segwit) or txids root (legacy) for use below.
     let wtxids_root = check_block_integrity(block, coinbase_inclusion_proof)?;
@@ -56,7 +59,7 @@ pub fn compute_asm_transition<S: AsmSpec>(
     let mut manager = SubprotoManager::new();
 
     // 4. LOAD: Initialize each subprotocol in the subproto manager.
-    let mut loader = LoaderStage::new(&mut manager, pre_state);
+    let mut loader = LoaderStage::new(&mut manager, &pre_state);
     spec.call_subprotocols(&mut loader);
 
     // 5. PROCESS: Feed each subprotocol its filtered transactions for execution.
@@ -97,6 +100,7 @@ pub fn compute_asm_transition<S: AsmSpec>(
         history_accumulator,
     };
     let state = AnchorState {
+        spec_id: S::ID,
         magic: pre_state.magic,
         chain_view,
         sections: VariableList::new(sections).map_err(AsmError::TooManySections)?,
