@@ -19,6 +19,9 @@
 //! - [`WithdrawalIntent`] — a user's request to withdraw an amount to a destination, optionally via
 //!   a preferred operator.
 //! - [`WithdrawalOutput`] — the destination and amount an assignment must pay out.
+//!
+//! # Operator Claims
+//!
 //! - [`OperatorClaimUnlock`] — an assigned operator's claim to unlock a deposit UTXO after a
 //!   fulfilled withdrawal.
 //!
@@ -26,14 +29,16 @@
 //!
 //! - [`BridgeInitConfig`] — genesis configuration for the bridge subprotocol.
 
+mod claim;
 mod config;
 mod operator;
 mod safe_harbor;
 mod withdrawal;
 
+pub use claim::OperatorClaimUnlock;
 pub use config::BridgeInitConfig;
 pub use operator::{
     OperatorBitmap, OperatorBitmapError, OperatorIdx, OperatorSelection, filter_eligible_operators,
 };
 pub use safe_harbor::{SafeHarbor, SafeHarborAddress};
-pub use withdrawal::{OperatorClaimUnlock, WithdrawalIntent, WithdrawalOutput};
+pub use withdrawal::{WithdrawalIntent, WithdrawalOutput};
