@@ -89,6 +89,15 @@ impl TestAsmWorkerContext {
         }
     }
 
+    /// Deletes every stored anchor state below `height`, as
+    /// `dbtool asm state prune --before` does.
+    pub fn prune_anchor_states_before(&self, height: u32) {
+        self.state
+            .state_db
+            .prune_before(height)
+            .expect("prune anchor states");
+    }
+
     /// Number of leaves in the manifest MMR (sentinels + real manifest hashes).
     pub fn mmr_leaf_count(&self) -> u64 {
         self.state.mmr_db.leaf_count().expect("read mmr leaf count")
@@ -216,6 +225,14 @@ impl AnchorStateStore for TestAsmWorkerContext {
 }
 
 impl ManifestMmrStore for TestAsmWorkerContext {
+    fn get_manifest(&self, block: &L1BlockCommitment) -> WorkerResult<AsmManifest> {
+        self.state
+            .manifest_db
+            .get(block)
+            .map_err(WorkerError::DbError)?
+            .ok_or(WorkerError::MissingManifest(*block))
+    }
+
     fn put_manifest(&self, manifest: AsmManifest) -> WorkerResult<()> {
         self.state
             .manifest_db
@@ -330,12 +347,13 @@ pub(crate) mod fixtures {
     use strata_btc_verification::L1Anchor;
     use strata_identifiers::L1BlockCommitment;
     use strata_l1_txfmt::MagicBytes;
+    use strata_predicate::PredicateKey;
     use strata_test_utils_btcio::{
         get_bitcoind_and_client, get_bitcoind_and_client_with_txindex, mine_blocks,
     };
 
     use super::{TestAsmWorkerContext, get_l1_anchor};
-    use crate::{AsmWorkerServiceState, Subscribers};
+    use crate::{AsmWorkerServiceState, ExecutionRegistry, Subscribers, WorkerResult};
 
     /// Minimal [`AsmSpec::GenesisParams`] for the worker's own tests: just the L1 anchor
     /// the genesis state pins to, plus a magic. The production `AsmParams` also
@@ -383,13 +401,29 @@ pub(crate) mod fixtures {
         }
     }
 
+    pub(crate) fn new_state(
+        context: TestAsmWorkerContext,
+        params: TestAsmParams,
+    ) -> WorkerResult<AsmWorkerServiceState<TestAsmWorkerContext>> {
+        let predicate = PredicateKey::always_accept();
+        let mut registry = ExecutionRegistry::default();
+        registry.register(predicate.clone(), TestAsmSpec)?;
+        AsmWorkerServiceState::new(
+            context,
+            TestAsmSpec.construct_genesis_state(&params),
+            predicate,
+            registry,
+            Subscribers::default(),
+        )
+    }
+
     /// A running regtest node, its client, and a worker state whose genesis
     /// anchor sits at the chain tip.
     pub(crate) struct StateFixture {
         /// Kept alive for the test's duration; dropping it stops `bitcoind`.
         pub node: Node,
         pub client: Arc<Client>,
-        pub state: AsmWorkerServiceState<TestAsmWorkerContext, TestAsmSpec>,
+        pub state: AsmWorkerServiceState<TestAsmWorkerContext>,
     }
 
     /// Builds a worker state with genesis at `genesis_height`: mine that many
@@ -405,9 +439,7 @@ pub(crate) mod fixtures {
 
         let params = genesis_params(&client, genesis_height).await;
         let context = TestAsmWorkerContext::new((*client).clone());
-        let state =
-            AsmWorkerServiceState::new(context, TestAsmSpec, params, Subscribers::default())
-                .expect("create service state");
+        let state = new_state(context, params).expect("create service state");
 
         StateFixture {
             node,

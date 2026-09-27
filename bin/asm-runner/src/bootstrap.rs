@@ -1,11 +1,15 @@
 use std::sync::Arc;
 
-use anyhow::Result;
+use anyhow::{Result, ensure};
 use bitcoind_async_client::{Auth, Client};
+use strata_asm_common::AsmSpec;
 use strata_asm_moho_worker::MohoWorkerBuilder;
 use strata_asm_params::AsmParams;
 use strata_asm_prover_worker::{InputBuilder, ProofBackend, ProverWorkerBuilder};
-use strata_asm_spec::StrataAsmSpec;
+use strata_asm_spec::{
+    StrataAsmSpec,
+    host::{CompiledSpec, build_execution_registry},
+};
 use strata_asm_worker::AsmWorkerBuilder;
 use strata_tasks::TaskExecutor;
 use tokio::{runtime::Handle, task};
@@ -27,6 +31,17 @@ pub(crate) async fn bootstrap(
     params: AsmParams,
     executor: TaskExecutor,
 ) -> Result<()> {
+    let registry = build_execution_registry(
+        config
+            .execution
+            .targets
+            .iter()
+            .map(|entry| (entry.predicate.clone(), entry.spec_id)),
+    )?;
+    let genesis_predicate = config.execution.genesis_predicate.clone();
+    let genesis_spec = CompiledSpec::resolve(registry.resolve(&genesis_predicate)?.spec_id())?;
+    let genesis_state = genesis_spec.construct_genesis_state(&params);
+
     // 1. Create storage. The ASM and Moho stores live in two separate sled DBs; the proof DB is
     //    opened with the orchestrator that owns it (step 3).
     let AsmStorage {
@@ -47,11 +62,15 @@ pub(crate) async fn bootstrap(
     ));
 
     // 3. If the orchestrator is configured, open proof storage and build the proof backend up front
-    //    so the Moho worker and orchestrator can receive the asm predicate.
+    //    so a misconfigured artifact fails before any worker starts.
     let runtime_handle = Handle::current();
     let orch_prep = if let Some(orch_config) = config.orchestrator {
         let proof_db = create_proof_storage(&orch_config.proof_db_path)?;
-        let backend = ProofBackend::new(&orch_config.backend).await?;
+        ensure!(
+            registry.resolve(&orch_config.asm_predicate)?.spec_id() == StrataAsmSpec::ID,
+            "proof artifact and native execution spec disagree"
+        );
+        let backend = ProofBackend::new(&orch_config.backend, &orch_config.asm_predicate).await?;
         Some((orch_config, proof_db, backend))
     } else {
         None
@@ -81,8 +100,8 @@ pub(crate) async fn bootstrap(
     let asm_worker = task::block_in_place(|| {
         AsmWorkerBuilder::new()
             .with_context(worker_context)
-            .with_asm_spec(StrataAsmSpec)
-            .with_params(params.clone())
+            .with_genesis(genesis_state, genesis_predicate.clone())
+            .with_registry(registry)
             .launch(&executor)
     })?;
 
@@ -95,7 +114,6 @@ pub(crate) async fn bootstrap(
             moho_host,
             moho_predicate,
         } = backend;
-        let asm_predicate = asm_host.descriptor().predicate().clone();
 
         // Spin the Moho worker off onto its own service task, driven by the ASM
         // worker's per-block commit stream. It derives each block's MohoState
@@ -117,7 +135,7 @@ pub(crate) async fn bootstrap(
             .with_context(moho_context)
             .with_subscription(asm_worker.subscribe_blocks())
             .with_genesis_block(params.anchor.block)
-            .with_asm_predicate(asm_predicate.clone())
+            .with_asm_predicate(genesis_predicate)
             .launch(&executor)
             .await?;
 
@@ -134,7 +152,7 @@ pub(crate) async fn bootstrap(
             aux_db.clone(),
             bitcoin_client.clone(),
         );
-        let input_builder = InputBuilder::new(params.anchor.block, asm_predicate, moho_predicate);
+        let input_builder = InputBuilder::new(params.anchor.block, moho_predicate);
 
         // Drive the prover from the *Moho* worker's commit stream, not the ASM
         // worker's: the Moho worker emits a block only after it has persisted

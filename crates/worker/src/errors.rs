@@ -1,6 +1,8 @@
 use bitcoin::Network;
+use strata_asm_common::SpecId;
 use strata_btc_types::BitcoinTxid;
 use strata_identifiers::{L1BlockCommitment, L1BlockId, L1Height};
+use strata_predicate::PredicateKey;
 use strata_service::ServiceError;
 use thiserror::Error;
 
@@ -46,6 +48,39 @@ pub enum AnchorMismatch {
 
 #[derive(Debug, Error)]
 pub enum WorkerError {
+    /// No native implementation is registered for the chain-authorized program.
+    #[error("unsupported execution predicate: {0:?}")]
+    UnsupportedExecutionPredicate(PredicateKey),
+    /// A predicate cannot name two registry entries.
+    #[error("duplicate execution predicate")]
+    DuplicateExecutionPredicate,
+    /// Recovery requires one immutable predicate per spec ID.
+    #[error("duplicate execution spec: {0}")]
+    DuplicateExecutionSpec(SpecId),
+    /// No predicate is registered for a persisted state's producing spec.
+    #[error("unsupported execution spec: {0}")]
+    UnsupportedExecutionSpec(SpecId),
+    /// Recovery must use the manifest belonging to the selected anchor.
+    #[error("manifest {manifest} does not match recovery anchor {anchor}")]
+    RecoveryManifestMismatch {
+        anchor: L1BlockCommitment,
+        manifest: L1BlockCommitment,
+    },
+    /// The selected genesis implementation and supplied state disagree.
+    #[error("genesis spec does not match the configured genesis predicate")]
+    GenesisSpecMismatch,
+    /// Configured genesis must not reinterpret an existing chain's state.
+    #[error("configured genesis anchor differs from persisted genesis")]
+    GenesisStateMismatch,
+
+    /// Upgrade recovery cannot proceed without a committed block's manifest.
+    #[error("missing committed manifest for {0}")]
+    MissingManifest(L1BlockCommitment),
+
+    /// The recovery anchor is at or below genesis without matching it.
+    #[error("invalid recovery anchor: {0}")]
+    InvalidRecoveryAnchor(L1BlockCommitment),
+
     #[error("ASM error: {0}")]
     AsmError(#[from] strata_asm_common::AsmError),
 

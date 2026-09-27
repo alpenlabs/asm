@@ -8240,6 +8240,7 @@ dependencies = [
  "strata-identifiers",
  "strata-logging",
  "strata-merkle",
+ "strata-predicate",
  "strata-retry",
  "strata-tasks",
  "tokio",
@@ -8271,6 +8272,9 @@ dependencies = [
  "strata-asm-proto-admin",
  "strata-asm-proto-bridge",
  "strata-asm-proto-checkpoint",
+ "strata-asm-worker",
+ "strata-predicate",
+ "thiserror 2.0.18",
 ]
 
 [[package]]
@@ -8319,6 +8323,7 @@ dependencies = [
  "serde",
  "sled",
  "strata-asm-common",
+ "strata-asm-logs",
  "strata-asm-manifest-types",
  "strata-asm-stf",
  "strata-btc-types",
@@ -8326,8 +8331,10 @@ dependencies = [
  "strata-identifiers",
  "strata-l1-txfmt",
  "strata-merkle",
+ "strata-predicate",
  "strata-service",
  "strata-tasks",
+ "strata-test-utils-btc",
  "strata-test-utils-btcio",
  "tempfile",
  "thiserror 2.0.18",

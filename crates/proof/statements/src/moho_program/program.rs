@@ -10,7 +10,7 @@ use std::marker::PhantomData;
 use moho_runtime_interface::MohoProgram;
 use moho_types::{ExportContainer, ExportState, InnerStateCommitment, StateReference};
 use strata_asm_common::{AnchorState, AsmLogEntry, AsmSpec};
-use strata_asm_logs::{AsmStfUpdate, ExportExtraDataUpdate, NewExportEntry};
+use strata_asm_logs::{ExportExtraDataUpdate, NewExportEntry};
 use strata_asm_stf::{compute_asm_transition, AsmStfOutput};
 use strata_predicate::PredicateKey;
 use tree_hash::{Sha256Hasher, TreeHash};
@@ -22,18 +22,7 @@ pub fn compute_anchor_state_commitment(state: &AnchorState) -> InnerStateCommitm
     InnerStateCommitment::new(state.tree_hash_root::<Sha256Hasher>().0)
 }
 
-/// Extracts the next [`PredicateKey`] advertised by an STF step, if any.
-///
-/// Scans `logs` for an [`AsmStfUpdate`] entry and returns the new predicate.
-/// When no update is emitted the caller should carry the previous predicate
-/// forward.
-pub fn extract_next_predicate_from_logs(logs: &[AsmLogEntry]) -> Option<PredicateKey> {
-    logs.iter().find_map(|log| {
-        log.try_into_log::<AsmStfUpdate>()
-            .ok()
-            .map(|update| update.new_predicate().clone())
-    })
-}
+pub use strata_asm_logs::extract_next_predicate_from_logs;
 
 /// Applies each export-related log in `logs` to `prev`, returning the updated
 /// export state.

@@ -141,6 +141,13 @@ impl AnchorStateStore for AsmWorkerContext {
 }
 
 impl ManifestMmrStore for AsmWorkerContext {
+    fn get_manifest(&self, block: &L1BlockCommitment) -> WorkerResult<AsmManifest> {
+        self.manifest_db
+            .get(block)
+            .map_err(WorkerError::DbError)?
+            .ok_or(WorkerError::MissingManifest(*block))
+    }
+
     fn put_manifest(&self, manifest: AsmManifest) -> WorkerResult<()> {
         self.manifest_db
             .put(&manifest)

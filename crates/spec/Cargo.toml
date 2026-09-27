@@ -6,9 +6,17 @@ edition = "2024"
 [lints]
 workspace = true
 
+[features]
+default = []
+# Shared native assembly for applications embedding the worker; not needed by guests.
+host = ["dep:strata-asm-worker", "dep:strata-predicate", "dep:thiserror"]
+
 [dependencies]
 strata-asm-common.workspace = true
 strata-asm-params.workspace = true
 strata-asm-proto-admin.workspace = true
 strata-asm-proto-bridge.workspace = true
 strata-asm-proto-checkpoint.workspace = true
+strata-asm-worker = { workspace = true, optional = true }
+strata-predicate = { workspace = true, optional = true }
+thiserror = { workspace = true, optional = true }
