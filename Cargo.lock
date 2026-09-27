@@ -7743,7 +7743,6 @@ dependencies = [
  "ssz",
  "ssz_derive",
  "strata-btc-types",
- "strata-codec",
  "strata-crypto",
  "strata-identifiers",
  "strata-test-utils-arb",

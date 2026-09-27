@@ -3,8 +3,8 @@
 //! Once an assignment is fulfilled, [`OperatorClaimUnlock`] authorizes the assigned operator to
 //! unlock the corresponding deposit UTXO through the Bridge proof system.
 
+use ssz::Encode as _;
 use ssz_derive::{Decode, Encode};
-use strata_codec::{Codec, encode_to_vec};
 use strata_crypto::hash;
 use strata_identifiers::Buf32;
 
@@ -27,20 +27,22 @@ use strata_identifiers::Buf32;
 /// - Only the [hash](Self::compute_hash) of this structure leaves the ASM, emitted as an ASM log
 ///   via `NewExportEntry` and folded into the bridge export container's MMR. The structure itself
 ///   is never stored.
-/// - This data is stored in the MohoState and emitted as an ASM log via `NewExportEntry`.
 /// - The Bridge proof system consumes these entries to verify operators have correctly fulfilled
-///   withdrawal obligations before allowing them to unlock deposit UTXOs.
+///   withdrawal obligations before allowing them to unlock deposit UTXOs. It reconstructs the claim
+///   and recomputes the leaf to check its inclusion proof, so it has to agree with this type on
+///   both the SSZ layout and the hash.
 ///
-/// # Encodings
+/// # Leaf hash
 ///
-/// The two encodings this type carries are not interchangeable, and they disagree on the byte
-/// layout because they order `deposit_idx` differently:
+/// [`compute_hash`](Self::compute_hash) is sha256 over the SSZ encoding, and the MMR appends its
+/// output verbatim. Both the layout and the hash are therefore consensus-visible: changing either
+/// one moves every leaf, and with it the export container root at every height a fulfillment
+/// landed.
 ///
-/// - [`Codec`] is what [`compute_hash`](Self::compute_hash) hashes, so it defines the export leaf
-///   the MMR commits to. Changing that layout invalidates every leaf already committed.
-/// - SSZ is how the value travels to the bridge proof, which takes it as an input field rather than
-///   as a hash. Nothing commits to it.
-#[derive(Debug, Clone, PartialEq, Eq, Codec, Encode, Decode)]
+/// A flat hash rather than the SSZ tree hash root, because merkleization only earns its cost when
+/// a consumer proves one field of a container without the rest, and with two fields that both
+/// reach the proof in full there is nothing to prove selectively.
+#[derive(Debug, Clone, PartialEq, Eq, Encode, Decode)]
 pub struct OperatorClaimUnlock {
     /// The index of the deposit that was fulfilled.
     pub deposit_idx: u32,
@@ -59,15 +61,16 @@ impl OperatorClaimUnlock {
         }
     }
 
+    /// Computes the export leaf committed for this claim: sha256 over the SSZ encoding.
     pub fn compute_hash(&self) -> [u8; 32] {
-        let buf = encode_to_vec(self).expect("failed to encode OperatorClaimUnlock");
-        hash::raw(&buf).0
+        hash::raw(&self.as_ssz_bytes()).0
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use ssz::{Decode as _, Encode as _};
+    use proptest::{prop_assert_eq, proptest};
+    use ssz::Decode as _;
 
     use super::*;
 
@@ -77,9 +80,7 @@ mod tests {
 
         let encoded = claim.as_ssz_bytes();
 
-        // Both fields are fixed-size, so the container is 4 + 32 bytes with no offsets. The index
-        // is little-endian here and big-endian under `Codec`, which is why the leaf hash must keep
-        // using the codec form.
+        // Both fields are fixed-size, so the container is 4 + 32 bytes with no offsets.
         let mut expected = vec![0x01, 0x00, 0x00, 0x00];
         expected.extend_from_slice(&[2u8; 32]);
         assert_eq!(encoded, expected);
@@ -90,32 +91,33 @@ mod tests {
         );
     }
 
+    proptest! {
+        /// The pinned vector above fixes one point of the layout; this covers the rest of the
+        /// input space, where a field ordering or width mistake would otherwise only show up
+        /// once a real claim hit it.
+        #[test]
+        fn operator_claim_unlock_ssz_roundtrips_for_any_value(
+            deposit_idx: u32,
+            operator_pubkey: [u8; 32],
+        ) {
+            let claim = OperatorClaimUnlock::new(deposit_idx, Buf32::from(operator_pubkey));
+
+            let encoded = claim.as_ssz_bytes();
+
+            prop_assert_eq!(encoded.len(), 36);
+            prop_assert_eq!(OperatorClaimUnlock::from_ssz_bytes(&encoded).unwrap(), claim);
+        }
+    }
+
     #[test]
-    fn operator_claim_unlock_encoding_is_stable() {
+    fn operator_claim_unlock_leaf_hash_is_pinned() {
         let claim = OperatorClaimUnlock::new(1, Buf32::from([2u8; 32]));
-
-        let mut expected = vec![0x00, 0x00, 0x00, 0x01];
-        expected.extend_from_slice(&[2u8; 32]);
-
-        assert_eq!(encode_to_vec(&claim).unwrap(), expected);
 
         // Pinned literal rather than a recomputed `hash::raw`, so that a change to the hash
         // function itself is caught here instead of silently invalidating committed leaves.
         assert_eq!(
             hex::encode(claim.compute_hash()),
-            "3620517d4d610f1d90942db87e2780cfed7c2fb8322300d23b05f546ec8dec74"
+            "79525990a6761c9f3e4de9cd1a20c81183ecca4f3e1916ffe63c5fd60129ab82"
         );
-    }
-
-    proptest::proptest! {
-        #[test]
-        fn operator_claim_unlock_compute_hash_is_infallible(
-            deposit_idx: u32,
-            operator_pubkey: [u8; 32],
-        ) {
-            let claim = OperatorClaimUnlock::new(deposit_idx, Buf32::from(operator_pubkey));
-            // Should never panic for any input.
-            let _hash = claim.compute_hash();
-        }
     }
 }
