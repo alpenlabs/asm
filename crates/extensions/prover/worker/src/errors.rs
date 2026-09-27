@@ -183,4 +183,16 @@ impl ProverError {
             source: Box::new(source),
         }
     }
+
+    /// Whether this error means the node lacks the program the chain authorizes.
+    ///
+    /// Retrying cannot help, so the service stops instead of looping on it.
+    pub(crate) fn is_terminal(&self) -> bool {
+        matches!(
+            self,
+            Self::UnsupportedAsmPredicate { .. }
+                | Self::UnsupportedAsmRange
+                | Self::UnknownArtifact(_)
+        )
+    }
 }

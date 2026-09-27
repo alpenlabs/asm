@@ -20,8 +20,8 @@ use tracing::{debug, error};
 use zkaleido::ZkVmRemoteHost;
 
 use crate::{
-    ProverContext, ProverError, config::ProverMode, errors::ProverResult, follow,
-    message::ProverMessage, reconcile, schedule, state::ProverServiceState,
+    ProverContext, config::ProverMode, errors::ProverResult, follow, message::ProverMessage,
+    reconcile, schedule, state::ProverServiceState,
 };
 
 /// Prover service implementation using the service framework.
@@ -67,11 +67,7 @@ where
             // pre-framework orchestrator loop.
             TickMsg::Tick => {
                 if let Err(e) = tick(state).await {
-                    if matches!(
-                        e,
-                        ProverError::UnsupportedAsmPredicate { .. }
-                            | ProverError::UnsupportedAsmRange
-                    ) {
+                    if e.is_terminal() {
                         return Err(e.into());
                     }
                     error!(?e, "prover tick failed");

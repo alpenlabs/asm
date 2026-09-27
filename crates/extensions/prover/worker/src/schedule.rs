@@ -141,10 +141,7 @@ async fn schedule_with<S: ProofSubmitter>(
                 }
                 deferred.push(proof_id);
             }
-            Err(
-                e
-                @ (ProverError::UnsupportedAsmPredicate { .. } | ProverError::UnsupportedAsmRange),
-            ) => {
+            Err(e) if e.is_terminal() => {
                 queue.enqueue(proof_id);
                 for id in deferred {
                     queue.enqueue(id);
@@ -250,6 +247,7 @@ mod tests {
 
     use strata_asm_prover_types::L1Range;
     use strata_identifiers::{L1BlockCommitment, L1BlockId};
+    use strata_predicate::PredicateKey;
 
     use super::*;
 
@@ -286,6 +284,7 @@ mod tests {
         Outcome(SubmitOutcome),
         Err,
         Unsupported,
+        UnknownArtifact,
     }
 
     /// Scriptable [`ProofSubmitter`] for unit tests.
@@ -326,6 +325,9 @@ mod tests {
                 Some(FakeResult::Unsupported) => {
                     Err(ProverError::UnsupportedAsmPredicate { spec_id: 0 })
                 }
+                Some(FakeResult::UnknownArtifact) => {
+                    Err(ProverError::UnknownArtifact(PredicateKey::never_accept()))
+                }
                 Some(FakeResult::Err) => Err(ProverError::NotFound("scripted error")),
                 None => Ok(submitted()),
             }
@@ -344,6 +346,26 @@ mod tests {
         assert!(matches!(
             schedule_with(&mut queue, &mut submitter, 2).await,
             Err(ProverError::UnsupportedAsmPredicate { .. })
+        ));
+        assert_eq!(submitter.call_log, vec![asm(3)]);
+        assert_eq!(queue.len(), 2);
+    }
+
+    /// A parent that authorizes a program with no configured artifact stops
+    /// the service the same way: proving it later cannot succeed without a
+    /// restart under a config that lists the artifact.
+    #[tokio::test]
+    async fn unknown_artifact_stops_scheduling_without_losing_work() {
+        let mut queue = PendingProofQueue::new();
+        queue.enqueue(asm(3));
+        queue.enqueue(asm(4));
+        let mut submitter = FakeSubmitter::default();
+        submitter
+            .script
+            .insert(asm(3), vec![FakeResult::UnknownArtifact]);
+        assert!(matches!(
+            schedule_with(&mut queue, &mut submitter, 2).await,
+            Err(ProverError::UnknownArtifact(_))
         ));
         assert_eq!(submitter.call_log, vec![asm(3)]);
         assert_eq!(queue.len(), 2);
