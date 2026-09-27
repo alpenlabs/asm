@@ -83,14 +83,14 @@ impl InputBuilder {
         self.genesis
     }
 
-    /// A verifier over the predicate keys and genesis block held here.
+    /// A verifier over the Moho predicate key and genesis block held here.
     ///
-    /// The keys are what a receipt is checked against, and this is the only
-    /// place both are held, so pairing them stays here rather than at each
-    /// call site. Borrows only this builder, which lets the follower hold a
+    /// ASM step receipts are checked against the predicate their parent's Moho
+    /// state authorizes, which the verifier reads per block, so no ASM key is
+    /// held here. Borrows only this builder, which lets the follower hold a
     /// verifier while the fetch loop borrows the queue mutably.
     pub(crate) fn verifier(&self) -> ProofVerifier<'_> {
-        ProofVerifier::new(&self.asm_predicate, &self.moho_predicate, self.genesis)
+        ProofVerifier::new(&self.moho_predicate, self.genesis)
     }
 
     /// Builds the [`RuntimeInput`] for a single-block ASM proof.

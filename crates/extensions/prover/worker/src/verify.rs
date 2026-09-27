@@ -31,6 +31,11 @@
 //! built with no previous proof, anchored at its own parent, has to be caught
 //! here: it is a truthful but far weaker claim than the one we file it under.
 //!
+//! The predicate an ASM step is checked against is part of what is derived
+//! from this node's state, not a key fixed at startup: the parent block's Moho
+//! state names the program authorized to execute the block, and after an
+//! upgrade that differs from the one earlier blocks ran under.
+//!
 //! Moho receipts carry one extra beyond the transition. The predicate key
 //! their recursion verified under is compared on its own, because passing the
 //! outer check says the receipt came from our Moho ELF and not what that run
@@ -40,7 +45,7 @@ use std::fmt;
 
 use moho_recursive_proof::MohoRecursiveOutput;
 use moho_types::{
-    RecursiveMohoAttestation, StateRefAttestation, StateReference, StepMohoAttestation,
+    MohoState, RecursiveMohoAttestation, StateRefAttestation, StateReference, StepMohoAttestation,
 };
 use ssz::Decode;
 use strata_asm_prover_types::ProofId;
@@ -123,26 +128,23 @@ impl fmt::Display for EndpointMismatch {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ExpectedAttestation {
     /// An ASM step proof: from the block's parent into the block.
-    Step(StepMohoAttestation),
+    Step {
+        /// The transition the receipt has to commit.
+        attestation: StepMohoAttestation,
+        /// The ASM predicate the parent's Moho state authorizes for the block.
+        ///
+        /// Not committed by the receipt, so it takes no part in the
+        /// comparison; the receipt has to satisfy it instead.
+        predicate: PredicateKey,
+    },
     /// A Moho recursive proof: from genesis through to the block.
     Recursive(RecursiveMohoAttestation),
-}
-
-impl ExpectedAttestation {
-    /// The `(origin, target)` endpoints both kinds are built out of: where the
-    /// transition starts and where it ends.
-    fn endpoints(&self) -> (&StateRefAttestation, &StateRefAttestation) {
-        match self {
-            Self::Step(step) => (step.from(), step.to()),
-            Self::Recursive(recursive) => (recursive.genesis(), recursive.proven()),
-        }
-    }
 }
 
 impl fmt::Display for ExpectedAttestation {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Step(step) => step.fmt(f),
+            Self::Step { attestation, .. } => attestation.fmt(f),
             Self::Recursive(recursive) => recursive.fmt(f),
         }
     }
@@ -155,22 +157,23 @@ impl fmt::Display for ExpectedAttestation {
 /// over, and it must attest to the transition this node derived for the block
 /// itself.
 ///
-/// Borrows the key pair the worker already holds rather than owning one, so it
-/// is built for the duration of one orchestration step. No proving host is
+/// Borrows the Moho key the worker already holds rather than owning one, so it
+/// is built for the duration of one orchestration step. The ASM key is not
+/// held at all: it is read per block from the parent's Moho state by
+/// [`expected_attestation`](Self::expected_attestation). No proving host is
 /// needed: a predicate key carries everything the check requires, which is why
 /// the guest can run the same one.
 #[derive(Debug)]
 pub struct ProofVerifier<'a> {
-    asm: &'a PredicateKey,
     moho: &'a PredicateKey,
     genesis: L1BlockCommitment,
 }
 
 impl<'a> ProofVerifier<'a> {
-    /// Creates a verifier over the `(asm, moho)` predicate key pair and the
-    /// genesis block the recursive Moho chain is anchored at.
-    pub fn new(asm: &'a PredicateKey, moho: &'a PredicateKey, genesis: L1BlockCommitment) -> Self {
-        Self { asm, moho, genesis }
+    /// Creates a verifier over the Moho predicate key and the genesis block
+    /// the recursive Moho chain is anchored at.
+    pub fn new(moho: &'a PredicateKey, genesis: L1BlockCommitment) -> Self {
+        Self { moho, genesis }
     }
 
     /// Builds the transition a receipt filed under `proof_id` has to attest
@@ -199,10 +202,14 @@ impl<'a> ProofVerifier<'a> {
             ProofId::Asm(range) => {
                 let block = range.end();
                 let parent = parent_commitment(ctx, block).await?;
-                Ok(ExpectedAttestation::Step(StepMohoAttestation::new(
-                    attested(ctx, parent).await?,
-                    attested(ctx, block).await?,
-                )))
+                let parent_state = moho_state(ctx, parent).await?;
+                Ok(ExpectedAttestation::Step {
+                    attestation: StepMohoAttestation::new(
+                        attestation(parent, &parent_state),
+                        attested(ctx, block).await?,
+                    ),
+                    predicate: parent_state.next_predicate().clone(),
+                })
             }
             ProofId::Moho(block) => Ok(ExpectedAttestation::Recursive(
                 RecursiveMohoAttestation::new(
@@ -227,15 +234,25 @@ impl<'a> ProofVerifier<'a> {
         let public_values = receipt.receipt().public_values().as_bytes();
         let proof = receipt.receipt().proof().as_bytes();
 
-        let actual = match expected {
-            ExpectedAttestation::Step(_) => {
-                self.asm
+        match expected {
+            ExpectedAttestation::Step {
+                attestation,
+                predicate,
+            } => {
+                predicate
                     .verify_claim_witness(public_values, proof)
                     .map_err(VerifyError::Receipt)?;
 
-                ExpectedAttestation::Step(decode(public_values, "ASM step attestation")?)
+                let actual: StepMohoAttestation = decode(public_values, "ASM step attestation")?;
+                if &actual == attestation {
+                    return Ok(());
+                }
+                Err(diverged(
+                    (attestation.from(), attestation.to()),
+                    (actual.from(), actual.to()),
+                ))
             }
-            ExpectedAttestation::Recursive(_) => {
+            ExpectedAttestation::Recursive(attestation) => {
                 self.moho
                     .verify_claim_witness(public_values, proof)
                     .map_err(VerifyError::Receipt)?;
@@ -245,14 +262,16 @@ impl<'a> ProofVerifier<'a> {
                     return Err(VerifyError::PredicateMismatch);
                 }
 
-                ExpectedAttestation::Recursive(output.attestation().clone())
+                let actual = output.attestation();
+                if actual == attestation {
+                    return Ok(());
+                }
+                Err(diverged(
+                    (attestation.genesis(), attestation.proven()),
+                    (actual.genesis(), actual.proven()),
+                ))
             }
-        };
-
-        if &actual == expected {
-            return Ok(());
         }
-        Err(diverged(expected, &actual))
     }
 }
 
@@ -262,16 +281,23 @@ async fn attested<C: ProverContext>(
     ctx: &C,
     block: L1BlockCommitment,
 ) -> ProverResult<StateRefAttestation> {
-    let state = ctx
-        .get_moho_state(block)
+    Ok(attestation(block, &moho_state(ctx, block).await?))
+}
+
+/// Pairs `block`'s Moho state reference with the commitment of `state`.
+fn attestation(block: L1BlockCommitment, state: &MohoState) -> StateRefAttestation {
+    StateRefAttestation::new(state_reference(&block), state.compute_commitment())
+}
+
+/// Reads the Moho state this node stored for `block`.
+async fn moho_state<C: ProverContext>(
+    ctx: &C,
+    block: L1BlockCommitment,
+) -> ProverResult<MohoState> {
+    ctx.get_moho_state(block)
         .await
         .map_err(|e| ProverError::storage("failed to fetch moho state", e))?
-        .ok_or(ProverError::NotFound("moho state not found for block"))?;
-
-    Ok(StateRefAttestation::new(
-        state_reference(&block),
-        state.compute_commitment(),
-    ))
+        .ok_or(ProverError::NotFound("moho state not found for block"))
 }
 
 /// Decodes a receipt's public values, naming what was expected of them for the
@@ -280,16 +306,17 @@ fn decode<T: Decode>(public_values: &[u8], what: &'static str) -> Result<T, Veri
     T::from_ssz_bytes(public_values).map_err(|source| VerifyError::Decode { what, source })
 }
 
-/// Reports which endpoint of a mismatched transition diverged.
+/// Reports which endpoint of a mismatched transition diverged, given the
+/// `(origin, target)` endpoints of the expected and the actual transition.
 ///
 /// Correctness rests on the whole-value comparison, not on this: it runs only
 /// once that has already failed, and exists to say which half to look at. At
 /// least one endpoint therefore differs, so agreeing targets leave the origins
 /// as the only candidate.
-fn diverged(expected: &ExpectedAttestation, actual: &ExpectedAttestation) -> VerifyError {
-    let (expected_origin, expected_target) = expected.endpoints();
-    let (actual_origin, actual_target) = actual.endpoints();
-
+fn diverged(
+    (expected_origin, expected_target): (&StateRefAttestation, &StateRefAttestation),
+    (actual_origin, actual_target): (&StateRefAttestation, &StateRefAttestation),
+) -> VerifyError {
     if actual_target != expected_target {
         return VerifyError::WrongTarget(Box::new(EndpointMismatch {
             expected: *expected_target,
@@ -379,9 +406,13 @@ mod tests {
     }
 
     /// What [`ProofVerifier::expected_attestation`] builds for an ASM step
-    /// proof of `TARGET`: out of its parent, into the block.
-    fn expected_step() -> ExpectedAttestation {
-        ExpectedAttestation::Step(StepMohoAttestation::new(ours(PARENT), ours(TARGET)))
+    /// proof of `TARGET`: out of its parent, into the block, under the
+    /// predicate the parent authorizes.
+    fn expected_step(predicate: &PredicateKey) -> ExpectedAttestation {
+        ExpectedAttestation::Step {
+            attestation: StepMohoAttestation::new(ours(PARENT), ours(TARGET)),
+            predicate: predicate.clone(),
+        }
     }
 
     /// What it builds for a Moho recursive proof of `TARGET`: the chain from
@@ -409,13 +440,12 @@ mod tests {
         .as_ssz_bytes()
     }
 
-    /// A verifier over two distinct predicates, so a receipt cannot pass the
-    /// check for the wrong proof kind by accident.
-    fn verifier<'a>(asm: &'a PredicateKey, moho: &'a PredicateKey) -> ProofVerifier<'a> {
-        ProofVerifier::new(asm, moho, block(GENESIS))
+    fn verifier(moho: &PredicateKey) -> ProofVerifier<'_> {
+        ProofVerifier::new(moho, block(GENESIS))
     }
 
-    /// The `(asm, moho)` predicates the worker proves under.
+    /// The `(asm, moho)` predicates the worker proves under. Distinct, so a
+    /// receipt cannot pass the check for the wrong proof kind by accident.
     fn predicates() -> (SigningKey, SigningKey, PredicateKey, PredicateKey) {
         let (asm_key, moho_key) = (key(1), key(2));
         let (asm, moho) = (predicate(&asm_key), predicate(&moho_key));
@@ -428,8 +458,8 @@ mod tests {
 
         let receipt = receipt(&asm_key, asm_public_values(ours(PARENT), ours(TARGET)));
 
-        verifier(&asm, &moho)
-            .verify(&receipt, &expected_step())
+        verifier(&moho)
+            .verify(&receipt, &expected_step(&asm))
             .expect("receipt should verify");
     }
 
@@ -441,7 +471,7 @@ mod tests {
         let receipt = receipt(&asm_key, asm_public_values(ours(TARGET), ours(TARGET + 1)));
 
         assert!(matches!(
-            verifier(&asm, &moho).verify(&receipt, &expected_step()),
+            verifier(&moho).verify(&receipt, &expected_step(&asm)),
             Err(VerifyError::WrongTarget(_))
         ));
     }
@@ -455,21 +485,40 @@ mod tests {
         let receipt = receipt(&key(9), asm_public_values(ours(PARENT), ours(TARGET)));
 
         assert!(matches!(
-            verifier(&asm, &moho).verify(&receipt, &expected_step()),
+            verifier(&moho).verify(&receipt, &expected_step(&asm)),
             Err(VerifyError::Receipt(_))
         ));
+    }
+
+    /// After an upgrade the parent authorizes a new ASM program. A receipt
+    /// from the program it replaced, for the right transition, is still the
+    /// wrong proof, and one from the new program verifies.
+    #[test]
+    fn asm_receipt_is_checked_against_the_parent_authorized_predicate() {
+        let (old_key, _, _, moho) = predicates();
+        let new_key = key(7);
+        let upgraded = expected_step(&predicate(&new_key));
+        let public_values = asm_public_values(ours(PARENT), ours(TARGET));
+
+        assert!(matches!(
+            verifier(&moho).verify(&receipt(&old_key, public_values.clone()), &upgraded),
+            Err(VerifyError::Receipt(_))
+        ));
+        verifier(&moho)
+            .verify(&receipt(&new_key, public_values), &upgraded)
+            .expect("receipt from the authorized program should verify");
     }
 
     /// The expected transition picks the predicate, so an honest receipt of
     /// one kind cannot be passed off as the other.
     #[test]
     fn receipt_of_the_other_kind_is_rejected() {
-        let (asm_key, _, asm, moho) = predicates();
+        let (asm_key, _, _, moho) = predicates();
 
         let receipt = receipt(&asm_key, asm_public_values(ours(PARENT), ours(TARGET)));
 
         assert!(matches!(
-            verifier(&asm, &moho).verify(&receipt, &expected_recursive()),
+            verifier(&moho).verify(&receipt, &expected_recursive()),
             Err(VerifyError::Receipt(_))
         ));
     }
@@ -494,7 +543,7 @@ mod tests {
         let receipt = receipt(&asm_key, forged);
 
         assert!(matches!(
-            verifier(&asm, &moho).verify(&receipt, &expected_step()),
+            verifier(&moho).verify(&receipt, &expected_step(&asm)),
             Err(VerifyError::WrongTarget(_))
         ));
     }
@@ -509,21 +558,21 @@ mod tests {
         let receipt = receipt(&asm_key, asm_public_values(ours(GENESIS), ours(TARGET)));
 
         assert!(matches!(
-            verifier(&asm, &moho).verify(&receipt, &expected_step()),
+            verifier(&moho).verify(&receipt, &expected_step(&asm)),
             Err(VerifyError::WrongOrigin(_))
         ));
     }
 
     #[test]
     fn moho_receipt_for_its_own_chain_verifies() {
-        let (_, moho_key, asm, moho) = predicates();
+        let (_, moho_key, _, moho) = predicates();
 
         let receipt = receipt(
             &moho_key,
             moho_public_values(ours(GENESIS), ours(TARGET), &moho),
         );
 
-        verifier(&asm, &moho)
+        verifier(&moho)
             .verify(&receipt, &expected_recursive())
             .expect("receipt should verify");
     }
@@ -533,7 +582,7 @@ mod tests {
     /// verified, so the committed key needs its own comparison.
     #[test]
     fn moho_receipt_recursed_under_another_predicate_is_rejected() {
-        let (_, moho_key, asm, moho) = predicates();
+        let (_, moho_key, _, moho) = predicates();
 
         let foreign = predicate(&key(9));
         let receipt = receipt(
@@ -542,7 +591,7 @@ mod tests {
         );
 
         assert!(matches!(
-            verifier(&asm, &moho).verify(&receipt, &expected_recursive()),
+            verifier(&moho).verify(&receipt, &expected_recursive()),
             Err(VerifyError::PredicateMismatch)
         ));
     }
@@ -553,7 +602,7 @@ mod tests {
     /// forward untouched.
     #[test]
     fn moho_receipt_anchored_below_genesis_is_rejected() {
-        let (_, moho_key, asm, moho) = predicates();
+        let (_, moho_key, _, moho) = predicates();
 
         let receipt = receipt(
             &moho_key,
@@ -561,7 +610,7 @@ mod tests {
         );
 
         assert!(matches!(
-            verifier(&asm, &moho).verify(&receipt, &expected_recursive()),
+            verifier(&moho).verify(&receipt, &expected_recursive()),
             Err(VerifyError::WrongOrigin(_))
         ));
     }
@@ -571,7 +620,7 @@ mod tests {
     /// be carried by every later recursion for the life of the chain.
     #[test]
     fn moho_receipt_anchored_at_a_forged_genesis_state_is_rejected() {
-        let (_, moho_key, asm, moho) = predicates();
+        let (_, moho_key, _, moho) = predicates();
 
         let forged_anchor = StateRefAttestation::new(
             state_reference(&block(GENESIS)),
@@ -583,7 +632,7 @@ mod tests {
         );
 
         assert!(matches!(
-            verifier(&asm, &moho).verify(&receipt, &expected_recursive()),
+            verifier(&moho).verify(&receipt, &expected_recursive()),
             Err(VerifyError::WrongOrigin(_))
         ));
     }
@@ -596,7 +645,7 @@ mod tests {
         let receipt = receipt(&asm_key, b"not an attestation".to_vec());
 
         assert!(matches!(
-            verifier(&asm, &moho).verify(&receipt, &expected_step()),
+            verifier(&moho).verify(&receipt, &expected_step(&asm)),
             Err(VerifyError::Decode { .. })
         ));
     }
@@ -610,8 +659,8 @@ mod tests {
 
         let receipt = receipt(&asm_key, asm_public_values(ours(8), ours(9)));
 
-        let err = verifier(&asm, &moho)
-            .verify(&receipt, &expected_step())
+        let err = verifier(&moho)
+            .verify(&receipt, &expected_step(&asm))
             .expect_err("unrelated transition should be rejected");
 
         let VerifyError::WrongTarget(mismatch) = err else {
