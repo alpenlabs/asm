@@ -62,7 +62,7 @@ pub(crate) async fn bootstrap(
     ));
 
     // 3. If the orchestrator is configured, open proof storage and build the proof backend up front
-    //    so the Moho worker and orchestrator can receive the asm predicate.
+    //    so a misconfigured artifact fails before any worker starts.
     let runtime_handle = Handle::current();
     let orch_prep = if let Some(orch_config) = config.orchestrator {
         let proof_db = create_proof_storage(&orch_config.proof_db_path)?;

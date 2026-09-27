@@ -186,7 +186,8 @@ where
             .map_err(WorkerError::AsmError)
     }
 
-    /// Restores authority from the selected anchor and its own committed manifest.
+    /// Restores the predicate for the next block to be executed from the selected
+    /// anchor and its own committed manifest.
     pub(crate) fn restore_anchor(
         &mut self,
         anchor: AnchorState,
@@ -354,7 +355,7 @@ mod tests {
         },
     };
 
-    /// `transition` runs the STF for a child of the current anchor.
+    /// Recovery reads only the selected anchor's manifest and needs no Bitcoin RPC.
     #[tokio::test]
     async fn recovery_reads_only_the_selected_manifest_and_skips_genesis() {
         // The context uses real local stores; recovery must not need Bitcoin RPC.
@@ -439,6 +440,7 @@ mod tests {
         ));
     }
 
+    /// `transition` runs the STF for a child of the current anchor.
     #[tokio::test(flavor = "multi_thread")]
     async fn transition_processes_child_of_anchor() {
         let fx = fixtures::setup_state(101).await;

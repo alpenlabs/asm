@@ -86,7 +86,8 @@ impl ExecutionRegistry {
         Ok(())
     }
 
-    /// Recovers child authority from one committed anchor and its matching manifest.
+    /// Recovers the predicate for the next block to be executed from one committed
+    /// anchor and its matching manifest.
     /// An upgrade takes precedence over the producing spec's registered predicate.
     pub(crate) fn recover_predicate(
         &self,
