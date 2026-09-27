@@ -3,6 +3,7 @@
 //! Once an assignment is fulfilled, [`OperatorClaimUnlock`] authorizes the assigned operator to
 //! unlock the corresponding deposit UTXO through the Bridge proof system.
 
+use ssz_derive::{Decode, Encode};
 use strata_codec::{Codec, encode_to_vec};
 use strata_crypto::hash;
 use strata_identifiers::Buf32;
@@ -29,7 +30,17 @@ use strata_identifiers::Buf32;
 /// - This data is stored in the MohoState and emitted as an ASM log via `NewExportEntry`.
 /// - The Bridge proof system consumes these entries to verify operators have correctly fulfilled
 ///   withdrawal obligations before allowing them to unlock deposit UTXOs.
-#[derive(Debug, Clone, PartialEq, Eq, Codec)]
+///
+/// # Encodings
+///
+/// The two encodings this type carries are not interchangeable, and they disagree on the byte
+/// layout because they order `deposit_idx` differently:
+///
+/// - [`Codec`] is what [`compute_hash`](Self::compute_hash) hashes, so it defines the export leaf
+///   the MMR commits to. Changing that layout invalidates every leaf already committed.
+/// - SSZ is how the value travels to the bridge proof, which takes it as an input field rather than
+///   as a hash. Nothing commits to it.
+#[derive(Debug, Clone, PartialEq, Eq, Codec, Encode, Decode)]
 pub struct OperatorClaimUnlock {
     /// The index of the deposit that was fulfilled.
     pub deposit_idx: u32,
@@ -56,7 +67,28 @@ impl OperatorClaimUnlock {
 
 #[cfg(test)]
 mod tests {
+    use ssz::{Decode as _, Encode as _};
+
     use super::*;
+
+    #[test]
+    fn operator_claim_unlock_ssz_roundtrip() {
+        let claim = OperatorClaimUnlock::new(1, Buf32::from([2u8; 32]));
+
+        let encoded = claim.as_ssz_bytes();
+
+        // Both fields are fixed-size, so the container is 4 + 32 bytes with no offsets. The index
+        // is little-endian here and big-endian under `Codec`, which is why the leaf hash must keep
+        // using the codec form.
+        let mut expected = vec![0x01, 0x00, 0x00, 0x00];
+        expected.extend_from_slice(&[2u8; 32]);
+        assert_eq!(encoded, expected);
+
+        assert_eq!(
+            OperatorClaimUnlock::from_ssz_bytes(&encoded).unwrap(),
+            claim
+        );
+    }
 
     #[test]
     fn operator_claim_unlock_encoding_is_stable() {
