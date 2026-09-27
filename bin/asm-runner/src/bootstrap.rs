@@ -6,8 +6,11 @@ use strata_asm_common::AsmSpec;
 use strata_asm_moho_worker::MohoWorkerBuilder;
 use strata_asm_params::AsmParams;
 use strata_asm_prover_worker::{InputBuilder, ProofBackend, ProverWorkerBuilder};
-use strata_asm_spec::StrataAsmSpec;
-use strata_asm_worker::{AsmWorkerBuilder, ExecutionRegistry};
+use strata_asm_spec::{
+    StrataAsmSpec,
+    host::{CompiledSpec, build_execution_registry},
+};
+use strata_asm_worker::AsmWorkerBuilder;
 use strata_tasks::TaskExecutor;
 use tokio::{runtime::Handle, task};
 
@@ -28,18 +31,16 @@ pub(crate) async fn bootstrap(
     params: AsmParams,
     executor: TaskExecutor,
 ) -> Result<()> {
-    let mut registry = ExecutionRegistry::default();
-    for entry in &config.execution.targets {
-        ensure!(
-            entry.spec_id == StrataAsmSpec::ID,
-            "unsupported compiled ASM spec {}",
-            entry.spec_id
-        );
-        registry.register(entry.predicate.clone(), StrataAsmSpec)?;
-    }
+    let registry = build_execution_registry(
+        config
+            .execution
+            .targets
+            .iter()
+            .map(|entry| (entry.predicate.clone(), entry.spec_id)),
+    )?;
     let genesis_predicate = config.execution.genesis_predicate.clone();
-    registry.resolve(&genesis_predicate)?;
-    let genesis_state = StrataAsmSpec.construct_genesis_state(&params);
+    let genesis_spec = CompiledSpec::resolve(registry.resolve(&genesis_predicate)?.spec_id())?;
+    let genesis_state = genesis_spec.construct_genesis_state(&params);
 
     // 1. Create storage. The ASM and Moho stores live in two separate sled DBs; the proof DB is
     //    opened with the orchestrator that owns it (step 3).

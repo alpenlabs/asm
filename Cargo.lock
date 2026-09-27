@@ -8272,6 +8272,9 @@ dependencies = [
  "strata-asm-proto-admin",
  "strata-asm-proto-bridge",
  "strata-asm-proto-checkpoint",
+ "strata-asm-worker",
+ "strata-predicate",
+ "thiserror 2.0.18",
 ]
 
 [[package]]
