@@ -75,17 +75,21 @@ where
 
         // The configured anchor is otherwise trusted blindly: a wrong block,
         // target, epoch timestamp, or network would only surface one L1 block
-        // later when header verification rejects the anchor's successor. Build
-        // the genesis state once (it carries the anchor-derived header
-        // verification fields) and validate it against the L1 source on every
-        // startup, before adopting either stored or genesis state.
+        // later when header verification rejects the anchor's successor. Validate
+        // the genesis header-verification fields against L1 on every startup,
+        // before adopting either stored or genesis state.
         validate_anchor_against_l1(&context, &genesis_state.chain_view.pow_state)?;
 
         let latest = context.get_latest_anchor_state()?;
         match context.get_anchor_state(&genesis_block) {
             Ok(stored) if stored != genesis_state => return Err(WorkerError::GenesisStateMismatch),
+            // Pruning can remove genesis while retaining a later state. The Moho
+            // worker needs genesis on startup, so rebuild it from config. L1
+            // validation above checks only the Bitcoin anchor fields; restoring
+            // the rest assumes the original genesis parameters are unchanged.
             Err(WorkerError::MissingAsmState(_)) if latest.is_some() => {
-                return Err(WorkerError::MissingGenesisState);
+                tracing::info!(%genesis_block, "restoring genesis anchor missing below the stored latest");
+                context.store_anchor_state(&genesis_state)?;
             }
             Ok(_) | Err(WorkerError::MissingAsmState(_)) => {}
             Err(error) => return Err(error),
@@ -502,6 +506,47 @@ mod tests {
         assert_eq!(
             reloaded.blkid, advanced,
             "adopted the stored latest, not genesis",
+        );
+    }
+
+    /// What an offline `asm state prune --before` leaves behind: no genesis
+    /// entry, a later state kept. The later state stays the resume point, and
+    /// genesis is restored because the Moho worker reads it on every start.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn new_restores_genesis_missing_below_a_retained_state() {
+        let seed = fixtures::setup_state(101).await;
+        let genesis = seed.state.blkid;
+
+        let advanced = fixtures::mine(&seed.node, &seed.client, 1).await[0]; // 102
+        let block = seed
+            .state
+            .context
+            .get_l1_block(advanced.blkid())
+            .expect("fetch block 102");
+        let (out, _aux) = seed.state.transition(&block).expect("process block 102");
+        seed.state
+            .context
+            .record_manifest(out.manifest.clone())
+            .unwrap();
+        seed.state
+            .context
+            .store_anchor_state(&out.state)
+            .expect("store the processed anchor");
+        seed.state
+            .context
+            .prune_anchor_states_before(advanced.height());
+        assert!(matches!(
+            seed.state.context.get_anchor_state(&genesis),
+            Err(WorkerError::MissingAsmState(_))
+        ));
+
+        let params = fixtures::genesis_params(&seed.client, 101).await;
+        let reloaded = fixtures::new_state(seed.state.context.clone(), params).unwrap();
+
+        assert_eq!(reloaded.blkid, advanced, "resumed from the retained state");
+        assert!(
+            reloaded.context.get_anchor_state(&genesis).is_ok(),
+            "genesis anchor restored",
         );
     }
 

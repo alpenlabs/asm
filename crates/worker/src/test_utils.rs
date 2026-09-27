@@ -89,6 +89,15 @@ impl TestAsmWorkerContext {
         }
     }
 
+    /// Deletes every stored anchor state below `height`, as
+    /// `dbtool asm state prune --before` does.
+    pub fn prune_anchor_states_before(&self, height: u32) {
+        self.state
+            .state_db
+            .prune_before(height)
+            .expect("prune anchor states");
+    }
+
     /// Number of leaves in the manifest MMR (sentinels + real manifest hashes).
     pub fn mmr_leaf_count(&self) -> u64 {
         self.state.mmr_db.leaf_count().expect("read mmr leaf count")
