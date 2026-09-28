@@ -26,8 +26,8 @@ pub enum UpdateTxType {
     AsmStfVkUpdate = 12,
     /// Update the set of authorized operators.
     OperatorUpdate = 13,
-    /// Update the safe harbour destination address on the bridge.
-    SafeHarbourAddressUpdate = 14,
+    /// Update the safe harbor destination address on the bridge.
+    SafeHarborAddressUpdate = 14,
     /// Update the strata security council multisignature configuration.
     StrataSecurityCouncilMultisigUpdate = 15,
 
@@ -41,9 +41,9 @@ pub enum UpdateTxType {
     /// Update the verifying key for the EE STF.
     EeStfVkUpdate = 31,
 
-    /// Authorize an immediate sweep of bridge funds to the Safe-Harbour.
+    /// Authorize an immediate sweep of bridge funds to the Safe-Harbor.
     Defcon1 = 41,
-    /// Authorize a sweep of bridge funds to the Safe-Harbour after timelock.
+    /// Authorize a sweep of bridge funds to the Safe-Harbor after timelock.
     Defcon3 = 43,
 }
 
@@ -54,11 +54,11 @@ impl UpdateTxType {
             Self::OlStfVkUpdate => Role::StrataAdministrator,
             Self::AsmStfVkUpdate => Role::StrataAdministrator,
             Self::OperatorUpdate => Role::StrataAdministrator,
-            // The safe harbour destination is rotated by the administrator, not the
-            // security council: the council can sweep funds to the safe harbour (via
+            // The safe harbor destination is rotated by the administrator, not the
+            // security council: the council can sweep funds to the safe harbor (via
             // Defcon signals) but must not also pick where they land, otherwise the
             // same authority could both trigger a sweep and steal the proceeds.
-            Self::SafeHarbourAddressUpdate => Role::StrataAdministrator,
+            Self::SafeHarborAddressUpdate => Role::StrataAdministrator,
             // Security council membership is rotated by the administrator, not by the
             // council itself.
             Self::StrataSecurityCouncilMultisigUpdate => Role::StrataAdministrator,
@@ -90,7 +90,7 @@ impl UpdateTxType {
             Self::EeStfVkUpdate => "EE STF VK Update",
             Self::Defcon1 => "Defcon 1",
             Self::Defcon3 => "Defcon 3",
-            Self::SafeHarbourAddressUpdate => "Safe Harbour Address Update",
+            Self::SafeHarborAddressUpdate => "Safe Harbor Address Update",
         }
     }
 }
@@ -104,7 +104,7 @@ impl TryFrom<u8> for UpdateTxType {
             11 => Ok(UpdateTxType::OlStfVkUpdate),
             12 => Ok(UpdateTxType::AsmStfVkUpdate),
             13 => Ok(UpdateTxType::OperatorUpdate),
-            14 => Ok(UpdateTxType::SafeHarbourAddressUpdate),
+            14 => Ok(UpdateTxType::SafeHarborAddressUpdate),
             15 => Ok(UpdateTxType::StrataSecurityCouncilMultisigUpdate),
             20 => Ok(UpdateTxType::StrataSeqManagerMultisigUpdate),
             21 => Ok(UpdateTxType::SequencerUpdate),
@@ -146,7 +146,7 @@ mod tests {
                 Just(UpdateTxType::EeStfVkUpdate),
                 Just(UpdateTxType::Defcon1),
                 Just(UpdateTxType::Defcon3),
-                Just(UpdateTxType::SafeHarbourAddressUpdate),
+                Just(UpdateTxType::SafeHarborAddressUpdate),
             ]
             .boxed()
         }

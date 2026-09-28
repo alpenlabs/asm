@@ -7,7 +7,7 @@
 use std::any::Any;
 
 use ssz_derive::{Decode, Encode};
-use strata_asm_bridge_types::{OperatorIdx, SafeHarbourAddress, WithdrawalIntent};
+use strata_asm_bridge_types::{OperatorIdx, SafeHarborAddress, WithdrawalIntent};
 use strata_asm_common::{InterprotoMsg, SubprotocolId};
 use strata_asm_proto_bridge_txs::BRIDGE_SUBPROTOCOL_ID;
 use strata_crypto::EvenPublicKey;
@@ -27,12 +27,12 @@ pub enum BridgeIncomingMsg {
     /// Adds new operators by public key and removes existing operators by index.
     UpdateOperatorSet(UpdateOperatorSetPayload),
 
-    /// Emitted by the admin subprotocol to update the safe harbour destination
+    /// Emitted by the admin subprotocol to update the safe harbor destination
     /// address.
-    UpdateSafeHarbourAddress(SafeHarbourAddress),
+    UpdateSafeHarborAddress(SafeHarborAddress),
 
     /// Defcon signal raised by the admin subprotocol. The bridge must respond by
-    /// activating the safe harbour. The admin subprotocol distinguishes between
+    /// activating the safe harbor. The admin subprotocol distinguishes between
     /// Defcon1 (immediate sweep) and Defcon3 (delayed sweep) on the signing
     /// surface, but the bridge response is identical so they collapse into one
     /// message here.

@@ -9,9 +9,9 @@ from bitcoinlib.keys import Key
 
 from constants import ASM_MAGIC_BYTES
 
-# BOSD-encoded P2TR descriptor used as the default safe harbour address in
+# BOSD-encoded P2TR descriptor used as the default safe harbor address in
 # tests. Address `bc1ppuxgmd6n4j73wdp688p08a8rte97dkn5n70r2ym6kgsw0v3c5ensrytduf`.
-DEFAULT_SAFE_HARBOUR_ADDRESS = "040f0c8db753acbd17343a39c2f3f4e35e4be6da749f9e35137ab220e7b238a667"
+DEFAULT_SAFE_HARBOR_ADDRESS = "040f0c8db753acbd17343a39c2f3f4e35e4be6da749f9e35137ab220e7b238a667"
 
 
 @dataclass
@@ -46,7 +46,7 @@ class ConfirmationDepths:
     asm_stf_vk_update: int
     ee_stf_vk_update: int
     defcon3: int
-    safe_harbour_address_update: int
+    safe_harbor_address_update: int
 
 
 @dataclass
@@ -74,7 +74,7 @@ class BridgeSubprotocol:
     assignment_duration: int
     operator_fee: int
     recovery_delay: int
-    safe_harbour_address: str
+    safe_harbor_address: str
 
 
 @dataclass
@@ -151,7 +151,7 @@ def build_subprotocols(
     assignment_duration: int = 100_000,
     operator_fee: int = 100_000_000,
     recovery_delay: int = 1_008,
-    safe_harbour_address: str = DEFAULT_SAFE_HARBOUR_ADDRESS,
+    safe_harbor_address: str = DEFAULT_SAFE_HARBOR_ADDRESS,
     network: str = "regtest",
 ) -> list[dict[str, Any]]:
     compressed_keys = [f"02{key}" for key in musig2_keys]
@@ -176,7 +176,7 @@ def build_subprotocols(
                     asm_stf_vk_update=confirmation_depth,
                     ee_stf_vk_update=confirmation_depth,
                     defcon3=confirmation_depth,
-                    safe_harbour_address_update=confirmation_depth,
+                    safe_harbor_address_update=confirmation_depth,
                 ),
                 max_seqno_gap=10,
             )
@@ -204,7 +204,7 @@ def build_subprotocols(
                 assignment_duration=assignment_duration,
                 operator_fee=operator_fee,
                 recovery_delay=recovery_delay,
-                safe_harbour_address=safe_harbour_address,
+                safe_harbor_address=safe_harbor_address,
             )
         )
     }
@@ -223,7 +223,7 @@ def build_asm_params(
     assignment_duration: int = 10_000,
     operator_fee: int = 100_000_000,
     recovery_delay: int = 1_008,
-    safe_harbour_address: str = DEFAULT_SAFE_HARBOUR_ADDRESS,
+    safe_harbor_address: str = DEFAULT_SAFE_HARBOR_ADDRESS,
     network: str = "regtest",
 ) -> AsmParams:
     anchor = build_l1_anchor(
@@ -236,7 +236,7 @@ def build_asm_params(
         assignment_duration=assignment_duration,
         operator_fee=operator_fee,
         recovery_delay=recovery_delay,
-        safe_harbour_address=safe_harbour_address,
+        safe_harbor_address=safe_harbor_address,
         network=network,
     )
     return AsmParams(

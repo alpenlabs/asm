@@ -7,12 +7,12 @@
 //! - Operator additions → bridge operator table gains new members
 //! - Operator removals → bridge operator table deactivates members
 //! - Combined add/remove → both applied atomically after activation
-//! - Defcon1 from the security council → bridge activates the safe harbour immediately
-//! - Defcon3 from the security council → bridge activates the safe harbour after the timelock
+//! - Defcon1 from the security council → bridge activates the safe harbor immediately
+//! - Defcon3 from the security council → bridge activates the safe harbor after the timelock
 //! - Defcon1/Defcon3 signed by any other role → rejected, bridge unchanged
-//! - Safe harbour address rotation from the strata administrator → bridge adopts new address
-//! - Safe harbour address rotation signed by any other role → rejected, bridge unchanged
-//! - Safe harbour address rotation after activation → rejected, bridge address unchanged
+//! - Safe harbor address rotation from the strata administrator → bridge adopts new address
+//! - Safe harbor address rotation signed by any other role → rejected, bridge unchanged
+//! - Safe harbor address rotation after activation → rejected, bridge address unchanged
 
 #![allow(
     unused_crate_dependencies,
@@ -22,13 +22,13 @@
 use harness::{
     admin::{
         assert_only_required_role_can_send, defcon1_update, defcon3_update, operator_set_update,
-        safe_harbour_address_update, submit_and_activate, AdminExt,
+        safe_harbor_address_update, submit_and_activate, AdminExt,
     },
     bridge::BridgeExt,
     test_harness::{AsmTestHarnessBuilder, Setup},
 };
 use integration_tests::harness;
-use strata_asm_bridge_types::SafeHarbourAddress;
+use strata_asm_bridge_types::SafeHarborAddress;
 use strata_asm_proto_bridge_txs::test_utils::create_test_operators;
 use strata_test_utils_arb::ArbitraryGenerator;
 
@@ -182,16 +182,16 @@ async fn test_operator_update_does_not_apply_before_activation() {
 }
 
 // ============================================================================
-// Defcon Signals → Bridge Safe Harbour
+// Defcon Signals → Bridge Safe Harbor
 // ============================================================================
 //
 // Defcon1 and Defcon3 are the security council's emergency levers: they signal the
-// bridge to activate its safe harbour address. Both updates require the
+// bridge to activate its safe harbor address. Both updates require the
 // `StrataSecurityCouncil` role — these tests guard both directions of that
 // invariant. Defcon1 bypasses the confirmation queue and applies in the same block
 // as submission; Defcon3 follows the configured confirmation depth.
 
-/// The bridge safe harbour activates in the same block that the security council's Defcon1
+/// The bridge safe harbor activates in the same block that the security council's Defcon1
 /// update is submitted — Defcon1 has no confirmation delay by definition.
 #[tokio::test(flavor = "multi_thread")]
 async fn test_defcon1_propagates_to_bridge_immediately() {
@@ -203,15 +203,15 @@ async fn test_defcon1_propagates_to_bridge_immediately() {
 
     let initial = harness.bridge_state().unwrap();
     assert!(
-        !initial.safe_harbour().is_activated(),
-        "safe harbour should start deactivated"
+        !initial.safe_harbor().is_activated(),
+        "safe harbor should start deactivated"
     );
     assert_eq!(
-        initial.safe_harbour().active_address(),
+        initial.safe_harbor().active_address(),
         None,
         "there should be no active address before activation"
     );
-    let configured_address = initial.safe_harbour().address().clone();
+    let configured_address = initial.safe_harbor().address().clone();
 
     harness
         .submit_admin_action(&mut ctx, defcon1_update())
@@ -225,17 +225,17 @@ async fn test_defcon1_propagates_to_bridge_immediately() {
     );
     let bridge = harness.bridge_state().unwrap();
     assert!(
-        bridge.safe_harbour().is_activated(),
-        "safe harbour should be activated by Defcon1"
+        bridge.safe_harbor().is_activated(),
+        "safe harbor should be activated by Defcon1"
     );
     assert_eq!(
-        bridge.safe_harbour().active_address(),
+        bridge.safe_harbor().active_address(),
         Some(&configured_address),
-        "active address should be the configured safe harbour address"
+        "active address should be the configured safe harbor address"
     );
 }
 
-/// The bridge safe harbour activates after the security council's Defcon3 update is enacted.
+/// The bridge safe harbor activates after the security council's Defcon3 update is enacted.
 #[tokio::test(flavor = "multi_thread")]
 async fn test_defcon3_propagates_to_bridge() {
     let Setup {
@@ -246,22 +246,22 @@ async fn test_defcon3_propagates_to_bridge() {
 
     let initial = harness.bridge_state().unwrap();
     assert!(
-        !initial.safe_harbour().is_activated(),
-        "safe harbour should start deactivated"
+        !initial.safe_harbor().is_activated(),
+        "safe harbor should start deactivated"
     );
-    let configured_address = initial.safe_harbour().address().clone();
+    let configured_address = initial.safe_harbor().address().clone();
 
     submit_and_activate(&harness, &mut ctx, defcon3_update()).await;
 
     let bridge = harness.bridge_state().unwrap();
     assert!(
-        bridge.safe_harbour().is_activated(),
-        "safe harbour should activate once Defcon3 enacts"
+        bridge.safe_harbor().is_activated(),
+        "safe harbor should activate once Defcon3 enacts"
     );
     assert_eq!(
-        bridge.safe_harbour().active_address(),
+        bridge.safe_harbor().active_address(),
         Some(&configured_address),
-        "active address should be the configured safe harbour address"
+        "active address should be the configured safe harbor address"
     );
 }
 
@@ -287,12 +287,8 @@ async fn test_defcon3_does_not_apply_before_activation() {
         "Defcon3 should be queued, not applied immediately"
     );
     assert!(
-        !harness
-            .bridge_state()
-            .unwrap()
-            .safe_harbour()
-            .is_activated(),
-        "safe harbour must stay deactivated while defcon is still queued"
+        !harness.bridge_state().unwrap().safe_harbor().is_activated(),
+        "safe harbor must stay deactivated while defcon is still queued"
     );
 }
 
@@ -308,12 +304,8 @@ async fn test_defcon1_signed_by_non_security_council_rejected() {
     } = AsmTestHarnessBuilder::default().build().await;
     assert_only_required_role_can_send(&harness, &mut ctx, defcon1_update()).await;
     assert!(
-        !harness
-            .bridge_state()
-            .unwrap()
-            .safe_harbour()
-            .is_activated(),
-        "safe harbour must stay deactivated when Defcon1 is signed by the wrong role",
+        !harness.bridge_state().unwrap().safe_harbor().is_activated(),
+        "safe harbor must stay deactivated when Defcon1 is signed by the wrong role",
     );
 }
 
@@ -328,30 +320,26 @@ async fn test_defcon3_signed_by_non_security_council_rejected() {
     } = AsmTestHarnessBuilder::default().build().await;
     assert_only_required_role_can_send(&harness, &mut ctx, defcon3_update()).await;
     assert!(
-        !harness
-            .bridge_state()
-            .unwrap()
-            .safe_harbour()
-            .is_activated(),
-        "safe harbour must stay deactivated when Defcon3 is signed by the wrong role",
+        !harness.bridge_state().unwrap().safe_harbor().is_activated(),
+        "safe harbor must stay deactivated when Defcon3 is signed by the wrong role",
     );
 }
 
 // ============================================================================
-// Safe Harbour Address Rotation → Bridge Safe Harbour
+// Safe Harbor Address Rotation → Bridge Safe Harbor
 // ============================================================================
 //
 // The strata administrator — *not* the security council — rotates the bridge's
-// safe harbour destination address, so the council cannot both trigger a sweep
+// safe harbor destination address, so the council cannot both trigger a sweep
 // (via Defcon) and pick where the funds land. Rotation never changes activation
 // state; the bridge picks up the new address after the configured confirmation
 // depth elapses.
 
-/// The bridge adopts the new safe harbour address after the administrator's rotation is
+/// The bridge adopts the new safe harbor address after the administrator's rotation is
 /// enacted. Activation state must be preserved across the rotation — only Defcon signals
 /// toggle activation.
 #[tokio::test(flavor = "multi_thread")]
-async fn test_safe_harbour_address_update_propagates_to_bridge() {
+async fn test_safe_harbor_address_update_propagates_to_bridge() {
     let Setup {
         harness,
         admin: mut ctx,
@@ -359,13 +347,13 @@ async fn test_safe_harbour_address_update_propagates_to_bridge() {
     } = AsmTestHarnessBuilder::default().build().await;
 
     let initial = harness.bridge_state().unwrap();
-    let initial_address = initial.safe_harbour().address().clone();
+    let initial_address = initial.safe_harbor().address().clone();
     assert!(
-        !initial.safe_harbour().is_activated(),
-        "safe harbour should start deactivated"
+        !initial.safe_harbor().is_activated(),
+        "safe harbor should start deactivated"
     );
 
-    let new_address: SafeHarbourAddress = ArbitraryGenerator::new().generate();
+    let new_address: SafeHarborAddress = ArbitraryGenerator::new().generate();
     assert_ne!(
         new_address, initial_address,
         "test setup: the new address must differ from the initial one"
@@ -374,27 +362,27 @@ async fn test_safe_harbour_address_update_propagates_to_bridge() {
     submit_and_activate(
         &harness,
         &mut ctx,
-        safe_harbour_address_update(new_address.clone()),
+        safe_harbor_address_update(new_address.clone()),
     )
     .await;
 
     let bridge = harness.bridge_state().unwrap();
     assert_eq!(
-        bridge.safe_harbour().address(),
+        bridge.safe_harbor().address(),
         &new_address,
-        "bridge should adopt the new safe harbour address"
+        "bridge should adopt the new safe harbor address"
     );
     assert!(
-        !bridge.safe_harbour().is_activated(),
-        "address rotation alone must not activate the safe harbour"
+        !bridge.safe_harbor().is_activated(),
+        "address rotation alone must not activate the safe harbor"
     );
 }
 
-/// Safe harbour address rotation signed by any role other than the strata administrator is
+/// Safe harbor address rotation signed by any role other than the strata administrator is
 /// rejected — same role-segregation guarantee as the Defcon cases, but enforced against the
 /// administrator instead of the security council.
 #[tokio::test(flavor = "multi_thread")]
-async fn test_safe_harbour_address_update_signed_by_non_administrator_rejected() {
+async fn test_safe_harbor_address_update_signed_by_non_administrator_rejected() {
     let Setup {
         harness,
         admin: mut ctx,
@@ -403,34 +391,30 @@ async fn test_safe_harbour_address_update_signed_by_non_administrator_rejected()
     let initial_address = harness
         .bridge_state()
         .unwrap()
-        .safe_harbour()
+        .safe_harbor()
         .address()
         .clone();
 
-    let new_address: SafeHarbourAddress = ArbitraryGenerator::new().generate();
+    let new_address: SafeHarborAddress = ArbitraryGenerator::new().generate();
     assert_ne!(
         new_address, initial_address,
         "test setup: the new address must differ from the initial one"
     );
-    assert_only_required_role_can_send(
-        &harness,
-        &mut ctx,
-        safe_harbour_address_update(new_address),
-    )
-    .await;
+    assert_only_required_role_can_send(&harness, &mut ctx, safe_harbor_address_update(new_address))
+        .await;
 
     assert_eq!(
-        harness.bridge_state().unwrap().safe_harbour().address(),
+        harness.bridge_state().unwrap().safe_harbor().address(),
         &initial_address,
-        "safe harbour address must be unchanged when rotation is signed by the wrong role",
+        "safe harbor address must be unchanged when rotation is signed by the wrong role",
     );
 }
 
-/// Once the safe harbour is activated, the address is frozen so bridge nodes always observe
+/// Once the safe harbor is activated, the address is frozen so bridge nodes always observe
 /// a single destination — a subsequent administrator rotation must be rejected and the
 /// activated address must remain unchanged.
 #[tokio::test(flavor = "multi_thread")]
-async fn test_safe_harbour_address_update_after_activation_rejected() {
+async fn test_safe_harbor_address_update_after_activation_rejected() {
     let Setup {
         harness,
         admin: mut ctx,
@@ -438,47 +422,43 @@ async fn test_safe_harbour_address_update_after_activation_rejected() {
     } = AsmTestHarnessBuilder::default().build().await;
 
     let initial = harness.bridge_state().unwrap();
-    let activated_address = initial.safe_harbour().address().clone();
+    let activated_address = initial.safe_harbor().address().clone();
     assert!(
-        !initial.safe_harbour().is_activated(),
-        "safe harbour should start deactivated"
+        !initial.safe_harbor().is_activated(),
+        "safe harbor should start deactivated"
     );
 
-    // Activate the safe harbour via Defcon1 (applies in the same block).
+    // Activate the safe harbor via Defcon1 (applies in the same block).
     harness
         .submit_admin_action(&mut ctx, defcon1_update())
         .await
         .unwrap();
     assert!(
-        harness
-            .bridge_state()
-            .unwrap()
-            .safe_harbour()
-            .is_activated(),
-        "Defcon1 should activate the safe harbour"
+        harness.bridge_state().unwrap().safe_harbor().is_activated(),
+        "Defcon1 should activate the safe harbor"
     );
 
     // Attempt to rotate the address after activation — the update propagates through the
     // admin queue and the confirmation delay elapses, but the bridge must reject the change.
-    let new_address: SafeHarbourAddress = ArbitraryGenerator::new().generate();
+    let new_address: SafeHarborAddress = ArbitraryGenerator::new().generate();
     assert_ne!(
         new_address, activated_address,
         "test setup: the new address must differ from the activated one"
     );
-    submit_and_activate(&harness, &mut ctx, safe_harbour_address_update(new_address)).await;
+    submit_and_activate(&harness, &mut ctx, safe_harbor_address_update(new_address)).await;
 
     let bridge = harness.bridge_state().unwrap();
     assert!(
-        bridge.safe_harbour().is_activated(),
-        "safe harbour should remain activated"
+        bridge.safe_harbor().is_activated(),
+        "safe harbor should remain activated"
     );
     assert_eq!(
-        bridge.safe_harbour().address(),
+        bridge.safe_harbor().address(),
         &activated_address,
         "the address must remain frozen after activation"
     );
     assert_eq!(
-        bridge.safe_harbour().active_address(),
+        bridge.safe_harbor().active_address(),
         Some(&activated_address),
         "the active address must remain the original activated address"
     );

@@ -47,6 +47,6 @@ pub(crate) fn uniform_confirmation_depths(depth: u16) -> ConfirmationDepths {
         asm_stf_vk_update: depth,
         ee_stf_vk_update: depth,
         defcon3: depth,
-        safe_harbour_address_update: depth,
+        safe_harbor_address_update: depth,
     }
 }

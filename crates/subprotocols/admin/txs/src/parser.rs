@@ -11,7 +11,7 @@ use crate::{
         CancelAction, MultisigAction, UpdateAction,
         updates::{
             AlpenAdminMultisigUpdate, AsmStfVkUpdate, Defcon1Update, Defcon3Update, EeStfVkUpdate,
-            OlStfVkUpdate, OperatorSetUpdate, SafeHarbourAddressUpdate, SequencerUpdate,
+            OlStfVkUpdate, OperatorSetUpdate, SafeHarborAddressUpdate, SequencerUpdate,
             StrataAdminMultisigUpdate, StrataSecurityCouncilMultisigUpdate,
             StrataSeqManagerMultisigUpdate,
         },
@@ -71,7 +71,7 @@ impl SignedPayload {
                 UpdateAction::EeStfVk(u) => encode_wire(seqno, u, signatures),
                 UpdateAction::Defcon1(u) => encode_wire(seqno, u, signatures),
                 UpdateAction::Defcon3(u) => encode_wire(seqno, u, signatures),
-                UpdateAction::SafeHarbourAddress(u) => encode_wire(seqno, u, signatures),
+                UpdateAction::SafeHarborAddress(u) => encode_wire(seqno, u, signatures),
             },
         }
     }
@@ -206,8 +206,8 @@ fn decode_signed_payload(
             UpdateTxType::EeStfVkUpdate => decode_update::<EeStfVkUpdate>(bytes, tx_type),
             UpdateTxType::Defcon1 => decode_update::<Defcon1Update>(bytes, tx_type),
             UpdateTxType::Defcon3 => decode_update::<Defcon3Update>(bytes, tx_type),
-            UpdateTxType::SafeHarbourAddressUpdate => {
-                decode_update::<SafeHarbourAddressUpdate>(bytes, tx_type)
+            UpdateTxType::SafeHarborAddressUpdate => {
+                decode_update::<SafeHarborAddressUpdate>(bytes, tx_type)
             }
         },
     }

@@ -14,7 +14,7 @@ use jsonrpsee::{
 };
 use moho_types::MohoState;
 use ssz::{Decode, Encode};
-use strata_asm_bridge_types::SafeHarbour;
+use strata_asm_bridge_types::SafeHarbor;
 use strata_asm_checkpoint_types::CheckpointTip;
 use strata_asm_common::{AnchorState, AsmManifest};
 use strata_asm_moho_storage::{SledExportEntriesDb, SledMohoStateDb, build_export_entry_mmr_proof};
@@ -164,9 +164,9 @@ impl AsmStateApiServer for AsmRpcServer {
         }
     }
 
-    async fn get_safe_harbour(&self, block_hash: BlockHash) -> RpcResult<Option<SafeHarbour>> {
+    async fn get_safe_harbor(&self, block_hash: BlockHash) -> RpcResult<Option<SafeHarbor>> {
         match self.get_bridge_state(block_hash).await? {
-            Some(bridge_state) => Ok(Some(bridge_state.safe_harbour().clone())),
+            Some(bridge_state) => Ok(Some(bridge_state.safe_harbor().clone())),
             None => Ok(None),
         }
     }

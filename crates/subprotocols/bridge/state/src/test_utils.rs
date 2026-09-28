@@ -34,7 +34,7 @@ pub fn create_test_state() -> (BridgeStateV1, Vec<EvenSecretKey>) {
         operator_fee: BitcoinAmount::try_from(100_000)
             .expect("test amount must be within the Bitcoin money supply"),
         recovery_delay: 1008,
-        safe_harbour_address: ArbitraryGenerator::new().generate(),
+        safe_harbor_address: ArbitraryGenerator::new().generate(),
     };
     let bridge_state = BridgeStateV1::new(&config);
     (bridge_state, privkeys)

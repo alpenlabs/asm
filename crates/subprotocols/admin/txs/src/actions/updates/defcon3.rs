@@ -8,7 +8,7 @@ use crate::actions::{IndentedDetails, RenderSigningMessage};
 ///
 /// Authorized by the
 /// [`Role::StrataSecurityCouncil`](strata_asm_admin_types::Role::StrataSecurityCouncil) to
-/// signal the bridge to activate its safe harbour after the timelock configured in
+/// signal the bridge to activate its safe harbor after the timelock configured in
 /// [`ConfirmationDepths::defcon3`](strata_asm_admin_types::ConfirmationDepths). Carries no
 /// payload.
 #[derive(Clone, Debug, Eq, PartialEq, Arbitrary, Encode, Decode)]

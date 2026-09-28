@@ -1,6 +1,6 @@
 use ssz_derive::{Decode, Encode};
 use strata_asm_bridge_types::{
-    BridgeInitConfig, OperatorIdx, SafeHarbour, SafeHarbourAddress, WithdrawalIntent,
+    BridgeInitConfig, OperatorIdx, SafeHarbor, SafeHarborAddress, WithdrawalIntent,
 };
 use strata_asm_common::logging::warn;
 use strata_asm_proto_bridge_txs::{deposit::DepositInfo, errors::Mismatch};
@@ -39,8 +39,8 @@ pub struct BridgeStateV1 {
     /// funds if operators fail to process the deposit.
     recovery_delay: u16,
 
-    /// Safe harbour
-    safe_harbour: SafeHarbour,
+    /// Safe harbor
+    safe_harbor: SafeHarbor,
 }
 
 impl BridgeStateV1 {
@@ -67,7 +67,7 @@ impl BridgeStateV1 {
             denomination: config.denomination,
             operator_fee: config.operator_fee,
             recovery_delay: config.recovery_delay,
-            safe_harbour: SafeHarbour::new(config.safe_harbour_address.clone()),
+            safe_harbor: SafeHarbor::new(config.safe_harbor_address.clone()),
         }
     }
 
@@ -96,27 +96,27 @@ impl BridgeStateV1 {
         self.recovery_delay
     }
 
-    /// Returns a reference to the safe harbour.
-    pub fn safe_harbour(&self) -> &SafeHarbour {
-        &self.safe_harbour
+    /// Returns a reference to the safe harbor.
+    pub fn safe_harbor(&self) -> &SafeHarbor {
+        &self.safe_harbor
     }
 
-    /// Activates the safe harbour.
-    pub fn activate_safe_harbour(&mut self) {
-        self.safe_harbour.set_activated(true);
+    /// Activates the safe harbor.
+    pub fn activate_safe_harbor(&mut self) {
+        self.safe_harbor.set_activated(true);
     }
 
-    /// Updates the safe harbour address. Returns `false` if the safe harbour
+    /// Updates the safe harbor address. Returns `false` if the safe harbor
     /// is already activated and the update was rejected.
-    pub fn update_safe_harbour_address(&mut self, new_address: SafeHarbourAddress) -> bool {
-        if self.safe_harbour.is_activated() {
+    pub fn update_safe_harbor_address(&mut self, new_address: SafeHarborAddress) -> bool {
+        if self.safe_harbor.is_activated() {
             warn!(
                 ?new_address,
-                "Safe harbour address update rejected: already activated"
+                "Safe harbor address update rejected: already activated"
             );
             return false;
         }
-        self.safe_harbour.update_address(new_address)
+        self.safe_harbor.update_address(new_address)
     }
 
     /// Processes a deposit transaction by validating and adding it to the deposits table.
