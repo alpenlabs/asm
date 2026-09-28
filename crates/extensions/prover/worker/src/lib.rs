@@ -33,9 +33,13 @@ mod state;
 mod traits;
 mod verify;
 
-pub use backend::{AsmHostRegistry, AsmProgramDescriptor, AsmProofHost, ProofBackend, ProofHost};
+pub use backend::{
+    AsmHostRegistry, AsmProgramDescriptor, AsmProofHost, ProofBackend, ProofHost, load_spec_host,
+};
 pub use builder::ProverWorkerBuilder;
-pub use config::{BackendConfig, FollowerConfig, OrchestratorConfig, ProverMode};
+pub use config::{
+    ArtifactSource, AsmArtifactConfig, FollowerConfig, OrchestratorConfig, ProverMode,
+};
 pub use errors::{ProverError, ProverResult};
 pub use handle::ProverWorkerHandle;
 pub use input::{InputBuilder, MohoInput};

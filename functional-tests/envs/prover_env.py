@@ -4,11 +4,12 @@ from pathlib import Path
 import flexitest
 
 from factory.asm_rpc.config_cfg import (
-    BackendConfig,
+    ArtifactSource,
+    AsmArtifact,
     Duration,
-    NativeBackend,
+    NativeArtifact,
     OrchestratorConfig,
-    Sp1Backend,
+    Sp1Artifact,
 )
 
 from .basic_env import BasicEnv
@@ -19,6 +20,10 @@ from .basic_env import BasicEnv
 # `k256::schnorr::SigningKey::from_bytes`).
 NATIVE_TEST_ASM_SIGNING_KEY = "01" * 32
 NATIVE_TEST_MOHO_SIGNING_KEY = "02" * 32
+# Predicate the native ASM host derives from `NATIVE_TEST_ASM_SIGNING_KEY`.
+NATIVE_TEST_ASM_PREDICATE = (
+    "Bip340Schnorr:1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f"
+)
 
 
 class ProverEnv(BasicEnv):
@@ -29,34 +34,35 @@ class ProverEnv(BasicEnv):
     ) -> OrchestratorConfig:
         envdd_path = Path(ectx.envdd_path)
         proof_db_path = str((envdd_path / service_name / "proof_db").resolve())
+        moho, asm_source, asm_predicate = _artifact_sources()
         return OrchestratorConfig(
             tick_interval=Duration(secs=1, nanos=0),
             max_concurrent_proofs=4,
             proof_db_path=proof_db_path,
-            backend=_backend_config(),
-            asm_predicate=(
-                os.environ["ASM_EXPECTED_PREDICATE"]
-                if os.environ.get("ASM_PROVER_BACKEND", "native") == "sp1"
-                else (
-                    "Bip340Schnorr:1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f"
-                )
-            ),
+            moho=moho,
+            asm_artifacts=[AsmArtifact(predicate=asm_predicate, source=asm_source)],
         )
 
 
-def _backend_config() -> BackendConfig:
-    """Pick the backend variant matching the binary built by run_test.sh."""
+def _artifact_sources() -> tuple[ArtifactSource, ArtifactSource, str]:
+    """Pick the Moho and ASM sources matching the binary built by run_test.sh.
+
+    Returns the Moho source, the ASM source, and the predicate the ASM host must
+    resolve to.
+    """
     backend = os.environ.get("ASM_PROVER_BACKEND", "native")
     if backend == "sp1":
         repo_root = Path(__file__).resolve().parents[2]
         elfs_dir = (repo_root / "guest-builder" / "sp1" / "elfs").resolve()
-        return Sp1Backend(
-            asm_elf_path=str(elfs_dir / "asm.elf"),
-            moho_elf_path=str(elfs_dir / "moho.elf"),
+        return (
+            Sp1Artifact(elf_path=str(elfs_dir / "moho.elf")),
+            Sp1Artifact(elf_path=str(elfs_dir / "asm.elf")),
+            os.environ["ASM_EXPECTED_PREDICATE"],
         )
     if backend == "native":
-        return NativeBackend(
-            asm_schnorr_signing_key=NATIVE_TEST_ASM_SIGNING_KEY,
-            moho_schnorr_signing_key=NATIVE_TEST_MOHO_SIGNING_KEY,
+        return (
+            NativeArtifact(signing_key=NATIVE_TEST_MOHO_SIGNING_KEY),
+            NativeArtifact(signing_key=NATIVE_TEST_ASM_SIGNING_KEY),
+            NATIVE_TEST_ASM_PREDICATE,
         )
     raise ValueError(f"Unknown ASM_PROVER_BACKEND: {backend!r} (expected: native|sp1)")

@@ -44,33 +44,42 @@ class BitcoinConfig:
 
 
 @dataclass
-class Sp1Backend:
-    """SP1 proof backend configuration.
+class Sp1Artifact:
+    """SP1 guest ELF loaded from an explicit path.
 
-    Mirrors `BackendConfig::Sp1` in bin/asm-runner/src/prover/config.rs.
+    Mirrors `ArtifactSource::Sp1` in crates/extensions/prover/worker/src/config.rs.
     """
 
-    asm_elf_path: str
-    moho_elf_path: str
+    elf_path: str
     kind: str = "sp1"
 
 
 @dataclass
-class NativeBackend:
-    """Native (in-process) proof backend configuration.
+class NativeArtifact:
+    """Native (in-process) proof host identity.
 
-    Mirrors `BackendConfig::Native` in bin/asm-runner/src/prover/config.rs.
-    Each signing key is a 32-byte value rendered as a lowercase hex
-    string with no `0x` prefix; the Rust side validates that the bytes
-    form a valid BIP-340 Schnorr signing key (rejects the zero scalar).
+    Mirrors `ArtifactSource::Native` in crates/extensions/prover/worker/src/config.rs.
+    The signing key is a 32-byte value rendered as a lowercase hex string with
+    no `0x` prefix; the Rust side validates that the bytes form a valid BIP-340
+    Schnorr signing key (rejects the zero scalar).
     """
 
-    asm_schnorr_signing_key: str
-    moho_schnorr_signing_key: str
+    signing_key: str
     kind: str = "native"
 
 
-BackendConfig = Sp1Backend | NativeBackend
+ArtifactSource = Sp1Artifact | NativeArtifact
+
+
+@dataclass
+class AsmArtifact:
+    """An ASM release the prover can prove, checked against `predicate` at startup.
+
+    Mirrors `AsmArtifactConfig` in crates/extensions/prover/worker/src/config.rs.
+    """
+
+    predicate: str
+    source: ArtifactSource
 
 
 @dataclass
@@ -99,13 +108,16 @@ ProverMode = GeneratorMode | FollowerMode
 
 @dataclass
 class OrchestratorConfig:
-    """Proof orchestrator configuration."""
+    """Proof orchestrator configuration.
+
+    Mirrors `OrchestratorConfig` in crates/extensions/prover/worker/src/config.rs.
+    """
 
     tick_interval: Duration
     max_concurrent_proofs: int
     proof_db_path: str
-    backend: BackendConfig
-    asm_predicate: str
+    moho: ArtifactSource
+    asm_artifacts: list[AsmArtifact]
     # None omits the key, selecting generator mode on the Rust side.
     mode: ProverMode | None = None
 

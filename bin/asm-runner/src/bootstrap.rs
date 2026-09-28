@@ -1,11 +1,13 @@
 use std::sync::Arc;
 
-use anyhow::{Result, ensure};
+use anyhow::{Context, Result};
 use bitcoind_async_client::{Auth, Client};
-use strata_asm_common::AsmSpec;
 use strata_asm_moho_worker::MohoWorkerBuilder;
 use strata_asm_params::AsmParams;
-use strata_asm_prover_worker::{InputBuilder, ProofBackend, ProverWorkerBuilder};
+use strata_asm_prover_worker::{
+    AsmArtifactConfig, AsmProofHost, InputBuilder, ProofBackend, ProofHost, ProverResult,
+    ProverWorkerBuilder, load_spec_host,
+};
 use strata_asm_spec::{
     StrataAsmSpec,
     host::{CompiledSpec, build_execution_registry},
@@ -66,11 +68,18 @@ pub(crate) async fn bootstrap(
     let runtime_handle = Handle::current();
     let orch_prep = if let Some(orch_config) = config.orchestrator {
         let proof_db = create_proof_storage(&orch_config.proof_db_path)?;
-        ensure!(
-            registry.resolve(&orch_config.asm_predicate)?.spec_id() == StrataAsmSpec::ID,
-            "proof artifact and native execution spec disagree"
-        );
-        let backend = ProofBackend::new(&orch_config.backend, &orch_config.asm_predicate).await?;
+        // The execution registry is the single record of which spec each predicate implements.
+        let mut asm_hosts = Vec::with_capacity(orch_config.asm_artifacts.len());
+        for artifact in &orch_config.asm_artifacts {
+            let spec_id = registry
+                .resolve(&artifact.predicate)
+                .context(
+                    "orchestrator.asm_artifacts predicate is not listed in [[execution.targets]]",
+                )?
+                .spec_id();
+            asm_hosts.push(load_asm_host(CompiledSpec::resolve(spec_id)?, artifact).await?);
+        }
+        let backend = ProofBackend::new(&orch_config.moho, asm_hosts).await?;
         Some((orch_config, proof_db, backend))
     } else {
         None
@@ -110,7 +119,7 @@ pub(crate) async fn bootstrap(
     // 6. Finish orchestrator wiring if it was configured.
     let proof_rpc_deps = if let Some((orch_config, proof_db, backend)) = orch_prep {
         let ProofBackend {
-            asm_host,
+            asm_hosts,
             moho_host,
             moho_predicate,
         } = backend;
@@ -169,7 +178,7 @@ pub(crate) async fn bootstrap(
 
         let prover_handle = ProverWorkerBuilder::new()
             .with_context(prover_ctx)
-            .with_hosts(asm_host, moho_host)
+            .with_hosts(asm_hosts, moho_host)
             .with_config(orch_config)
             .with_input_builder(input_builder)
             .with_block_subscription(block_subscription)
@@ -235,4 +244,18 @@ async fn connect_bitcoin(config: &BitcoinConfig) -> Result<Client> {
     )?;
 
     Ok(client)
+}
+
+/// Loads the proof host for `artifact` under its compiled spec, checked against the
+/// configured predicate.
+///
+/// Kept beside the runner rather than in `strata_asm_spec::host`, so native callers of that
+/// catalog take no prover dependency.
+async fn load_asm_host(
+    spec: CompiledSpec,
+    artifact: &AsmArtifactConfig,
+) -> ProverResult<AsmProofHost<ProofHost>> {
+    match spec {
+        CompiledSpec::V0 => load_spec_host(artifact, StrataAsmSpec).await,
+    }
 }

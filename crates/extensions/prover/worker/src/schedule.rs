@@ -12,7 +12,7 @@ use tracing::{debug, info, warn};
 use zkaleido::{RemoteProofStatus, ZkVmRemoteHost, ZkVmRemoteProgram};
 
 use crate::{
-    AsmProofHost, ProverContext,
+    AsmHostRegistry, ProverContext,
     errors::{ProverError, ProverResult},
     input::{InputBuilder, MohoInput},
     proof_store,
@@ -166,7 +166,7 @@ async fn schedule_with<S: ProofSubmitter>(
 /// scheduling cycle.
 struct StateSubmitter<'a, C, H> {
     ctx: &'a C,
-    asm: &'a AsmProofHost<H>,
+    asm: &'a AsmHostRegistry<H>,
     moho: &'a H,
     input_builder: &'a InputBuilder,
 }
@@ -205,7 +205,10 @@ where
                     .input_builder
                     .build_asm_runtime_input(self.ctx, range)
                     .await?;
-                self.asm.start_proving(&runtime_input).await?
+                self.asm
+                    .get(runtime_input.moho_pre_state().next_predicate())?
+                    .start_proving(&runtime_input)
+                    .await?
             }
             ProofId::Moho(block) => {
                 let input = match self

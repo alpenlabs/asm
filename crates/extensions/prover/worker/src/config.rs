@@ -18,14 +18,18 @@ pub struct OrchestratorConfig {
     /// Path to the proof database (SledProofDb).
     pub proof_db_path: PathBuf,
 
-    /// Which proof backend to construct at startup, plus its configuration.
+    /// Source of the Moho recursive proof program.
     ///
     /// Required in both modes: a follower still proves locally when its peer
     /// is unavailable or lagging.
-    pub backend: BackendConfig,
+    pub moho: ArtifactSource,
 
-    /// Expected ASM artifact identity, independently supplied from the execution registry.
-    pub asm_predicate: PredicateKey,
+    /// Every ASM release this prover can prove.
+    ///
+    /// Each entry is loaded and checked against its predicate at startup, so a
+    /// wrong ELF or key fails before the worker runs. The spec each predicate
+    /// implements comes from the execution registry, not from this list.
+    pub asm_artifacts: Vec<AsmArtifactConfig>,
 
     /// How the worker obtains proofs. Omit for [`ProverMode::Generator`].
     #[serde(default)]
@@ -34,7 +38,7 @@ pub struct OrchestratorConfig {
 
 /// How the prover worker obtains proofs.
 ///
-/// Tagged with `kind`, mirroring [`BackendConfig`].
+/// Tagged with `kind`, mirroring [`ArtifactSource`].
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum ProverMode {
@@ -75,55 +79,47 @@ fn default_max_peer_failures() -> u32 {
     3
 }
 
-/// Backend-specific orchestrator configuration.
+/// An ASM release this prover can prove and where to load it from.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AsmArtifactConfig {
+    /// Predicate the loaded host must resolve to.
+    pub predicate: PredicateKey,
+
+    /// Where the program's host is constructed from.
+    pub source: ArtifactSource,
+}
+
+/// Location or native signing identity used to construct a proof host.
 ///
-/// Tagged with `kind` so the same config schema is valid regardless of
-/// which features the binary was built with. If the selected variant does
-/// not match the build (e.g. `sp1` requested in a binary built without the
-/// `sp1` feature), [`ProofBackend::new`](crate::ProofBackend::new) surfaces a
-/// startup error.
+/// Tagged with `kind` so the same config schema is valid regardless of which
+/// features the binary was built with. A source that does not match the build
+/// (e.g. `sp1` in a binary built without the `sp1` feature) fails at startup
+/// when its host is loaded.
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
-#[expect(
-    clippy::large_enum_variant,
-    reason = "BackendConfig is parsed once at startup; boxing a SigningKey to save a few bytes on a singleton value is not worth the indirection"
-)]
-pub enum BackendConfig {
-    /// SP1 backend. Loads the ASM and Moho guest ELFs from explicit paths at startup.
-    Sp1 {
-        asm_elf_path: PathBuf,
-        moho_elf_path: PathBuf,
-    },
+pub enum ArtifactSource {
+    /// SP1 guest ELF loaded from an explicit path.
+    Sp1 { elf_path: PathBuf },
 
-    /// Native (in-process) backend. Each signing key fixes the predicate
-    /// identity of its host: a native host's verifying key (derived from the
-    /// configured signing key) is what `resolve_predicate` packs into the
-    /// `PredicateKey`. Keys are parsed and validated as BIP-340 Schnorr
+    /// Native (in-process) execution. The verifying key derived from this
+    /// signing key is what `resolve_predicate` packs into the host's
+    /// [`PredicateKey`]. Keys are parsed and validated as BIP-340 Schnorr
     /// signing keys at config load, so an invalid key fails startup rather
     /// than later in the proving path.
     Native {
         #[serde(with = "hex_signing_key")]
-        asm_schnorr_signing_key: SigningKey,
-        #[serde(with = "hex_signing_key")]
-        moho_schnorr_signing_key: SigningKey,
+        signing_key: SigningKey,
     },
 }
 
-impl fmt::Debug for BackendConfig {
+// Rust's Debug derive cannot redact fields; format manually to keep signing keys out of logs.
+impl fmt::Debug for ArtifactSource {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Sp1 {
-                asm_elf_path,
-                moho_elf_path,
-            } => f
-                .debug_struct("Sp1")
-                .field("asm_elf_path", asm_elf_path)
-                .field("moho_elf_path", moho_elf_path)
-                .finish(),
+            Self::Sp1 { elf_path } => f.debug_struct("Sp1").field("elf_path", elf_path).finish(),
             Self::Native { .. } => f
                 .debug_struct("Native")
-                .field("asm_schnorr_signing_key", &"<redacted>")
-                .field("moho_schnorr_signing_key", &"<redacted>")
+                .field("signing_key", &"<redacted>")
                 .finish(),
         }
     }
@@ -146,27 +142,68 @@ mod hex_signing_key {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(not(feature = "sp1"))]
+    use {
+        crate::{ProofBackend, ProverError, load_spec_host},
+        strata_asm_spec::StrataAsmSpec,
+    };
+
     use super::*;
 
     const BASE: &str = r#"
         tick_interval = { secs = 1, nanos = 0 }
         max_concurrent_proofs = 4
         proof_db_path = "/tmp/proof-db"
-        asm_predicate = "Bip340Schnorr:1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f"
 
-        [backend]
+        [moho]
         kind = "native"
-        asm_schnorr_signing_key = "0101010101010101010101010101010101010101010101010101010101010101"
-        moho_schnorr_signing_key = "0202020202020202020202020202020202020202020202020202020202020202"
+        signing_key = "0202020202020202020202020202020202020202020202020202020202020202"
+
+        [[asm_artifacts]]
+        predicate = "Bip340Schnorr:1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f"
+
+        [asm_artifacts.source]
+        kind = "native"
+        signing_key = "0101010101010101010101010101010101010101010101010101010101010101"
     "#;
 
     #[cfg(not(feature = "sp1"))]
     #[tokio::test]
-    async fn native_fixture_matches_independent_expected_predicate() {
+    async fn native_artifact_must_match_its_configured_predicate() {
         let config: OrchestratorConfig = toml::from_str(BASE).unwrap();
-        crate::ProofBackend::new(&config.backend, &config.asm_predicate)
-            .await
-            .unwrap();
+        let mut artifact = config.asm_artifacts[0].clone();
+        let host = load_spec_host(&artifact, StrataAsmSpec).await.unwrap();
+        assert_eq!(host.descriptor().predicate(), &artifact.predicate);
+        let backend = ProofBackend::new(&config.moho, vec![host]).await.unwrap();
+        backend.asm_hosts.get(&artifact.predicate).unwrap();
+
+        // Loading must check the derived key, not just trust configured metadata.
+        artifact.predicate = PredicateKey::always_accept();
+        assert!(matches!(
+            load_spec_host(&artifact, StrataAsmSpec).await,
+            Err(ProverError::AsmArtifactMismatch { .. })
+        ));
+    }
+
+    #[test]
+    fn artifact_list_is_required() {
+        let src = BASE
+            .split("[[asm_artifacts]]")
+            .next()
+            .expect("split yields at least one piece");
+        let err = toml::from_str::<OrchestratorConfig>(src).unwrap_err();
+        assert!(err.message().contains("asm_artifacts"), "{err}");
+    }
+
+    #[test]
+    fn artifact_sources_parse() {
+        let config: OrchestratorConfig = toml::from_str(BASE).expect("should parse");
+        assert!(matches!(config.moho, ArtifactSource::Native { .. }));
+        assert_eq!(config.asm_artifacts.len(), 1);
+        assert!(matches!(
+            config.asm_artifacts[0].source,
+            ArtifactSource::Native { .. }
+        ));
     }
 
     // Configs may omit the `[mode]` table and must keep parsing as

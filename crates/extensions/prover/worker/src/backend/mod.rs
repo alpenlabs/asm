@@ -9,19 +9,18 @@
 mod artifact;
 mod native;
 mod registry;
+mod sp1;
 
 pub use artifact::{AsmProgramDescriptor, AsmProofHost};
 pub use registry::AsmHostRegistry;
-mod sp1;
-
-use strata_asm_spec::StrataAsmSpec;
+use strata_asm_common::AsmSpec;
 use strata_predicate::PredicateKey;
 use zkaleido::{ZkVm, ZkVmHost};
 #[cfg(feature = "sp1")]
 use zkaleido_sp1_host::SP1Host;
 
 use crate::{
-    config::BackendConfig,
+    config::{ArtifactSource, AsmArtifactConfig},
     errors::{ProverError, ProverResult},
 };
 
@@ -37,57 +36,65 @@ pub type ProofHost = zkaleido_native_adapter::NativeHost;
 
 /// ZK proof backend used by the runner.
 ///
-/// Bundles the `(asm, moho)` host pair together with the [`PredicateKey`] that
-/// each one's proofs verify against. Constructed once at startup via
-/// [`ProofBackend::new`] and consumed by the proof orchestrator (hosts) and
-/// the input builder (predicates).
+/// Bundles the ASM host registry, the fixed Moho host, and the
+/// [`PredicateKey`] that Moho proofs verify against. Constructed once at
+/// startup via [`ProofBackend::new`] and consumed by the proof orchestrator
+/// (hosts) and the input builder (predicate).
 #[derive(Debug)]
 pub struct ProofBackend {
-    pub asm_host: AsmProofHost<ProofHost>,
+    pub asm_hosts: AsmHostRegistry<ProofHost>,
     pub moho_host: ProofHost,
     pub moho_predicate: PredicateKey,
 }
 
 impl ProofBackend {
-    /// Builds the ZK proof backend.
-    ///
-    /// Constructs both proof hosts and resolves the [`PredicateKey`] each
-    /// host's proofs verify against.
+    /// Builds the ZK proof backend from the Moho source and ASM hosts already
+    /// loaded with [`load_spec_host`].
     ///
     /// # Errors
     ///
-    /// - Returns an error if the requested [`BackendConfig`] variant does not match the binary's
-    ///   build features (e.g. `Sp1` requested without the `sp1` feature).
-    /// - Returns an error if either host cannot be constructed (e.g. a guest ELF cannot be read in
-    ///   `sp1` builds) or if either host's verifying key cannot be turned into a [`PredicateKey`].
-    pub async fn new(cfg: &BackendConfig, expected_predicate: &PredicateKey) -> ProverResult<Self> {
-        let (asm_host, moho_host) = build_proof_hosts(cfg).await?;
-        let asm_host = AsmProofHost::bind_expected::<StrataAsmSpec>(asm_host, expected_predicate)?;
+    /// - Returns an error if the Moho source does not match the binary's build features (e.g. `Sp1`
+    ///   without the `sp1` feature), its host cannot be constructed, or its verifying key cannot be
+    ///   turned into a [`PredicateKey`].
+    /// - Returns an error if `asm_hosts` is empty or repeats a spec or predicate.
+    pub async fn new(
+        moho: &ArtifactSource,
+        asm_hosts: Vec<AsmProofHost<ProofHost>>,
+    ) -> ProverResult<Self> {
+        let moho_host = match moho {
+            ArtifactSource::Sp1 { elf_path } => sp1::load_host(elf_path).await?,
+            ArtifactSource::Native { signing_key } => native::moho_host(signing_key)?,
+        };
+        let asm_hosts = AsmHostRegistry::new(asm_hosts)?;
         let moho_predicate = resolve_predicate(&moho_host)?;
         Ok(Self {
-            asm_host,
+            asm_hosts,
             moho_host,
             moho_predicate,
         })
     }
 }
 
-/// Builds the `(asm, moho)` host pair used by the proof orchestrator.
+/// Loads the ASM host for `artifact` and binds it to spec `S`.
 ///
-/// Dispatches on the [`BackendConfig`] variant. If the variant does not
-/// match the binary's build features, the corresponding builder surfaces a
-/// clear startup error rather than failing later in the proving path.
-async fn build_proof_hosts(cfg: &BackendConfig) -> ProverResult<(ProofHost, ProofHost)> {
-    match cfg {
-        BackendConfig::Sp1 {
-            asm_elf_path,
-            moho_elf_path,
-        } => sp1::build_sp1_hosts(asm_elf_path, moho_elf_path).await,
-        BackendConfig::Native {
-            asm_schnorr_signing_key,
-            moho_schnorr_signing_key,
-        } => native::build_native_hosts(asm_schnorr_signing_key, moho_schnorr_signing_key).await,
-    }
+/// The caller is responsible for pairing `artifact` with the spec its predicate
+/// implements (the execution registry records that pairing).
+///
+/// # Errors
+///
+/// - Returns an error if the source does not match the binary's build features or its host cannot
+///   be constructed.
+/// - Returns [`ProverError::AsmArtifactMismatch`] if the loaded host's predicate differs from
+///   `artifact.predicate`, so a wrong ELF or key fails at startup.
+pub async fn load_spec_host<S: AsmSpec + Send + Sync + 'static>(
+    artifact: &AsmArtifactConfig,
+    spec: S,
+) -> ProverResult<AsmProofHost<ProofHost>> {
+    let host = match &artifact.source {
+        ArtifactSource::Sp1 { elf_path } => sp1::load_host(elf_path).await?,
+        ArtifactSource::Native { signing_key } => native::asm_host(signing_key.clone(), spec)?,
+    };
+    AsmProofHost::bind_expected::<S>(host, &artifact.predicate)
 }
 
 /// Resolves the [`PredicateKey`] for proofs produced by `host`, dispatching on

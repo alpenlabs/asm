@@ -11,10 +11,11 @@ use tracing::{debug, error, warn};
 use zkaleido::{RemoteProofStatus, ZkVmRemoteHost};
 
 use crate::{
-    ProverContext,
+    AsmHostRegistry, ProverContext,
     errors::{ProverError, ProverResult},
     proof_store::{self, ProofSource},
     state::ProverServiceState,
+    verify::ExpectedAttestation,
 };
 
 /// Polls all in-progress remote proofs and stores any that have completed.
@@ -51,12 +52,10 @@ where
 {
     let typed_id = to_typed_proof_id::<H>(remote_id)?;
 
-    // NOTE: We use `state.asm` here but this could be any host instance.
-    // `get_status` only requires a network client and proof ID — not the ELF or
-    // proving key. Both hosts share the same concrete type `H`, so either works.
+    // Status polling is program-independent for the configured provider. Receipt
+    // retrieval below must use the appropriate host to preserve program metadata.
     let new_status = state
-        .asm
-        .host()
+        .moho
         .get_status(&typed_id)
         .await
         .map_err(ProverError::RemoteStatus)?;
@@ -97,15 +96,6 @@ where
     C: ProverContext + Send + Sync,
     H: ZkVmRemoteHost + Send + Sync,
 {
-    // NOTE: As above, `get_proof` only needs a network client and the proof ID,
-    // so `state.asm` works for proofs produced by either host.
-    let receipt = state
-        .asm
-        .host()
-        .get_proof(typed_id)
-        .await
-        .map_err(ProverError::RemoteRetrieve)?;
-
     let proof_id = state
         .ctx
         .get_proof_id(remote_id)
@@ -121,6 +111,10 @@ where
     // different problem and propagates instead.
     let verifier = state.input_builder.verifier();
     let expected = verifier.expected_attestation(&state.ctx, &proof_id).await?;
+    let receipt = receipt_host(&state.asm, &state.moho, &expected)?
+        .get_proof(typed_id)
+        .await
+        .map_err(ProverError::RemoteRetrieve)?;
     if let Err(e) = verifier.verify(&receipt, &expected) {
         error!(%proof_id, %remote_id, %e, "completed proof failed verification, discarding it");
         return discard_submission(&state.ctx, remote_id).await;
@@ -171,4 +165,94 @@ async fn discard_submission<C: ProverContext>(
 /// Converts a persisted [`RemoteProofId`] back into the host's typed proof ID.
 fn to_typed_proof_id<H: ZkVmRemoteHost>(remote_id: &RemoteProofId) -> ProverResult<H::ProofId> {
     H::ProofId::try_from(remote_id.0.clone()).map_err(|_| ProverError::RemoteIdDecode)
+}
+
+/// Selects the retrieval host from the same authority used to verify the receipt.
+///
+/// SP1 retrieval stamps the host's program ID into receipt metadata, so sharing a
+/// provider client does not make hosts interchangeable here.
+fn receipt_host<'a, H>(
+    asm: &'a AsmHostRegistry<H>,
+    moho: &'a H,
+    expected: &ExpectedAttestation,
+) -> ProverResult<&'a H> {
+    match expected {
+        ExpectedAttestation::Step { predicate, .. } => Ok(asm.get(predicate)?.host()),
+        ExpectedAttestation::Recursive(_) => Ok(moho),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use k256::schnorr::SigningKey;
+    use moho_types::{
+        MohoStateCommitment, RecursiveMohoAttestation, StateRefAttestation, StateReference,
+        StepMohoAttestation,
+    };
+    use strata_asm_spec::StrataAsmSpec;
+    use strata_predicate::PredicateKey;
+    use zkaleido::ZkVmVkProvider;
+    use zkaleido_native_adapter::NativeHost;
+
+    use super::*;
+    use crate::AsmProofHost;
+
+    fn host(seed: u8) -> NativeHost {
+        NativeHost::new(SigningKey::from_bytes(&[seed; 32]).unwrap(), |_| {})
+    }
+
+    fn endpoint(seed: u8) -> StateRefAttestation {
+        StateRefAttestation::new(
+            StateReference::new([seed; 32]),
+            MohoStateCommitment::new([seed; 32]),
+        )
+    }
+
+    #[test]
+    fn asm_receipt_retrieval_uses_the_parent_authorized_host() {
+        let asm = AsmProofHost::bind::<StrataAsmSpec>(host(1)).unwrap();
+        let predicate = asm.descriptor().predicate().clone();
+        let registry = AsmHostRegistry::new(vec![asm]).unwrap();
+        let moho = host(2);
+        let expected = ExpectedAttestation::Step {
+            attestation: StepMohoAttestation::new(endpoint(1), endpoint(2)),
+            predicate: predicate.clone(),
+        };
+
+        let selected = receipt_host(&registry, &moho, &expected).unwrap();
+        assert_eq!(
+            selected.vk().as_bytes(),
+            registry.get(&predicate).unwrap().host().vk().as_bytes()
+        );
+        assert_ne!(selected.vk().as_bytes(), moho.vk().as_bytes());
+    }
+
+    #[test]
+    fn moho_receipt_retrieval_uses_the_fixed_host() {
+        let registry =
+            AsmHostRegistry::new(vec![AsmProofHost::bind::<StrataAsmSpec>(host(1)).unwrap()])
+                .unwrap();
+        let moho = host(2);
+        let expected =
+            ExpectedAttestation::Recursive(RecursiveMohoAttestation::new(endpoint(0), endpoint(2)));
+
+        let selected = receipt_host(&registry, &moho, &expected).unwrap();
+        assert_eq!(selected.vk().as_bytes(), moho.vk().as_bytes());
+    }
+
+    #[test]
+    fn missing_asm_host_does_not_fall_back_to_moho_for_retrieval() {
+        let registry =
+            AsmHostRegistry::new(vec![AsmProofHost::bind::<StrataAsmSpec>(host(1)).unwrap()])
+                .unwrap();
+        let expected = ExpectedAttestation::Step {
+            attestation: StepMohoAttestation::new(endpoint(1), endpoint(2)),
+            predicate: PredicateKey::always_accept(),
+        };
+
+        assert!(matches!(
+            receipt_host(&registry, &host(2), &expected),
+            Err(ProverError::UnknownArtifact(_))
+        ));
+    }
 }
