@@ -87,7 +87,7 @@ impl TestMohoWorkerContext {
     /// `None` if the leaf was never appended.
     ///
     /// Lets tests assert a specific export-entry leaf (e.g. an
-    /// `OperatorClaimUnlock` hash) was mirrored from the Moho fold into the same
+    /// `OperatorClaimUnlockV0` hash) was mirrored from the Moho fold into the same
     /// store the runner rebuilds inclusion proofs from.
     pub fn find_export_entry(&self, container_id: u8, hash: &[u8; 32]) -> Option<u64> {
         self.stores

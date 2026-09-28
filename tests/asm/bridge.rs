@@ -17,9 +17,8 @@ use integration_tests::harness;
 use strata_asm_bridge_types::{OperatorIdx, OperatorSelection};
 use strata_asm_common::Subprotocol;
 use strata_asm_logs::ExportExtraDataUpdate;
-use strata_asm_proto_bridge::{BridgeStateV1, BridgeSubprotoV1, OperatorClaimUnlock};
+use strata_asm_proto_bridge::{BridgeStateV1, BridgeSubprotoV1, OperatorClaimUnlockV0};
 use strata_asm_proto_bridge_txs::BRIDGE_SUBPROTOCOL_ID;
-use strata_identifiers::Buf32;
 
 /// Regression: a forged unstake transaction must NOT remove an operator.
 ///
@@ -147,33 +146,23 @@ async fn test_bridge_publishes_increasing_accumulated_pow() {
     }
 }
 
-/// Resolves the key the fulfillment leaf will commit to: the MuSig2 public key of the operator
-/// assigned to `deposit_idx`, which must be `expected_assignee`.
+/// Asserts that `deposit_idx` is assigned to `expected_assignee`, the operator index the
+/// fulfillment leaf will commit to.
 ///
-/// Callers read this *before* fulfilling, since fulfillment removes the assignment.
-fn resolve_assignee_pubkey(
-    state: &BridgeStateV1,
-    deposit_idx: u32,
-    expected_assignee: OperatorIdx,
-) -> Buf32 {
+/// Callers check this *before* fulfilling, since fulfillment removes the assignment.
+fn assert_assignee(state: &BridgeStateV1, deposit_idx: u32, expected_assignee: OperatorIdx) {
     let assignment = state
         .assignments()
         .get_assignment(deposit_idx)
         .expect("assignment should exist");
     assert_eq!(assignment.current_assignee(), expected_assignee);
-
-    let entry = state
-        .operators()
-        .get_operator(expected_assignee)
-        .expect("assignee should be registered");
-    (*entry.musig2_pk()).into()
 }
 
 /// End-to-end: fulfilling a withdrawal makes the Moho worker mirror an
-/// `OperatorClaimUnlock` export entry for the assigned operator and deposit.
+/// `OperatorClaimUnlockV0` export entry for the assigned operator and deposit.
 ///
 /// When the bridge processes a withdrawal fulfillment it emits a `NewExportEntry`
-/// log whose leaf is the hash of `OperatorClaimUnlock { deposit_idx, operator_pubkey }`,
+/// log whose leaf is the hash of `OperatorClaimUnlockV0 { deposit_idx, operator_idx }`,
 /// under the bridge container. The Moho worker folds that log into the bridge
 /// container's `ExportState` MMR and mirrors the leaf into its export-entry
 /// store (which the runner rebuilds inclusion proofs from). This drives the full
@@ -184,7 +173,7 @@ fn resolve_assignee_pubkey(
 /// 1. Submit one deposit (index 0).
 /// 2. Submit a checkpoint whose withdrawal pins operator 1, creating the assignment.
 /// 3. Fulfill the withdrawal for deposit 0.
-/// 4. Assert the Moho export-entry store resolves the `OperatorClaimUnlock` hash, and the latest
+/// 4. Assert the Moho export-entry store resolves the `OperatorClaimUnlockV0` hash, and the latest
 ///    Moho state's bridge container MMR gained exactly that one leaf.
 #[tokio::test(flavor = "multi_thread")]
 async fn test_withdrawal_fulfillment_creates_moho_export_entry() {
@@ -213,7 +202,7 @@ async fn test_withdrawal_fulfillment_creates_moho_export_entry() {
         .unwrap();
 
     let deposit_idx = 0u32;
-    let assignee_pubkey = resolve_assignee_pubkey(
+    assert_assignee(
         &harness.bridge_state().unwrap(),
         deposit_idx,
         pinned_operator,
@@ -237,13 +226,13 @@ async fn test_withdrawal_fulfillment_creates_moho_export_entry() {
 
     // 4a. The Moho worker mirrored the export-entry leaf: the hash of the
     //     operator's claim on this deposit resolves in its export-entry store.
-    let expected_leaf = OperatorClaimUnlock::new(deposit_idx, assignee_pubkey).compute_hash();
+    let expected_leaf = OperatorClaimUnlockV0::new(deposit_idx, pinned_operator).compute_hash();
     assert!(
         harness
             .moho_context
             .find_export_entry(BRIDGE_SUBPROTOCOL_ID, &expected_leaf)
             .is_some(),
-        "Moho export-entry store should resolve the OperatorClaimUnlock leaf",
+        "Moho export-entry store should resolve the OperatorClaimUnlockV0 leaf",
     );
 
     // 4b. The same leaf lives in the committed Moho state: the bridge container's
@@ -269,11 +258,11 @@ async fn test_withdrawal_fulfillment_creates_moho_export_entry() {
 /// Reorg counterpart to [`test_withdrawal_fulfillment_creates_moho_export_entry`]:
 /// if the block that fulfilled the withdrawal is reorged out and the replacement
 /// (larger) chain does not re-include the fulfillment, the derived Moho state
-/// carries no `OperatorClaimUnlock` for that deposit.
+/// carries no `OperatorClaimUnlockV0` for that deposit.
 ///
 /// Flow:
 /// 1. Deposit → assignment → fulfillment, exactly as the non-reorg test, and confirm the Moho state
-///    gained the `OperatorClaimUnlock` leaf.
+///    gained the `OperatorClaimUnlockV0` leaf.
 /// 2. Invalidate the fulfillment block and mine a strictly longer branch of empty blocks (which
 ///    excludes the resurrected fulfillment tx).
 /// 3. Assert the fulfillment is undone: the assignment is live again, the export-entry store no
@@ -304,7 +293,7 @@ async fn test_reorg_drops_moho_export_entry_when_fulfillment_excluded() {
         .unwrap();
 
     let deposit_idx = 0u32;
-    let assignee_pubkey = resolve_assignee_pubkey(
+    assert_assignee(
         &harness.bridge_state().unwrap(),
         deposit_idx,
         pinned_operator,
@@ -314,15 +303,15 @@ async fn test_reorg_drops_moho_export_entry_when_fulfillment_excluded() {
         .await
         .unwrap();
 
-    // Precondition: the fulfillment mirrored the OperatorClaimUnlock leaf, so the
+    // Precondition: the fulfillment mirrored the OperatorClaimUnlockV0 leaf, so the
     // reorg below has something to drop.
-    let leaf = OperatorClaimUnlock::new(deposit_idx, assignee_pubkey).compute_hash();
+    let leaf = OperatorClaimUnlockV0::new(deposit_idx, pinned_operator).compute_hash();
     assert!(
         harness
             .moho_context
             .find_export_entry(BRIDGE_SUBPROTOCOL_ID, &leaf)
             .is_some(),
-        "fulfillment should have mirrored the OperatorClaimUnlock leaf before the reorg",
+        "fulfillment should have mirrored the OperatorClaimUnlockV0 leaf before the reorg",
     );
 
     // 2. Reorg the fulfillment block out under a strictly longer, fulfillment-free branch: three
@@ -350,7 +339,7 @@ async fn test_reorg_drops_moho_export_entry_when_fulfillment_excluded() {
             .moho_context
             .find_export_entry(BRIDGE_SUBPROTOCOL_ID, &leaf)
             .is_none(),
-        "reorg dropping the fulfillment must prune the OperatorClaimUnlock leaf",
+        "reorg dropping the fulfillment must prune the OperatorClaimUnlockV0 leaf",
     );
 
     // 3c. The latest Moho state is the new tip's, and its bridge export container
