@@ -22,8 +22,12 @@
 //!
 //! # Operator Claims
 //!
-//! - [`OperatorClaimUnlock`] — an assigned operator's claim to unlock a deposit UTXO after a
-//!   fulfilled withdrawal.
+//! An assigned operator's claim to unlock a deposit UTXO after a fulfilled withdrawal. Only the
+//! claim's hash leaves the ASM, and that hash is consensus state, so the claim is versioned:
+//!
+//! - [`OperatorClaimUnlockV0`] — names the assignee by table index. Frozen; what the subprotocol
+//!   emits today.
+//! - [`OperatorClaimUnlockV1`] — names the assignee by public key. Defined, not yet emitted.
 //!
 //! # Configuration
 //!
@@ -35,7 +39,7 @@ mod operator;
 mod safe_harbor;
 mod withdrawal;
 
-pub use claim::OperatorClaimUnlock;
+pub use claim::{OperatorClaimUnlockV0, OperatorClaimUnlockV1};
 pub use config::BridgeInitConfig;
 pub use operator::{
     OperatorBitmap, OperatorBitmapError, OperatorIdx, OperatorSelection, filter_eligible_operators,

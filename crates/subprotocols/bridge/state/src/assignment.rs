@@ -60,8 +60,9 @@ pub struct AssignmentEntry {
     ///
     /// The deadline is inclusive: the withdrawal fulfillment transaction must land in a block at
     /// or before this height for the operator to be eligible for
-    /// [`ClaimUnlock`](strata_asm_bridge_types::OperatorClaimUnlock). An assignment made at height
-    /// `H` with an assignment duration of `D` is therefore fulfillable in blocks `H+1..=H+D`.
+    /// [`ClaimUnlock`](strata_asm_bridge_types::OperatorClaimUnlockV0). An assignment made at
+    /// height `H` with an assignment duration of `D` is therefore fulfillable in blocks
+    /// `H+1..=H+D`.
     fulfillment_deadline: L1Height,
 }
 

@@ -28,4 +28,4 @@ pub use deposit::DepositEntry;
 pub use errors::*;
 pub use operator::NnScriptIdx;
 // Defined in `strata-asm-bridge-types`; re-exported so downstream users keep finding it here.
-pub use strata_asm_bridge_types::OperatorClaimUnlock;
+pub use strata_asm_bridge_types::{OperatorClaimUnlockV0, OperatorClaimUnlockV1};
