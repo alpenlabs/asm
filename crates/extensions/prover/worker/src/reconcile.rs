@@ -18,7 +18,7 @@ use crate::{
     verify::ExpectedAttestation,
 };
 
-/// Polls all in-progress remote proofs and stores any that have completed.
+/// Polls in-progress proofs, propagating terminal errors and retaining their job records.
 pub(crate) async fn reconcile_active_proofs<C, H>(
     state: &mut ProverServiceState<C, H>,
 ) -> ProverResult<()>
@@ -34,6 +34,9 @@ where
 
     for (remote_id, old_status) in in_progress {
         if let Err(e) = reconcile_one(state, &remote_id, &old_status).await {
+            if e.is_terminal() {
+                return Err(e);
+            }
             warn!(%remote_id, ?e, "failed to reconcile remote proof");
         }
     }
@@ -250,9 +253,8 @@ mod tests {
             predicate: PredicateKey::always_accept(),
         };
 
-        assert!(matches!(
-            receipt_host(&registry, &host(2), &expected),
-            Err(ProverError::UnknownArtifact(_))
-        ));
+        let error = receipt_host(&registry, &host(2), &expected).unwrap_err();
+        assert!(matches!(error, ProverError::UnknownArtifact(_)));
+        assert!(error.is_terminal());
     }
 }
