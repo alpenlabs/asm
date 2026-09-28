@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
     inputs:
       ref:
-        description: Git branch, tag, or commit SHA to build. Defaults to the branch HEAD selected in the UI.
+        description: Git branch, tag, or commit SHA to build. Defaults to the branch or tag selected in the UI.
         required: false
         type: string
       image_tag:
@@ -35,9 +35,11 @@ concurrency:
 jobs:
   build_and_publish:
     name: Build and Publish ASM Runner Image
-    # Only the reviewed main copy of this workflow may publish; other code is built
-    # through inputs.ref (belt-and-suspenders with the environment's branch policy).
-    if: ${{ github.ref == 'refs/heads/main' }}
+    # Only protected refs may publish; other code is built through inputs.ref.
+    if: >-
+      ${{ github.ref == 'refs/heads/main'
+      || startsWith(github.ref, 'refs/heads/releases/')
+      || startsWith(github.ref, 'refs/tags/v') }}
     runs-on: ubuntu-latest
     environment: AWS
     permissions:
@@ -100,9 +102,9 @@ jobs:
           # Resolve SHA from build-src/ (the requested ref), not the main checkout.
           resolved_sha="$(git -C build-src rev-parse HEAD)"
           short_sha="${resolved_sha:0:8}"
-          # Only reviewed commits (main's head or a protected git tag) get the bare
-          # short-SHA tag; any other branch is published under dev-<sha>.
-          trusted_refs="$(git -C build-src ls-remote origin refs/heads/main 'refs/tags/*')"
+          # Only reviewed commits (main, releases/* or a protected git tag) get the
+          # bare short-SHA tag; any other branch is published under dev-<sha>.
+          trusted_refs="$(git -C build-src ls-remote origin refs/heads/main 'refs/heads/releases/*' 'refs/tags/*')"
           if ! grep -q "^${resolved_sha}" <<<"${trusted_refs}"; then
             short_sha="dev-${short_sha}"
           fi

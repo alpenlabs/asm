@@ -43,23 +43,25 @@ docker run --rm \
 and pushes it to public ECR (`public.ecr.aws/z5c7y9u9/strata-asm-runner`). The
 image tag is the 8-character short SHA of the built ASM commit, so a consumer that
 pins ASM by commit (for example strata-bridge's `Cargo.toml`) can pull the matching
-image directly. Only `main`'s head or a commit behind a git tag gets that bare tag;
-any other branch is published as `dev-<short SHA>`. ECR Public cannot make tags
-immutable, so the workflow refuses to re-push a bare short-SHA tag that already
-exists; publish a rebuild under a `dev-`, `manual-` or `test-` tag instead.
+image directly. Only the head of `main` or `releases/*`, or a tagged commit, gets
+that bare tag; any other branch is published as `dev-<short SHA>`. ECR Public
+cannot make tags immutable, so the workflow refuses to re-push a bare short-SHA tag
+that already exists; publish a rebuild under a `dev-`, `manual-` or `test-` tag
+instead.
 
-The workflow runs on manual dispatch only, with an optional `ref` (branch, tag,
-or commit; defaults to the branch selected in the UI) and an optional `image_tag`
-override, which must start with `dev-`, `manual-` or `test-` so an override can
-never overwrite a production short-SHA tag.
+The workflow runs on manual dispatch from `main`, `releases/*` or a `v*` tag, with
+an optional `ref` (branch, tag, or commit; defaults to the ref selected in the UI)
+and an optional `image_tag` override, which must start with `dev-`, `manual-` or
+`test-` so an override can never overwrite a production short-SHA tag.
 
 Repository setup, mirroring mosaic and strata-bridge:
 
-- a GitHub Environment named `AWS`
+- a GitHub Environment named `AWS`, deployable from `main`, `releases/*` and `v*` tags
 - one variable on that environment: `PUBLIC_AWS_ROLE_TO_ASSUME`, the shared public
   ECR push role, whose trust policy must include this repository
 - the tag ruleset that restricts tag creation: the workflow treats any commit
   behind a git tag as reviewed and publishes it under the bare short-SHA tag
+- a branch ruleset on `releases/*`, for the same reason
 
 The workflow fails early with a clear error if the role variable is missing.
 
