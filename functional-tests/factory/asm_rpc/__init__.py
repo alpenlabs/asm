@@ -116,7 +116,7 @@ def generate_asm_rpc_config(
     orchestrator: OrchestratorConfig | None = None,
 ):
     """Generate ASM RPC configuration TOML file."""
-    predicate = orchestrator.asm_predicate if orchestrator else "AlwaysAccept"
+    predicate = orchestrator.asm_artifacts[0].predicate if orchestrator else "AlwaysAccept"
     config = AsmRpcConfig(
         rpc=RpcConfig(host="127.0.0.1", port=rpc_port),
         database=DatabaseConfig(

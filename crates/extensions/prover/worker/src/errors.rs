@@ -16,6 +16,7 @@
 use std::error::Error as StdError;
 
 use strata_asm_common::SpecId;
+use strata_predicate::PredicateKey;
 use thiserror::Error;
 
 /// Boxed backend error. Used where the underlying error type varies per
@@ -30,6 +31,18 @@ pub type ProverResult<T> = Result<T, ProverError>;
 /// Errors surfaced while building, launching, or running the prover worker.
 #[derive(Debug, Error)]
 pub enum ProverError {
+    /// The orchestrator config lists no ASM artifact, so no ASM step could be proven.
+    #[error("no ASM artifacts configured")]
+    NoAsmArtifacts,
+
+    /// A configured artifact repeats an existing spec or predicate.
+    #[error("duplicate ASM artifact spec or predicate")]
+    DuplicateArtifact,
+
+    /// The parent requires a program absent from this node's artifact registry.
+    #[error("ASM artifact is not configured: {0:?}")]
+    UnknownArtifact(PredicateKey),
+
     /// Only single-block ASM inputs are currently supported.
     #[error("ASM proofs require a single-block range")]
     UnsupportedAsmRange,
@@ -169,5 +182,17 @@ impl ProverError {
             context,
             source: Box::new(source),
         }
+    }
+
+    /// Whether this error means the node lacks the program the chain authorizes.
+    ///
+    /// Retrying cannot help, so the service stops instead of looping on it.
+    pub(crate) fn is_terminal(&self) -> bool {
+        matches!(
+            self,
+            Self::UnsupportedAsmPredicate { .. }
+                | Self::UnsupportedAsmRange
+                | Self::UnknownArtifact(_)
+        )
     }
 }

@@ -8,6 +8,7 @@ use zkaleido::ZkVmHost;
 use {
     sp1_sdk::{HashableKey, SP1VerifyingKey},
     sp1_verifier::{GROTH16_VK_BYTES, VK_ROOT_BYTES},
+    std::fs,
     strata_predicate::PredicateTypeId,
     zkaleido_sp1_groth16_verifier::SP1Groth16Verifier,
     zkaleido_sp1_host::SP1Host,
@@ -16,31 +17,20 @@ use {
 use super::ProofHost;
 use crate::errors::{ProverError, ProverResult};
 
+/// Loads an SP1 host from the guest ELF at `path`.
+///
+/// Runs at startup before worker tasks begin. The ELF read is synchronous;
+/// host setup uses the SDK async API.
 #[cfg(feature = "sp1")]
-pub(super) async fn build_sp1_hosts(
-    asm_elf_path: &Path,
-    moho_elf_path: &Path,
-) -> ProverResult<(ProofHost, ProofHost)> {
-    use std::fs;
-
-    let asm_elf = fs::read(asm_elf_path)
-        .map_err(|e| ProverError::backend("failed to read ASM guest ELF", e))?;
-    let moho_elf = fs::read(moho_elf_path)
-        .map_err(|e| ProverError::backend("failed to read Moho guest ELF", e))?;
-
-    Ok((
-        SP1Host::init(&asm_elf).await,
-        SP1Host::init(&moho_elf).await,
-    ))
+pub(super) async fn load_host(path: &Path) -> ProverResult<ProofHost> {
+    let elf = fs::read(path).map_err(|e| ProverError::backend("failed to read guest ELF", e))?;
+    Ok(SP1Host::init(&elf).await)
 }
 
 #[cfg(not(feature = "sp1"))]
-pub(super) async fn build_sp1_hosts(
-    _asm_elf_path: &Path,
-    _moho_elf_path: &Path,
-) -> ProverResult<(ProofHost, ProofHost)> {
+pub(super) async fn load_host(_path: &Path) -> ProverResult<ProofHost> {
     Err(ProverError::BackendUnavailable(
-        "sp1 backend requested but binary was built without the `sp1` feature",
+        "sp1 artifact requested but binary was built without the `sp1` feature",
     ))
 }
 

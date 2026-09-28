@@ -8,7 +8,7 @@ use tracing::{debug, info};
 use zkaleido::ZkVmRemoteHost;
 
 use crate::{
-    AsmProofHost, ProverContext,
+    AsmHostRegistry, ProverContext,
     config::OrchestratorConfig,
     constants,
     errors::{ProverError, ProverResult},
@@ -19,8 +19,8 @@ use crate::{
 /// Service state for the prover worker.
 ///
 /// Holds everything the [`ProverService`](crate::service::ProverService) mutates
-/// or reads while processing inputs: the storage/chain context, the remote host
-/// pair, the input builder, and the in-memory pending-proof queue. Generic over
+/// or reads while processing inputs: the storage/chain context, the remote
+/// hosts, the input builder, and the in-memory pending-proof queue. Generic over
 /// the prover context `C` and the remote host `H`, mirroring how
 /// [`AsmWorkerServiceState`](https://docs.rs/strata-asm-worker) is generic over
 /// its worker context and ASM spec.
@@ -29,8 +29,8 @@ pub struct ProverServiceState<C, H> {
     /// Context the service reads storage and chain data through.
     pub(crate) ctx: C,
 
-    /// Remote host for ASM step proofs.
-    pub(crate) asm: AsmProofHost<H>,
+    /// Remote hosts for ASM step proofs, keyed by predicate.
+    pub(crate) asm: AsmHostRegistry<H>,
 
     /// Remote host for Moho recursive proofs.
     pub(crate) moho: H,
@@ -115,7 +115,7 @@ where
     /// commit arrives.
     pub(crate) async fn new(
         ctx: C,
-        asm: AsmProofHost<H>,
+        asm: AsmHostRegistry<H>,
         moho: H,
         config: OrchestratorConfig,
         input_builder: InputBuilder,

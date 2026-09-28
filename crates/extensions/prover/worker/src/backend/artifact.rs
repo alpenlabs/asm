@@ -88,7 +88,16 @@ impl<H> AsmProofHost<H> {
         &self.descriptor
     }
 
+    /// Borrows the host for retrieval with the bound program identity.
+    pub(crate) fn host(&self) -> &H {
+        &self.host
+    }
+
     /// Checks that the parent predicate permits this host before submission.
+    ///
+    /// The registry already selects the host by that predicate, so this only
+    /// fails if a caller bypasses the lookup; it stays as the last check before
+    /// work reaches the prover.
     fn require_predicate(&self, predicate: &PredicateKey) -> ProverResult<()> {
         if self.descriptor.predicate() != predicate {
             return Err(ProverError::UnsupportedAsmPredicate {
@@ -96,11 +105,6 @@ impl<H> AsmProofHost<H> {
             });
         }
         Ok(())
-    }
-
-    /// Borrows the bound host for submission and remote proof retrieval.
-    pub(crate) fn host(&self) -> &H {
-        &self.host
     }
 }
 
