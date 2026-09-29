@@ -3,13 +3,14 @@ use strata_asm_common::{
     logging::{error, info},
 };
 use strata_asm_logs::{DepositLog, NewExportEntry};
-use strata_asm_proto_bridge_state::{BridgeStateV1, OperatorClaimUnlockV0};
+use strata_asm_proto_bridge_state::BridgeStateV1;
 use strata_asm_proto_bridge_txs::{
     BRIDGE_SUBPROTOCOL_ID, deposit_request::parse_drt, parser::ParsedTx,
 };
 use strata_asm_proto_checkpoint_msgs::CheckpointIncomingMsg;
 
 use crate::{
+    claim::ClaimVersion,
     errors::{BridgeSubprotocolError, DepositValidationError},
     validation::{
         validate_deposit_info, validate_slash_stake_connector, validate_unstake_info,
@@ -36,7 +37,7 @@ use crate::{
 /// fulfillment system, not an invalid transaction. Silently ignoring this error would allow valid
 /// bridge transactions to be treated as invalid, enabling anyone to create a false ASM proof by
 /// simply not providing the required aux data.
-pub(crate) fn handle_parsed_tx(
+pub(crate) fn handle_parsed_tx<C: ClaimVersion>(
     state: &mut BridgeStateV1,
     parsed_tx: ParsedTx,
     verified_aux_data: &VerifiedAuxData,
@@ -84,11 +85,10 @@ pub(crate) fn handle_parsed_tx(
                 .expect("validation checks that the assignment exists");
             let assignee = fulfilled_assignment.current_assignee();
 
-            let unlock = OperatorClaimUnlockV0::new(deposit_idx, assignee);
+            let leaf = C::export_leaf(state.operators(), deposit_idx, assignee);
 
             // Use SubprotocolId as the containerId.
-            let withdrawal_processed_log =
-                NewExportEntry::new(BRIDGE_SUBPROTOCOL_ID, unlock.compute_hash());
+            let withdrawal_processed_log = NewExportEntry::new(BRIDGE_SUBPROTOCOL_ID, leaf);
             relayer.emit_log(
                 AsmLogEntry::from_log(&withdrawal_processed_log)
                     .expect("withdrawal processed log must not fail"),
@@ -173,6 +173,7 @@ pub(crate) fn preprocess_parsed_tx(
 
 #[cfg(test)]
 mod tests {
+    use strata_asm_bridge_types::OperatorClaimUnlockV0;
     use strata_asm_proto_bridge_txs::{
         deposit_request::DrtHeaderAux,
         parser::ParsedTx,
@@ -181,11 +182,14 @@ mod tests {
     };
     use strata_test_utils_arb::ArbitraryGenerator;
 
-    use super::{BRIDGE_SUBPROTOCOL_ID, NewExportEntry, OperatorClaimUnlockV0, handle_parsed_tx};
-    use crate::test_utils::{
-        MockMsgRelayer, add_deposits_and_assignments, create_test_state, create_verified_aux_data,
-        create_withdrawal_info_from_assignment, setup_deposit_test, setup_slash_test,
-        setup_unstake_test,
+    use super::{BRIDGE_SUBPROTOCOL_ID, NewExportEntry, handle_parsed_tx};
+    use crate::{
+        claim::ClaimV0,
+        test_utils::{
+            MockMsgRelayer, add_deposits_and_assignments, create_test_state,
+            create_verified_aux_data, create_withdrawal_info_from_assignment, setup_deposit_test,
+            setup_slash_test, setup_unstake_test,
+        },
     };
 
     #[test]
@@ -212,7 +216,7 @@ mod tests {
 
         // 4. Handle the transaction
         let mut relayer = MockMsgRelayer::default();
-        handle_parsed_tx(&mut state, parsed_tx, &verified_aux_data, &mut relayer)
+        handle_parsed_tx::<ClaimV0>(&mut state, parsed_tx, &verified_aux_data, &mut relayer)
             .expect("handling valid deposit tx should succeed");
 
         // 5. Should add a new entry in the deposits table
@@ -253,7 +257,7 @@ mod tests {
 
             // 3. Handle the transaction
             let mut relayer = MockMsgRelayer::default();
-            handle_parsed_tx(&mut state, parsed_tx, &aux, &mut relayer)
+            handle_parsed_tx::<ClaimV0>(&mut state, parsed_tx, &aux, &mut relayer)
                 .expect("handling deposit tx should success");
 
             assert!(
@@ -293,7 +297,7 @@ mod tests {
         // 5. Handle the transaction
         let parsed_tx = ParsedTx::Slash(info);
         let mut relayer = MockMsgRelayer::default();
-        let result = handle_parsed_tx(&mut state, parsed_tx, &aux, &mut relayer);
+        let result = handle_parsed_tx::<ClaimV0>(&mut state, parsed_tx, &aux, &mut relayer);
 
         assert!(result.is_ok(), "Handle parsed tx should succeed");
 
@@ -318,7 +322,7 @@ mod tests {
         // Handle the transaction
         let parsed_tx = ParsedTx::Unstake(info);
         let mut relayer = MockMsgRelayer::default();
-        let result = handle_parsed_tx(&mut state, parsed_tx, &aux, &mut relayer);
+        let result = handle_parsed_tx::<ClaimV0>(&mut state, parsed_tx, &aux, &mut relayer);
 
         assert!(result.is_ok(), "Handle parsed tx should succeed");
 
@@ -345,7 +349,7 @@ mod tests {
         let empty_aux = create_verified_aux_data(vec![]);
         let parsed_tx = ParsedTx::Deposit(info);
         let mut relayer = MockMsgRelayer::default();
-        let _ = handle_parsed_tx(&mut state, parsed_tx, &empty_aux, &mut relayer);
+        let _ = handle_parsed_tx::<ClaimV0>(&mut state, parsed_tx, &empty_aux, &mut relayer);
     }
 
     #[test]
@@ -359,6 +363,6 @@ mod tests {
         let empty_aux = create_verified_aux_data(vec![]);
         let parsed_tx = ParsedTx::Slash(info);
         let mut relayer = MockMsgRelayer::default();
-        let _ = handle_parsed_tx(&mut state, parsed_tx, &empty_aux, &mut relayer);
+        let _ = handle_parsed_tx::<ClaimV0>(&mut state, parsed_tx, &empty_aux, &mut relayer);
     }
 }

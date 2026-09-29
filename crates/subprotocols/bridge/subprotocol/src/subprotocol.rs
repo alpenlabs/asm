@@ -1,7 +1,9 @@
-//! Bridge V1 Subprotocol Implementation
+//! Bridge Subprotocol Implementation
 //!
 //! This module contains the core subprotocol implementation that integrates
 //! with the Strata Anchor State Machine (ASM).
+
+use std::marker::PhantomData;
 
 use strata_asm_bridge_types::BridgeInitConfig;
 use strata_asm_common::{
@@ -16,20 +18,31 @@ use strata_asm_proto_bridge_txs::{BRIDGE_SUBPROTOCOL_ID, errors::Mismatch, parse
 use strata_identifiers::L1BlockCommitment;
 
 use crate::{
+    claim::{ClaimV0, ClaimVersion},
     errors::WithdrawalAssignmentError,
     handler::{handle_parsed_tx, preprocess_parsed_tx},
 };
 
-/// Bridge V1 subprotocol implementation.
+/// Bridge subprotocol implementation, parameterized by the claim version it commits.
 ///
 /// This struct implements the [`Subprotocol`] trait to integrate the bridge functionality
 /// with the ASM. It handles Bitcoin deposit processing, operator management, and withdrawal
 /// coordination.
-#[derive(Copy, Clone, Debug)]
-pub struct BridgeSubprotoV1;
+///
+/// Every released version shares this implementation and differs only in `C`, so use one of
+/// the aliases below rather than naming `C` at a call site. The subprotocol ID and the section
+/// schema are the same for all of them: the claim version moves the export leaf, not the state.
+#[derive(Debug)]
+pub struct BridgeSubproto<C: ClaimVersion>(PhantomData<C>);
 
-impl Subprotocol for BridgeSubprotoV1 {
+/// The released bridge subprotocol, committing [`OperatorClaimUnlockV0`] export leaves.
+///
+/// [`OperatorClaimUnlockV0`]: strata_asm_bridge_types::OperatorClaimUnlockV0
+pub type BridgeSubprotoV1 = BridgeSubproto<ClaimV0>;
+
+impl<C: ClaimVersion> Subprotocol for BridgeSubproto<C> {
     const ID: SubprotocolId = BRIDGE_SUBPROTOCOL_ID;
+    // Shared by every claim version: the claim shape is an output, not part of the section.
     const STATE_VERSION: SectionStateVersion = 0;
 
     type State = BridgeStateV1;
@@ -99,7 +112,7 @@ impl Subprotocol for BridgeSubprotoV1 {
             let Some(parsed_tx) = parse_tx(tx) else {
                 continue;
             };
-            match handle_parsed_tx(state, parsed_tx, verified_aux_data, relayer) {
+            match handle_parsed_tx::<C>(state, parsed_tx, verified_aux_data, relayer) {
                 // `handle_parsed_tx` already emits a type-specific info log on success, so this
                 // is only a coarse trace marker. `txid` is computed inside the macro, because
                 // logging is compiled to noop in ZkVM.
