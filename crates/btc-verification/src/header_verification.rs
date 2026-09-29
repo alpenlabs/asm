@@ -1,6 +1,5 @@
 use arbitrary::Arbitrary;
 use bitcoin::{CompactTarget, Network, block::Header, hashes::Hash, params::Params};
-use borsh::{BorshDeserialize, BorshSerialize};
 use serde::{Deserialize, Serialize};
 use strata_btc_types::{BlockHashExt, BtcParams};
 use strata_identifiers::{Buf32, L1BlockCommitment, L1BlockId, L1Height};
@@ -33,18 +32,7 @@ use crate::{
 ///    validating that the new target was accurately derived from the epoch timestamps.
 ///
 /// Ref: [A light introduction to ZeroSync](https://geometry.xyz/notebook/A-light-introduction-to-ZeroSync)
-#[derive(
-    Clone,
-    Debug,
-    PartialEq,
-    Eq,
-    Default,
-    Arbitrary,
-    BorshSerialize,
-    BorshDeserialize,
-    Deserialize,
-    Serialize,
-)]
+#[derive(Clone, Debug, PartialEq, Eq, Default, Arbitrary, Deserialize, Serialize)]
 pub struct HeaderVerificationState {
     /// Bitcoin network parameters used for header verification.
     ///
@@ -341,8 +329,8 @@ mod tests {
         hashes::Hash,
         params::{MAINNET, Params},
     };
-    use borsh::{BorshDeserialize, BorshSerialize};
     use rand::{Rng, rngs::OsRng};
+    use ssz::{Decode, Encode};
     use strata_btc_types::BlockHashExt;
     use strata_identifiers::{L1BlockCommitment, L1Height};
     use strata_test_utils_btc::BtcMainnetSegment;
@@ -1206,11 +1194,11 @@ mod tests {
     //
     // HeaderVerificationState must be deterministically serializable for consensus.
     // The state hash provides a cryptographic commitment to the verification state,
-    // ensuring all nodes agree on the current chain validation state. Uses Borsh
-    // serialization for canonical binary representation.
+    // ensuring all nodes agree on the current chain validation state. SSZ is its
+    // canonical binary representation.
     //
     // References:
-    // - Borsh Specification: https://borsh.io/
+    // - SSZ specification: https://github.com/ethereum/consensus-specs/tree/dev/ssz
     // - Consensus Requirements: https://developer.bitcoin.org/devguide/block_chain.html#consensus-rule-changes
     // - Serialization in Bitcoin: https://en.bitcoin.it/wiki/Protocol_documentation#Common_structures
     // ========================================================================
@@ -1223,13 +1211,10 @@ mod tests {
         let original_state = verification_state_at(&chain, height).unwrap();
 
         // Serialize
-        let mut buffer = Vec::new();
-        original_state
-            .serialize(&mut buffer)
-            .expect("Serialization should succeed");
+        let buffer = original_state.as_ssz_bytes();
 
         // Deserialize
-        let deserialized_state = HeaderVerificationState::deserialize(&mut &buffer[..])
+        let deserialized_state = HeaderVerificationState::from_ssz_bytes(&buffer)
             .expect("Deserialization should succeed");
 
         assert_eq!(

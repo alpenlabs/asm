@@ -1,6 +1,5 @@
 //! Test utilities for Checkpoint Subprotocol.
 
-use borsh as _;
 use k256::{
     ecdsa::signature::SignatureEncoding,
     schnorr::{signature::Signer, SigningKey},

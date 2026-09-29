@@ -1,8 +1,8 @@
 //! [`ProofDb`] implementation for [`SledProofDb`].
 
-use borsh::BorshDeserialize;
 use strata_asm_prover_types::{AsmProof, L1Range, MohoProof};
 use strata_identifiers::L1BlockCommitment;
+use zkaleido::ProofReceiptWithMetadata;
 
 use super::{SledProofDb, decode_asm_key, decode_moho_key, encode_asm_key, encode_moho_key};
 use crate::ProofDb;
@@ -16,18 +16,17 @@ use crate::ProofDb;
 impl SledProofDb {
     /// Stores an ASM step proof for `range`.
     pub fn store_asm(&self, range: &L1Range, proof: &AsmProof) -> Result<(), sled::Error> {
-        let bytes = borsh::to_vec(&proof.0).expect("borsh serialization should not fail");
+        let bytes = proof.0.encode();
         self.asm_proofs.insert(encode_asm_key(range), bytes)?;
         Ok(())
     }
 
     /// Retrieves the ASM step proof for `range`, if one exists.
     pub fn get_asm(&self, range: &L1Range) -> Result<Option<AsmProof>, sled::Error> {
-        Ok(self.asm_proofs.get(encode_asm_key(range))?.map(|v| {
-            AsmProof(
-                BorshDeserialize::try_from_slice(&v).expect("stored proof should be valid borsh"),
-            )
-        }))
+        self.asm_proofs
+            .get(encode_asm_key(range))?
+            .map(|v| decode_proof(&v).map(AsmProof))
+            .transpose()
     }
 
     /// Stores a Moho recursive proof anchored at `l1ref`.
@@ -36,29 +35,29 @@ impl SledProofDb {
         l1ref: &L1BlockCommitment,
         proof: &MohoProof,
     ) -> Result<(), sled::Error> {
-        let bytes = borsh::to_vec(&proof.0).expect("borsh serialization should not fail");
+        let bytes = proof.0.encode();
         self.moho_proofs.insert(encode_moho_key(l1ref), bytes)?;
         Ok(())
     }
 
     /// Retrieves the Moho proof anchored at `l1ref`, if one exists.
     pub fn get_moho(&self, l1ref: &L1BlockCommitment) -> Result<Option<MohoProof>, sled::Error> {
-        Ok(self.moho_proofs.get(encode_moho_key(l1ref))?.map(|v| {
-            MohoProof(
-                BorshDeserialize::try_from_slice(&v).expect("stored proof should be valid borsh"),
-            )
-        }))
+        self.moho_proofs
+            .get(encode_moho_key(l1ref))?
+            .map(|v| decode_proof(&v).map(MohoProof))
+            .transpose()
     }
 
     /// Returns the highest-height Moho proof and its anchor, or `None` if empty.
     pub fn get_latest_moho(&self) -> Result<Option<(L1BlockCommitment, MohoProof)>, sled::Error> {
-        Ok(self.moho_proofs.last()?.map(|(k, v)| {
-            let commitment = decode_moho_key(&k);
-            let proof = MohoProof(
-                BorshDeserialize::try_from_slice(&v).expect("stored proof should be valid borsh"),
-            );
-            (commitment, proof)
-        }))
+        self.moho_proofs
+            .last()?
+            .map(|(k, v)| {
+                let commitment = decode_moho_key(&k);
+                let proof = MohoProof(decode_proof(&v)?);
+                Ok((commitment, proof))
+            })
+            .transpose()
     }
 
     /// Removes both ASM and Moho proofs for blocks below `before_height`.
@@ -117,6 +116,11 @@ impl SledProofDb {
     pub fn delete_moho(&self, l1ref: &L1BlockCommitment) -> Result<bool, sled::Error> {
         Ok(self.moho_proofs.remove(encode_moho_key(l1ref))?.is_some())
     }
+}
+
+fn decode_proof(bytes: &[u8]) -> Result<ProofReceiptWithMetadata, sled::Error> {
+    ProofReceiptWithMetadata::decode(bytes)
+        .map_err(|e| sled::Error::Unsupported(format!("malformed stored proof receipt: {e}")))
 }
 
 impl ProofDb for SledProofDb {
@@ -181,6 +185,8 @@ mod tests {
             Runtime::new().unwrap().block_on(async {
                 db.store_asm_proof(range, proof.clone()).await.unwrap();
 
+                let stored = db.asm_proofs.get(encode_asm_key(&range)).unwrap().unwrap();
+                prop_assert_eq!(stored.as_ref(), proof.0.encode());
                 let retrieved = db.get_asm_proof(range).await.unwrap();
 
                 prop_assert_eq!(Some(proof), retrieved);
@@ -200,6 +206,8 @@ mod tests {
             Runtime::new().unwrap().block_on(async {
                 db.store_moho_proof(commitment, proof.clone()).await.unwrap();
 
+                let stored = db.moho_proofs.get(encode_moho_key(&commitment)).unwrap().unwrap();
+                prop_assert_eq!(stored.as_ref(), proof.0.encode());
                 let retrieved = db.get_moho_proof(commitment).await.unwrap();
 
                 prop_assert_eq!(Some(proof), retrieved);

@@ -1,5 +1,4 @@
 use arbitrary::Arbitrary;
-use borsh::{BorshDeserialize, BorshSerialize};
 use serde::{Deserialize, Serialize};
 
 /// Number of timestamps kept for computing the median block time.
@@ -18,9 +17,7 @@ const MEDIAN_TIMESTAMP_INDEX: usize = TIMESTAMPS_FOR_MEDIAN / 2;
 /// is advanced in a circular manner.
 ///
 /// The median is computed using all timestamps in the buffer.
-#[derive(
-    Debug, Clone, PartialEq, Eq, Serialize, Deserialize, BorshSerialize, BorshDeserialize, Arbitrary,
-)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Arbitrary)]
 pub struct TimestampStore {
     /// The array that holds exactly `TIMESTAMPS_FOR_MEDIAN` timestamps.
     buffer: [u32; TIMESTAMPS_FOR_MEDIAN],

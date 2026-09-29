@@ -2,7 +2,6 @@
 
 use std::{cmp::Ordering, fmt};
 
-use borsh::{BorshDeserialize, BorshSerialize};
 use serde::{Deserialize, Serialize};
 use strata_identifiers::L1BlockCommitment;
 use zkaleido::ProofReceiptWithMetadata;
@@ -29,11 +28,11 @@ pub struct ProverStatus {
 }
 
 /// ASM step proof for a range of L1 blocks.
-#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AsmProof(pub ProofReceiptWithMetadata);
 
 /// Moho recursive proof, valid up to some L1 block commitment.
-#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MohoProof(pub ProofReceiptWithMetadata);
 
 /// Identifies a proof by its kind and block reference.
@@ -42,7 +41,7 @@ pub struct MohoProof(pub ProofReceiptWithMetadata);
 /// start height of the range is used. When an ASM proof and a Moho proof share
 /// the same height, the ASM proof comes first because the ASM proof is a
 /// prerequisite for Moho construction at that height.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, BorshSerialize, BorshDeserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum ProofId {
     /// An ASM step proof covering an L1 range.
     Asm(L1Range),
@@ -125,9 +124,7 @@ impl fmt::Display for RemoteProofId {
 /// A range of L1 blocks defined by start and end commitments.
 ///
 /// Ordered by start commitment first, then end commitment.
-#[derive(
-    Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, BorshSerialize, BorshDeserialize,
-)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct L1Range {
     /// The start of the range (inclusive).
     start: L1BlockCommitment,

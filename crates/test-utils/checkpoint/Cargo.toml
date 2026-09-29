@@ -19,6 +19,5 @@ strata-predicate.workspace = true
 strata-test-utils-arb.workspace = true
 strata-test-utils-btc.workspace = true
 
-borsh.workspace = true
 k256.workspace = true
 rand.workspace = true

@@ -9,7 +9,6 @@ pub mod harness;
 use anyhow as _;
 use bitcoin_bosd as _;
 use bitcoind_async_client as _;
-use borsh as _;
 use corepc_node as _;
 use moho_runtime_impl as _;
 use moho_runtime_interface as _;

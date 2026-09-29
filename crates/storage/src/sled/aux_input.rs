@@ -1,6 +1,7 @@
 //! [`AsmAuxDataDb`] implementation backed by sled.
 
-use anyhow::{Context, Result};
+use anyhow::{Result, anyhow};
+use ssz::{Decode, Encode};
 use strata_asm_common::AuxData;
 use strata_identifiers::L1BlockCommitment;
 
@@ -9,7 +10,7 @@ use crate::AsmAuxDataDb;
 
 /// Sled-backed [`AsmAuxDataDb`] keyed by [`L1BlockCommitment`].
 ///
-/// Values are borsh-encoded; keys use the parent module's big-endian height
+/// Values are SSZ-encoded; keys use the parent module's big-endian height
 /// encoding so lexicographic ordering matches block-height ordering.
 #[derive(Debug, Clone)]
 pub struct SledAsmAuxDataDb {
@@ -42,7 +43,7 @@ impl SledAsmAuxDataDb {
     /// sync thread (via `ServiceBuilder::launch_sync`), where awaiting is not
     /// possible; calling this directly avoids that.
     pub fn put(&self, block: &L1BlockCommitment, data: &AuxData) -> Result<()> {
-        let value = borsh::to_vec(data)?;
+        let value = data.as_ssz_bytes();
         self.aux.insert(encode_block_commitment(block), value)?;
         Ok(())
     }
@@ -51,8 +52,8 @@ impl SledAsmAuxDataDb {
     pub fn get(&self, block: &L1BlockCommitment) -> Result<Option<AuxData>> {
         match self.aux.get(encode_block_commitment(block))? {
             Some(bytes) => {
-                let data = borsh::from_slice::<AuxData>(&bytes)
-                    .context("failed to deserialize AuxData")?;
+                let data = AuxData::from_ssz_bytes(&bytes)
+                    .map_err(|e| anyhow!("failed to deserialize AuxData: {e:?}"))?;
                 Ok(Some(data))
             }
             None => Ok(None),
@@ -129,10 +130,6 @@ mod tests {
     use super::*;
     use crate::sled::test_util::{make_commitment, test_db};
 
-    fn assert_aux_eq(a: &AuxData, b: &AuxData) {
-        assert_eq!(borsh::to_vec(a).unwrap(), borsh::to_vec(b).unwrap());
-    }
-
     #[test]
     fn put_get_roundtrip() {
         let (db, _dir) = test_db();
@@ -141,8 +138,14 @@ mod tests {
         let aux = AuxData::default();
 
         store.put(&commitment, &aux).unwrap();
+        let stored = store
+            .aux
+            .get(encode_block_commitment(&commitment))
+            .unwrap()
+            .unwrap();
+        assert_eq!(stored.as_ref(), aux.as_ssz_bytes());
         let retrieved = store.get(&commitment).unwrap().unwrap();
-        assert_aux_eq(&retrieved, &aux);
+        assert_eq!(retrieved, aux);
     }
 
     #[test]

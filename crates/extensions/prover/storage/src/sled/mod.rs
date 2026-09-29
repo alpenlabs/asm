@@ -5,6 +5,7 @@
 //! concern. Keys use big-endian height encoding so that sled's lexicographic
 //! ordering matches block-height ordering.
 
+use serde::{Serialize, de::DeserializeOwned};
 use strata_asm_prover_types::L1Range;
 use strata_identifiers::{Buf32, L1BlockCommitment, L1BlockId};
 
@@ -20,17 +21,18 @@ pub use self::{remote_mapping::RemoteProofMappingError, remote_status::RemotePro
 /// [`super::RemoteProofStatusDb`] using five sled trees within a single database.
 /// Proof keys are encoded with big-endian heights so that sled's lexicographic
 /// ordering matches block-height ordering.
+/// Remote proof IDs use their inner byte vector verbatim, without a serialization wrapper.
 #[derive(Debug, Clone)]
 pub struct SledProofDb {
     /// ASM step proofs, keyed by `[start_height‖start_blkid‖end_height‖end_blkid]` (72 bytes).
     pub(crate) asm_proofs: sled::Tree,
     /// Moho recursive proofs, keyed by `[height‖blkid]` (36 bytes).
     pub(crate) moho_proofs: sled::Tree,
-    /// A proof's latest remote job: `ProofId` (borsh-encoded) → `RemoteProofId` (raw bytes).
+    /// A proof's latest remote job: `ProofId` (CBOR-encoded) → `RemoteProofId` (raw bytes).
     pub(crate) proof_to_remote: sled::Tree,
-    /// Each remote job's proof: `RemoteProofId` (raw bytes) → `ProofId` (borsh-encoded).
+    /// Each remote job's proof: `RemoteProofId` (raw bytes) → `ProofId` (CBOR-encoded).
     pub(crate) remote_to_proof: sled::Tree,
-    /// Status tracking: `RemoteProofId` (raw bytes) → `RemoteProofStatus` (borsh-encoded).
+    /// Status tracking: `RemoteProofId` (raw bytes) → `RemoteProofStatus` (CBOR-encoded).
     pub(crate) remote_proof_status: sled::Tree,
 }
 
@@ -81,10 +83,10 @@ impl SledProofDb {
 
 // ── Key encoding ──────────────────────────────────────────────────────
 //
-// We use a custom big-endian encoding for block commitment keys instead of
-// borsh/bincode because those serialize integers as little-endian. Big-endian
-// encoding ensures that sled's lexicographic key ordering matches block-height
-// ordering, which is required for range scans and `last()` queries.
+// We use a custom big-endian encoding for block commitment keys instead of a
+// general-purpose codec because those commonly serialize integers as little-endian.
+// Big-endian encoding ensures that sled's lexicographic key ordering matches
+// block-height ordering, which is required for range scans and `last()` queries.
 
 /// Size of an encoded [`L1BlockCommitment`]: 4-byte BE height + 32-byte block id.
 const ENCODED_L1_COMMITMENT_SIZE: usize = 4 + 32;
@@ -133,6 +135,20 @@ pub(crate) fn encode_moho_key(l1ref: &L1BlockCommitment) -> [u8; ENCODED_L1_COMM
 /// Alias: decodes a Moho proof key (same as a single block commitment).
 pub(crate) fn decode_moho_key(key: &[u8]) -> L1BlockCommitment {
     decode_block_commitment(key)
+}
+
+/// Serializes database bookkeeping as CBOR.
+pub(crate) fn encode_cbor<T: Serialize>(value: &T) -> Result<Vec<u8>, sled::Error> {
+    let mut bytes = Vec::new();
+    ciborium::into_writer(value, &mut bytes)
+        .map_err(|e| sled::Error::Unsupported(format!("failed to encode CBOR value: {e}")))?;
+    Ok(bytes)
+}
+
+/// Deserializes database bookkeeping from CBOR.
+pub(crate) fn decode_cbor<T: DeserializeOwned>(bytes: &[u8]) -> Result<T, sled::Error> {
+    ciborium::from_reader(bytes)
+        .map_err(|e| sled::Error::Unsupported(format!("failed to decode CBOR value: {e}")))
 }
 
 #[cfg(test)]
