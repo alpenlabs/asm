@@ -54,6 +54,11 @@ an optional `ref` (branch, tag, or commit; defaults to the ref selected in the U
 and an optional `image_tag` override, which must start with `dev-`, `manual-` or
 `test-` so an override can never overwrite a production short-SHA tag.
 
+To publish a tag or release commit, dispatch from `main` with `ref` set to it
+(for example `v0.3.2`). The run title shows the ref that was built, and the step
+summary's "Resolved SHA" shows the exact commit. Runs from a ref that cannot
+publish are titled `[skipped: <ref> cannot publish]`.
+
 Repository setup, mirroring mosaic and strata-bridge:
 
 - a GitHub Environment named `AWS`, deployable from `main`, `releases/*` and `v*` tags
