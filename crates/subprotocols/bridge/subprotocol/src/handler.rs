@@ -173,18 +173,19 @@ pub(crate) fn preprocess_parsed_tx(
 
 #[cfg(test)]
 mod tests {
-    use strata_asm_bridge_types::OperatorClaimUnlockV0;
+    use strata_asm_bridge_types::{OperatorClaimUnlockV0, OperatorClaimUnlockV1};
     use strata_asm_proto_bridge_txs::{
         deposit_request::DrtHeaderAux,
         parser::ParsedTx,
         test_utils::{create_test_withdrawal_fulfillment_tx, parse_sps50_tx},
         withdrawal_fulfillment::parse_withdrawal_fulfillment_tx,
     };
+    use strata_identifiers::Buf32;
     use strata_test_utils_arb::ArbitraryGenerator;
 
     use super::{BRIDGE_SUBPROTOCOL_ID, NewExportEntry, handle_parsed_tx};
     use crate::{
-        claim::ClaimV0,
+        claim::{ClaimV0, ClaimV1},
         test_utils::{
             MockMsgRelayer, add_deposits_and_assignments, create_test_state,
             create_verified_aux_data, create_withdrawal_info_from_assignment, setup_deposit_test,
@@ -281,6 +282,54 @@ mod tests {
             assert_eq!(export.container_id(), BRIDGE_SUBPROTOCOL_ID);
             assert_eq!(export.entry_data(), &expected_leaf);
         }
+    }
+
+    /// Under [`ClaimV1`] the same fulfillment commits the assignee's MuSig2 public key instead
+    /// of its table index. The expectation is built from the operator table directly, so the
+    /// test would still fail if `export_leaf` resolved the wrong operator.
+    #[test]
+    fn test_handle_withdrawal_fulfillment_commits_claim_v1_leaf() {
+        let (mut state, _) = create_test_state();
+        add_deposits_and_assignments(&mut state, 1);
+        let assignment = state.assignments().assignments().first().unwrap().clone();
+
+        // Resolve the key before fulfilling, since fulfillment consumes the assignment.
+        let operator_pubkey = Buf32::from(
+            *state
+                .operators()
+                .get_operator(assignment.current_assignee())
+                .expect("assignee should be registered")
+                .musig2_pk(),
+        );
+
+        let withdrawal_info = create_withdrawal_info_from_assignment(&assignment);
+        let tx = create_test_withdrawal_fulfillment_tx(&withdrawal_info);
+        let tx_input = parse_sps50_tx(&tx);
+        let parsed_info = parse_withdrawal_fulfillment_tx(&tx_input)
+            .expect("should parse withdrawal fulfillment tx");
+        let parsed_tx = ParsedTx::WithdrawalFulfillment(parsed_info);
+
+        let aux = create_verified_aux_data(vec![]);
+        let mut relayer = MockMsgRelayer::default();
+        handle_parsed_tx::<ClaimV1>(&mut state, parsed_tx, &aux, &mut relayer)
+            .expect("handling a valid withdrawal fulfillment should succeed");
+
+        let expected_leaf =
+            OperatorClaimUnlockV1::new(assignment.deposit_idx(), operator_pubkey).compute_hash();
+        let export = relayer
+            .logs()
+            .iter()
+            .find_map(|log| log.try_into_log::<NewExportEntry>().ok())
+            .expect("fulfillment should emit a NewExportEntry log");
+
+        assert_eq!(export.container_id(), BRIDGE_SUBPROTOCOL_ID);
+        assert_eq!(export.entry_data(), &expected_leaf);
+
+        // The v0 leaf for the same fulfillment must not be what was committed.
+        let v0_leaf =
+            OperatorClaimUnlockV0::new(assignment.deposit_idx(), assignment.current_assignee())
+                .compute_hash();
+        assert_ne!(export.entry_data(), &v0_leaf);
     }
 
     #[test]

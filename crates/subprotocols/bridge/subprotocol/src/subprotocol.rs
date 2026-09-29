@@ -18,7 +18,7 @@ use strata_asm_proto_bridge_txs::{BRIDGE_SUBPROTOCOL_ID, errors::Mismatch, parse
 use strata_identifiers::L1BlockCommitment;
 
 use crate::{
-    claim::{ClaimV0, ClaimVersion},
+    claim::{ClaimV0, ClaimV1, ClaimVersion},
     errors::WithdrawalAssignmentError,
     handler::{handle_parsed_tx, preprocess_parsed_tx},
 };
@@ -39,6 +39,14 @@ pub struct BridgeSubproto<C: ClaimVersion>(PhantomData<C>);
 ///
 /// [`OperatorClaimUnlockV0`]: strata_asm_bridge_types::OperatorClaimUnlockV0
 pub type BridgeSubprotoV1 = BridgeSubproto<ClaimV0>;
+
+/// The successor bridge subprotocol, committing [`OperatorClaimUnlockV1`] export leaves.
+///
+/// Switching to it moves every subsequent leaf, so it is reached through a spec activation
+/// rather than by changing what an already-released ruleset invokes.
+///
+/// [`OperatorClaimUnlockV1`]: strata_asm_bridge_types::OperatorClaimUnlockV1
+pub type BridgeSubprotoV2 = BridgeSubproto<ClaimV1>;
 
 impl<C: ClaimVersion> Subprotocol for BridgeSubproto<C> {
     const ID: SubprotocolId = BRIDGE_SUBPROTOCOL_ID;
@@ -272,10 +280,22 @@ mod tests {
     use strata_identifiers::L1BlockCommitment;
     use strata_test_utils_arb::ArbitraryGenerator;
 
-    use super::BridgeSubprotoV1;
+    use super::{BridgeSubprotoV1, BridgeSubprotoV2};
     use crate::test_utils::{
         MockMsgRelayer, add_deposits, create_test_state, create_verified_aux_data,
     };
+
+    /// The claim version moves the export leaf, not the section. Both versions must therefore
+    /// keep the same subprotocol ID and schema version, so that a spec activation between them
+    /// needs no state migration and the section stays decodable under either.
+    #[test]
+    fn claim_versions_share_the_section_identity() {
+        assert_eq!(BridgeSubprotoV1::ID, BridgeSubprotoV2::ID);
+        assert_eq!(
+            BridgeSubprotoV1::STATE_VERSION,
+            BridgeSubprotoV2::STATE_VERSION
+        );
+    }
 
     /// The safe harbor must start deactivated so it has no effect until the
     /// admin subprotocol explicitly triggers a defcon signal.

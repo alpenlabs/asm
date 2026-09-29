@@ -25,9 +25,10 @@
 //! An assigned operator's claim to unlock a deposit UTXO after a fulfilled withdrawal. Only the
 //! claim's hash leaves the ASM, and that hash is consensus state, so the claim is versioned:
 //!
-//! - [`OperatorClaimUnlockV0`] — names the assignee by table index. Frozen; what the subprotocol
-//!   emits today.
-//! - [`OperatorClaimUnlockV1`] — names the assignee by public key. Defined, not yet emitted.
+//! - [`OperatorClaimUnlockV0`] — names the assignee by table index. Frozen; what deployed chains
+//!   commit today.
+//! - [`OperatorClaimUnlockV1`] — names the assignee by public key. Committed by the successor
+//!   subprotocol version, which reaching takes a spec activation.
 //!
 //! # Configuration
 //!

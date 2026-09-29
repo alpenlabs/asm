@@ -19,7 +19,8 @@
 //! The main entry point is [`subprotocol::BridgeSubproto`], which implements the `Subprotocol`
 //! trait for integration with the Anchor State Machine. It is parameterized by the operator
 //! claim version it commits, and each released version is a type alias for one choice:
-//! [`BridgeSubprotoV1`] commits [`OperatorClaimUnlockV0`] leaves.
+//! [`BridgeSubprotoV1`] commits [`OperatorClaimUnlockV0`] leaves, and [`BridgeSubprotoV2`]
+//! commits [`OperatorClaimUnlockV1`] leaves.
 
 mod claim;
 mod errors;
@@ -30,7 +31,7 @@ mod validation;
 #[cfg(test)]
 mod test_utils;
 
-pub use claim::{ClaimV0, ClaimVersion};
+pub use claim::{ClaimV0, ClaimV1, ClaimVersion};
 pub use errors::*;
 pub use strata_asm_proto_bridge_msgs::BridgeIncomingMsg;
 // Re-exported so downstream users keep finding the state types here.
@@ -38,4 +39,4 @@ pub use strata_asm_proto_bridge_state::{
     AssignmentEntry, BridgeStateV1, DepositEntry, NnScriptIdx, OperatorClaimUnlockV0,
     OperatorClaimUnlockV1,
 };
-pub use subprotocol::{BridgeSubproto, BridgeSubprotoV1};
+pub use subprotocol::{BridgeSubproto, BridgeSubprotoV1, BridgeSubprotoV2};
