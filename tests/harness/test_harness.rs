@@ -68,7 +68,11 @@ use strata_predicate::PredicateKey;
 use strata_tasks::{TaskExecutor, TaskManager};
 use strata_test_utils_arb::ArbitraryGenerator;
 use strata_test_utils_checkpoint::CheckpointTestHarness;
-use tokio::{runtime::Handle, task::block_in_place, time::sleep};
+use tokio::{
+    runtime::Handle,
+    task::{block_in_place, spawn_blocking},
+    time::{sleep, timeout},
+};
 
 use super::{
     admin::{create_test_admin_setup, AdminContext, DEFAULT_CONFIRMATION_DEPTH},
@@ -111,9 +115,56 @@ pub struct AsmTestHarness {
     pub executor: TaskExecutor,
     /// Genesis block height
     pub genesis_height: u64,
+    task_manager: Option<TaskManager>,
+    registry_factory: fn() -> ExecutionRegistry,
 }
 
 impl AsmTestHarness {
+    /// Stops both workers and recreates them over the same Sled-backed stores.
+    ///
+    /// This tests service-state recovery; it does not close/reopen database handles
+    /// or simulate an abrupt process crash.
+    pub async fn restart_workers(&mut self) -> anyhow::Result<()> {
+        let manager = self
+            .task_manager
+            .take()
+            .expect("test worker manager exists");
+        manager.get_shutdown_signal().send();
+        // The synchronous worker checks shutdown when it receives an input.
+        // Wake its queue; the shutdown flag prevents this block being processed.
+        let (tip, _) = self
+            .get_latest_asm_state()?
+            .expect("worker has committed state");
+        let wake = BlockHash::from_byte_array(*tip.blkid().as_ref());
+        // A terminated worker rejects the wakeup. Bound this wait as well as the
+        // task-manager join so a lifecycle regression cannot hang the test.
+        let _ = timeout(
+            Duration::from_secs(30),
+            self.asm_handle.submit_block_async(wake),
+        )
+        .await?;
+        timeout(
+            Duration::from_secs(30),
+            spawn_blocking(move || manager.monitor(None)),
+        )
+        .await???;
+        let manager = TaskManager::new(Handle::current());
+        let executor = manager.create_executor();
+        let (asm, moho) = launch_workers(
+            &self.context,
+            &self.moho_context,
+            &self.asm_params,
+            (self.registry_factory)(),
+            &executor,
+        )
+        .await?;
+        self.asm_handle = asm;
+        self.moho_handle = moho;
+        self.executor = executor;
+        self.task_manager = Some(manager);
+        Ok(())
+    }
+
     /// Default transaction fee.
     pub const DEFAULT_FEE: Amount = Amount::from_sat(1000);
 
@@ -726,6 +777,7 @@ pub struct AsmTestHarnessBuilder {
     admin_customize: Option<AdminConfigCustomizer>,
     num_operators: usize,
     txindex: bool,
+    registry_factory: fn() -> ExecutionRegistry,
 }
 
 impl Default for AsmTestHarnessBuilder {
@@ -736,6 +788,7 @@ impl Default for AsmTestHarnessBuilder {
             admin_customize: None,
             num_operators: DEFAULT_NUM_OPERATORS,
             txindex: false,
+            registry_factory: default_execution_registry,
         }
     }
 }
@@ -757,6 +810,12 @@ impl fmt::Debug for AsmTestHarnessBuilder {
 impl AsmTestHarnessBuilder {
     /// Default genesis block height for tests.
     pub const DEFAULT_GENESIS_HEIGHT: u64 = 101;
+
+    /// Supplies execution targets for each fresh worker instance, including restarts.
+    pub fn with_execution_registry(mut self, factory: fn() -> ExecutionRegistry) -> Self {
+        self.registry_factory = factory;
+        self
+    }
 
     /// Sets the genesis block height (default: [`Self::DEFAULT_GENESIS_HEIGHT`]).
     pub fn with_genesis_height(mut self, height: u64) -> Self {
@@ -861,38 +920,15 @@ impl AsmTestHarnessBuilder {
         let task_manager = TaskManager::new(Handle::current());
         let executor = task_manager.create_executor();
 
-        // 7. Launch ASM worker service. `launch` stores the genesis anchor
-        // synchronously, so the Moho worker (step 8) can seed its genesis Moho
-        // state from it.
-        let asm_predicate = PredicateKey::always_accept();
-        let mut registry = ExecutionRegistry::default();
-        registry.register(asm_predicate.clone(), StrataAsmSpec)?;
-        let asm_handle = AsmWorkerBuilder::new()
-            .with_context(context.clone())
-            .with_genesis(
-                StrataAsmSpec.construct_genesis_state(&asm_params),
-                asm_predicate.clone(),
-            )
-            .with_registry(registry)
-            .launch(&executor)?;
-
-        // 8. Launch the Moho worker, driven by the ASM worker's per-block commit
-        // stream, mirroring the production wiring in `asm-runner`. It shares the
-        // ASM worker's context so it folds the anchor states that worker commits.
-        //
-        // Subscribe *before* any block is submitted (the genesis submit below and
-        // every later `mine_block`): the subscription has no replay, so a later
-        // subscriber would miss already-committed blocks. The `always_accept`
-        // predicate stands in for the real ASM predicate the runner derives from
-        // its proof backend — the harness has no verifier.
         let moho_context = TestMohoWorkerContext::new(context.clone());
-        let moho_handle = MohoWorkerBuilder::new()
-            .with_context(moho_context.clone())
-            .with_subscription(asm_handle.subscribe_blocks())
-            .with_genesis_block(asm_params.anchor.block)
-            .with_asm_predicate(PredicateKey::always_accept())
-            .launch(&executor)
-            .await?;
+        let (asm_handle, moho_handle) = launch_workers(
+            &context,
+            &moho_context,
+            &asm_params,
+            (self.registry_factory)(),
+            &executor,
+        )
+        .await?;
 
         let harness = AsmTestHarness {
             bitcoind,
@@ -904,6 +940,8 @@ impl AsmTestHarnessBuilder {
             asm_params,
             executor,
             genesis_height,
+            task_manager: Some(task_manager),
+            registry_factory: self.registry_factory,
         };
 
         // Submit genesis block hash and wait for processing to complete. This is
@@ -918,4 +956,39 @@ impl AsmTestHarnessBuilder {
             checkpoint: checkpoint_harness,
         })
     }
+}
+
+fn default_execution_registry() -> ExecutionRegistry {
+    let mut registry = ExecutionRegistry::default();
+    registry
+        .register(PredicateKey::always_accept(), StrataAsmSpec)
+        .expect("initial test target is unique");
+    registry
+}
+
+async fn launch_workers(
+    context: &TestAsmWorkerContext,
+    moho_context: &TestMohoWorkerContext,
+    params: &AsmParams,
+    registry: ExecutionRegistry,
+    executor: &TaskExecutor,
+) -> anyhow::Result<(AsmWorkerHandle, MohoWorkerHandle)> {
+    let initial = PredicateKey::always_accept();
+    let asm = AsmWorkerBuilder::new()
+        .with_context(context.clone())
+        .with_genesis(
+            StrataAsmSpec.construct_genesis_state(params),
+            initial.clone(),
+        )
+        .with_registry(registry)
+        .launch(executor)?;
+    // Subscribe before any blocks are submitted: this stream has no replay.
+    let moho = MohoWorkerBuilder::new()
+        .with_context(moho_context.clone())
+        .with_subscription(asm.subscribe_blocks())
+        .with_genesis_block(params.anchor.block)
+        .with_asm_predicate(initial)
+        .launch(executor)
+        .await?;
+    Ok((asm, moho))
 }

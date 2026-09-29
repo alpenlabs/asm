@@ -26,3 +26,5 @@ pub mod bridge;
 pub mod checkpoint;
 pub mod moho;
 pub mod test_harness;
+
+pub mod spec;

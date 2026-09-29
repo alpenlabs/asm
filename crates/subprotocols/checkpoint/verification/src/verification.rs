@@ -990,3 +990,7 @@ mod tests {
         ));
     }
 }
+
+#[cfg(test)]
+#[path = "baseline_tests.rs"]
+mod baseline_tests;

@@ -19,3 +19,6 @@ pub use constants::BRIDGE_SUBPROTOCOL_ID;
 
 #[cfg(any(test, feature = "test-utils"))]
 pub mod test_utils;
+
+#[cfg(test)]
+mod baseline_tests;

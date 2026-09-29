@@ -18,8 +18,17 @@ use crate::programs::{compute_sp1_predicate_key, INITIAL_ASM_STATE_ROOT_FILE};
 pub(crate) async fn gen_execution_summary() -> ExecutionSummary {
     let host = init_asm_host().await;
     let (input, _) = create_runtime_input(&host);
-    <AsmStfProofProgram as ZkVmProgram>::execute(&input, &host)
-        .expect("failed to generate execution summary")
+    let summary = <AsmStfProofProgram as ZkVmProgram>::execute(&input, &host)
+        .expect("failed to generate execution summary");
+    let native = AsmStfProofProgram::execute(&input).expect("native ASM execution failed");
+    // Compare the same witness and parent predicate to detect guest/native
+    // semantic drift on this fixture, beyond merely checking successful execution.
+    assert_eq!(
+        summary.public_values().as_bytes(),
+        native.as_ssz_bytes(),
+        "SP1 ASM public values differ from native execution"
+    );
+    summary
 }
 
 pub(crate) async fn gen_proof_and_initial_root() -> (ProofReceiptWithMetadata, [u8; 32]) {

@@ -18,6 +18,8 @@ use bitcoin::{
     Amount, Block, BlockHash, CompactTarget, Network, OutPoint, ScriptBuf, Transaction,
     TxMerkleNode,
 };
+use integration_tests::harness::spec::TestSuccessor;
+use rand::{rngs::StdRng, SeedableRng};
 use strata_asm_common::{AnchorState, AsmSpec, AuxData};
 use strata_asm_params::AsmParams;
 use strata_asm_proto_bridge_txs::{
@@ -40,10 +42,11 @@ fn target() -> CompactTarget {
     CompactTarget::from_consensus(0x207f_ffff)
 }
 
-/// A genesis anchor state whose chain tip is `parent`, so a block built on
+/// Genesis parameters whose chain tip is `parent`, so a block built on
 /// `parent` is the next block the STF expects.
-fn genesis_state(parent: BlockHash) -> AnchorState {
-    let mut params: AsmParams = ArbitraryGenerator::new().generate();
+fn genesis_params(parent: BlockHash) -> AsmParams {
+    let mut rng = StdRng::seed_from_u64(5);
+    let mut params: AsmParams = ArbitraryGenerator::new().generate_with_rng(&mut rng);
     params.magic = TEST_MAGIC_BYTES;
     params.anchor = L1Anchor {
         block: L1BlockCommitment::new(GENESIS_HEIGHT, parent.to_l1_block_id()),
@@ -51,7 +54,11 @@ fn genesis_state(parent: BlockHash) -> AnchorState {
         epoch_start_timestamp: 0,
         network: Network::Regtest,
     };
-    construct_genesis_state(&params)
+    params
+}
+
+fn genesis_state(parent: BlockHash) -> AnchorState {
+    construct_genesis_state(&genesis_params(parent))
 }
 
 /// Mines a child of `parent` carrying `coinbase` as its only transaction.
@@ -179,5 +186,42 @@ fn tagged_coinbase_is_ignored_by_the_stf() {
     assert_eq!(
         genesis, original_parent,
         "execution must preserve the parent"
+    );
+}
+
+#[test]
+fn successor_genesis_and_prepare_preserve_baseline_semantics() {
+    let parent = BlockHash::all_zeros();
+    let params = genesis_params(parent);
+    let old = StrataAsmSpec.construct_genesis_state(&params);
+    let direct = TestSuccessor.construct_genesis_state(&params);
+    assert_eq!(direct.spec_id, TestSuccessor::ID);
+    assert_eq!(direct.last_processed_block(), old.last_processed_block());
+    assert_eq!(direct.sections, old.sections);
+    assert_eq!(
+        TestSuccessor.genesis_l1_height(&params),
+        u64::from(GENESIS_HEIGHT)
+    );
+    let old_snapshot = old.clone();
+    let block = mine_child_block(parent, untagged_coinbase());
+    for source in [&old, &direct] {
+        let prepared = TestSuccessor.prepare(source);
+        assert_eq!(TestSuccessor.prepare(&prepared), prepared);
+        let preprocessed = pre_process_asm(&TestSuccessor, source, &block).unwrap();
+        assert!(preprocessed.aux_requests.bitcoin_txs().is_empty());
+        let output =
+            compute_asm_transition(&TestSuccessor, source, &block, &AuxData::default(), None)
+                .unwrap();
+        let baseline =
+            compute_asm_transition(&StrataAsmSpec, &old, &block, &AuxData::default(), None)
+                .unwrap();
+        assert_eq!(output.state.spec_id, TestSuccessor::ID);
+        assert_eq!(output.state.sections, baseline.state.sections);
+        assert_eq!(output.state.chain_view, baseline.state.chain_view);
+        assert_eq!(output.manifest, baseline.manifest);
+    }
+    assert_eq!(
+        old, old_snapshot,
+        "prepare must not mutate the committed parent"
     );
 }
