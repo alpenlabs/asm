@@ -49,10 +49,11 @@ cannot make tags immutable, so the workflow refuses to re-push a bare short-SHA 
 that already exists; publish a rebuild under a `dev-`, `manual-` or `test-` tag
 instead.
 
-The workflow runs on manual dispatch from `main`, `releases/*` or a `v*` tag, with
-an optional `ref` (branch, tag, or commit; defaults to the ref selected in the UI)
-and an optional `image_tag` override, which must start with `dev-`, `manual-` or
-`test-` so an override can never overwrite a production short-SHA tag.
+The workflow runs on manual dispatch from `main` only (the `AWS` environment
+rejects any other ref), with an optional `ref` (branch, tag, or commit; defaults
+to the ref selected in the UI) and an optional `image_tag` override, which must
+start with `dev-`, `manual-` or `test-` so an override can never overwrite a
+production short-SHA tag.
 
 To publish a tag or release commit, dispatch from `main` with `ref` set to it
 (for example `v0.3.2`). The run title shows the ref that was built, and the step
@@ -61,7 +62,7 @@ publish are titled `[skipped: <ref> cannot publish]`.
 
 Repository setup, mirroring mosaic and strata-bridge:
 
-- a GitHub Environment named `AWS`, deployable from `main`, `releases/*` and `v*` tags
+- a GitHub Environment named `AWS`, deployable from `main` only
 - one variable on that environment: `PUBLIC_AWS_ROLE_TO_ASSUME`, the shared public
   ECR push role, whose trust policy must include this repository
 - the tag ruleset that restricts tag creation: the workflow treats any commit
