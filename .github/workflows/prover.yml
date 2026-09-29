@@ -62,6 +62,10 @@ jobs:
         id: sp1-runner
         uses: $/.github/actions/prebuild-sp1-runner
 
+      - name: Fetch Moho guest artifacts
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork == false
+        run: ./contrib/fetch_moho_artifacts.sh
+
       - name: Run prover-perf and post PR comment
         if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork == false
         env:

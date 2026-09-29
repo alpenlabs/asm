@@ -55,6 +55,11 @@ jobs:
           BUILD_VKEY: "1"
         run: cargo build --locked -p strata-asm-sp1-guest-builder --features docker-build
 
+      - name: Fetch Moho guest artifacts
+        # The Moho guest is built by the moho repo. Republish its release artifacts here so
+        # consumers of asm releases, such as the bridge, still find moho.elf and moho-vk.json.
+        run: ./contrib/fetch_moho_artifacts.sh
+
       - name: Stage release artifacts
         run: |
           set -euo pipefail

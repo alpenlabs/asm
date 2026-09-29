@@ -36,8 +36,9 @@ cargo build --bin strata-asm-runner ${CARGO_ARGS[@]+"${CARGO_ARGS[@]}"}
 cargo build --bin dbtool
 if [[ "$ASM_PROVER_BACKEND" == "sp1" ]]; then
   # Produces guest-builder/sp1/elfs/{asm,moho}.elf, which the runner reads at startup.
-  # The guest build is opt-in, so ask for it here.
+  # The ASM guest build is opt-in, so ask for it here. The Moho guest comes from a moho release.
   BUILD_ELF=1 cargo build -p strata-asm-sp1-guest-builder --release
+  ./contrib/fetch_moho_artifacts.sh
 fi
 TARGET_ROOT="${CARGO_TARGET_DIR:-target}"
 if [[ "$TARGET_ROOT" != /* ]]; then
