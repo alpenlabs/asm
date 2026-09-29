@@ -1,4 +1,7 @@
 name: Docker Publish to ECR
+# Show the built ref in the run list: runs dispatched from main with inputs.ref
+# would otherwise only show "main". The resolved SHA stays in the step summary.
+run-name: "Publish strata-asm-runner @ ${{ inputs.ref || github.ref_name }}${{ inputs.image_tag && format(' ({0})', inputs.image_tag) || '' }}"
 
 # Builds the strata-asm-runner image from a chosen ref, scans it with Trivy, and
 # pushes it to public ECR tagged with the short SHA of the built ASM commit.
@@ -8,7 +11,7 @@ on:
   workflow_dispatch:
     inputs:
       ref:
-        description: Git branch, tag, or commit SHA to build. Defaults to the branch or tag selected in the UI.
+        description: Git branch, tag, or commit SHA to build (e.g. v0.3.2, releases/0.3.0). Defaults to the branch or tag selected in the UI.
         required: false
         type: string
       image_tag:
@@ -34,7 +37,7 @@ concurrency:
 
 jobs:
   build_and_publish:
-    name: Build and Publish ASM Runner Image
+    name: Build and Publish ASM Runner Image (${{ inputs.ref || github.ref_name }})
     # Only protected refs may publish; other code is built through inputs.ref.
     if: >-
       ${{ github.ref == 'refs/heads/main'
