@@ -35,7 +35,7 @@ use strata_asm_worker::{ExecutionRegistry, WorkerError};
 use strata_predicate::PredicateKey;
 use thiserror::Error;
 
-use crate::StrataAsmSpec;
+use crate::{StrataAsmSpec, StrataAsmSpecV1};
 
 /// A failure to assemble the configured native execution targets.
 #[derive(Debug, Error)]
@@ -56,6 +56,8 @@ pub enum NativeAssemblyError {
 pub enum CompiledSpec {
     /// The initial Strata ASM ruleset.
     V0,
+    /// Its successor, which commits `OperatorClaimUnlockV1` bridge export leaves.
+    V1,
 }
 
 impl CompiledSpec {
@@ -63,6 +65,7 @@ impl CompiledSpec {
     pub fn resolve(id: SpecId) -> Result<Self, NativeAssemblyError> {
         match id {
             StrataAsmSpec::ID => Ok(Self::V0),
+            StrataAsmSpecV1::ID => Ok(Self::V1),
             _ => Err(NativeAssemblyError::UnsupportedSpec(id)),
         }
     }
@@ -71,6 +74,7 @@ impl CompiledSpec {
     pub fn construct_genesis_state(&self, params: &AsmParams) -> AnchorState {
         match self {
             Self::V0 => StrataAsmSpec.construct_genesis_state(params),
+            Self::V1 => StrataAsmSpecV1.construct_genesis_state(params),
         }
     }
 
@@ -81,6 +85,7 @@ impl CompiledSpec {
     ) -> Result<(), WorkerError> {
         match self {
             Self::V0 => registry.register(predicate, StrataAsmSpec),
+            Self::V1 => registry.register(predicate, StrataAsmSpecV1),
         }
     }
 }
@@ -116,6 +121,28 @@ mod tests {
             registry.resolve(&PredicateKey::never_accept()),
             Err(WorkerError::UnsupportedExecutionPredicate(_))
         ));
+    }
+
+    /// Both rulesets are compiled in, and a registry may carry them at once so that historical
+    /// work keeps resolving its own parent's predicate across an activation.
+    #[test]
+    fn native_catalog_carries_both_rulesets_at_once() {
+        let genesis = PredicateKey::always_accept();
+        let successor = PredicateKey::never_accept();
+        let registry = build_execution_registry([
+            (genesis.clone(), StrataAsmSpec::ID),
+            (successor.clone(), StrataAsmSpecV1::ID),
+        ])
+        .unwrap();
+
+        assert_eq!(
+            registry.resolve(&genesis).unwrap().spec_id(),
+            StrataAsmSpec::ID
+        );
+        assert_eq!(
+            registry.resolve(&successor).unwrap().spec_id(),
+            StrataAsmSpecV1::ID
+        );
     }
 
     #[test]

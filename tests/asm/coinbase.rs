@@ -27,7 +27,7 @@ use strata_asm_proto_bridge_txs::{
     test_utils::{create_dummy_tx, TEST_MAGIC_BYTES},
     BRIDGE_SUBPROTOCOL_ID,
 };
-use strata_asm_spec::{construct_genesis_state, StrataAsmSpec};
+use strata_asm_spec::{construct_genesis_state, StrataAsmSpec, StrataAsmSpecV1};
 use strata_asm_stf::{compute_asm_transition, pre_process_asm};
 use strata_btc_types::BlockHashExt;
 use strata_btc_verification::{compute_block_hash, L1Anchor};
@@ -189,33 +189,38 @@ fn tagged_coinbase_is_ignored_by_the_stf() {
     );
 }
 
-#[test]
-fn successor_genesis_and_prepare_preserve_baseline_semantics() {
+/// A successor that retains the subprotocol schemas must be a drop-in for spec 0 everywhere
+/// except where it deliberately differs. Genesis and `prepare` carry sections across untouched,
+/// `prepare` is idempotent and leaves the committed parent alone, and a block carrying no
+/// subprotocol transactions produces the baseline result under either ruleset.
+fn assert_successor_preserves_baseline_semantics<S>(successor: S)
+where
+    S: AsmSpec<GenesisParams = AsmParams>,
+{
     let parent = BlockHash::all_zeros();
     let params = genesis_params(parent);
     let old = StrataAsmSpec.construct_genesis_state(&params);
-    let direct = TestSuccessor.construct_genesis_state(&params);
-    assert_eq!(direct.spec_id, TestSuccessor::ID);
+    let direct = successor.construct_genesis_state(&params);
+    assert_eq!(direct.spec_id, S::ID);
     assert_eq!(direct.last_processed_block(), old.last_processed_block());
     assert_eq!(direct.sections, old.sections);
     assert_eq!(
-        TestSuccessor.genesis_l1_height(&params),
+        successor.genesis_l1_height(&params),
         u64::from(GENESIS_HEIGHT)
     );
     let old_snapshot = old.clone();
     let block = mine_child_block(parent, untagged_coinbase());
     for source in [&old, &direct] {
-        let prepared = TestSuccessor.prepare(source);
-        assert_eq!(TestSuccessor.prepare(&prepared), prepared);
-        let preprocessed = pre_process_asm(&TestSuccessor, source, &block).unwrap();
+        let prepared = successor.prepare(source);
+        assert_eq!(successor.prepare(&prepared), prepared);
+        let preprocessed = pre_process_asm(&successor, source, &block).unwrap();
         assert!(preprocessed.aux_requests.bitcoin_txs().is_empty());
         let output =
-            compute_asm_transition(&TestSuccessor, source, &block, &AuxData::default(), None)
-                .unwrap();
+            compute_asm_transition(&successor, source, &block, &AuxData::default(), None).unwrap();
         let baseline =
             compute_asm_transition(&StrataAsmSpec, &old, &block, &AuxData::default(), None)
                 .unwrap();
-        assert_eq!(output.state.spec_id, TestSuccessor::ID);
+        assert_eq!(output.state.spec_id, S::ID);
         assert_eq!(output.state.sections, baseline.state.sections);
         assert_eq!(output.state.chain_view, baseline.state.chain_view);
         assert_eq!(output.manifest, baseline.manifest);
@@ -224,4 +229,12 @@ fn successor_genesis_and_prepare_preserve_baseline_semantics() {
         old, old_snapshot,
         "prepare must not mutate the committed parent"
     );
+}
+
+#[test]
+fn successor_genesis_and_prepare_preserve_baseline_semantics() {
+    assert_successor_preserves_baseline_semantics(TestSuccessor);
+    // Spec 1 changes only the bridge export leaf, so on a block with no bridge transactions it
+    // must be indistinguishable from spec 0.
+    assert_successor_preserves_baseline_semantics(StrataAsmSpecV1);
 }

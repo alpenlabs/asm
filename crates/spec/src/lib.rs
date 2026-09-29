@@ -3,6 +3,7 @@
 //! This crate provides the Anchor State Machine (ASM) specification for the Strata protocol.
 //!
 //! - [`StrataAsmSpec`] — declares which subprotocols are active and their invocation order.
+//! - [`StrataAsmSpecV1`] — its successor, which commits `OperatorClaimUnlockV1` export leaves.
 //! - [`construct_genesis_state`] — builds the genesis
 //!   [`AnchorState`](strata_asm_common::AnchorState) from
 //!   [`AsmParams`](strata_asm_params::AsmParams).
@@ -14,7 +15,7 @@ mod genesis;
 mod spec;
 
 pub use genesis::construct_genesis_state;
-pub use spec::StrataAsmSpec;
+pub use spec::{StrataAsmSpec, StrataAsmSpecV1};
 
 #[cfg(feature = "host")]
 pub mod host;
