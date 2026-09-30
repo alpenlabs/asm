@@ -2,9 +2,9 @@
 
 # Download the Moho recursive proof guest ELF from a moho GitHub release.
 #
-# The ELF lands in guest-builder/sp1/elfs/, next to the ASM guest ELF. The release tag defaults
-# to the moho tag this workspace depends on in Cargo.toml, so the ELF matches the moho crates the
-# host links against. Set MOHO_TAG to use another release.
+# The ELF lands in guest-builder/sp1/generated/, next to the ASM guest ELF. The release tag
+# defaults to the moho tag this workspace depends on in Cargo.toml, so the ELF matches the moho
+# crates the host links against. Set MOHO_TAG to use another release.
 #
 # Usage:
 #   ./contrib/fetch_moho_artifacts.sh
@@ -13,7 +13,7 @@
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-out_dir="$repo_root/guest-builder/sp1/elfs"
+out_dir="$repo_root/guest-builder/sp1/generated"
 
 tag="${MOHO_TAG:-$(sed -n 's/^moho-types = .*tag = "\([^"]*\)".*/\1/p' "$repo_root/Cargo.toml")}"
 if [ -z "$tag" ]; then

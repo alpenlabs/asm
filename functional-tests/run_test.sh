@@ -35,7 +35,7 @@ cargo build --bin strata-asm-runner ${CARGO_ARGS[@]+"${CARGO_ARGS[@]}"}
 # proving, so a debug build is enough regardless of the prover backend.
 cargo build --bin dbtool
 if [[ "$ASM_PROVER_BACKEND" == "sp1" ]]; then
-  # Produces guest-builder/sp1/elfs/{asm,moho}.elf, which the runner reads at startup.
+  # Produces guest-builder/sp1/generated/{asm,moho}.elf, which the runner reads at startup.
   # The ASM guest build is opt-in, so ask for it here. The Moho guest comes from a moho release.
   BUILD_ELF=1 cargo build -p strata-asm-sp1-guest-builder --release
   ./contrib/fetch_moho_artifacts.sh

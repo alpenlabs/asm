@@ -58,8 +58,8 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p dist
-          ELF_DIR=guest-builder/sp1/elfs
-          cp "$ELF_DIR/asm.elf" "$ELF_DIR/asm-predicate.txt" "$ELF_DIR/asm-vkey-hash.txt" dist/
+          GEN_DIR=guest-builder/sp1/generated
+          cp "$GEN_DIR/asm.elf" "$GEN_DIR/asm-predicate.txt" "$GEN_DIR/asm-vkey-hash.txt" dist/
           (cd dist && sha256sum asm.elf asm-predicate.txt asm-vkey-hash.txt > SHA256SUMS)
           ls -la dist/
 

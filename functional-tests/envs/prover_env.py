@@ -53,10 +53,10 @@ def _artifact_sources() -> tuple[ArtifactSource, ArtifactSource, str]:
     backend = os.environ.get("ASM_PROVER_BACKEND", "native")
     if backend == "sp1":
         repo_root = Path(__file__).resolve().parents[2]
-        elfs_dir = (repo_root / "guest-builder" / "sp1" / "elfs").resolve()
+        generated_dir = (repo_root / "guest-builder" / "sp1" / "generated").resolve()
         return (
-            Sp1Artifact(elf_path=str(elfs_dir / "moho.elf")),
-            Sp1Artifact(elf_path=str(elfs_dir / "asm.elf")),
+            Sp1Artifact(elf_path=str(generated_dir / "moho.elf")),
+            Sp1Artifact(elf_path=str(generated_dir / "asm.elf")),
             os.environ["ASM_EXPECTED_PREDICATE"],
         )
     if backend == "native":
