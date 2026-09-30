@@ -44,7 +44,7 @@ repository validation checks.
    ```
 
    The metadata preflight catches stale guest lockfiles before SP1's own metadata discovery
-   rewrites them. Existing files in `guest-builder/sp1/elfs` survive `cargo clean`, so a
+   rewrites them. Existing files in `guest-builder/sp1/generated` survive `cargo clean`, so a
    successful host build does not prove that a new guest was built. Compare the actual ELF and
    verifying key with the release record. Deriving a key from arbitrary bytes does not show that
    the ELF implements the declared spec.

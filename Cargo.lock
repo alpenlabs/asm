@@ -8461,7 +8461,6 @@ name = "strata-asm-sp1-guest-builder"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "serde_json",
  "sp1-build",
  "sp1-sdk",
  "sp1-verifier",

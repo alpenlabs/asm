@@ -16,7 +16,7 @@ permissions: {}
 
 jobs:
   publish-guest-artifacts:
-    name: Build and publish SP1 guest ELFs + vk JSONs
+    name: Build and publish the SP1 ASM guest ELF and vk files
     runs-on: ubuntu-latest
     timeout-minutes: 90
     permissions:
@@ -47,29 +47,20 @@ jobs:
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build guest ELFs and vk JSONs
+      - name: Build guest ELF and vk files
         # The guest build and vk derivation are both opt-in (see the crate's build.rs).
-        # This is the only job that publishes the *-vk.json artifacts, so it opts into both.
         env:
           BUILD_ELF: "1"
           BUILD_VKEY: "1"
         run: cargo build --locked -p strata-asm-sp1-guest-builder --features docker-build
 
-      - name: Fetch Moho guest artifacts
-        # The Moho guest is built by the moho repo. Republish its release artifacts here so
-        # consumers of asm releases, such as the bridge, still find moho.elf and moho-vk.json.
-        run: ./contrib/fetch_moho_artifacts.sh
-
       - name: Stage release artifacts
         run: |
           set -euo pipefail
           mkdir -p dist
-          ELF_DIR=guest-builder/sp1/elfs
-          for prog in asm moho; do
-            cp "$ELF_DIR/$prog.elf" "dist/$prog.elf"
-            cp "$ELF_DIR/$prog-vk.json" "dist/$prog-vk.json"
-            (cd dist && sha256sum "$prog-vk.json" > "$prog-vk.json.sha256")
-          done
+          GEN_DIR=guest-builder/sp1/generated
+          cp "$GEN_DIR/asm.elf" "$GEN_DIR/asm-predicate.txt" "$GEN_DIR/asm-vkey-hash.txt" dist/
+          (cd dist && sha256sum asm.elf asm-predicate.txt asm-vkey-hash.txt > SHA256SUMS)
           ls -la dist/
 
       - name: Publish to GitHub Release
@@ -80,10 +71,7 @@ jobs:
           set -euo pipefail
           # All expected assets must exist locally before any upload — failing here keeps
           # us from publishing a partial release if a prior step silently produced nothing.
-          assets=(
-            dist/asm.elf dist/asm-vk.json dist/asm-vk.json.sha256
-            dist/moho.elf dist/moho-vk.json dist/moho-vk.json.sha256
-          )
+          assets=(dist/asm.elf dist/asm-predicate.txt dist/asm-vkey-hash.txt dist/SHA256SUMS)
           for f in "${assets[@]}"; do
             [ -f "$f" ] || { echo "::error::missing artifact: $f"; exit 1; }
           done
@@ -96,7 +84,9 @@ jobs:
           else
             prerelease_flag=""
             case "$TAG" in *-*) prerelease_flag="--prerelease" ;; esac
-            gh release create "$TAG" --draft $prerelease_flag --title "$TAG" --generate-notes
+            # The vkey hash goes in the notes too, so it can be read without downloading anything.
+            gh release create "$TAG" --draft $prerelease_flag --title "$TAG" --generate-notes \
+              --notes "Program vkey hash: \`$(cat dist/asm-vkey-hash.txt)\`"
           fi
           gh release upload "$TAG" --clobber "${assets[@]}"
           gh release edit "$TAG" --draft=false

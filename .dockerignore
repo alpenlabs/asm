@@ -2,4 +2,4 @@ target/
 .git/
 .github/
 functional-tests/
-guest-builder/sp1/elfs/
+guest-builder/sp1/generated/
