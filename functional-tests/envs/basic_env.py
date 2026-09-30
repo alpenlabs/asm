@@ -32,7 +32,10 @@ class BasicEnv(flexitest.EnvConfig):
 
         asm_factory = ectx.get_factory("asm_rpc")
         svcs["asm_rpc"] = asm_factory.create_asm_rpc_service(
-            bitcoind.props, params_file_path, orchestrator=self._orchestrator_config(ectx)
+            bitcoind.props,
+            params_file_path,
+            orchestrator=self._orchestrator_config(ectx),
+            asm_predicate=self._asm_predicate(),
         )
 
         return flexitest.LiveEnv(svcs)
@@ -42,6 +45,10 @@ class BasicEnv(flexitest.EnvConfig):
     ) -> OrchestratorConfig | None:
         """Return orchestrator config. Override in subclasses to enable proving."""
         return None
+
+    def _asm_predicate(self) -> str:
+        """Return the predicate of the genesis ASM program."""
+        return "AlwaysAccept"
 
     def _setup_bitcoind_and_params(
         self, ectx: flexitest.EnvContext

@@ -4,7 +4,7 @@ use std::{fmt, path::PathBuf, time::Duration};
 
 use k256::schnorr::SigningKey;
 use serde::{Deserialize, Serialize};
-use strata_predicate::PredicateKey;
+use strata_asm_common::SpecId;
 
 /// Configuration for the proof orchestrator.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -26,9 +26,9 @@ pub struct OrchestratorConfig {
 
     /// Every ASM release this prover can prove.
     ///
-    /// Each entry is loaded and checked against its predicate at startup, so a
-    /// wrong ELF or key fails before the worker runs. The spec each predicate
-    /// implements comes from the execution registry, not from this list.
+    /// Each entry is loaded at startup and checked against the predicate the
+    /// execution registry lists for its spec, so a wrong ELF or key fails
+    /// before the worker runs.
     pub asm_artifacts: Vec<AsmArtifactConfig>,
 
     /// How the worker obtains proofs. Omit for [`ProverMode::Generator`].
@@ -82,8 +82,8 @@ fn default_max_peer_failures() -> u32 {
 /// An ASM release this prover can prove and where to load it from.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AsmArtifactConfig {
-    /// Predicate the loaded host must resolve to.
-    pub predicate: PredicateKey,
+    /// Spec the program implements.
+    pub spec_id: SpecId,
 
     /// Where the program's host is constructed from.
     pub source: ArtifactSource,
@@ -103,9 +103,9 @@ pub enum ArtifactSource {
 
     /// Native (in-process) execution. The verifying key derived from this
     /// signing key is what `resolve_predicate` packs into the host's
-    /// [`PredicateKey`]. Keys are parsed and validated as BIP-340 Schnorr
-    /// signing keys at config load, so an invalid key fails startup rather
-    /// than later in the proving path.
+    /// [`PredicateKey`](strata_predicate::PredicateKey). Keys are parsed and
+    /// validated as BIP-340 Schnorr signing keys at config load, so an invalid
+    /// key fails startup rather than later in the proving path.
     Native {
         #[serde(with = "hex_signing_key")]
         signing_key: SigningKey,
@@ -145,7 +145,9 @@ mod tests {
     #[cfg(not(feature = "sp1"))]
     use {
         crate::{ProofBackend, ProverError, load_spec_host},
+        std::str::FromStr,
         strata_asm_spec::StrataAsmSpec,
+        strata_predicate::PredicateKey,
     };
 
     use super::*;
@@ -160,7 +162,7 @@ mod tests {
         signing_key = "0202020202020202020202020202020202020202020202020202020202020202"
 
         [[asm_artifacts]]
-        predicate = "Bip340Schnorr:1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f"
+        spec_id = 0
 
         [asm_artifacts.source]
         kind = "native"
@@ -169,18 +171,23 @@ mod tests {
 
     #[cfg(not(feature = "sp1"))]
     #[tokio::test]
-    async fn native_artifact_must_match_its_configured_predicate() {
+    async fn native_artifact_must_match_the_expected_predicate() {
         let config: OrchestratorConfig = toml::from_str(BASE).unwrap();
-        let mut artifact = config.asm_artifacts[0].clone();
-        let host = load_spec_host(&artifact, StrataAsmSpec).await.unwrap();
-        assert_eq!(host.descriptor().predicate(), &artifact.predicate);
+        let source = &config.asm_artifacts[0].source;
+        let expected = PredicateKey::from_str(
+            "Bip340Schnorr:1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+        )
+        .unwrap();
+        let host = load_spec_host(source, &expected, StrataAsmSpec)
+            .await
+            .unwrap();
+        assert_eq!(host.descriptor().predicate(), &expected);
         let backend = ProofBackend::new(&config.moho, vec![host]).await.unwrap();
-        backend.asm_hosts.get(&artifact.predicate).unwrap();
+        backend.asm_hosts.get(&expected).unwrap();
 
-        // Loading must check the derived key, not just trust configured metadata.
-        artifact.predicate = PredicateKey::always_accept();
+        // Loading must check the derived key, not just trust the expected one.
         assert!(matches!(
-            load_spec_host(&artifact, StrataAsmSpec).await,
+            load_spec_host(source, &PredicateKey::always_accept(), StrataAsmSpec).await,
             Err(ProverError::AsmArtifactMismatch { .. })
         ));
     }

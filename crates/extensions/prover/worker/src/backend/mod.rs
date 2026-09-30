@@ -20,7 +20,7 @@ use zkaleido::{ZkVm, ZkVmHost};
 use zkaleido_sp1_host::SP1Host;
 
 use crate::{
-    config::{ArtifactSource, AsmArtifactConfig},
+    config::ArtifactSource,
     errors::{ProverError, ProverResult},
 };
 
@@ -75,9 +75,9 @@ impl ProofBackend {
     }
 }
 
-/// Loads the ASM host for `artifact` and binds it to spec `S`.
+/// Loads the ASM host from `source` and binds it to spec `S`.
 ///
-/// The caller is responsible for pairing `artifact` with the spec its predicate
+/// The caller is responsible for pairing `expected` with the spec it
 /// implements (the execution registry records that pairing).
 ///
 /// # Errors
@@ -85,16 +85,17 @@ impl ProofBackend {
 /// - Returns an error if the source does not match the binary's build features or its host cannot
 ///   be constructed.
 /// - Returns [`ProverError::AsmArtifactMismatch`] if the loaded host's predicate differs from
-///   `artifact.predicate`, so a wrong ELF or key fails at startup.
+///   `expected`, so a wrong ELF or key fails at startup.
 pub async fn load_spec_host<S: AsmSpec + Send + Sync + 'static>(
-    artifact: &AsmArtifactConfig,
+    source: &ArtifactSource,
+    expected: &PredicateKey,
     spec: S,
 ) -> ProverResult<AsmProofHost<ProofHost>> {
-    let host = match &artifact.source {
+    let host = match source {
         ArtifactSource::Sp1 { elf_path } => sp1::load_host(elf_path).await?,
         ArtifactSource::Native { signing_key } => native::asm_host(signing_key.clone(), spec)?,
     };
-    AsmProofHost::bind_expected::<S>(host, &artifact.predicate)
+    AsmProofHost::bind_expected::<S>(host, expected)
 }
 
 /// Resolves the [`PredicateKey`] for proofs produced by `host`, dispatching on

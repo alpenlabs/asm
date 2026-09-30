@@ -54,10 +54,11 @@ repository validation checks.
    each spec ID appears at most once, so a new predicate for unchanged rules still needs a new
    spec ID.
 6. **Configure proving, if enabled.** Add `[[orchestrator.asm_artifacts]]` entries
-   `{ predicate, source }`, where `source` is `{ kind = "sp1", elf_path }` or
-   `{ kind = "native", signing_key }`. Each predicate must also appear in `[execution].targets`,
-   which supplies its spec. Every artifact is loaded at startup and checked with `bind_expected`,
-   so a wrong ELF or key fails boot. `orchestrator.moho` names the fixed Moho program.
+   `{ spec_id, source }`, where `source` is `{ kind = "sp1", elf_path }` or
+   `{ kind = "native", signing_key }`. Each spec ID must also appear in `[execution].targets`,
+   which supplies its predicate. Every artifact is loaded at startup, and `bind_expected` checks
+   the predicate derived from it against that one, so a wrong ELF or key fails boot.
+   `orchestrator.moho` names the fixed Moho program.
 
 An ASM-only runner omits `[orchestrator]` but still needs a complete `[execution]` section.
 
