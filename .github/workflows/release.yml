@@ -16,7 +16,7 @@ permissions: {}
 
 jobs:
   publish-guest-artifacts:
-    name: Build and publish SP1 guest ELFs + vk JSONs
+    name: Build and publish the SP1 ASM guest ELF + vk JSON
     runs-on: ubuntu-latest
     timeout-minutes: 90
     permissions:
@@ -55,21 +55,14 @@ jobs:
           BUILD_VKEY: "1"
         run: cargo build --locked -p strata-asm-sp1-guest-builder --features docker-build
 
-      - name: Fetch Moho guest artifacts
-        # The Moho guest is built by the moho repo. Republish its release artifacts here so
-        # consumers of asm releases, such as the bridge, still find moho.elf and moho-vk.json.
-        run: ./contrib/fetch_moho_artifacts.sh
-
       - name: Stage release artifacts
         run: |
           set -euo pipefail
           mkdir -p dist
           ELF_DIR=guest-builder/sp1/elfs
-          for prog in asm moho; do
-            cp "$ELF_DIR/$prog.elf" "dist/$prog.elf"
-            cp "$ELF_DIR/$prog-vk.json" "dist/$prog-vk.json"
-            (cd dist && sha256sum "$prog-vk.json" > "$prog-vk.json.sha256")
-          done
+          cp "$ELF_DIR/asm.elf" dist/asm.elf
+          cp "$ELF_DIR/asm-vk.json" dist/asm-vk.json
+          (cd dist && sha256sum asm-vk.json > asm-vk.json.sha256)
           ls -la dist/
 
       - name: Publish to GitHub Release
@@ -80,10 +73,7 @@ jobs:
           set -euo pipefail
           # All expected assets must exist locally before any upload — failing here keeps
           # us from publishing a partial release if a prior step silently produced nothing.
-          assets=(
-            dist/asm.elf dist/asm-vk.json dist/asm-vk.json.sha256
-            dist/moho.elf dist/moho-vk.json dist/moho-vk.json.sha256
-          )
+          assets=(dist/asm.elf dist/asm-vk.json dist/asm-vk.json.sha256)
           for f in "${assets[@]}"; do
             [ -f "$f" ] || { echo "::error::missing artifact: $f"; exit 1; }
           done
