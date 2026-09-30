@@ -42,17 +42,18 @@ impl FromStr for GuestProgram {
     }
 }
 
-/// Runs SP1 programs to generate execution summaries.
+/// Runs SP1 programs to generate execution summaries, paired with the program names the report
+/// tables and the baseline payload key them by.
 pub(crate) async fn gen_sp1_execution_summaries(
     programs: &[GuestProgram],
-) -> Vec<ExecutionSummary> {
+) -> Vec<(String, ExecutionSummary)> {
     let mut summaries = Vec::with_capacity(programs.len());
     for program in programs {
         let summary = match program {
             GuestProgram::AsmStf => asm_stf::gen_execution_summary().await,
             GuestProgram::Moho => moho::gen_execution_summary().await,
         };
-        summaries.push(summary);
+        summaries.push((program.as_str().to_string(), summary));
     }
     summaries
 }

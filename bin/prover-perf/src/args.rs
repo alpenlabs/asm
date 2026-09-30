@@ -1,40 +1,20 @@
-use std::env;
-
 use clap::Parser;
+use zkaleido_perf_report::GithubReportArgs;
 
 use crate::programs::GuestProgram;
-
-fn default_github_repo() -> String {
-    env::var("GITHUB_REPOSITORY").unwrap_or_else(|_| "alpenlabs/asm".to_string())
-}
 
 /// Evaluate SP1 prover performance for ASM programs.
 #[derive(Debug, Clone, Parser)]
 pub(crate) struct EvalArgs {
+    /// GitHub reporting options; the report is posted to the PR only when at least one of these is
+    /// provided.
+    #[command(flatten)]
+    pub github: Option<GithubReportArgs>,
+
     /// Whether to generate the proof. When proof generation is enabled, the performance report is
     /// skipped.
     #[arg(long, default_value_t = false)]
     pub generate_proof: bool,
-
-    /// Whether to post the results as a GitHub PR comment.
-    #[arg(long, default_value_t = false)]
-    pub post_to_gh: bool,
-
-    /// GitHub token used to authenticate API requests.
-    #[arg(long, default_value_t = String::new())]
-    pub github_token: String,
-
-    /// Pull request number to post comment to.
-    #[arg(long, default_value_t = String::new())]
-    pub pr_number: String,
-
-    /// Commit hash shown in the generated report header.
-    #[arg(long, default_value = "local_commit")]
-    pub commit_hash: String,
-
-    /// GitHub repository in `owner/repo` format.
-    #[arg(long, default_value_t = default_github_repo())]
-    pub github_repo: String,
 
     /// Programs to run. Supports comma-delimited and repeated values
     /// `--programs asm-stf` or `--programs asm-stf,moho`.
@@ -58,6 +38,9 @@ pub(crate) fn parse_programs(raw: &[String]) -> Result<Vec<GuestProgram>, String
         .collect()
 }
 
+// TODO(STR-4523): these tests never run. They live in the binary target, which sets `test = false`
+// to keep the heavy sp1-sdk build out of the workspace coverage run. Moving `args` and `programs`
+// into a library target would let them run without adding that cost back.
 #[cfg(test)]
 mod tests {
     use super::*;
