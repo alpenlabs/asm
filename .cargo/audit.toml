@@ -3,7 +3,7 @@ ignore = [
   # NOTE: cargo-audit reads config from .cargo/audit.toml.
 
   # RUSTSEC-2026-0002 (lru 0.12.5) — IterMut unsound (Stacked Borrows violation)
-  # Pulled in via sp1-prover -> sp1-sdk; sp1 v6.2.2 still pins lru 0.12.5.
+  # Pulled in via sp1-prover -> sp1-sdk; sp1 v6.8.1 still pins lru 0.12.5.
   # Upgrade blocked until upstream sp1-prover bumps lru >= 0.13.
   "RUSTSEC-2026-0002",
 ]
