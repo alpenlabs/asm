@@ -75,11 +75,7 @@ jobs:
           SP1_CORE_RUNNER_OVERRIDE_BINARY: ${{ steps.sp1-runner.outputs.override-binary }}
         run: |
           cargo run --release -p strata-asm-prover-perf -- \
-            --post-to-gh \
             --github-token "${{ secrets.GITHUB_TOKEN }}" \
-            --pr-number "${{ github.event.pull_request.number }}" \
-            --commit-hash "${{ github.sha }}" \
-            --github-repo "${{ github.repository }}" \
             --programs asm-stf,moho
 
       - name: Run prover-perf

@@ -2,6 +2,10 @@
 
 Evaluate SP1 prover performance for ASM guest programs (`asm-stf`, `moho`).
 
+Report formatting and PR posting come from
+[`zkaleido-perf-report`](https://github.com/alpenlabs/zkaleido); this crate only
+supplies the ASM guests to measure.
+
 ## Prerequisites
 
 Ensure you have [just](https://github.com/casey/just) installed.

@@ -23,16 +23,11 @@ strata-predicate.workspace = true
 
 anyhow.workspace = true
 clap.workspace = true
-num-format = "0.4.4"
-reqwest = { version = "0.12.28", default-features = false, features = [
-  "json",
-  "rustls-tls",
-] }
-serde_json.workspace = true
 sp1-sdk.workspace = true
 sp1-verifier.workspace = true
 ssz.workspace = true
 tokio.workspace = true
 zkaleido = { workspace = true, features = ["perf"] }
+zkaleido-perf-report.workspace = true
 zkaleido-sp1-groth16-verifier.workspace = true
 zkaleido-sp1-host.workspace = true

@@ -149,6 +149,7 @@ zkaleido-logging = { git = "https://github.com/alpenlabs/zkaleido", tag = "v0.4.
 zkaleido-native-adapter = { git = "https://github.com/alpenlabs/zkaleido", tag = "v0.4.0", features = [
   "remote-prover",
 ] }
+zkaleido-perf-report = { git = "https://github.com/alpenlabs/zkaleido", tag = "v0.4.0" }
 zkaleido-sp1-groth16-verifier = { git = "https://github.com/alpenlabs/zkaleido", tag = "v0.4.0" }
 zkaleido-sp1-host = { git = "https://github.com/alpenlabs/zkaleido", tag = "v0.4.0" }
 
