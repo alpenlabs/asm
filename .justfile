@@ -76,7 +76,7 @@ audit:
 check-github-actions-security:
   zizmor .
 
-# Download the Moho guest ELF and vk from the moho release this workspace depends on
+# Download the Moho guest ELF from the moho release this workspace depends on
 fetch-moho-artifacts:
   ./contrib/fetch_moho_artifacts.sh
 

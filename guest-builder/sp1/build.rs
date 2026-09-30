@@ -5,7 +5,7 @@
 //! ELF, the SP1 Groth16 [`PredicateKey`] is derived and written to `<crate>/elfs/asm-vk.json` as
 //! a JSON-encoded `"Sp1Groth16:<hex>"` string — the form the bridge consumes as a trust anchor.
 //!
-//! The Moho recursive proof guest is built and released by the moho repo. Fetch its ELF and vk
+//! The Moho recursive proof guest is built and released by the moho repo. Fetch its ELF
 //! into the same directory with `contrib/fetch_moho_artifacts.sh`.
 //!
 //! # Environment
