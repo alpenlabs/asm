@@ -90,3 +90,13 @@ jobs:
           fi
           gh release upload "$TAG" --clobber "${assets[@]}"
           gh release edit "$TAG" --draft=false
+
+  s3:
+    name: Publish ASM Guest to S3
+    needs: publish-guest-artifacts
+    uses: $/.github/workflows/publish-asm-guest-s3.yml
+    permissions:
+      contents: read
+      id-token: write
+    with:
+      tag: ${{ github.ref_name }}
