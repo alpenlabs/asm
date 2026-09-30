@@ -39,7 +39,6 @@ repository validation checks.
 
    ```sh
    cargo metadata --locked --offline --manifest-path guest-builder/sp1/guest-asm/Cargo.toml --format-version 1 > /dev/null
-   cargo metadata --locked --offline --manifest-path guest-builder/sp1/guest-moho/Cargo.toml --format-version 1 > /dev/null
    cargo clean -p strata-asm-sp1-guest-builder
    BUILD_ELF=1 BUILD_VKEY=1 cargo build --locked --release -p strata-asm-sp1-guest-builder
    ```

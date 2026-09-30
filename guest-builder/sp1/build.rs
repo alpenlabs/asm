@@ -1,10 +1,12 @@
-//! Build script for SP1 guest artifacts (`guest-asm`, `guest-moho`) used by ASM proof workflows.
+//! Build script for the SP1 ASM guest (`guest-asm`) used by ASM proof workflows.
 //!
-//! Compiled ELFs are emitted to `<crate>/elfs/{asm,moho}.elf` regardless of the `docker-build`
-//! feature, so consumers can reference a stable path that survives `cargo clean`. Alongside each
-//! ELF, the SP1 Groth16 [`PredicateKey`] is derived and written to `<crate>/elfs/<name>-vk.json`
-//! as a JSON-encoded `"Sp1Groth16:<hex>"` string — the form the bridge consumes as a trust
-//! anchor.
+//! The compiled ELF is emitted to `<crate>/elfs/asm.elf` regardless of the `docker-build`
+//! feature, so consumers can reference a stable path that survives `cargo clean`. Alongside the
+//! ELF, the SP1 Groth16 [`PredicateKey`] is derived and written to `<crate>/elfs/asm-vk.json` as
+//! a JSON-encoded `"Sp1Groth16:<hex>"` string — the form the bridge consumes as a trust anchor.
+//!
+//! The Moho recursive proof guest is built and released by the moho repo. Fetch its ELF and vk
+//! into the same directory with `contrib/fetch_moho_artifacts.sh`.
 //!
 //! # Environment
 //!
@@ -36,10 +38,7 @@ use zkaleido_sp1_groth16_verifier::SP1Groth16Verifier;
 const ELFS_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/elfs");
 
 /// `(guest_crate_dir, elf_name, vk_json_name)` for every guest this builder produces.
-const GUESTS: &[(&str, &str, &str)] = &[
-    ("guest-asm", "asm.elf", "asm-vk.json"),
-    ("guest-moho", "moho.elf", "moho-vk.json"),
-];
+const GUESTS: &[(&str, &str, &str)] = &[("guest-asm", "asm.elf", "asm-vk.json")];
 
 fn main() {
     println!("cargo:rerun-if-env-changed=BUILD_ELF");
