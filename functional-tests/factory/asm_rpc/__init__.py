@@ -136,7 +136,7 @@ def generate_asm_rpc_config(
         ),
         orchestrator=orchestrator,
         execution=ExecutionConfig(
-            genesis_predicate=predicate,
+            genesis_spec_id=0,
             targets=[ExecutionTargetConfig(predicate=predicate, spec_id=0)],
         ),
     )

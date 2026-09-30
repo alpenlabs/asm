@@ -104,11 +104,16 @@ impl ExecutionRegistry {
         if let Some(predicate) = extract_next_predicate_from_logs(manifest.logs()) {
             return Ok(predicate);
         }
+        self.predicate(anchor.spec_id).cloned()
+    }
+
+    /// Returns the predicate registered for a spec ID.
+    pub fn predicate(&self, spec_id: SpecId) -> WorkerResult<&PredicateKey> {
         self.targets
             .iter()
-            .find(|(_, target)| target.spec_id() == anchor.spec_id)
-            .map(|(predicate, _)| predicate.clone())
-            .ok_or(WorkerError::UnsupportedExecutionSpec(anchor.spec_id))
+            .find(|(_, target)| target.spec_id() == spec_id)
+            .map(|(predicate, _)| predicate)
+            .ok_or(WorkerError::UnsupportedExecutionSpec(spec_id))
     }
 
     /// Resolves the exact predicate authorized by a parent; unknown keys never fall back.

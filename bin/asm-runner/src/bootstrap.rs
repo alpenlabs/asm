@@ -40,8 +40,11 @@ pub(crate) async fn bootstrap(
             .iter()
             .map(|entry| (entry.predicate.clone(), entry.spec_id)),
     )?;
-    let genesis_predicate = config.execution.genesis_predicate.clone();
-    let genesis_spec = CompiledSpec::resolve(registry.resolve(&genesis_predicate)?.spec_id())?;
+    let genesis_predicate = registry
+        .predicate(config.execution.genesis_spec_id)
+        .context("execution.genesis_spec_id is not listed in [[execution.targets]]")?
+        .clone();
+    let genesis_spec = CompiledSpec::resolve(config.execution.genesis_spec_id)?;
     let genesis_state = genesis_spec.construct_genesis_state(&params);
 
     // 1. Create storage. The ASM and Moho stores live in two separate sled DBs; the proof DB is

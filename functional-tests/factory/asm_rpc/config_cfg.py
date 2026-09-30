@@ -134,7 +134,7 @@ class ExecutionTargetConfig:
 class ExecutionConfig:
     """Execution identity independent of optional proof generation."""
 
-    genesis_predicate: str
+    genesis_spec_id: int
     targets: list[ExecutionTargetConfig]
 
 
