@@ -9,10 +9,12 @@ name: Publish ASM Guest to S3
 # release.yml creates the release with GITHUB_TOKEN, and events made with that
 # token do not start other workflows.
 #
-# The baremetal-binaries environment needs a reviewer's approval, and this job
-# only runs from v* tags. To retry, re-run the failed job; to backfill, dispatch
-# with a v* tag selected as the ref (any tag that has this workflow) and the
-# target tag as input. Only releases cut after #295 carry guest assets.
+# The elf-publish environment (as in moho) only admits v* tags and needs a
+# reviewer's approval. baremetal-binaries is not used: it only admits main, and
+# this job only runs from v* tags, so it could never publish. To retry, re-run
+# the failed job; to backfill, dispatch with a v* tag selected as the ref (any
+# tag that has this workflow) and the target tag as input. Only releases cut
+# after #295 carry guest assets.
 #
 # The ELF depends only on the source commit, so objects are keyed by it:
 #   s3://alpen-mosaic-artifacts/elfs/asm-runner/<commit>/
@@ -57,7 +59,7 @@ jobs:
     if: ${{ startsWith(github.ref, 'refs/tags/v') }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    environment: baremetal-binaries
+    environment: elf-publish
     permissions:
       contents: read # download release assets
       id-token: write # assume the artifacts S3 role via OIDC
