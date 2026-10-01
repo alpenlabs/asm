@@ -3,13 +3,14 @@ use strata_asm_common::{
     logging::{error, info},
 };
 use strata_asm_logs::{DepositLog, NewExportEntry};
-use strata_asm_proto_bridge_state::{BridgeStateV1, OperatorClaimUnlockV0};
+use strata_asm_proto_bridge_state::BridgeStateV1;
 use strata_asm_proto_bridge_txs::{
     BRIDGE_SUBPROTOCOL_ID, deposit_request::parse_drt, parser::ParsedTx,
 };
 use strata_asm_proto_checkpoint_msgs::CheckpointIncomingMsg;
 
 use crate::{
+    claim::ClaimVersion,
     errors::{BridgeSubprotocolError, DepositValidationError},
     validation::{
         validate_deposit_info, validate_slash_stake_connector, validate_unstake_info,
@@ -36,7 +37,7 @@ use crate::{
 /// fulfillment system, not an invalid transaction. Silently ignoring this error would allow valid
 /// bridge transactions to be treated as invalid, enabling anyone to create a false ASM proof by
 /// simply not providing the required aux data.
-pub(crate) fn handle_parsed_tx(
+pub(crate) fn handle_parsed_tx<C: ClaimVersion>(
     state: &mut BridgeStateV1,
     parsed_tx: ParsedTx,
     verified_aux_data: &VerifiedAuxData,
@@ -84,11 +85,10 @@ pub(crate) fn handle_parsed_tx(
                 .expect("validation checks that the assignment exists");
             let assignee = fulfilled_assignment.current_assignee();
 
-            let unlock = OperatorClaimUnlockV0::new(deposit_idx, assignee);
+            let leaf = C::export_leaf(state.operators(), deposit_idx, assignee);
 
             // Use SubprotocolId as the containerId.
-            let withdrawal_processed_log =
-                NewExportEntry::new(BRIDGE_SUBPROTOCOL_ID, unlock.compute_hash());
+            let withdrawal_processed_log = NewExportEntry::new(BRIDGE_SUBPROTOCOL_ID, leaf);
             relayer.emit_log(
                 AsmLogEntry::from_log(&withdrawal_processed_log)
                     .expect("withdrawal processed log must not fail"),
@@ -173,19 +173,24 @@ pub(crate) fn preprocess_parsed_tx(
 
 #[cfg(test)]
 mod tests {
+    use strata_asm_bridge_types::{OperatorClaimUnlockV0, OperatorClaimUnlockV1};
     use strata_asm_proto_bridge_txs::{
         deposit_request::DrtHeaderAux,
         parser::ParsedTx,
         test_utils::{create_test_withdrawal_fulfillment_tx, parse_sps50_tx},
         withdrawal_fulfillment::parse_withdrawal_fulfillment_tx,
     };
+    use strata_identifiers::Buf32;
     use strata_test_utils_arb::ArbitraryGenerator;
 
-    use super::{BRIDGE_SUBPROTOCOL_ID, NewExportEntry, OperatorClaimUnlockV0, handle_parsed_tx};
-    use crate::test_utils::{
-        MockMsgRelayer, add_deposits_and_assignments, create_test_state, create_verified_aux_data,
-        create_withdrawal_info_from_assignment, setup_deposit_test, setup_slash_test,
-        setup_unstake_test,
+    use super::{BRIDGE_SUBPROTOCOL_ID, NewExportEntry, handle_parsed_tx};
+    use crate::{
+        claim::{ClaimV0, ClaimV1},
+        test_utils::{
+            MockMsgRelayer, add_deposits_and_assignments, create_test_state,
+            create_verified_aux_data, create_withdrawal_info_from_assignment, setup_deposit_test,
+            setup_slash_test, setup_unstake_test,
+        },
     };
 
     #[test]
@@ -212,7 +217,7 @@ mod tests {
 
         // 4. Handle the transaction
         let mut relayer = MockMsgRelayer::default();
-        handle_parsed_tx(&mut state, parsed_tx, &verified_aux_data, &mut relayer)
+        handle_parsed_tx::<ClaimV0>(&mut state, parsed_tx, &verified_aux_data, &mut relayer)
             .expect("handling valid deposit tx should succeed");
 
         // 5. Should add a new entry in the deposits table
@@ -253,7 +258,7 @@ mod tests {
 
             // 3. Handle the transaction
             let mut relayer = MockMsgRelayer::default();
-            handle_parsed_tx(&mut state, parsed_tx, &aux, &mut relayer)
+            handle_parsed_tx::<ClaimV0>(&mut state, parsed_tx, &aux, &mut relayer)
                 .expect("handling deposit tx should success");
 
             assert!(
@@ -279,6 +284,54 @@ mod tests {
         }
     }
 
+    /// Under [`ClaimV1`] the same fulfillment commits the assignee's MuSig2 public key instead
+    /// of its table index. The expectation is built from the operator table directly, so the
+    /// test would still fail if `export_leaf` resolved the wrong operator.
+    #[test]
+    fn test_handle_withdrawal_fulfillment_commits_claim_v1_leaf() {
+        let (mut state, _) = create_test_state();
+        add_deposits_and_assignments(&mut state, 1);
+        let assignment = state.assignments().assignments().first().unwrap().clone();
+
+        // Resolve the key before fulfilling, since fulfillment consumes the assignment.
+        let operator_pubkey = Buf32::from(
+            *state
+                .operators()
+                .get_operator(assignment.current_assignee())
+                .expect("assignee should be registered")
+                .musig2_pk(),
+        );
+
+        let withdrawal_info = create_withdrawal_info_from_assignment(&assignment);
+        let tx = create_test_withdrawal_fulfillment_tx(&withdrawal_info);
+        let tx_input = parse_sps50_tx(&tx);
+        let parsed_info = parse_withdrawal_fulfillment_tx(&tx_input)
+            .expect("should parse withdrawal fulfillment tx");
+        let parsed_tx = ParsedTx::WithdrawalFulfillment(parsed_info);
+
+        let aux = create_verified_aux_data(vec![]);
+        let mut relayer = MockMsgRelayer::default();
+        handle_parsed_tx::<ClaimV1>(&mut state, parsed_tx, &aux, &mut relayer)
+            .expect("handling a valid withdrawal fulfillment should succeed");
+
+        let expected_leaf =
+            OperatorClaimUnlockV1::new(assignment.deposit_idx(), operator_pubkey).compute_hash();
+        let export = relayer
+            .logs()
+            .iter()
+            .find_map(|log| log.try_into_log::<NewExportEntry>().ok())
+            .expect("fulfillment should emit a NewExportEntry log");
+
+        assert_eq!(export.container_id(), BRIDGE_SUBPROTOCOL_ID);
+        assert_eq!(export.entry_data(), &expected_leaf);
+
+        // The v0 leaf for the same fulfillment must not be what was committed.
+        let v0_leaf =
+            OperatorClaimUnlockV0::new(assignment.deposit_idx(), assignment.current_assignee())
+                .compute_hash();
+        assert_ne!(export.entry_data(), &v0_leaf);
+    }
+
     #[test]
     fn test_handle_slash_tx_success() {
         let operator_idx = 1;
@@ -293,7 +346,7 @@ mod tests {
         // 5. Handle the transaction
         let parsed_tx = ParsedTx::Slash(info);
         let mut relayer = MockMsgRelayer::default();
-        let result = handle_parsed_tx(&mut state, parsed_tx, &aux, &mut relayer);
+        let result = handle_parsed_tx::<ClaimV0>(&mut state, parsed_tx, &aux, &mut relayer);
 
         assert!(result.is_ok(), "Handle parsed tx should succeed");
 
@@ -318,7 +371,7 @@ mod tests {
         // Handle the transaction
         let parsed_tx = ParsedTx::Unstake(info);
         let mut relayer = MockMsgRelayer::default();
-        let result = handle_parsed_tx(&mut state, parsed_tx, &aux, &mut relayer);
+        let result = handle_parsed_tx::<ClaimV0>(&mut state, parsed_tx, &aux, &mut relayer);
 
         assert!(result.is_ok(), "Handle parsed tx should succeed");
 
@@ -345,7 +398,7 @@ mod tests {
         let empty_aux = create_verified_aux_data(vec![]);
         let parsed_tx = ParsedTx::Deposit(info);
         let mut relayer = MockMsgRelayer::default();
-        let _ = handle_parsed_tx(&mut state, parsed_tx, &empty_aux, &mut relayer);
+        let _ = handle_parsed_tx::<ClaimV0>(&mut state, parsed_tx, &empty_aux, &mut relayer);
     }
 
     #[test]
@@ -359,6 +412,6 @@ mod tests {
         let empty_aux = create_verified_aux_data(vec![]);
         let parsed_tx = ParsedTx::Slash(info);
         let mut relayer = MockMsgRelayer::default();
-        let _ = handle_parsed_tx(&mut state, parsed_tx, &empty_aux, &mut relayer);
+        let _ = handle_parsed_tx::<ClaimV0>(&mut state, parsed_tx, &empty_aux, &mut relayer);
     }
 }

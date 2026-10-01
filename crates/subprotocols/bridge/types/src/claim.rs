@@ -8,10 +8,10 @@
 //! That hash is consensus state, so the claim is versioned rather than edited in place:
 //!
 //! - [`OperatorClaimUnlockV0`] is the format deployed chains have already committed leaves under.
-//!   It is frozen, and it is what the subprotocol emits today.
+//!   It is frozen, and `BridgeSubprotoV1` commits it.
 //! - [`OperatorClaimUnlockV1`] names the assignee by public key instead of by table index. It is
-//!   defined but not yet emitted; switching to it moves every subsequent leaf, so it waits on a
-//!   spec activation.
+//!   committed by `BridgeSubprotoV2`. Reaching it on a live chain takes a spec activation, since
+//!   switching moves every subsequent leaf.
 
 use ssz::Encode as _;
 use ssz_derive::{Decode, Encode};
@@ -80,8 +80,8 @@ impl OperatorClaimUnlockV0 {
 /// - The `operator_pubkey` always identifies the **assigned operator** from the assignment entry,
 ///   not necessarily the party who made the actual frontpayment (since frontpayment identity is not
 ///   validated during transaction processing).
-/// - Nothing emits this version yet. The subprotocol still commits [`OperatorClaimUnlockV0`]
-///   leaves, so the format below is not yet consensus state and can still be changed freely.
+/// - `BridgeSubprotoV2` commits this version, but no chain runs a ruleset that invokes it, so the
+///   format below is not yet consensus state and can still be changed until one activates.
 ///
 /// # Leaf hash
 ///
