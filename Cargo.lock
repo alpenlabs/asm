@@ -3813,6 +3813,7 @@ dependencies = [
  "bitcoin",
  "bitcoin-bosd",
  "bitcoind-async-client",
+ "clap",
  "corepc-node",
  "moho-runtime-impl",
  "moho-runtime-interface",
