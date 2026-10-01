@@ -133,50 +133,47 @@ def build_l1_anchor(
     )
 
 
-def p2wpkh_address(compressed_key: str, network: str) -> str:
-    """P2WPKH address of a compressed public key, on `network`.
+def p2wpkh_address(secret_key: str, network: str) -> str:
+    """P2WPKH address of a secret key's compressed public key, on `network`.
 
     Admin signers are named by address in the params file, and the runner rejects a
     signer whose address prefix disagrees with the anchor's network.
     """
-    return Key(import_key=compressed_key, network=network, is_private=False).address(
-        encoding="bech32"
-    )
+    return Key(import_key=secret_key, network=network, is_private=True).address(encoding="bech32")
 
 
 def build_subprotocols(
     musig2_keys: list[str],
+    admin_address: str,
     genesis_height: int,
     denomination: int = 1_000_000_000,
     assignment_duration: int = 100_000,
     operator_fee: int = 100_000_000,
     recovery_delay: int = 1_008,
     safe_harbor_address: str = DEFAULT_SAFE_HARBOR_ADDRESS,
-    network: str = "regtest",
+    admin_confirmation_depth: int = 144,
 ) -> list[dict[str, Any]]:
     compressed_keys = [f"02{key}" for key in musig2_keys]
-    signer_addresses = [p2wpkh_address(key, network) for key in compressed_keys]
-    confirmation_depth = 144
 
     admin = {
         "Admin": asdict(
             AdminSubprotocol(
-                alpen_administrator=ThresholdConfig(signers=signer_addresses, threshold=1),
-                strata_administrator=ThresholdConfig(signers=signer_addresses, threshold=1),
-                strata_sequencer_manager=ThresholdConfig(signers=signer_addresses, threshold=1),
-                strata_security_council=ThresholdConfig(signers=signer_addresses, threshold=1),
+                alpen_administrator=ThresholdConfig(signers=[admin_address], threshold=1),
+                strata_administrator=ThresholdConfig(signers=[admin_address], threshold=1),
+                strata_sequencer_manager=ThresholdConfig(signers=[admin_address], threshold=1),
+                strata_security_council=ThresholdConfig(signers=[admin_address], threshold=1),
                 confirmation_depths=ConfirmationDepths(
-                    strata_admin_multisig_update=confirmation_depth,
-                    strata_seq_manager_multisig_update=confirmation_depth,
-                    alpen_admin_multisig_update=confirmation_depth,
-                    strata_security_council_multisig_update=confirmation_depth,
-                    operator_update=confirmation_depth,
-                    sequencer_update=confirmation_depth,
-                    ol_stf_vk_update=confirmation_depth,
-                    asm_stf_vk_update=confirmation_depth,
-                    ee_stf_vk_update=confirmation_depth,
-                    defcon3=confirmation_depth,
-                    safe_harbor_address_update=confirmation_depth,
+                    strata_admin_multisig_update=admin_confirmation_depth,
+                    strata_seq_manager_multisig_update=admin_confirmation_depth,
+                    alpen_admin_multisig_update=admin_confirmation_depth,
+                    strata_security_council_multisig_update=admin_confirmation_depth,
+                    operator_update=admin_confirmation_depth,
+                    sequencer_update=admin_confirmation_depth,
+                    ol_stf_vk_update=admin_confirmation_depth,
+                    asm_stf_vk_update=admin_confirmation_depth,
+                    ee_stf_vk_update=admin_confirmation_depth,
+                    defcon3=admin_confirmation_depth,
+                    safe_harbor_address_update=admin_confirmation_depth,
                 ),
                 max_seqno_gap=10,
             )
@@ -214,6 +211,7 @@ def build_subprotocols(
 
 def build_asm_params(
     musig2_keys: list[str],
+    admin_address: str,
     genesis_height: int,
     block_hash: str,
     header: dict[str, Any],
@@ -225,19 +223,21 @@ def build_asm_params(
     recovery_delay: int = 1_008,
     safe_harbor_address: str = DEFAULT_SAFE_HARBOR_ADDRESS,
     network: str = "regtest",
+    admin_confirmation_depth: int = 144,
 ) -> AsmParams:
     anchor = build_l1_anchor(
         genesis_height, block_hash, header, epoch_start_header, network=network
     )
     subprotocols = build_subprotocols(
         musig2_keys,
+        admin_address,
         genesis_height,
         denomination=denomination,
         assignment_duration=assignment_duration,
         operator_fee=operator_fee,
         recovery_delay=recovery_delay,
         safe_harbor_address=safe_harbor_address,
-        network=network,
+        admin_confirmation_depth=admin_confirmation_depth,
     )
     return AsmParams(
         magic=magic,
