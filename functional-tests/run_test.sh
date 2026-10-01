@@ -34,6 +34,8 @@ cargo build --bin strata-asm-runner ${CARGO_ARGS[@]+"${CARGO_ARGS[@]}"}
 # dbtool inspects the runner's storage DB in fn_asm_dbtool_test; it does no
 # proving, so a debug build is enough regardless of the prover backend.
 cargo build --bin dbtool
+# asm-test-cli signs and broadcasts admin transactions for fn_asm_upgrade_test.
+cargo build --bin asm-test-cli
 if [[ "$ASM_PROVER_BACKEND" == "sp1" ]]; then
   # Produces guest-builder/sp1/generated/{asm,moho}.elf, which the runner reads at startup.
   # The ASM guest build is opt-in, so ask for it here. The Moho guest comes from a moho release.

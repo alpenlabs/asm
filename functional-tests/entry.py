@@ -4,7 +4,7 @@ import sys
 import flexitest
 
 from constants import TEST_DIR
-from envs import BasicEnv, FollowerEnv, ProverEnv
+from envs import BasicEnv, FollowerEnv, ProverEnv, UpgradeEnv
 from envs.testenv import AsmTestRuntime
 from factory.asm_rpc import AsmRpcFactory
 from factory.bitcoin import BitcoinFactory
@@ -29,6 +29,7 @@ def main(argv: list[str]) -> int:
         "basic": BasicEnv(),
         "prover": ProverEnv(),
         "follower": FollowerEnv(),
+        "upgrade": UpgradeEnv(),
     }
 
     rt = AsmTestRuntime(env_configs, datadir_root, factories)
