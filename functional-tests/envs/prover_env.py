@@ -34,14 +34,18 @@ class ProverEnv(BasicEnv):
     ) -> OrchestratorConfig:
         envdd_path = Path(ectx.envdd_path)
         proof_db_path = str((envdd_path / service_name / "proof_db").resolve())
-        moho, asm_source, asm_predicate = _artifact_sources()
+        moho, asm_source, _ = _artifact_sources()
         return OrchestratorConfig(
             tick_interval=Duration(secs=1, nanos=0),
             max_concurrent_proofs=4,
             proof_db_path=proof_db_path,
             moho=moho,
-            asm_artifacts=[AsmArtifact(predicate=asm_predicate, source=asm_source)],
+            asm_artifacts=[AsmArtifact(spec_id=0, source=asm_source)],
         )
+
+    def _asm_predicate(self) -> str:
+        _, _, asm_predicate = _artifact_sources()
+        return asm_predicate
 
 
 def _artifact_sources() -> tuple[ArtifactSource, ArtifactSource, str]:

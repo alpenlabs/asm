@@ -48,14 +48,17 @@ repository validation checks.
    successful host build does not prove that a new guest was built. Compare the actual ELF and
    verifying key with the release record. Deriving a key from arbitrary bytes does not show that
    the ELF implements the declared spec.
-5. **Configure execution.** Add an `[[execution.targets]]` entry `{ predicate, spec_id }`, and
-   set `execution.genesis_predicate` to the chain's initial program. Each predicate and each
-   spec ID appears at most once, so a new predicate for unchanged rules still needs a new spec ID.
+5. **Configure execution.** Add an `[[execution.targets]]` entry `{ predicate, spec_id }`.
+   `execution.genesis_spec_id` names the spec the chain starts under, and the runner takes the
+   genesis predicate from its target entry. It stays fixed across upgrades. Each predicate and
+   each spec ID appears at most once, so a new predicate for unchanged rules still needs a new
+   spec ID.
 6. **Configure proving, if enabled.** Add `[[orchestrator.asm_artifacts]]` entries
-   `{ predicate, source }`, where `source` is `{ kind = "sp1", elf_path }` or
-   `{ kind = "native", signing_key }`. Each predicate must also appear in `[execution].targets`,
-   which supplies its spec. Every artifact is loaded at startup and checked with `bind_expected`,
-   so a wrong ELF or key fails boot. `orchestrator.moho` names the fixed Moho program.
+   `{ spec_id, source }`, where `source` is `{ kind = "sp1", elf_path }` or
+   `{ kind = "native", signing_key }`. Each spec ID must also appear in `[execution].targets`,
+   which supplies its predicate. Every artifact is loaded at startup, and `bind_expected` checks
+   the predicate derived from it against that one, so a wrong ELF or key fails boot.
+   `orchestrator.moho` names the fixed Moho program.
 
 An ASM-only runner omits `[orchestrator]` but still needs a complete `[execution]` section.
 

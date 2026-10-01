@@ -40,6 +40,7 @@ class AsmRpcFactory(flexitest.Factory):
         params_file_path: str,
         ctx: flexitest.EnvContext,
         orchestrator: OrchestratorConfig | None = None,
+        asm_predicate: str = "AlwaysAccept",
         service_name: str = "asm_rpc",
     ) -> flexitest.Service:
         datadir = ctx.make_service_dir(service_name)
@@ -57,6 +58,7 @@ class AsmRpcFactory(flexitest.Factory):
             moho_db_path=moho_db_path,
             output_path=config_toml_path,
             orchestrator=orchestrator,
+            asm_predicate=asm_predicate,
         )
 
         logfile = os.path.join(datadir, "service.log")
@@ -114,9 +116,9 @@ def generate_asm_rpc_config(
     moho_db_path: str,
     output_path: str,
     orchestrator: OrchestratorConfig | None = None,
+    asm_predicate: str = "AlwaysAccept",
 ):
     """Generate ASM RPC configuration TOML file."""
-    predicate = orchestrator.asm_artifacts[0].predicate if orchestrator else "AlwaysAccept"
     config = AsmRpcConfig(
         rpc=RpcConfig(host="127.0.0.1", port=rpc_port),
         database=DatabaseConfig(
@@ -136,8 +138,8 @@ def generate_asm_rpc_config(
         ),
         orchestrator=orchestrator,
         execution=ExecutionConfig(
-            genesis_predicate=predicate,
-            targets=[ExecutionTargetConfig(predicate=predicate, spec_id=0)],
+            genesis_spec_id=0,
+            targets=[ExecutionTargetConfig(predicate=asm_predicate, spec_id=0)],
         ),
     )
 

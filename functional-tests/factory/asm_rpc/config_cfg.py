@@ -73,12 +73,13 @@ ArtifactSource = Sp1Artifact | NativeArtifact
 
 @dataclass
 class AsmArtifact:
-    """An ASM release the prover can prove, checked against `predicate` at startup.
+    """An ASM release the prover can prove, checked at startup against the predicate
+    that `[[execution.targets]]` lists for `spec_id`.
 
     Mirrors `AsmArtifactConfig` in crates/extensions/prover/worker/src/config.rs.
     """
 
-    predicate: str
+    spec_id: int
     source: ArtifactSource
 
 
@@ -134,7 +135,7 @@ class ExecutionTargetConfig:
 class ExecutionConfig:
     """Execution identity independent of optional proof generation."""
 
-    genesis_predicate: str
+    genesis_spec_id: int
     targets: list[ExecutionTargetConfig]
 
 

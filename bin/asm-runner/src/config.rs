@@ -12,7 +12,8 @@ use strata_retry::RetryConfig;
 /// Local capabilities and the chain's initial execution authority.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct ExecutionConfig {
-    pub genesis_predicate: PredicateKey,
+    /// Spec the chain starts under. Its predicate comes from the matching entry in `targets`.
+    pub genesis_spec_id: SpecId,
     pub targets: Vec<ExecutionTargetConfig>,
 }
 
@@ -131,7 +132,7 @@ mod tests {
     // them without matching field names or other values.
     const BASE: &str = r#"
         [execution]
-        genesis_predicate = "AlwaysAccept"
+        genesis_spec_id = 0
         [[execution.targets]]
         predicate = "AlwaysAccept"
         spec_id = 0

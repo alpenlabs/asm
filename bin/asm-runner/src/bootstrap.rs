@@ -5,7 +5,7 @@ use bitcoind_async_client::{Auth, Client};
 use strata_asm_moho_worker::MohoWorkerBuilder;
 use strata_asm_params::AsmParams;
 use strata_asm_prover_worker::{
-    AsmArtifactConfig, AsmProofHost, InputBuilder, ProofBackend, ProofHost, ProverResult,
+    ArtifactSource, AsmProofHost, InputBuilder, ProofBackend, ProofHost, ProverResult,
     ProverWorkerBuilder, load_spec_host,
 };
 use strata_asm_spec::{
@@ -13,6 +13,7 @@ use strata_asm_spec::{
     host::{CompiledSpec, build_execution_registry},
 };
 use strata_asm_worker::AsmWorkerBuilder;
+use strata_predicate::PredicateKey;
 use strata_tasks::TaskExecutor;
 use tokio::{runtime::Handle, task};
 
@@ -40,8 +41,11 @@ pub(crate) async fn bootstrap(
             .iter()
             .map(|entry| (entry.predicate.clone(), entry.spec_id)),
     )?;
-    let genesis_predicate = config.execution.genesis_predicate.clone();
-    let genesis_spec = CompiledSpec::resolve(registry.resolve(&genesis_predicate)?.spec_id())?;
+    let genesis_predicate = registry
+        .predicate(config.execution.genesis_spec_id)
+        .context("execution.genesis_spec_id is not listed in [[execution.targets]]")?
+        .clone();
+    let genesis_spec = CompiledSpec::resolve(config.execution.genesis_spec_id)?;
     let genesis_state = genesis_spec.construct_genesis_state(&params);
 
     // 1. Create storage. The ASM and Moho stores live in two separate sled DBs; the proof DB is
@@ -68,16 +72,14 @@ pub(crate) async fn bootstrap(
     let runtime_handle = Handle::current();
     let orch_prep = if let Some(orch_config) = config.orchestrator {
         let proof_db = create_proof_storage(&orch_config.proof_db_path)?;
-        // The execution registry is the single record of which spec each predicate implements.
+        // The execution registry is the single record of which predicate each spec runs under.
         let mut asm_hosts = Vec::with_capacity(orch_config.asm_artifacts.len());
         for artifact in &orch_config.asm_artifacts {
-            let spec_id = registry
-                .resolve(&artifact.predicate)
-                .context(
-                    "orchestrator.asm_artifacts predicate is not listed in [[execution.targets]]",
-                )?
-                .spec_id();
-            asm_hosts.push(load_asm_host(CompiledSpec::resolve(spec_id)?, artifact).await?);
+            let predicate = registry.predicate(artifact.spec_id).context(
+                "orchestrator.asm_artifacts spec_id is not listed in [[execution.targets]]",
+            )?;
+            let spec = CompiledSpec::resolve(artifact.spec_id)?;
+            asm_hosts.push(load_asm_host(spec, &artifact.source, predicate).await?);
         }
         let backend = ProofBackend::new(&orch_config.moho, asm_hosts).await?;
         Some((orch_config, proof_db, backend))
@@ -246,16 +248,17 @@ async fn connect_bitcoin(config: &BitcoinConfig) -> Result<Client> {
     Ok(client)
 }
 
-/// Loads the proof host for `artifact` under its compiled spec, checked against the
-/// configured predicate.
+/// Loads the proof host from `source` under its compiled spec, checked against the
+/// predicate the execution registry lists for that spec.
 ///
 /// Kept beside the runner rather than in `strata_asm_spec::host`, so native callers of that
 /// catalog take no prover dependency.
 async fn load_asm_host(
     spec: CompiledSpec,
-    artifact: &AsmArtifactConfig,
+    source: &ArtifactSource,
+    expected: &PredicateKey,
 ) -> ProverResult<AsmProofHost<ProofHost>> {
     match spec {
-        CompiledSpec::V0 => load_spec_host(artifact, StrataAsmSpec).await,
+        CompiledSpec::V0 => load_spec_host(source, expected, StrataAsmSpec).await,
     }
 }
