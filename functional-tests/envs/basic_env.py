@@ -3,10 +3,11 @@ from pathlib import Path
 import flexitest
 
 from constants import ASM_MAGIC_BYTES, INITIAL_BLOCKS
-from factory.asm_rpc.config_cfg import OrchestratorConfig
+from factory.asm_rpc.config_cfg import ExecutionTargetConfig, OrchestratorConfig
 from factory.common.asm_params import (
     build_asm_params,
     epoch_start_height,
+    p2wpkh_address,
     write_asm_params_json,
 )
 from utils.utils import wait_until_bitcoind_ready
@@ -15,6 +16,13 @@ from utils.utils import wait_until_bitcoind_ready
 DEFAULT_MUSIG2_KEYS = [
     "becdf7aab195ab0a42ba2f2eca5b7fa5a246267d802c627010e1672f08657f70",
 ]
+
+# Sole signer of every admin role, so tests can sign admin actions with `asm-test-cli`.
+ADMIN_SECRET_KEY = "04" * 32
+ADMIN_ADDRESS = p2wpkh_address(ADMIN_SECRET_KEY, "regtest")
+
+# Matches the confirmation depth deployed chains use for admin updates.
+DEFAULT_ADMIN_CONFIRMATION_DEPTH = 144
 
 # HACK(STR-2572): querying ASM exactly at its genesis block can panic in downstream setups.
 # Keep ASM genesis one block behind the pre-mined chain height.
@@ -35,7 +43,7 @@ class BasicEnv(flexitest.EnvConfig):
             bitcoind.props,
             params_file_path,
             orchestrator=self._orchestrator_config(ectx),
-            asm_predicate=self._asm_predicate(),
+            execution_targets=self._execution_targets(),
         )
 
         return flexitest.LiveEnv(svcs)
@@ -49,6 +57,14 @@ class BasicEnv(flexitest.EnvConfig):
     def _asm_predicate(self) -> str:
         """Return the predicate of the genesis ASM program."""
         return "AlwaysAccept"
+
+    def _execution_targets(self) -> list[ExecutionTargetConfig]:
+        """Return the ASM programs the runner supports; the first is the genesis program."""
+        return [ExecutionTargetConfig(predicate=self._asm_predicate(), spec_id=0)]
+
+    def _admin_confirmation_depth(self) -> int:
+        """Return how many blocks a queued admin update waits before it is enacted."""
+        return DEFAULT_ADMIN_CONFIRMATION_DEPTH
 
     def _setup_bitcoind_and_params(
         self, ectx: flexitest.EnvContext
@@ -74,11 +90,13 @@ class BasicEnv(flexitest.EnvConfig):
 
         asm_params = build_asm_params(
             musig2_keys=DEFAULT_MUSIG2_KEYS,
+            admin_address=ADMIN_ADDRESS,
             genesis_height=genesis_height,
             block_hash=genesis_hash,
             header=genesis_header,
             epoch_start_header=epoch_start_hdr,
             magic=ASM_MAGIC_BYTES,
+            admin_confirmation_depth=self._admin_confirmation_depth(),
         )
 
         params_path = Path(ectx.envdd_path) / "generated" / "asm-params.json"

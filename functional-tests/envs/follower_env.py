@@ -29,7 +29,7 @@ class FollowerEnv(ProverEnv):
             bitcoind.props,
             params_file_path,
             orchestrator=self._orchestrator_config(ectx),
-            asm_predicate=self._asm_predicate(),
+            execution_targets=self._execution_targets(),
         )
         svcs["asm_rpc"] = generator
 
@@ -50,7 +50,7 @@ class FollowerEnv(ProverEnv):
             bitcoind.props,
             params_file_path,
             orchestrator=follower_orch,
-            asm_predicate=self._asm_predicate(),
+            execution_targets=self._execution_targets(),
             service_name=FOLLOWER_SERVICE_NAME,
         )
 

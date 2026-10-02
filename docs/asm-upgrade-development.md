@@ -100,6 +100,16 @@ Put `bitcoind` on `PATH` for integration tests. CI pins Bitcoin Core 30.2 in
 - `asm_coinbase` checks that the successor's direct genesis and `prepare` preserve the baseline
   semantics. The successor changes only its spec ID, so this is not a section migration.
 
+The functional test `fn_asm_upgrade_test` covers the proving side. It starts
+`strata-asm-runner` with spec 0 and spec 1 loaded and activates spec 1 with a signed admin update
+from `asm-test-cli`. It checks that the old spec executes the enacting block, and that ASM and
+Moho proofs continue across the switch. It runs only on the native backend, because spec 1 has
+no SP1 guest yet.
+
+```sh
+cd functional-tests && ./run_test.sh fn_asm_upgrade_test
+```
+
 After building the ASM ELF, compare real guest execution with native execution for the
 deterministic block fixture:
 

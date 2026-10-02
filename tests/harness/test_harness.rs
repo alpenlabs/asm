@@ -48,7 +48,7 @@ use bitcoind_async_client::{
     traits::{Reader, Wallet},
     Client,
 };
-use corepc_node::Node;
+use corepc_node::{Client as BitcoindClient, Node};
 use moho_types::MohoState;
 use rand::RngCore;
 use strata_asm_common::{AnchorState, AsmLogEntry, AsmSpec};
@@ -63,7 +63,7 @@ use strata_asm_worker::{
 use strata_btc_types::BlockHashExt;
 use strata_identifiers::L1BlockCommitment;
 use strata_l1_envelope_fmt::{build_envelope_script, EnvelopeScriptBuilder};
-use strata_l1_txfmt::{ParseConfig, TagData};
+use strata_l1_txfmt::{MagicBytes, ParseConfig, TagData};
 use strata_predicate::PredicateKey;
 use strata_tasks::{TaskExecutor, TaskManager};
 use strata_test_utils_arb::ArbitraryGenerator;
@@ -521,29 +521,7 @@ impl AsmTestHarness {
         address: &Address,
         amount: Amount,
     ) -> anyhow::Result<(Txid, u32)> {
-        let funding_txid_str = self
-            .bitcoind
-            .client
-            .send_to_address(address, amount)?
-            .0
-            .to_string();
-        let funding_txid: Txid = funding_txid_str.parse()?;
-
-        let funding_tx = self
-            .client
-            .get_raw_transaction_verbosity_zero(&funding_txid)
-            .await?
-            .0;
-
-        let prev_vout = funding_tx
-            .output
-            .iter()
-            .enumerate()
-            .find(|(_, output)| output.script_pubkey == address.script_pubkey())
-            .map(|(idx, _)| idx as u32)
-            .ok_or_else(|| anyhow::anyhow!("Could not find output in funding transaction"))?;
-
-        Ok((funding_txid, prev_vout))
+        create_funding_utxo(&self.bitcoind.client, address, amount)
     }
 
     // SPS-50 Transaction Building
@@ -563,7 +541,13 @@ impl AsmTestHarness {
         sps50_tag: TagData,
         payload: Vec<u8>,
     ) -> anyhow::Result<Transaction> {
-        self.build_envelope_tx_inner(sps50_tag, payload, None).await
+        build_envelope_tx(
+            &self.bitcoind.client,
+            self.asm_params.magic,
+            sps50_tag,
+            payload,
+            None,
+        )
     }
 
     /// Build a funded SPS-50 envelope transaction with a specific envelope keypair.
@@ -576,126 +560,150 @@ impl AsmTestHarness {
         payload: Vec<u8>,
         envelope_keypair: &UntweakedKeypair,
     ) -> anyhow::Result<Transaction> {
-        self.build_envelope_tx_inner(sps50_tag, payload, Some(envelope_keypair))
-            .await
-    }
-
-    async fn build_envelope_tx_inner(
-        &self,
-        sps50_tag: TagData,
-        payload: Vec<u8>,
-        envelope_keypair: Option<&UntweakedKeypair>,
-    ) -> anyhow::Result<Transaction> {
-        let fee = Self::DEFAULT_FEE;
-        let dust_amount = Amount::from_sat(1000);
-        let funding_amount = fee + dust_amount + Amount::from_sat(1000);
-
-        let secp = Secp256k1::new();
-
-        // Generate a random keypair (used as internal key in both paths)
-        let mut rng = rand::thread_rng();
-        let mut key_bytes = [0u8; 32];
-        rng.fill_bytes(&mut key_bytes);
-        let random_keypair = UntweakedKeypair::from_seckey_slice(&secp, &key_bytes)?;
-
-        let keypair = envelope_keypair.unwrap_or(&random_keypair);
-        let (internal_key, _parity) = XOnlyPublicKey::from_keypair(keypair);
-
-        // Build the reveal script. When an envelope keypair is provided, use the
-        // real SPS-51 envelope format (pubkey + OP_CHECKSIG + data). Otherwise
-        // use a simple OP_TRUE envelope for subprotocols that don't need SPS-51.
-        let reveal_script = if envelope_keypair.is_some() {
-            EnvelopeScriptBuilder::with_pubkey(&internal_key.serialize())?
-                .add_envelope(&payload)?
-                .build()?
-        } else {
-            build_simple_envelope_script(&payload)
-        };
-
-        // Create taproot spend info
-        let taproot_spend_info =
-            create_taproot_spend_info(&secp, internal_key, reveal_script.clone())?;
-
-        // Create taproot address for the commit output
-        let taproot_address = Address::p2tr(
-            &secp,
-            internal_key,
-            taproot_spend_info.merkle_root(),
-            Network::Regtest,
-        );
-
-        // Fund the taproot address (commit transaction)
-        let (commit_txid, commit_vout) = self
-            .create_funding_utxo(&taproot_address, funding_amount)
-            .await?;
-        let commit_outpoint = OutPoint::new(commit_txid, commit_vout);
-
-        // Build SPS-50 compliant OP_RETURN tag
-        let op_return_script =
-            ParseConfig::new(self.asm_params.magic).encode_script_buf(&sps50_tag.as_ref())?;
-
-        let op_return_output = TxOut {
-            value: Amount::ZERO,
-            script_pubkey: op_return_script,
-        };
-
-        // Change output
-        let change_amount = funding_amount - fee;
-        let change_address = self.client.get_new_address().await?;
-        let change_output = TxOut {
-            value: change_amount,
-            script_pubkey: change_address.script_pubkey(),
-        };
-
-        // Build control block for tapscript spend
-        let control_block = taproot_spend_info
-            .control_block(&(reveal_script.clone(), LeafVersion::TapScript))
-            .ok_or_else(|| anyhow::anyhow!("Failed to create control block"))?;
-
-        // Build unsigned tx first
-        let tx_input = TxIn {
-            previous_output: commit_outpoint,
-            script_sig: ScriptBuf::new(),
-            sequence: Sequence::ENABLE_RBF_NO_LOCKTIME,
-            witness: Witness::new(),
-        };
-
-        let mut reveal_tx = Transaction {
-            version: Version::TWO,
-            lock_time: LockTime::ZERO,
-            input: vec![tx_input],
-            output: vec![op_return_output, change_output],
-        };
-
-        // Build witness. SPS-51 envelopes need a Schnorr signature; simple
-        // envelopes just need the script and control block.
-        let mut witness = Witness::new();
-        if envelope_keypair.is_some() {
-            let commit_output = TxOut {
-                value: funding_amount,
-                script_pubkey: taproot_address.script_pubkey(),
-            };
-            let leaf_hash =
-                bitcoin::TapLeafHash::from_script(&reveal_script, LeafVersion::TapScript);
-            let sighash = SighashCache::new(&reveal_tx).taproot_script_spend_signature_hash(
-                0,
-                &Prevouts::All(&[&commit_output]),
-                leaf_hash,
-                TapSighashType::Default,
-            )?;
-            let msg = Message::from_digest_slice(&sighash.to_byte_array())?;
-            let signature = SECP256K1.sign_schnorr(&msg, keypair);
-            witness.push(signature.as_ref());
-        }
-        witness.push(reveal_script.as_bytes());
-        witness.push(control_block.serialize());
-        reveal_tx.input[0].witness = witness;
-
-        Ok(reveal_tx)
+        build_envelope_tx(
+            &self.bitcoind.client,
+            self.asm_params.magic,
+            sps50_tag,
+            payload,
+            Some(envelope_keypair),
+        )
     }
 }
 
 // Helper Functions
+
+/// Sends `amount` to `address` from `rpc`'s wallet and returns the (txid, vout) of the new UTXO.
+pub fn create_funding_utxo(
+    rpc: &BitcoindClient,
+    address: &Address,
+    amount: Amount,
+) -> anyhow::Result<(Txid, u32)> {
+    let funding_txid = rpc.send_to_address(address, amount)?.txid()?;
+    let funding_tx = rpc.get_raw_transaction(funding_txid)?.transaction()?;
+
+    let prev_vout = funding_tx
+        .output
+        .iter()
+        .enumerate()
+        .find(|(_, output)| output.script_pubkey == address.script_pubkey())
+        .map(|(idx, _)| idx as u32)
+        .ok_or_else(|| anyhow::anyhow!("Could not find output in funding transaction"))?;
+
+    Ok((funding_txid, prev_vout))
+}
+
+/// Builds a funded SPS-50 envelope transaction against `rpc`'s wallet.
+///
+/// The wallet funds the commit output and receives the change. With `envelope_keypair`, the
+/// reveal script is the SPS-51 format (pubkey + `OP_CHECKSIG` + data) and the spend is signed;
+/// without it, a simple `OP_TRUE` envelope is used for subprotocols that don't need SPS-51.
+/// Addresses are regtest-only.
+pub fn build_envelope_tx(
+    rpc: &BitcoindClient,
+    magic: MagicBytes,
+    sps50_tag: TagData,
+    payload: Vec<u8>,
+    envelope_keypair: Option<&UntweakedKeypair>,
+) -> anyhow::Result<Transaction> {
+    let fee = AsmTestHarness::DEFAULT_FEE;
+    let dust_amount = Amount::from_sat(1000);
+    let funding_amount = fee + dust_amount + Amount::from_sat(1000);
+
+    let secp = Secp256k1::new();
+
+    // Generate a random keypair (used as internal key in both paths)
+    let mut rng = rand::thread_rng();
+    let mut key_bytes = [0u8; 32];
+    rng.fill_bytes(&mut key_bytes);
+    let random_keypair = UntweakedKeypair::from_seckey_slice(&secp, &key_bytes)?;
+
+    let keypair = envelope_keypair.unwrap_or(&random_keypair);
+    let (internal_key, _parity) = XOnlyPublicKey::from_keypair(keypair);
+
+    let reveal_script = if envelope_keypair.is_some() {
+        EnvelopeScriptBuilder::with_pubkey(&internal_key.serialize())?
+            .add_envelope(&payload)?
+            .build()?
+    } else {
+        build_simple_envelope_script(&payload)
+    };
+
+    // Create taproot spend info
+    let taproot_spend_info = create_taproot_spend_info(&secp, internal_key, reveal_script.clone())?;
+
+    // Create taproot address for the commit output
+    let taproot_address = Address::p2tr(
+        &secp,
+        internal_key,
+        taproot_spend_info.merkle_root(),
+        Network::Regtest,
+    );
+
+    // Fund the taproot address (commit transaction)
+    let (commit_txid, commit_vout) = create_funding_utxo(rpc, &taproot_address, funding_amount)?;
+    let commit_outpoint = OutPoint::new(commit_txid, commit_vout);
+
+    // Build SPS-50 compliant OP_RETURN tag
+    let op_return_script = ParseConfig::new(magic).encode_script_buf(&sps50_tag.as_ref())?;
+
+    let op_return_output = TxOut {
+        value: Amount::ZERO,
+        script_pubkey: op_return_script,
+    };
+
+    // Change output
+    let change_amount = funding_amount - fee;
+    let change_address = rpc.new_address()?;
+    let change_output = TxOut {
+        value: change_amount,
+        script_pubkey: change_address.script_pubkey(),
+    };
+
+    // Build control block for tapscript spend
+    let control_block = taproot_spend_info
+        .control_block(&(reveal_script.clone(), LeafVersion::TapScript))
+        .ok_or_else(|| anyhow::anyhow!("Failed to create control block"))?;
+
+    // Build unsigned tx first
+    let tx_input = TxIn {
+        previous_output: commit_outpoint,
+        script_sig: ScriptBuf::new(),
+        sequence: Sequence::ENABLE_RBF_NO_LOCKTIME,
+        witness: Witness::new(),
+    };
+
+    let mut reveal_tx = Transaction {
+        version: Version::TWO,
+        lock_time: LockTime::ZERO,
+        input: vec![tx_input],
+        output: vec![op_return_output, change_output],
+    };
+
+    // Build witness. SPS-51 envelopes need a Schnorr signature; simple
+    // envelopes just need the script and control block.
+    let mut witness = Witness::new();
+    if envelope_keypair.is_some() {
+        let commit_output = TxOut {
+            value: funding_amount,
+            script_pubkey: taproot_address.script_pubkey(),
+        };
+        let leaf_hash = bitcoin::TapLeafHash::from_script(&reveal_script, LeafVersion::TapScript);
+        let sighash = SighashCache::new(&reveal_tx).taproot_script_spend_signature_hash(
+            0,
+            &Prevouts::All(&[&commit_output]),
+            leaf_hash,
+            TapSighashType::Default,
+        )?;
+        let msg = Message::from_digest_slice(&sighash.to_byte_array())?;
+        let signature = SECP256K1.sign_schnorr(&msg, keypair);
+        witness.push(signature.as_ref());
+    }
+    witness.push(reveal_script.as_bytes());
+    witness.push(control_block.serialize());
+    reveal_tx.input[0].witness = witness;
+
+    Ok(reveal_tx)
+}
 
 /// Build a simple envelope script for subprotocols that don't need SPS-51 auth.
 ///
