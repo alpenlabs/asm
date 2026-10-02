@@ -4,7 +4,6 @@ use moho_runtime_impl::RuntimeInput;
 use moho_types::StepMohoAttestation;
 use ssz::{decode::Decode, encode::Encode};
 use strata_asm_common::AsmSpec;
-use strata_asm_spec::StrataAsmSpec;
 use zkaleido::{
     DataFormatError, ProofType, PublicValues, ZkVmError, ZkVmHost, ZkVmInputBuilder,
     ZkVmInputResult, ZkVmProgram, ZkVmResult,
@@ -60,12 +59,12 @@ impl AsmStfProofProgram {
         NativeHost::new_with_random_key(move |zkvm| process_asm_stf(zkvm, &spec))
     }
 
-    /// Executes the program using the native host.
-    pub fn execute(
+    /// Executes the program natively under `spec`.
+    pub fn execute<S: AsmSpec + Send + Sync + 'static>(
         input: &<Self as ZkVmProgram>::Input,
+        spec: S,
     ) -> ZkVmResult<<Self as ZkVmProgram>::Output> {
-        // Get the native host and delegate to the trait's execute method
-        let host = Self::native_host(StrataAsmSpec);
+        let host = Self::native_host(spec);
         let summary = <Self as ZkVmProgram>::execute(input, &host)?;
         <Self as ZkVmProgram>::process_output::<NativeHost>(summary.public_values())
     }
@@ -130,7 +129,7 @@ mod tests {
     fn test_stf() {
         let runtime_input = create_runtime_input();
 
-        let output = AsmStfProofProgram::execute(&runtime_input).unwrap();
+        let output = AsmStfProofProgram::execute(&runtime_input, StrataAsmSpec).unwrap();
         // A wrapper with the same rules verifies that native execution uses
         // the supplied spec, rather than silently falling back to StrataAsmSpec.
         let preparations = Arc::new(AtomicUsize::new(0));

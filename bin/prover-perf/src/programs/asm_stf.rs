@@ -10,6 +10,7 @@ use strata_asm_proof_impl::{
     },
 };
 use strata_asm_sp1_guest_builder::ASM_ELF_PATH;
+use strata_asm_spec::StrataAsmSpecV1;
 use zkaleido::{ExecutionSummary, ProofReceiptWithMetadata, ZkVmExecutor, ZkVmProgram};
 use zkaleido_sp1_host::SP1Host;
 
@@ -20,7 +21,9 @@ pub(crate) async fn gen_execution_summary() -> ExecutionSummary {
     let (input, _) = create_runtime_input(&host);
     let summary = <AsmStfProofProgram as ZkVmProgram>::execute(&input, &host)
         .expect("failed to generate execution summary");
-    let native = AsmStfProofProgram::execute(&input).expect("native ASM execution failed");
+    // The guest compiles spec 1, so the native side must run the same spec.
+    let native =
+        AsmStfProofProgram::execute(&input, StrataAsmSpecV1).expect("native ASM execution failed");
     // Compare the same witness and parent predicate to detect guest/native
     // semantic drift on this fixture, beyond merely checking successful execution.
     assert_eq!(

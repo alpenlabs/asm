@@ -94,3 +94,6 @@ coverage.xml
 
 # backup files
 *.bak
+
+# Local environment variables, which can hold secrets such as prover keys
+.env

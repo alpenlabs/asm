@@ -5,8 +5,8 @@ import flexitest
 from envs.basic_env import ADMIN_SECRET_KEY
 from envs.upgrade_env import (
     ASM_V1_SPEC_ID,
-    NATIVE_TEST_ASM_V1_PREDICATE,
     UPGRADE_ADMIN_CONFIRMATION_DEPTH,
+    asm_v1_predicate,
 )
 from utils.test_cli import submit_asm_stf_update
 from utils.utils import (
@@ -68,7 +68,7 @@ class AsmUpgradeTest(flexitest.Test):
             bitcoind_service,
             admin_secret_key=ADMIN_SECRET_KEY,
             seqno=1,
-            predicate=NATIVE_TEST_ASM_V1_PREDICATE,
+            predicate=asm_v1_predicate(),
         )
         [submit_hash] = bitcoin_rpc.proxy.generatetoaddress(1, wallet_addr)
         assert txid in bitcoin_rpc.proxy.getblock(submit_hash)["tx"], (
