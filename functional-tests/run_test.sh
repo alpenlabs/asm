@@ -38,7 +38,9 @@ cargo build --bin dbtool
 cargo build --bin asm-test-cli
 if [[ "$ASM_PROVER_BACKEND" == "sp1" ]]; then
   # Produces guest-builder/sp1/generated/{asm,moho}.elf, which the runner reads at startup.
-  # The ASM guest build is opt-in, so ask for it here. The Moho guest comes from a moho release.
+  # The local ASM guest build is opt-in, so ask for it here; it compiles the newest spec. The
+  # Moho guest comes from a moho release. The spec 0 guest comes from an ASM release, and the
+  # prover envs download it themselves.
   BUILD_ELF=1 cargo build -p strata-asm-sp1-guest-builder --release
   ./contrib/fetch_moho_artifacts.sh
 fi

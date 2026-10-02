@@ -32,9 +32,11 @@ repository validation checks.
 3. **Register the proof host.** Add the matching arm to `load_asm_host` in
    `bin/asm-runner/src/bootstrap.rs`. It is kept out of `strata-asm-spec::host` so native callers
    take no prover dependency.
-4. **Build its guest.** Each guest compiles one concrete spec
-   (`guest-builder/sp1/guest-asm/src/main.rs`); the witness cannot select rules. Retain old
-   guests while delayed jobs or reorgs may still need them. Record the source commit,
+4. **Build its guest.** Each guest compiles one concrete spec; the witness cannot select rules.
+   The local guest (`guest-builder/sp1/guest-asm/src/main.rs`) always compiles the newest spec,
+   so point it at the new one. Older specs keep the guest from the release that shipped them, and
+   tests download it with its predicate (`functional-tests/envs/prover_env.py` for spec 0). Retain
+   old guests while delayed jobs or reorgs may still need them. Record the source commit,
    `Cargo.lock`, toolchain, ELF digest, derived predicate, and spec ID together.
 
    ```sh
@@ -117,5 +119,6 @@ deterministic block fixture:
 SP1_PROVER=light cargo run --locked -p strata-asm-prover-perf -- --programs asm-stf
 ```
 
-The harness requires identical public bytes. `light` executes the guest without generating a
-proof. The fixture is one block, with no upgrade or recursion.
+The harness runs the fixture under the newest spec on both sides and requires identical public
+bytes. `light` executes the guest without generating a proof. The fixture is one block, with no
+upgrade or recursion.

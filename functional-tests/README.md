@@ -40,10 +40,11 @@ The runner is built against one of two proof backends, selected by
 To run with SP1 proof generation enabled:
 
 ```bash
-ASM_EXPECTED_PREDICATE="Sp1Groth16:<qualified-artifact-condition>" ASM_PROVER_BACKEND=sp1 SP1_PROOF_STRATEGY="" NETWORK_PRIVATE_KEY="" ./run_test.sh fn_asm_proof_test
+ASM_PROVER_BACKEND=sp1 SP1_PROOF_STRATEGY="" NETWORK_PRIVATE_KEY="" ./run_test.sh fn_asm_proof_test
 ```
 
-- `ASM_EXPECTED_PREDICATE` — independently specified predicate for the built ASM guest; startup rejects a different loaded artifact.
+The local guest build compiles the newest spec. Spec 0 runs the guest from the v0.4.0 release instead. The prover envs download it, together with the release's `asm-predicate.txt`, and check both against the release's `SHA256SUMS`. Startup rejects a loaded artifact whose predicate differs from the release's.
+
 - `SP1_PROOF_STRATEGY` — the SP1 proof fulfillment strategy. See
   [FulfillmentStrategy](https://docs.rs/sp1-sdk/5.2.1/sp1_sdk/network/enum.FulfillmentStrategy.html)
   for available options.
