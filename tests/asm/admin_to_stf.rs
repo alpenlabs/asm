@@ -159,8 +159,8 @@ async fn test_proof_program_reflects_predicate_update() {
         pre_anchor_state.as_ssz_bytes(),
         step_input.as_ssz_bytes(),
     );
-    let attestation =
-        AsmStfProofProgram::execute(&runtime_input).expect("AsmStfProofProgram::execute failed");
+    let attestation = AsmStfProofProgram::execute(&runtime_input, StrataAsmSpec)
+        .expect("AsmStfProofProgram::execute failed");
 
     // Independently compute the expected post-state.
     let stf_output = compute_asm_transition(

@@ -1780,7 +1780,6 @@ dependencies = [
  "ssz_derive",
  "strata-asm-common",
  "strata-asm-logs",
- "strata-asm-spec",
  "strata-asm-stf",
  "strata-btc-verification",
  "strata-predicate",

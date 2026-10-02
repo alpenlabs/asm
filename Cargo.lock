@@ -8318,6 +8318,7 @@ dependencies = [
  "ssz",
  "strata-asm-proof-impl",
  "strata-asm-sp1-guest-builder",
+ "strata-asm-spec",
  "strata-predicate",
  "tokio",
  "zkaleido",
