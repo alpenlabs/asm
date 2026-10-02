@@ -37,11 +37,11 @@ cargo build --bin dbtool
 # asm-test-cli signs and broadcasts admin transactions for fn_asm_upgrade_test.
 cargo build --bin asm-test-cli
 if [[ "$ASM_PROVER_BACKEND" == "sp1" ]]; then
-  # Produces guest-builder/sp1/generated/{asm,moho}.elf, which the runner reads at startup.
-  # The local ASM guest build is opt-in, so ask for it here; it compiles the newest spec. The
-  # Moho guest comes from a moho release. The spec 0 guest comes from an ASM release, and the
-  # prover envs download it themselves.
-  BUILD_ELF=1 cargo build -p strata-asm-sp1-guest-builder --release
+  # Produces guest-builder/sp1/generated/{asm,moho}.elf and asm-predicate.txt, which the tests
+  # read. The local ASM guest build is opt-in, so ask for it here; it compiles the newest spec.
+  # BUILD_VKEY also builds the ELF. The Moho guest comes from a moho release. The spec 0 guest
+  # comes from an ASM release, and the prover envs download it themselves.
+  BUILD_VKEY=1 cargo build -p strata-asm-sp1-guest-builder --release
   ./contrib/fetch_moho_artifacts.sh
 fi
 TARGET_ROOT="${CARGO_TARGET_DIR:-target}"

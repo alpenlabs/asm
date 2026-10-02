@@ -43,7 +43,7 @@ To run with SP1 proof generation enabled:
 ASM_PROVER_BACKEND=sp1 SP1_PROOF_STRATEGY="" NETWORK_PRIVATE_KEY="" ./run_test.sh fn_asm_proof_test
 ```
 
-The local guest build compiles the newest spec. Spec 0 runs the guest from the v0.4.0 release instead. The prover envs download it, together with the release's `asm-predicate.txt`, and check both against the release's `SHA256SUMS`. Startup rejects a loaded artifact whose predicate differs from the release's.
+The local guest build compiles the newest spec. Spec 0 runs the guest from the v0.4.0 release instead. The prover envs download it, together with the release's `asm-predicate.txt`, and check both against the release's `SHA256SUMS`. `run_test.sh` derives the local guest's predicate when it builds it. Startup rejects a loaded artifact whose predicate differs from the one the test reads.
 
 - `SP1_PROOF_STRATEGY` — the SP1 proof fulfillment strategy. See
   [FulfillmentStrategy](https://docs.rs/sp1-sdk/5.2.1/sp1_sdk/network/enum.FulfillmentStrategy.html)
