@@ -198,7 +198,7 @@ impl AsmTestHarness {
     ) -> anyhow::Result<(Transaction, CheckpointTip)> {
         let verified_l1 = checkpoint_harness.verified_tip().l1_height();
 
-        // The MMR is height-indexed (sentinel prefill for `0..=genesis`), so the highest
+        // The MMR is height-indexed (genesis prefix covers `0..=genesis`), so the highest
         // processed real L1 height is `len - 1`. Clamp so we never regress below the
         // verified tip, which yields an empty L1 range (valid: zero L1 progress allowed).
         let new_l1_height = (self.get_mmr_leaf_count() as u32)
