@@ -152,8 +152,10 @@ impl<'a, C: ?Sized + L1DataProvider + ManifestMmrStore> AuxDataResolver<'a, C> {
     ///
     /// For each height range, fetches the stored manifest hashes and generates
     /// MMR proofs using the AsmDBSled implementation. The MMR is height-indexed
-    /// (sentinel-prefilled at and before genesis), so L1 block heights are used
-    /// directly as MMR leaf indices — no offset translation is needed.
+    /// (seeded from the genesis accumulator), so L1 block heights are used
+    /// directly as MMR leaf indices — no offset translation is needed. Heights
+    /// at or below genesis cannot be resolved, since the store keeps only the
+    /// genesis peaks.
     ///
     /// # Arguments
     ///
@@ -246,9 +248,9 @@ mod tests {
         test_utils::{TestAsmWorkerContext, fixtures},
     };
 
-    /// Genesis L1 height for the manifest fixtures: the MMR is sentinel-prefilled
-    /// for heights `0..=GENESIS_HEIGHT`, so real manifests start at the next
-    /// height and the leaf index equals the L1 height.
+    /// Genesis L1 height for the manifest fixtures: the MMR is seeded with the
+    /// genesis accumulator for heights `0..=GENESIS_HEIGHT`, so real manifests
+    /// start at the next height and the leaf index equals the L1 height.
     const GENESIS_HEIGHT: u64 = 5;
 
     /// A distinct manifest hash seeded by `seed`.
@@ -258,15 +260,13 @@ mod tests {
         AsmManifestHash::from(bytes)
     }
 
-    /// Populates `context`'s manifest MMR with the genesis sentinel prefill plus
-    /// `n` real manifest hashes (for heights `GENESIS_HEIGHT + 1 ..= GENESIS_HEIGHT + n`),
-    /// and returns a parallel accumulator built from the same leaves so resolved
-    /// proofs can be verified against it.
+    /// Seeds `context`'s manifest MMR from the genesis accumulator and appends
+    /// `n` real manifest hashes (for heights `GENESIS_HEIGHT + 1 ..= GENESIS_HEIGHT + n`).
+    /// Returns the accumulator grown with the same leaves, so resolved proofs
+    /// can be verified against it.
     fn populate_manifests(context: &TestAsmWorkerContext, n: u64) -> AsmHistoryAccumulatorState {
-        context
-            .prefill_manifest_mmr(GENESIS_HEIGHT)
-            .expect("prefill");
         let mut accumulator = AsmHistoryAccumulatorState::new(GENESIS_HEIGHT);
+        context.seed_manifest_mmr(&accumulator).expect("seed");
         for height in GENESIS_HEIGHT + 1..=GENESIS_HEIGHT + n {
             let hash = manifest_hash(height);
             context.put_manifest_hash(height, hash).expect("put hash");
@@ -461,6 +461,27 @@ mod tests {
         assert!(matches!(
             result,
             Err(WorkerError::ManifestHashNotFound { index }) if index == at_leaf_count,
+        ));
+    }
+
+    /// Heights at or below genesis do not resolve: the store keeps only the
+    /// genesis peaks, not the leaves under them.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn pre_genesis_manifest_range_does_not_resolve() {
+        let fx = fixtures::setup_context(0).await;
+        let accumulator = populate_manifests(&fx.context, 3); // heights 6..=8
+        let at_leaf_count = accumulator.num_entries();
+
+        let mut collector = AuxRequestCollector::new(at_leaf_count);
+        collector.request_manifest_hashes(GENESIS_HEIGHT - 1, GENESIS_HEIGHT + 1);
+        let requests = collector.into_requests();
+
+        let resolver = AuxDataResolver::new(&fx.context, at_leaf_count);
+        let result = resolver.resolve(&requests);
+
+        assert!(matches!(
+            result,
+            Err(WorkerError::ManifestHashNotFound { index }) if index == GENESIS_HEIGHT - 1,
         ));
     }
 }

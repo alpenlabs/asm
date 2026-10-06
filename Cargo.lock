@@ -8531,7 +8531,6 @@ dependencies = [
  "sled",
  "strata-asm-common",
  "strata-asm-logs",
- "strata-asm-manifest-types",
  "strata-asm-stf",
  "strata-btc-types",
  "strata-btc-verification",
