@@ -3,10 +3,12 @@
 //! Backed by [`strata_merkle_node_store`]: every MMR node (leaves and internal
 //! nodes) is persisted, so an inclusion proof is generated in `O(log n)` by
 //! walking the stored sibling path — no replay of the whole MMR from leaf 0.
+//! The exception is a prefix written by [`SledAsmManifestMmrDb::seed`], which
+//! is stored as its peaks only.
 
 use anyhow::Result;
 use strata_asm_common::AsmManifestHash;
-use strata_merkle::{MerkleProofB32, Sha256Hasher};
+use strata_merkle::{MerkleProofB32, Mmr64B32, Sha256Hasher};
 use strata_merkle_node_store::{MmrNodeStore, NodePos, StoredMmr};
 
 use crate::AsmManifestMmrDb;
@@ -70,10 +72,10 @@ impl MmrNodeStore for AsmManifestMmrNodeStore {
 
 /// Sled-backed [`AsmManifestMmrDb`] for manifest hashes.
 ///
-/// Stores every MMR node so inclusion proofs are `O(log n)` and need no leaf
-/// replay. The compact peaks are not persisted: proofs are assembled directly
-/// from the stored sibling path and verify against the compact-peaks
-/// accumulators the rest of the system already holds.
+/// Stores every MMR node past the seeded prefix, so inclusion proofs are
+/// `O(log n)` and need no leaf replay. The compact peaks are not persisted:
+/// proofs are assembled directly from the stored sibling path and verify
+/// against the compact-peaks accumulators the rest of the system already holds.
 #[derive(Debug, Clone)]
 pub struct SledAsmManifestMmrDb {
     inner: AsmManifestMmrNodeStore,
@@ -119,6 +121,14 @@ impl SledAsmManifestMmrDb {
         Ok(())
     }
 
+    /// Synchronous variant of [`AsmManifestMmrDb::seed`].
+    ///
+    /// Writes only the peaks of `prefix`, via [`StoredMmr::seed_from_peaks`].
+    pub fn seed(&self, prefix: &Mmr64B32) -> Result<()> {
+        StoredMmr::<Sha256Hasher>::seed_from_peaks(&self.inner, prefix)?;
+        Ok(())
+    }
+
     /// Synchronous variant of [`AsmManifestMmrDb::get_leaf`].
     pub fn get_leaf(&self, index: u64) -> Result<Option<AsmManifestHash>> {
         Ok(StoredMmr::<Sha256Hasher>::get_leaf(&self.inner, index)?.map(AsmManifestHash::from))
@@ -146,6 +156,10 @@ impl AsmManifestMmrDb for SledAsmManifestMmrDb {
 
     async fn put_leaf(&self, height: u64, hash: AsmManifestHash) -> Result<()> {
         self.put_leaf(height, hash)
+    }
+
+    async fn seed(&self, prefix: &Mmr64B32) -> Result<()> {
+        self.seed(prefix)
     }
 
     async fn get_leaf(&self, index: u64) -> Result<Option<AsmManifestHash>> {
