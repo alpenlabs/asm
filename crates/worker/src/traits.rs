@@ -14,8 +14,9 @@
 //! the narrower trait instead of the whole context.
 
 use bitcoin::{Block, Network, block::Header};
-use strata_asm_common::{AnchorState, AsmManifest, AsmManifestHash, AuxData};
-use strata_asm_manifest_types::ASM_MANIFEST_MMR_PREFILL_LEAF;
+use strata_asm_common::{
+    AnchorState, AsmHistoryAccumulatorState, AsmManifest, AsmManifestHash, AuxData,
+};
 use strata_btc_types::{BitcoinTxid, RawBitcoinTx};
 use strata_identifiers::{L1BlockCommitment, L1BlockId, L1Height};
 use strata_merkle::MerkleProofB32;
@@ -100,12 +101,13 @@ pub trait ManifestMmrStore {
     /// Writes a manifest `hash` to the MMR as the leaf for L1 `height`.
     ///
     /// The MMR is height-indexed (see
-    /// [`prefill_manifest_mmr`](Self::prefill_manifest_mmr)): with the genesis
-    /// prefill in place, the leaf for `height` lands at index `height`. A
-    /// `height` at the current end appends; a `height` below it overwrites the
-    /// existing leaf, which is expected during an L1 reorg that replaces the
-    /// block at an already-seen height. A `height` past the end is rejected,
-    /// since it would leave a gap in the height-to-index mapping.
+    /// [`seed_manifest_mmr`](Self::seed_manifest_mmr)): once seeded from
+    /// genesis, the leaf for `height` lands at index `height`. A `height` at
+    /// the current end appends; a `height` below it overwrites the existing
+    /// leaf, which is expected during an L1 reorg that replaces the block at an
+    /// already-seen height. A `height` past the end is rejected, since it would
+    /// leave a gap in the height-to-index mapping, and so is a `height` at or
+    /// below genesis.
     ///
     /// The worker only ever calls this in forward order: `sync_to_block`
     /// processes from the base (the most recent ancestor with a stored anchor
@@ -116,26 +118,19 @@ pub trait ManifestMmrStore {
     /// chain it belonged to.
     fn put_manifest_hash(&self, height: u64, hash: AsmManifestHash) -> WorkerResult<()>;
 
-    /// Prefills the manifest MMR with sentinel leaves so that real manifests
-    /// land at a leaf index equal to their L1 block height.
+    /// Seeds an empty manifest MMR from the genesis accumulator, so that real
+    /// manifests land at a leaf index equal to their L1 block height.
     ///
-    /// The MMR is height-indexed: positions `0..=genesis_height` are filled
-    /// with [`ASM_MANIFEST_MMR_PREFILL_LEAF`], so the manifest produced for height
-    /// `h` appends at leaf index `h`. This mirrors the in-memory (proven) MMR's
-    /// genesis prefill.
+    /// The genesis accumulator holds one sentinel leaf per height
+    /// `0..=genesis_height`, so the manifest produced for height `h` appends at
+    /// leaf index `h`. Only the accumulator's peaks are stored. Nothing reads a
+    /// leaf at or below genesis, and appending or proving a later leaf needs
+    /// only those peaks. Seeding from the proven accumulator keeps the stored
+    /// MMR in step with it by construction.
     ///
-    /// Called once at worker startup, before any manifest is appended. The
-    /// default appends sentinels from the current leaf count up to and
-    /// including `genesis_height`, which makes it idempotent: a no-op once the
-    /// MMR already holds `genesis_height + 1` entries, so it is safe to run on
-    /// every restart.
-    fn prefill_manifest_mmr(&self, genesis_height: u64) -> WorkerResult<()> {
-        let sentinel = AsmManifestHash::from(ASM_MANIFEST_MMR_PREFILL_LEAF);
-        for height in self.manifest_mmr_leaf_count()?..=genesis_height {
-            self.put_manifest_hash(height, sentinel)?;
-        }
-        Ok(())
-    }
+    /// Called at worker startup while the MMR holds fewer leaves than the
+    /// genesis accumulator. Errors if the MMR already holds leaves.
+    fn seed_manifest_mmr(&self, genesis: &AsmHistoryAccumulatorState) -> WorkerResult<()>;
 
     /// Persists a manifest in full: the [`AsmManifest`] struct via
     /// [`put_manifest`](Self::put_manifest) and its hash into the
@@ -153,9 +148,8 @@ pub trait ManifestMmrStore {
 
     /// Returns the number of leaves currently in the MMR — equivalently, the
     /// index at which the next [`put_manifest_hash`](Self::put_manifest_hash)
-    /// will append. Used by
-    /// [`prefill_manifest_mmr`](Self::prefill_manifest_mmr) to resume
-    /// prefilling from the current position.
+    /// will append. Used at startup to tell whether the MMR still needs
+    /// [`seed_manifest_mmr`](Self::seed_manifest_mmr).
     fn manifest_mmr_leaf_count(&self) -> WorkerResult<u64>;
 
     /// Generates an MMR inclusion proof for a leaf at a specific MMR size.
@@ -173,7 +167,8 @@ pub trait ManifestMmrStore {
     /// Retrieves a manifest hash by its MMR leaf index.
     ///
     /// Reads the hash directly from the MMR structure. Errors with
-    /// `ManifestHashNotFound` if no leaf exists at `index`.
+    /// `ManifestHashNotFound` if no leaf exists at `index`, which includes most
+    /// indices at or below genesis since seeding stores only their peaks.
     fn get_manifest_hash(&self, index: u64) -> WorkerResult<AsmManifestHash>;
 }
 

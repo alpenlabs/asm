@@ -14,7 +14,7 @@ use std::sync::Arc;
 use asm_storage::{SledAsmAuxDataDb, SledAsmManifestDb, SledAsmManifestMmrDb, SledAsmStateDb};
 use bitcoin::{Block, BlockHash, Network, Txid, block::Header, params::Params};
 use bitcoind_async_client::{Client, traits::Reader};
-use strata_asm_common::{AnchorState, AsmManifest, AsmManifestHash};
+use strata_asm_common::{AnchorState, AsmHistoryAccumulatorState, AsmManifest, AsmManifestHash};
 use strata_btc_types::{BitcoinTxid, BlockHashExt, L1BlockIdBitcoinExt, RawBitcoinTx};
 use strata_btc_verification::{L1Anchor, get_relative_difficulty_adjustment_height};
 use strata_identifiers::{L1BlockCommitment, L1BlockId, L1Height};
@@ -98,7 +98,7 @@ impl TestAsmWorkerContext {
             .expect("prune anchor states");
     }
 
-    /// Number of leaves in the manifest MMR (sentinels + real manifest hashes).
+    /// Number of leaves in the manifest MMR (the genesis prefix plus real manifest hashes).
     pub fn mmr_leaf_count(&self) -> u64 {
         self.state.mmr_db.leaf_count().expect("read mmr leaf count")
     }
@@ -244,6 +244,13 @@ impl ManifestMmrStore for TestAsmWorkerContext {
         self.state
             .mmr_db
             .put_leaf(height, hash)
+            .map_err(WorkerError::DbError)
+    }
+
+    fn seed_manifest_mmr(&self, genesis: &AsmHistoryAccumulatorState) -> WorkerResult<()> {
+        self.state
+            .mmr_db
+            .seed(&genesis.manifest_mmr)
             .map_err(WorkerError::DbError)
     }
 
@@ -429,7 +436,7 @@ pub(crate) mod fixtures {
     /// Builds a worker state with genesis at `genesis_height`: mine that many
     /// blocks, point the ASM params' anchor at the tip, and run
     /// [`AsmWorkerServiceState::new`] (which stores the genesis anchor and
-    /// prefills the manifest MMR).
+    /// seeds the manifest MMR).
     pub(crate) async fn setup_state(genesis_height: u64) -> StateFixture {
         let (node, client) = get_bitcoind_and_client();
         let client = Arc::new(client);

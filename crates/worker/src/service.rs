@@ -450,7 +450,7 @@ mod tests {
                 "anchor stored for {blk}",
             );
         }
-        // Sentinels 0..=101 (102 leaves) plus one manifest per processed height.
+        // Genesis prefix 0..=101 (102 leaves) plus one manifest per processed height.
         assert_eq!(fx.state.context.mmr_leaf_count(), 105);
     }
 
@@ -603,8 +603,8 @@ mod tests {
         sync_to_block(&mut fx.state, tip_a.blkid()).expect("sync branch A");
         assert_eq!(fx.state.blkid, tip_a, "anchor at chain A tip");
 
-        // The resolver runs against the current anchor's accumulator: sentinels
-        // 0..=5 plus one manifest per processed height 6..=9.
+        // The resolver runs against the current anchor's accumulator: genesis
+        // prefix 0..=5 plus one manifest per processed height 6..=9.
         let leaf_count_a = anchor_leaf_count(&fx.state);
         assert_eq!(leaf_count_a, 10);
 
@@ -658,7 +658,7 @@ mod tests {
             "leaf 6 now reflects branch B",
         );
 
-        // The post-reorg accumulator is shorter: sentinels 0..=5 plus 6',7'.
+        // The post-reorg accumulator is shorter: genesis prefix 0..=5 plus 6',7'.
         let leaf_count_b = anchor_leaf_count(&fx.state);
         assert_eq!(leaf_count_b, 8, "snapshot shrank to branch B's length");
         let resolver_b = AuxDataResolver::new(&fx.state.context, leaf_count_b);
@@ -713,7 +713,7 @@ mod tests {
             fx.state.context.get_anchor_state(&block).is_ok(),
             "anchor persisted",
         );
-        // Sentinels 0..=101 (102 leaves) plus the one manifest just recorded.
+        // Genesis prefix 0..=101 (102 leaves) plus the one manifest just recorded.
         assert_eq!(fx.state.context.mmr_leaf_count(), 103);
     }
 
