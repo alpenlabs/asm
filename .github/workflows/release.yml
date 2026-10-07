@@ -19,6 +19,8 @@ jobs:
     name: Build and publish the SP1 ASM guest ELF and vk files
     runs-on: ubuntu-latest
     timeout-minutes: 90
+    env:
+      SP1_VERSION: v6.8.1
     permissions:
       contents: write # create the release (if missing) and upload assets via the GitHub Releases API
     steps:
@@ -36,7 +38,7 @@ jobs:
       - name: Install SP1 toolchain
         run: |
           curl -fsSL --proto '=https' --tlsv1.2 https://sp1.succinct.xyz | bash
-          ~/.sp1/bin/sp1up
+          ~/.sp1/bin/sp1up -v "$SP1_VERSION"
           echo "$HOME/.sp1/bin" >> "$GITHUB_PATH"
 
       - name: Check SP1 toolchain

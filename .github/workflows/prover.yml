@@ -20,6 +20,8 @@ jobs:
     name: Run prover-perf (SP1)
     runs-on: ubuntu-latest
     timeout-minutes: 120
+    env:
+      SP1_VERSION: v6.8.1
     permissions:
       contents: read
       pull-requests: write
@@ -43,7 +45,7 @@ jobs:
       - name: Install SP1 Toolchain
         run: |
           curl -fsSL --proto '=https' --tlsv1.2 https://sp1.succinct.xyz | bash
-          ~/.sp1/bin/sp1up
+          ~/.sp1/bin/sp1up -v "$SP1_VERSION"
           echo "$HOME/.sp1/bin" >> "$GITHUB_PATH"
 
       - name: Check SP1 toolchain
