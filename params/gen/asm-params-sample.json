@@ -2,69 +2,69 @@
     "magic": "ALPN",
     "anchor": {
         "block": {
-            "height": 319119,
-            "blkid": "<block_hash>"
+            "height": 326024,
+            "blkid": "00000013040bbf86702ee57d576831876f46ee08c4827edf68578babb05c605b"
         },
-        "next_target": 487979077,
-        "epoch_start_timestamp": 1780826097,
+        "next_target": 487902130,
+        "epoch_start_timestamp": 1790905711,
         "network": "signet"
     },
     "subprotocols": [
         {
             "Admin": {
                 "strata_administrator": {
-                    "keys": [
-                        "02b49092f76d06f8002e0b7f1c63b5058db23fd4465b4f6954b53e1f352a04754d",
-                        "021e62d54af30569fd7269c14b6766f74d85ea00c911c4e1a423d4ba2ae4c34dc4",
-                        "02a4d869ccd09c470f8f86d3f1b0997fa2695933aaea001875b9db145ae9c1f4ba"
+                    "signers": [
+                        "tb1qp53zwvw2mnv60yh7gd3zug79r6nvcnmtx9gey9",
+                        "tb1q6lrxhkty8mrf3g27gqfgf64eamt3xlccx77h0d",
+                        "tb1qa9qzrg2nret08x0j07pynyyvqfesx9ujhu5dxu"
                     ],
                     "threshold": 2
                 },
                 "strata_sequencer_manager": {
-                    "keys": [
-                        "02b49092f76d06f8002e0b7f1c63b5058db23fd4465b4f6954b53e1f352a04754d",
-                        "021e62d54af30569fd7269c14b6766f74d85ea00c911c4e1a423d4ba2ae4c34dc4",
-                        "02a4d869ccd09c470f8f86d3f1b0997fa2695933aaea001875b9db145ae9c1f4ba"
+                    "signers": [
+                        "tb1qp53zwvw2mnv60yh7gd3zug79r6nvcnmtx9gey9",
+                        "tb1q6lrxhkty8mrf3g27gqfgf64eamt3xlccx77h0d",
+                        "tb1qa9qzrg2nret08x0j07pynyyvqfesx9ujhu5dxu"
                     ],
                     "threshold": 2
                 },
                 "alpen_administrator": {
-                    "keys": [
-                        "02b49092f76d06f8002e0b7f1c63b5058db23fd4465b4f6954b53e1f352a04754d",
-                        "021e62d54af30569fd7269c14b6766f74d85ea00c911c4e1a423d4ba2ae4c34dc4",
-                        "02a4d869ccd09c470f8f86d3f1b0997fa2695933aaea001875b9db145ae9c1f4ba"
+                    "signers": [
+                        "tb1qp53zwvw2mnv60yh7gd3zug79r6nvcnmtx9gey9",
+                        "tb1q6lrxhkty8mrf3g27gqfgf64eamt3xlccx77h0d",
+                        "tb1qa9qzrg2nret08x0j07pynyyvqfesx9ujhu5dxu"
                     ],
                     "threshold": 2
                 },
                 "strata_security_council": {
-                    "keys": [
-                        "02b49092f76d06f8002e0b7f1c63b5058db23fd4465b4f6954b53e1f352a04754d",
-                        "021e62d54af30569fd7269c14b6766f74d85ea00c911c4e1a423d4ba2ae4c34dc4",
-                        "02a4d869ccd09c470f8f86d3f1b0997fa2695933aaea001875b9db145ae9c1f4ba"
+                    "signers": [
+                        "tb1qp53zwvw2mnv60yh7gd3zug79r6nvcnmtx9gey9",
+                        "tb1q6lrxhkty8mrf3g27gqfgf64eamt3xlccx77h0d",
+                        "tb1qa9qzrg2nret08x0j07pynyyvqfesx9ujhu5dxu"
                     ],
                     "threshold": 2
                 },
                 "confirmation_depths": {
-                    "strata_admin_multisig_update": 144,
-                    "strata_seq_manager_multisig_update": 144,
-                    "alpen_admin_multisig_update": 144,
-                    "strata_security_council_multisig_update": 144,
-                    "operator_update": 144,
-                    "sequencer_update": 144,
-                    "ol_stf_vk_update": 144,
-                    "asm_stf_vk_update": 144,
-                    "ee_stf_vk_update": 144,
-                    "defcon3": 144,
-                    "safe_harbour_address_update": 144
+                    "strata_admin_multisig_update": 12,
+                    "strata_seq_manager_multisig_update": 12,
+                    "alpen_admin_multisig_update": 12,
+                    "strata_security_council_multisig_update": 12,
+                    "operator_update": 12,
+                    "sequencer_update": 0,
+                    "ol_stf_vk_update": 12,
+                    "asm_stf_vk_update": 12,
+                    "ee_stf_vk_update": 12,
+                    "defcon3": 12,
+                    "safe_harbor_address_update": 12
                 },
                 "max_seqno_gap": 10
             }
         },
         {
             "Checkpoint": {
-                "sequencer_predicate": "AlwaysAccept",
+                "sequencer_key": "29e5b5ad2a50b343407817f231ade1e6349bf6bc42ff457468f6eb774600bf64",
                 "checkpoint_predicate": "AlwaysAccept",
-                "genesis_l1_height": 12231,
+                "genesis_l1_height": "326024",
                 "genesis_ol_blkid": "0000000000000000000000000000000000000000000000000000000000000000"
             }
         },
@@ -73,13 +73,15 @@
                 "operators": [
                     "02b5ac886b84f3e3f53e4615f2cddd71a72dfadda255cfe1c58c1ed8de90de5e04",
                     "023b6817beecc27385e5da20968dff637b160ef29feb6457293945ea25dfe514cd",
-                    "024fa2598700f16df118a0af9454bae66051d2d589b4955a9202b4cb23e4d8cef8"
+                    "02e102c6ca248cde907707687d3cb28d66ec65b49bd8ed6d89920ba3330723ec44",
+                    "02d7b1899af8a74035de120a59753c4adce954faedafb6e0954dc0cfa288855cd0",
+                    "02e15421f079ab99dafd7cc6bb3488a78e7df2632b2b8f5f99463224358bc7ec3e"
                 ],
-                "denomination": 1000000000,
-                "assignment_duration": 10,
-                "operator_fee": 100000000,
-                "recovery_delay": 1008,
-                "safe_harbour_address": "040f0c8db753acbd17343a39c2f3f4e35e4be6da749f9e35137ab220e7b238a667"
+                "denomination": 200000000,
+                "assignment_duration": 536,
+                "operator_fee": 300000,
+                "recovery_delay": 36,
+                "safe_harbor_address": "04b2e4819d1aa3160c58bcb3ab32a96cc7e46d865dc1cf846233c97be01c00ef49"
             }
         }
     ]

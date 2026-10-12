@@ -21,7 +21,8 @@ From a public Esplora API (e.g. mempool.space on signet, no node required):
 
 ```sh
 python3 gen_asm_params.py \
-  --api-url https://mempool.space/signet/api
+  --api-url https://mempool.space/signet/api \
+  --genesis-height 319119
 ```
 
 Pick exactly one source: pass `--api-url`, or the full `--bitcoin-rpc-*` trio.
@@ -35,9 +36,12 @@ pass `--params <path>` to override.
   Mutually exclusive with the `--bitcoin-rpc-*` arguments.
 - `--bitcoin-rpc-url` — Bitcoin Core JSON-RPC endpoint.
 - `--bitcoin-rpc-user` / `--bitcoin-rpc-password` — RPC credentials.
-- `--params` — Input ASM params JSON template. `anchor.block.height` and
-  `anchor.network` are read from it; the rest of `anchor` is overwritten.
-  Defaults to `gen/asm-params-sample.json`.
+- `--params` — Input ASM params JSON template. `anchor.network` is read from it,
+  as is `anchor.block.height` when `--genesis-height` is not given; the rest of
+  `anchor` is overwritten. Defaults to `gen/asm-params-sample.json`.
+- `--genesis-height` — L1 height to anchor the ASM at. Overrides
+  `anchor.block.height` from the template, which is useful when the template
+  carries a `REPLACE_ME` placeholder there.
 
 The chosen source must already be synced past `anchor.block.height` — the
 script does not wait. Note that using a public API trusts that provider for the

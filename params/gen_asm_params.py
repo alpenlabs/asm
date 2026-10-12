@@ -27,6 +27,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--bitcoin-rpc-user")
     parser.add_argument("--bitcoin-rpc-password")
     parser.add_argument("--params", default=str(DEFAULT_PARAMS_PATH))
+    parser.add_argument(
+        "--genesis-height",
+        type=int,
+        help="L1 height to anchor the ASM at. Defaults to anchor.block.height "
+        "from the --params template.",
+    )
     args = parser.parse_args()
 
     rpc_args = (args.bitcoin_rpc_url, args.bitcoin_rpc_user, args.bitcoin_rpc_password)
@@ -154,7 +160,14 @@ def main() -> None:
 
     params = json.loads(Path(args.params).read_text())
 
-    genesis_height = params["anchor"]["block"]["height"]
+    genesis_height = args.genesis_height
+    if genesis_height is None:
+        genesis_height = params["anchor"]["block"]["height"]
+        if not isinstance(genesis_height, int):
+            raise SystemExit(
+                f"anchor.block.height in {args.params} is {genesis_height!r}, not an "
+                "integer; set it to the L1 height to anchor at, or pass --genesis-height"
+            )
     network = params["anchor"]["network"]
     logging.info(f"Updating ASM params with chain context for {network} network")
     params["anchor"] = build_l1_anchor(genesis_height, network, fetch_header)
