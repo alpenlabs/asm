@@ -3,6 +3,7 @@
 use bitcoin::BlockHash;
 use jsonrpsee::{core::RpcResult, proc_macros::rpc};
 use moho_types::MohoState;
+use strata_asm_admin_types::Role;
 use strata_asm_bridge_types::SafeHarbor;
 use strata_asm_checkpoint_types::CheckpointTip;
 use strata_asm_common::{AnchorState, AsmManifest};
@@ -34,6 +35,14 @@ pub trait AsmControlApi {
 #[cfg_attr(not(feature = "client"), rpc(server, namespace = "strata_asm"))]
 #[cfg_attr(feature = "client", rpc(server, client, namespace = "strata_asm"))]
 pub trait AsmStateApi {
+    /// Return the authority's last consumed sequence number at the provided Bitcoin block hash.
+    ///
+    /// A signed action can consume its sequence number even if the action is subsequently rejected.
+    /// Returns `None` when the state, admin section, or authority is absent. Unsupported section
+    /// versions and malformed state are RPC errors.
+    #[method(name = "getAdminSeqNo")]
+    async fn get_admin_seq_no(&self, block_hash: BlockHash, role: Role) -> RpcResult<Option<u64>>;
+
     /// Return the assignment state for the provided Bitcoin block hash.
     #[method(name = "getAssignments")]
     async fn get_assignments(&self, block_hash: BlockHash) -> RpcResult<Vec<AssignmentEntry>>;
