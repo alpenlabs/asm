@@ -14,11 +14,13 @@ use jsonrpsee::{
 };
 use moho_types::MohoState;
 use ssz::{Decode, Encode};
+use strata_asm_admin_types::Role;
 use strata_asm_bridge_types::SafeHarbor;
 use strata_asm_checkpoint_types::CheckpointTip;
-use strata_asm_common::{AnchorState, AsmManifest};
+use strata_asm_common::{AnchorState, AsmManifest, SectionStateExt, Subprotocol};
 use strata_asm_moho_storage::{SledExportEntriesDb, SledMohoStateDb, build_export_entry_mmr_proof};
 use strata_asm_params::AsmParams;
+use strata_asm_proto_admin::AdministrationSubprotocol;
 use strata_asm_proto_bridge::{AssignmentEntry, BridgeStateV1, DepositEntry};
 use strata_asm_proto_bridge_txs::BRIDGE_SUBPROTOCOL_ID;
 use strata_asm_proto_checkpoint::CheckpointState;
@@ -150,6 +152,21 @@ impl AsmControlApiServer for AsmRpcServer {
 
 #[async_trait]
 impl AsmStateApiServer for AsmRpcServer {
+    async fn get_admin_seq_no(&self, block_hash: BlockHash, role: Role) -> RpcResult<Option<u64>> {
+        let Some(state) = self.get_anchor_state(block_hash).await? else {
+            return Ok(None);
+        };
+        let Some(section) = state.find_section(AdministrationSubprotocol::ID) else {
+            return Ok(None);
+        };
+        let admin_state = section
+            .try_to_state::<AdministrationSubprotocol>()
+            .map_err(to_rpc_error)?;
+        Ok(admin_state
+            .authority(role)
+            .map(|authority| authority.last_seqno()))
+    }
+
     async fn get_assignments(&self, block_hash: BlockHash) -> RpcResult<Vec<AssignmentEntry>> {
         match self.get_bridge_state(block_hash).await? {
             Some(bridge_state) => Ok(bridge_state.assignments().assignments().to_vec()),
