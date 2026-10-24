@@ -91,8 +91,8 @@ pub(crate) async fn bootstrap(
     //    materialized here; a dedicated Moho worker derives both from each ASM commit (step 7).
     //
     // The worker aligns the DB-side ASM manifest MMR with L1 heights during
-    // startup (`ManifestMmrStore::prefill_manifest_mmr`), so no prefill is
-    // needed here.
+    // startup (`ManifestMmrStore::seed_manifest_mmr`), so no seeding is needed
+    // here.
     let worker_context = AsmWorkerContext::new(
         runtime_handle.clone(),
         bitcoin_client.clone(),

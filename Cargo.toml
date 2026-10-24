@@ -197,3 +197,26 @@ thiserror = "2.0.11"
 tokio = { version = "1.37", features = ["full"] }
 toml = "1.1.0"
 tracing = "0.1"
+
+# Temporary: picks up StoredMmr::seed_from_peaks from alpenlabs/strata-common#200
+# for every crate in the graph, moho included. Replace with a tag bump once
+# strata-common releases it.
+[patch."https://github.com/alpenlabs/strata-common"]
+strata-btc-types = { git = "https://www.github.com/alpenlabs/strata-common", rev = "aa85e4072b8c86d12a37e3650b1121e4cf2f0e4f" }
+strata-codec = { git = "https://www.github.com/alpenlabs/strata-common", rev = "aa85e4072b8c86d12a37e3650b1121e4cf2f0e4f" }
+strata-codec-derive = { git = "https://www.github.com/alpenlabs/strata-common", rev = "aa85e4072b8c86d12a37e3650b1121e4cf2f0e4f" }
+strata-codec-utils = { git = "https://www.github.com/alpenlabs/strata-common", rev = "aa85e4072b8c86d12a37e3650b1121e4cf2f0e4f" }
+strata-crypto = { git = "https://www.github.com/alpenlabs/strata-common", rev = "aa85e4072b8c86d12a37e3650b1121e4cf2f0e4f" }
+strata-identifiers = { git = "https://www.github.com/alpenlabs/strata-common", rev = "aa85e4072b8c86d12a37e3650b1121e4cf2f0e4f" }
+strata-l1-envelope-fmt = { git = "https://www.github.com/alpenlabs/strata-common", rev = "aa85e4072b8c86d12a37e3650b1121e4cf2f0e4f" }
+strata-l1-txfmt = { git = "https://www.github.com/alpenlabs/strata-common", rev = "aa85e4072b8c86d12a37e3650b1121e4cf2f0e4f" }
+strata-logging = { git = "https://www.github.com/alpenlabs/strata-common", rev = "aa85e4072b8c86d12a37e3650b1121e4cf2f0e4f" }
+strata-merkle = { git = "https://www.github.com/alpenlabs/strata-common", rev = "aa85e4072b8c86d12a37e3650b1121e4cf2f0e4f" }
+strata-merkle-node-store = { git = "https://www.github.com/alpenlabs/strata-common", rev = "aa85e4072b8c86d12a37e3650b1121e4cf2f0e4f" }
+strata-msg-fmt = { git = "https://www.github.com/alpenlabs/strata-common", rev = "aa85e4072b8c86d12a37e3650b1121e4cf2f0e4f" }
+strata-ol-logs = { git = "https://www.github.com/alpenlabs/strata-common", rev = "aa85e4072b8c86d12a37e3650b1121e4cf2f0e4f" }
+strata-predicate = { git = "https://www.github.com/alpenlabs/strata-common", rev = "aa85e4072b8c86d12a37e3650b1121e4cf2f0e4f" }
+strata-retry = { git = "https://www.github.com/alpenlabs/strata-common", rev = "aa85e4072b8c86d12a37e3650b1121e4cf2f0e4f" }
+strata-service = { git = "https://www.github.com/alpenlabs/strata-common", rev = "aa85e4072b8c86d12a37e3650b1121e4cf2f0e4f" }
+strata-ssz-tests = { git = "https://www.github.com/alpenlabs/strata-common", rev = "aa85e4072b8c86d12a37e3650b1121e4cf2f0e4f" }
+strata-tasks = { git = "https://www.github.com/alpenlabs/strata-common", rev = "aa85e4072b8c86d12a37e3650b1121e4cf2f0e4f" }

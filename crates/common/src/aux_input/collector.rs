@@ -22,8 +22,10 @@ use crate::{
 pub struct AuxRequestCollector {
     requests: AuxRequests,
     /// Highest L1 height whose manifest can be resolved. There is no lower
-    /// bound: the MMR is height-indexed and sentinel-prefilled at and before
-    /// genesis, so every index down to 0 is a verifiable position.
+    /// bound. A subprotocol asks only for heights above its own verified tip,
+    /// which starts at genesis. Heights at or below genesis are verifiable
+    /// against the proven MMR, but the worker cannot resolve them: it stores
+    /// only the genesis peaks, not the leaves under them.
     ///
     /// Requests above the bound are dropped with a warning rather than rejected,
     /// so an L1 transaction claiming a beyond-tip height cannot fail resolution
@@ -114,8 +116,8 @@ mod tests {
         assert_eq!(collector.requests.manifest_hashes.len(), 1);
     }
 
-    /// There is no lower bound. Pre-genesis heights are sentinel positions in the
-    /// height-indexed MMR, so they resolve rather than failing the resolver.
+    /// There is no lower bound. The collector knows nothing about genesis, so
+    /// keeping requests above it is the subprotocol's job.
     #[test]
     fn test_collector_admits_height_zero() {
         let mut collector = AuxRequestCollector::new(500);

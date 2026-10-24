@@ -917,10 +917,10 @@ impl AsmTestHarnessBuilder {
         }
         let asm_params = Arc::new(asm_params);
 
-        // 5. Create worker context. The worker prefills the height-indexed MMR
-        // with sentinel leaves for L1 heights `0..=genesis_height` during
-        // startup (`ManifestMmrStore::prefill_manifest_mmr`), matching the
-        // proven (in-state) MMR's genesis prefill so external leaf indices
+        // 5. Create worker context. The worker seeds the height-indexed MMR
+        // with the proven (in-state) MMR's genesis peaks, covering L1 heights
+        // `0..=genesis_height`, during startup
+        // (`ManifestMmrStore::seed_manifest_mmr`), so external leaf indices
         // equal L1 block heights.
         let context = TestAsmWorkerContext::new((*client).clone());
 
