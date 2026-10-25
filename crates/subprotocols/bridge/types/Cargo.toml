@@ -16,7 +16,7 @@ strata-crypto.workspace = true
 strata-identifiers.workspace = true
 
 arbitrary.workspace = true
-bitcoin = { workspace = true, optional = true }
+bitcoin.workspace = true
 bitvec.workspace = true
 serde.workspace = true
 thiserror.workspace = true
@@ -28,7 +28,6 @@ serde_json.workspace = true
 strata-test-utils-arb.workspace = true
 
 [features]
-# Enables the `SafeHarborAddress: Arbitrary` impl, which derives a P2TR
-# descriptor from a fresh secp256k1 keypair. Gated so the `bitcoin` dep
-# only flows to consumers that need it (fuzzers, proptest harnesses).
-arbitrary = ["dep:bitcoin"]
+# Enables the `Arbitrary` impls for `SafeHarborAddress` and
+# `BridgeInitConfig`, for fuzzers and proptest harnesses.
+arbitrary = []

@@ -45,5 +45,5 @@ pub use config::BridgeInitConfig;
 pub use operator::{
     OperatorBitmap, OperatorBitmapError, OperatorIdx, OperatorSelection, filter_eligible_operators,
 };
-pub use safe_harbor::{SafeHarbor, SafeHarborAddress};
+pub use safe_harbor::{InvalidSafeHarborAddress, SafeHarbor, SafeHarborAddress};
 pub use withdrawal::{WithdrawalIntent, WithdrawalOutput};
