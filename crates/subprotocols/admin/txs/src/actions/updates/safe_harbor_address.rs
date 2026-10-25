@@ -42,10 +42,10 @@ impl RenderSigningMessage for SafeHarborAddressUpdate {
     }
 
     fn render_details(&self, details: &mut IndentedDetails<'_>) {
-        details.push(format!(
-            "New Safe Harbor Address: {}",
-            hex::encode(self.address.as_descriptor().to_bytes())
-        ));
+        // Shown as a bech32m address because that is what a signer can compare against
+        // their wallet; the descriptor the action carries is not.
+        let address = self.address.to_address(details.network());
+        details.push(format!("New Safe Harbor Address: {address}"));
     }
 }
 
@@ -69,7 +69,6 @@ mod tests {
             0x16, 0xF8, 0x17, 0x98,
         ];
         let descriptor = Descriptor::new_p2tr(&payload).expect("valid x-only public key");
-        let expected_hex = hex::encode(descriptor.to_bytes());
         let address = SafeHarborAddress::try_from(descriptor).expect("p2tr descriptor accepted");
         let update = SafeHarborAddressUpdate::new(address);
         let action = MultisigAction::Update(UpdateAction::SafeHarborAddress(update));
@@ -77,15 +76,14 @@ mod tests {
         let message = SigningMessage::for_action(&action, 17, Network::Regtest);
         assert_eq!(
             message.as_str(),
-            format!(
-                "Strata ASM Administration v1\n\
-                 Network: regtest\n\
-                 Action: Safe Harbor Address Update\n\
-                 Authorized By: Strata Administrator\n\
-                 Sequence: 17\n\
-                 Action Details:\n  \
-                 New Safe Harbor Address: {expected_hex}"
-            )
+            "Strata ASM Administration v1\n\
+             Network: regtest\n\
+             Action: Safe Harbor Address Update\n\
+             Authorized By: Strata Administrator\n\
+             Sequence: 17\n\
+             Action Details:\n  \
+             New Safe Harbor Address: \
+             bcrt1p0xlxvlhemja6c4dqv22uapctqupfhlxm9h8z3k2e72q4k9hcz7vqc8gma6"
         );
     }
 }
