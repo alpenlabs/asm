@@ -10,13 +10,15 @@
 
 use std::collections::HashMap;
 
-use bitcoin::secp256k1::SecretKey;
+use bitcoin::{address::NetworkUnchecked, secp256k1::SecretKey, Address};
 use clap::{Args, Parser, Subcommand};
 use corepc_node::{client::client_sync::Auth, Client};
 use integration_tests::harness::{
-    admin::{asm_stf_vk_update, AdminContext},
+    admin::{asm_stf_vk_update, safe_harbor_address_update, AdminContext},
     test_harness::build_envelope_tx,
 };
+use strata_asm_bridge_types::SafeHarborAddress;
+use strata_asm_proto_admin_txs::actions::MultisigAction;
 use strata_l1_txfmt::MagicBytes;
 use strata_predicate::PredicateKey;
 
@@ -30,10 +32,13 @@ struct Cli {
 enum Command {
     /// Signs an ASM STF predicate update and broadcasts it. Prints the reveal txid.
     SubmitAsmStfUpdate(SubmitAsmStfUpdateArgs),
+    /// Signs a safe harbor address update and broadcasts it. Prints the reveal txid.
+    SubmitSafeHarborUpdate(SubmitSafeHarborUpdateArgs),
 }
 
+/// What every admin submission needs: a funding wallet and the signer of the update.
 #[derive(Debug, Args)]
-struct SubmitAsmStfUpdateArgs {
+struct AdminTxArgs {
     /// Bitcoind wallet RPC URL; the wallet funds the envelope.
     #[arg(long)]
     btc_url: String,
@@ -50,28 +55,47 @@ struct SubmitAsmStfUpdateArgs {
     /// Must be above the role's last accepted sequence number.
     #[arg(long)]
     seqno: u64,
+}
+
+#[derive(Debug, Args)]
+struct SubmitAsmStfUpdateArgs {
+    #[command(flatten)]
+    tx: AdminTxArgs,
     /// Predicate to activate, e.g. `Bip340Schnorr:<hex>`.
     #[arg(long)]
     predicate: PredicateKey,
 }
 
-fn main() -> anyhow::Result<()> {
-    match Cli::parse().command {
-        Command::SubmitAsmStfUpdate(args) => submit_asm_stf_update(args),
-    }
+#[derive(Debug, Args)]
+struct SubmitSafeHarborUpdateArgs {
+    #[command(flatten)]
+    tx: AdminTxArgs,
+    /// P2TR address to rotate the safe harbor to, as a wallet shows it.
+    #[arg(long)]
+    address: Address<NetworkUnchecked>,
 }
 
-fn submit_asm_stf_update(args: SubmitAsmStfUpdateArgs) -> anyhow::Result<()> {
+fn main() -> anyhow::Result<()> {
+    let (tx, action) = match Cli::parse().command {
+        Command::SubmitAsmStfUpdate(args) => (args.tx, asm_stf_vk_update(args.predicate)),
+        Command::SubmitSafeHarborUpdate(args) => {
+            let address = SafeHarborAddress::try_from_address(&args.address)?;
+            (args.tx, safe_harbor_address_update(address))
+        }
+    };
+    submit_admin_action(tx, &action)
+}
+
+fn submit_admin_action(args: AdminTxArgs, action: &MultisigAction) -> anyhow::Result<()> {
     let rpc = Client::new_with_auth(
         &args.btc_url,
         Auth::UserPass(args.btc_user, args.btc_password),
     )?;
-    let action = asm_stf_vk_update(args.predicate);
     let ctx = AdminContext::new(HashMap::from([(
         action.required_role(),
         (vec![args.admin_sk], vec![0]),
     )]));
-    let payload = ctx.sign_with_seqno(&action, args.seqno);
+    let payload = ctx.sign_with_seqno(action, args.seqno);
     let tx = build_envelope_tx(&rpc, args.magic, action.tag(), payload, None)?;
     let txid = rpc.send_raw_transaction(&tx)?.txid()?;
     println!("{txid}");
