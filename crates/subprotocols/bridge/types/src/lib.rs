@@ -33,6 +33,8 @@
 //! # Configuration
 //!
 //! - [`BridgeInitConfig`] — genesis configuration for the bridge subprotocol.
+//! - [`UncheckedSafeHarborAddress`] — the safe harbor as the parameter file writes it, a P2TR
+//!   address.
 
 mod claim;
 mod config;
@@ -41,7 +43,7 @@ mod safe_harbor;
 mod withdrawal;
 
 pub use claim::{OperatorClaimUnlockV0, OperatorClaimUnlockV1};
-pub use config::BridgeInitConfig;
+pub use config::{BridgeInitConfig, SafeHarborNetworkMismatch, UncheckedSafeHarborAddress};
 pub use operator::{
     OperatorBitmap, OperatorBitmapError, OperatorIdx, OperatorSelection, filter_eligible_operators,
 };

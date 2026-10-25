@@ -77,7 +77,7 @@ pub(crate) fn regtest_params_json() -> &'static str {
     "assignment_duration": 0,
     "operator_fee": 0,
     "recovery_delay": 0,
-    "safe_harbor_address": "0479be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"
+    "safe_harbor_address": "bcrt1p0xlxvlhemja6c4dqv22uapctqupfhlxm9h8z3k2e72q4k9hcz7vqc8gma6"
   }
 }
   ]

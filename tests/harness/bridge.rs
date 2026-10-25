@@ -31,7 +31,9 @@ use bitcoin::{
 };
 use bitcoind_async_client::traits::Wallet;
 use rand::RngCore;
-use strata_asm_bridge_types::{BridgeInitConfig, OperatorIdx, SafeHarborAddress};
+use strata_asm_bridge_types::{
+    BridgeInitConfig, OperatorIdx, SafeHarborAddress, UncheckedSafeHarborAddress,
+};
 use strata_asm_common::{AnchorState, SectionStateExt, Subprotocol};
 use strata_asm_proto_bridge::{BridgeStateV1, BridgeSubprotoV1};
 use strata_asm_proto_bridge_txs::{
@@ -694,7 +696,11 @@ pub fn create_test_bridge_setup(num_operators: usize) -> (BridgeInitConfig, Brid
     let recovery_delay = 1008;
     let operator_fee = BitcoinAmount::try_from(100_000)
         .expect("test amount must be within the Bitcoin money supply");
-    let safe_harbor_address: SafeHarborAddress = ArbitraryGenerator::new().generate();
+    let safe_harbor: SafeHarborAddress = ArbitraryGenerator::new().generate();
+    let safe_harbor_address = UncheckedSafeHarborAddress::try_new(
+        safe_harbor.to_address(Network::Regtest).into_unchecked(),
+    )
+    .expect("a safe harbor rendered as an address is a valid safe harbor address");
 
     let config = BridgeInitConfig {
         operators: pubkeys.clone(),

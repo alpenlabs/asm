@@ -67,7 +67,7 @@ impl BridgeStateV1 {
             denomination: config.denomination,
             operator_fee: config.operator_fee,
             recovery_delay: config.recovery_delay,
-            safe_harbor: SafeHarbor::new(config.safe_harbor_address.clone()),
+            safe_harbor: SafeHarbor::new(SafeHarborAddress::from(&config.safe_harbor_address)),
         }
     }
 
