@@ -197,3 +197,13 @@ thiserror = "2.0.11"
 tokio = { version = "1.37", features = ["full"] }
 toml = "1.1.0"
 tracing = "0.1"
+
+[patch.crates-io]
+# NOTE: zmq-sys 0.12.0 on crates.io vendors libzmq 4.3.4 (zeromq-src 0.2), which
+# over-aligns its command queue entries without allocating them aligned
+# (https://github.com/zeromq/libzmq/pull/4223). Compilers that default to x86-64-v3,
+# such as gcc on Ubuntu 26.04 amd64v3, then emit aligned AVX stores that segfault
+# on the first `zmq_connect`. Upstream master moves to zeromq-src 0.3 (libzmq 4.3.5)
+# but is unreleased (https://github.com/erickt/rust-zmq/issues/420); drop this patch
+# once a zmq-sys release depends on zeromq-src >= 0.3.
+zmq-sys = { git = "https://github.com/erickt/rust-zmq", rev = "5d78967001abb1aece2fba878d6151cb66cd1767" }
