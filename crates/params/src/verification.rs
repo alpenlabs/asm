@@ -6,6 +6,7 @@
 //! parses has already been checked.
 
 use strata_asm_admin_types::SignerNetworkMismatch;
+use strata_asm_bridge_types::SafeHarborNetworkMismatch;
 use thiserror::Error;
 
 use crate::params::AsmParams;
@@ -23,6 +24,10 @@ impl AsmParams {
             config.check_signer_networks(self.anchor.network)?;
         }
 
+        if let Some(config) = self.bridge_config() {
+            config.check_safe_harbor_network(self.anchor.network)?;
+        }
+
         Ok(())
     }
 }
@@ -33,6 +38,10 @@ pub enum InvalidAsmParams {
     /// An administration signer was written as an address on another network.
     #[error(transparent)]
     AdminSignerNetwork(#[from] SignerNetworkMismatch),
+
+    /// The bridge safe harbor was written as an address on another network.
+    #[error(transparent)]
+    BridgeSafeHarborNetwork(#[from] SafeHarborNetworkMismatch),
 }
 
 #[cfg(test)]
@@ -71,6 +80,28 @@ mod tests {
             error
                 .to_string()
                 .contains("signer at index 0 is not an address on bitcoin"),
+            "unexpected error: {error}"
+        );
+    }
+
+    /// The safe harbor is checked against the anchor in the same way as the signers, so a
+    /// mainnet sweep destination cannot slip into a regtest file.
+    #[test]
+    fn deserialize_rejects_a_safe_harbor_on_another_network() {
+        let fixture = regtest_params_json();
+        let json = fixture.replace(
+            "bcrt1p0xlxvlhemja6c4dqv22uapctqupfhlxm9h8z3k2e72q4k9hcz7vqc8gma6",
+            "bc1p0xlxvlhemja6c4dqv22uapctqupfhlxm9h8z3k2e72q4k9hcz7vqzk5jj0",
+        );
+        assert_ne!(json, fixture, "fixture carries the regtest safe harbor");
+
+        let error = serde_json::from_str::<AsmParams>(&json)
+            .expect_err("a mainnet safe harbor does not belong on a regtest anchor");
+
+        assert!(
+            error
+                .to_string()
+                .contains("safe harbor address is not an address on regtest"),
             "unexpected error: {error}"
         );
     }

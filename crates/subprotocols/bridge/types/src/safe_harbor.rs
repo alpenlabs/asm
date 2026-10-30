@@ -11,7 +11,8 @@
 use arbitrary::Arbitrary;
 #[cfg(feature = "arbitrary")]
 use bitcoin::secp256k1::{Keypair, SECP256K1, SecretKey};
-use bitcoin_bosd::{Descriptor, DescriptorType};
+use bitcoin::{Address, Network, WitnessProgram, address::NetworkUnchecked};
+use bitcoin_bosd::{Descriptor, DescriptorType, descriptor::P2TR_LEN};
 use serde::{Deserialize, Serialize, de::Error as _};
 use ssz::{Decode as SszDecode, DecodeError};
 use ssz_derive::{Decode, Encode};
@@ -19,7 +20,13 @@ use thiserror::Error;
 
 /// A safe harbor [`Descriptor`] restricted to taproot (P2TR) outputs.
 ///
-/// Constructible only via [`TryFrom<Descriptor>`]. Deserialization, SSZ
+/// Operators write and read the safe harbor as a bech32m address, because that is what a
+/// wallet or hardware signer shows. The stored form is the descriptor, which has no network.
+/// The address is produced only at presentation boundaries, from the network the chain is
+/// anchored to.
+///
+/// Constructible only via [`TryFrom<Descriptor>`] and
+/// [`try_from_address`](Self::try_from_address). Deserialization, SSZ
 /// decoding, and the `arbitrary`-gated [`Arbitrary`] impl all enforce the
 /// P2TR check so the invariant cannot be bypassed by supplying arbitrary
 /// wire bytes.
@@ -34,6 +41,46 @@ pub struct SafeHarborAddress(Descriptor);
 struct SafeHarborAddressRaw(Descriptor);
 
 impl SafeHarborAddress {
+    /// Extracts the safe harbor from a parsed Bitcoin address.
+    ///
+    /// The descriptor has no network, so the network the address was written for is
+    /// ignored: `bc1p...` and `bcrt1p...` over the same output key name the same safe
+    /// harbor. Whether an address belongs to the network the chain runs on is a question
+    /// about the parameter file, checked when it is loaded.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`InvalidSafeHarborAddress::NotP2tr`] if `address` is not pay-to-taproot, and
+    /// [`InvalidSafeHarborAddress::InvalidOutputKey`] if its output key is not a valid x-only
+    /// public key.
+    pub fn try_from_address(
+        address: &Address<NetworkUnchecked>,
+    ) -> Result<Self, InvalidSafeHarborAddress> {
+        let program = address
+            .assume_checked_ref()
+            .witness_program()
+            .filter(WitnessProgram::is_p2tr)
+            .ok_or(InvalidSafeHarborAddress::NotP2tr)?;
+        let output_key: &[u8; P2TR_LEN] = program
+            .program()
+            .as_bytes()
+            .try_into()
+            .expect("a P2TR witness program is 32 bytes");
+
+        // An address only checksums its program, so a 32-byte value off the curve still
+        // parses. Nothing can spend from it, and the descriptor refuses to hold one.
+        Descriptor::new_p2tr(output_key)
+            .map(Self)
+            .map_err(|_| InvalidSafeHarborAddress::InvalidOutputKey)
+    }
+
+    /// Renders the safe harbor as a bech32m address for `network`.
+    pub fn to_address(&self, network: Network) -> Address {
+        self.0
+            .to_address(network)
+            .expect("a P2TR descriptor always holds a valid x-only public key")
+    }
+
     /// Returns a reference to the underlying P2TR descriptor.
     pub fn as_descriptor(&self) -> &Descriptor {
         &self.0
@@ -50,6 +97,18 @@ impl SafeHarborAddress {
 #[derive(Debug, Error, PartialEq)]
 #[error("safe harbor address must be a P2TR descriptor, got {0:?}")]
 pub struct NotP2trDescriptor(DescriptorType);
+
+/// A Bitcoin address that cannot be a [`SafeHarborAddress`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
+pub enum InvalidSafeHarborAddress {
+    /// The address is not pay-to-taproot.
+    #[error("safe harbor address must be a P2TR address")]
+    NotP2tr,
+
+    /// The address is pay-to-taproot, but its output key is not a point on the curve.
+    #[error("safe harbor address has an output key that is not a valid x-only public key")]
+    InvalidOutputKey,
+}
 
 impl TryFrom<Descriptor> for SafeHarborAddress {
     type Error = NotP2trDescriptor;
@@ -167,9 +226,18 @@ impl SafeHarbor {
 
 #[cfg(test)]
 mod tests {
+    use bitcoin::WitnessVersion;
     use ssz::{Decode, Encode};
 
     use super::*;
+
+    /// BIP-350 test vector: the P2TR address whose output key is the x-only generator
+    /// point, the payload of [`p2tr_descriptor_a`].
+    const P2TR_ADDRESS_A: &str = "bc1p0xlxvlhemja6c4dqv22uapctqupfhlxm9h8z3k2e72q4k9hcz7vqzk5jj0";
+
+    fn parse_address(address: &str) -> Address<NetworkUnchecked> {
+        address.parse().expect("valid address")
+    }
 
     fn non_p2tr_descriptor() -> Descriptor {
         Descriptor::new_p2wpkh(&[0xAA; 20])
@@ -314,6 +382,58 @@ mod tests {
         let err = serde_json::from_str::<SafeHarborAddress>(&json)
             .expect_err("non-P2TR descriptor must be rejected");
         assert!(err.to_string().contains("P2TR"));
+    }
+
+    /// Pins the address mapping to a fixed vector: the witness program is the descriptor
+    /// payload, with no tweak applied in either direction.
+    #[test]
+    fn safe_harbor_address_matches_bip350_vector() {
+        let from_address = SafeHarborAddress::try_from_address(&parse_address(P2TR_ADDRESS_A))
+            .expect("p2tr address accepted");
+
+        assert_eq!(from_address, safe_harbor_address_a());
+        assert_eq!(
+            safe_harbor_address_a()
+                .to_address(Network::Bitcoin)
+                .to_string(),
+            P2TR_ADDRESS_A
+        );
+    }
+
+    #[test]
+    fn safe_harbor_address_ignores_the_address_network() {
+        let regtest = safe_harbor_address_a().to_address(Network::Regtest);
+        assert!(regtest.to_string().starts_with("bcrt1p"));
+
+        let from_regtest = SafeHarborAddress::try_from_address(&regtest.into_unchecked())
+            .expect("p2tr address accepted");
+        assert_eq!(from_regtest, safe_harbor_address_a());
+    }
+
+    #[test]
+    fn safe_harbor_address_rejects_non_p2tr_address() {
+        // BIP-173 P2WPKH test vector.
+        let address = parse_address("bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4");
+
+        assert_eq!(
+            SafeHarborAddress::try_from_address(&address),
+            Err(InvalidSafeHarborAddress::NotP2tr)
+        );
+    }
+
+    /// A v1 program of 32 bytes is a well-formed address whatever the bytes are, so the
+    /// output key check has to happen here.
+    #[test]
+    fn safe_harbor_address_rejects_off_curve_output_key() {
+        // Above the field prime, so not the x-coordinate of any point.
+        let program =
+            WitnessProgram::new(WitnessVersion::V1, &[0xFF; P2TR_LEN]).expect("32-byte v1 program");
+        let address = Address::from_witness_program(program, Network::Bitcoin).into_unchecked();
+
+        assert_eq!(
+            SafeHarborAddress::try_from_address(&address),
+            Err(InvalidSafeHarborAddress::InvalidOutputKey)
+        );
     }
 
     /// The custom `Arbitrary` impl must only ever yield P2TR descriptors,

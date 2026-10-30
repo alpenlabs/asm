@@ -3,6 +3,7 @@ import logging
 import flexitest
 
 from constants import ASM_MAGIC_BYTES
+from factory.common.asm_params import DEFAULT_SAFE_HARBOR_ADDRESS
 from utils.utils import wait_until_asm_ready, wait_until_bitcoind_ready
 
 # Externally-tagged subprotocol variants, in the order `basic_env` writes them
@@ -52,6 +53,12 @@ class AsmGetParamsTest(flexitest.Test):
         # carries the operator set the env configured.
         bridge = subprotocols[tags.index("Bridge")]["Bridge"]
         assert bridge["operators"], f"bridge params missing operators: {bridge!r}"
+
+        # The safe harbor comes back as the address the file was written with, not as the
+        # descriptor the chain stores.
+        assert bridge["safe_harbor_address"] == DEFAULT_SAFE_HARBOR_ADDRESS, (
+            f"unexpected safe harbor in bridge params: {bridge['safe_harbor_address']!r}"
+        )
 
         logging.info("getParams returned magic=%s, subprotocols=%s", params["magic"], tags)
         return True

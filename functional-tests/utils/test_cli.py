@@ -40,10 +40,40 @@ def submit_asm_stf_update(
 ) -> str:
     """Sign an ASM STF predicate update, broadcast it from the bitcoind wallet, and
     return the reveal txid. The caller mines it."""
+    return _submit_admin_action(
+        bitcoind_service,
+        "submit-asm-stf-update",
+        admin_secret_key,
+        seqno,
+        ["--predicate", predicate],
+    )
+
+
+def submit_safe_harbor_update(
+    bitcoind_service, admin_secret_key: str, seqno: int, address: str
+) -> str:
+    """Sign a safe harbor rotation to the P2TR `address`, broadcast it from the bitcoind
+    wallet, and return the reveal txid. The caller mines it."""
+    return _submit_admin_action(
+        bitcoind_service,
+        "submit-safe-harbor-update",
+        admin_secret_key,
+        seqno,
+        ["--address", address],
+    )
+
+
+def _submit_admin_action(
+    bitcoind_service,
+    subcommand: str,
+    admin_secret_key: str,
+    seqno: int,
+    action_args: list[str],
+) -> str:
     props = bitcoind_service.props
     cmd = [
         resolve_test_cli_bin(),
-        "submit-asm-stf-update",
+        subcommand,
         "--btc-url",
         f"http://127.0.0.1:{props['rpc_port']}/wallet/{props['walletname']}",
         "--btc-user",
@@ -56,8 +86,7 @@ def submit_asm_stf_update(
         admin_secret_key,
         "--seqno",
         str(seqno),
-        "--predicate",
-        predicate,
+        *action_args,
     ]
     logger.info("Running command: %s", " ".join(cmd))
     result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)

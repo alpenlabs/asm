@@ -9,9 +9,15 @@ from bitcoinlib.keys import Key
 
 from constants import ASM_MAGIC_BYTES
 
-# BOSD-encoded P2TR descriptor used as the default safe harbor address in
-# tests. Address `bc1ppuxgmd6n4j73wdp688p08a8rte97dkn5n70r2ym6kgsw0v3c5ensrytduf`.
-DEFAULT_SAFE_HARBOR_ADDRESS = "040f0c8db753acbd17343a39c2f3f4e35e4be6da749f9e35137ab220e7b238a667"
+# P2TR address used as the default safe harbor in tests. It is a regtest address
+# because the runner rejects a safe harbor whose prefix disagrees with the anchor's
+# network.
+DEFAULT_SAFE_HARBOR_ADDRESS = "bcrt1ppuxgmd6n4j73wdp688p08a8rte97dkn5n70r2ym6kgsw0v3c5ense4hynu"
+
+# BOSD descriptor of `DEFAULT_SAFE_HARBOR_ADDRESS`, the form the RPC reports.
+DEFAULT_SAFE_HARBOR_DESCRIPTOR = (
+    "040f0c8db753acbd17343a39c2f3f4e35e4be6da749f9e35137ab220e7b238a667"
+)
 
 
 @dataclass

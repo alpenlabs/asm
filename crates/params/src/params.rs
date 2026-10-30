@@ -127,7 +127,7 @@ impl<'a> Arbitrary<'a> for AsmParams {
                     u, network,
                 )?),
                 SubprotocolInstance::Checkpoint(CheckpointInitConfig::arbitrary(u)?),
-                SubprotocolInstance::Bridge(BridgeInitConfig::arbitrary(u)?),
+                SubprotocolInstance::Bridge(BridgeInitConfig::arbitrary_for_network(u, network)?),
             ],
         })
     }
@@ -135,6 +135,8 @@ impl<'a> Arbitrary<'a> for AsmParams {
 
 #[cfg(test)]
 mod tests {
+    use strata_asm_bridge_types::SafeHarborAddress;
+
     use super::*;
     use crate::test_fixtures::regtest_params_json;
 
@@ -142,14 +144,24 @@ mod tests {
     fn test_asm_params_deserialize_from_raw_json() {
         let raw_json = regtest_params_json();
 
-        // Signers are written as addresses on the anchor's network, so resolving them is
-        // part of what the fixture pins: the anchor is on regtest and the signers are
-        // written as regtest addresses, which deserialization confirms.
+        // Signers and the safe harbor are written as addresses on the anchor's network, so
+        // resolving them is part of what the fixture pins: the anchor is on regtest and both
+        // are written as regtest addresses, which deserialization confirms.
         let params: AsmParams =
             serde_json::from_str(raw_json).expect("deserialization from raw JSON should succeed");
 
         let admin = params.admin_config().expect("params carry an Admin config");
         assert_eq!(admin.strata_sequencer_manager.signers().len(), 2);
+
+        let bridge = params
+            .bridge_config()
+            .expect("params carry a Bridge config");
+        assert_eq!(
+            SafeHarborAddress::from(&bridge.safe_harbor_address)
+                .as_descriptor()
+                .to_string(),
+            "0479be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"
+        );
     }
 
     #[cfg(feature = "arbitrary")]

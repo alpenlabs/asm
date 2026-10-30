@@ -2,7 +2,7 @@ import logging
 
 import flexitest
 
-from factory.common.asm_params import DEFAULT_SAFE_HARBOR_ADDRESS
+from factory.common.asm_params import DEFAULT_SAFE_HARBOR_DESCRIPTOR
 from utils.utils import (
     wait_until_asm_reaches_height,
     wait_until_asm_ready,
@@ -18,7 +18,7 @@ class AsmSafeHarborTest(flexitest.Test):
     The bridge subprotocol is initialised from `asm_params.json` with
     `DEFAULT_SAFE_HARBOR_ADDRESS` and `activated=false`. Without any
     admin defcon signal, every processed block must surface that exact
-    pair via the RPC.
+    pair via the RPC, which reports the address as its BOSD descriptor.
     """
 
     def __init__(self, ctx: flexitest.InitContext):
@@ -58,8 +58,8 @@ class AsmSafeHarborTest(flexitest.Test):
                 f"unexpected safe harbor payload at height {height}: {result!r}"
             )
             normalized = result["address"].lower().removeprefix("0x")
-            assert normalized == DEFAULT_SAFE_HARBOR_ADDRESS, (
-                f"expected configured safe harbor address {DEFAULT_SAFE_HARBOR_ADDRESS}, "
+            assert normalized == DEFAULT_SAFE_HARBOR_DESCRIPTOR, (
+                f"expected configured safe harbor descriptor {DEFAULT_SAFE_HARBOR_DESCRIPTOR}, "
                 f"got {result['address']}"
             )
             assert result["activated"] is False, (
