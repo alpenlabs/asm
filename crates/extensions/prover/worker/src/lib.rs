@@ -31,6 +31,7 @@ mod schedule;
 mod service;
 mod state;
 mod traits;
+mod upgrade_watch;
 mod verify;
 
 pub use backend::{

@@ -8411,6 +8411,8 @@ dependencies = [
  "strata-asm-common",
  "strata-asm-moho-storage",
  "strata-asm-proof-impl",
+ "strata-asm-proto-admin",
+ "strata-asm-proto-admin-txs",
  "strata-asm-prover-storage",
  "strata-asm-prover-types",
  "strata-asm-rpc",
