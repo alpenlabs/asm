@@ -3,7 +3,40 @@ ignore = [
   # NOTE: cargo-audit reads config from .cargo/audit.toml.
 
   # RUSTSEC-2026-0002 (lru 0.12.5) — IterMut unsound (Stacked Borrows violation)
-  # Pulled in via sp1-prover -> sp1-sdk; sp1 v6.8.1 still pins lru 0.12.5.
-  # Upgrade blocked until upstream sp1-prover bumps lru >= 0.13.
+  # Severity: informational (unsound), no CVSS.
+  # Affects us: no. Only sp1-prover uses lru, and it never calls `iter_mut`.
+  # Blocked: sp1-prover 6.8.1 pins lru 0.12.5; the fix is in 0.16.3.
   "RUSTSEC-2026-0002",
+
+  # RUSTSEC-2026-0387 (crypto-bigint 0.5.5) — timing leaks in constant-time ops
+  # Severity: no CVSS. Needs an attacker who can measure timing on the same host.
+  # Affects us: yes, low risk. `sp1` builds with `SP1_PROVER=network` sign every
+  # prover network request with the local k256 key from `NETWORK_PRIVATE_KEY`. That
+  # key only authenticates us to the Succinct prover network, so a leak costs prover
+  # credits, not ASM state or funds. The native prover's Schnorr key also signs with
+  # k256, but that backend is dev-only. All other k256 use verifies public data.
+  # Blocked: elliptic-curve 0.13 (k256, alloy-signer, sp1-curves), aws-sigv4 and
+  # secp require crypto-bigint ^0.5; the fix is in 0.7.6.
+  "RUSTSEC-2026-0387",
+
+  # RUSTSEC-2026-0344 (ruzstd 0.8.3) — decompression bomb (OOM)
+  # Severity: high (CVSS 7.5, availability only).
+  # Affects us: no. backtrace and object use it only to read zstd debug sections of
+  # our own binary when printing a backtrace. No untrusted input reaches it.
+  # Blocked: backtrace 0.3.76 and object 0.37 require ruzstd ^0.8, and
+  # sp1-core-executor 6.8.1 requires object ^0.37; the fix is in 0.9.1.
+  "RUSTSEC-2026-0344",
+
+  # RUSTSEC-2026-0391 (zstd 0.13.3) — `with_context` leaks data between streams
+  # RUSTSEC-2026-0398 (zstd-safe 7.2.4) — `Seekable::decompress` out-of-bounds length
+  # RUSTSEC-2026-0403 (zstd-safe 7.2.4) — `DCtx::decompress_stream` exposes uninit memory
+  # Severity: no CVSS. Each needs a specific API to be called.
+  # Affects us: no. zstd comes in through sp1-sdk (`encode_all`) and tonic
+  # (`stream::read`) in `sp1` builds and prover-perf. Neither calls `with_context`, the
+  # `seekable` feature is off, and `stream::read::Decoder` is not affected by 0403.
+  # Blocked: sp1-sdk 6.8.1 and tonic require zstd ^0.13; the fix is in zstd 0.14.3 /
+  # zstd-safe 8.2.0.
+  "RUSTSEC-2026-0391",
+  "RUSTSEC-2026-0398",
+  "RUSTSEC-2026-0403",
 ]
