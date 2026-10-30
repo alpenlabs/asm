@@ -7,7 +7,8 @@
 //! worker's commit subscription with a periodic wakeup tick:
 //!
 //! - [`TickMsg::Msg`] — a newly committed block; expand it into its ASM step and Moho recursive
-//!   proofs and enqueue them.
+//!   proofs and enqueue them, and warn about queued ASM upgrades this node has no artifact for
+//!   ([`upgrade_watch`]).
 //! - [`TickMsg::Tick`] — reconcile in-flight remote proofs ([`reconcile`]), then acquire pending
 //!   ones: schedule them on the proving backend ([`schedule`]) in generator mode, or fetch them
 //!   from the peer asm-runner ([`follow`]) in follower mode.
@@ -21,7 +22,7 @@ use zkaleido::ZkVmRemoteHost;
 
 use crate::{
     ProverContext, config::ProverMode, errors::ProverResult, follow, message::ProverMessage,
-    reconcile, schedule, state::ProverServiceState,
+    reconcile, schedule, state::ProverServiceState, upgrade_watch,
 };
 
 /// Prover service implementation using the service framework.
@@ -60,7 +61,10 @@ where
         match input {
             // A newly committed block: record the proofs it requires. Scheduling
             // happens on the next tick.
-            TickMsg::Msg(block) => state.enqueue_block_proofs(block),
+            TickMsg::Msg(block) => {
+                state.enqueue_block_proofs(block);
+                upgrade_watch::warn_unprovable_asm_upgrades(&state.ctx, &state.asm, &block);
+            }
 
             // Periodic wakeup: drive reconcile + schedule. Transient failures are
             // logged and swallowed so the service keeps running, matching the
