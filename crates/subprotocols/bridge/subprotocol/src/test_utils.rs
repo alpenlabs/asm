@@ -1,5 +1,6 @@
 use std::any::Any;
 
+use bitcoin::Transaction;
 use strata_asm_bridge_types::OperatorIdx;
 use strata_asm_common::{
     AsmHistoryAccumulatorState, AsmLogEntry, AuxData, InterprotoMsg, MsgRelayer, VerifiedAuxData,
@@ -105,6 +106,19 @@ pub(crate) fn setup_deposit_test(
     recovery_delay: u16,
     operators: &[EvenSecretKey],
 ) -> (VerifiedAuxData, DepositInfo) {
+    let (verified_aux_data, info, _) =
+        setup_deposit_tx_test(drt_aux, denomination, recovery_delay, operators);
+    (verified_aux_data, info)
+}
+
+/// Like [`setup_deposit_test`], but also returns the signed deposit transaction itself, for tests
+/// that drive it through the subprotocol rather than handing the handler pre-parsed info.
+pub(crate) fn setup_deposit_tx_test(
+    drt_aux: &DrtHeaderAux,
+    denomination: BitcoinAmount,
+    recovery_delay: u16,
+    operators: &[EvenSecretKey],
+) -> (VerifiedAuxData, DepositInfo, Transaction) {
     // 1. Prepare DRT & DT
     let dt_aux = ArbitraryGenerator::new().generate();
 
@@ -124,7 +138,7 @@ pub(crate) fn setup_deposit_test(
     let raw_drt: RawBitcoinTx = drt.clone().into();
     let verified_aux_data = create_verified_aux_data(vec![raw_drt]);
 
-    (verified_aux_data, info)
+    (verified_aux_data, info, dt)
 }
 
 /// Helper function to setup a complete slash test scenario.

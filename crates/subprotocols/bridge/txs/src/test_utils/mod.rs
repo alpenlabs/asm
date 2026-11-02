@@ -5,7 +5,7 @@ mod unstake;
 mod utils;
 mod withdrawal_fulfillment;
 
-pub use deposit::create_connected_drt_and_dt;
+pub use deposit::{create_connected_drt_and_dt, create_drt_takeback_witness};
 pub use deposit_request::create_test_deposit_request_tx;
 pub use slash::{create_connected_stake_and_slash_txs, create_test_slash_tx};
 pub use strata_asm_proto_txs_test_utils::{

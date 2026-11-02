@@ -2,7 +2,7 @@
 
 use std::collections::HashMap;
 
-use bitcoin::{Address, Amount, OutPoint, Transaction, hashes::Hash};
+use bitcoin::{Address, Amount, OutPoint, Transaction, Witness, XOnlyPublicKey, hashes::Hash};
 use strata_asm_proto_txs_test_utils::{TEST_MAGIC_BYTES, create_dummy_tx};
 use strata_crypto::{EvenSecretKey, test_utils::schnorr::Musig2Tweak};
 use strata_l1_txfmt::ParseConfig;
@@ -89,4 +89,37 @@ fn create_test_deposit_tx(
     tx.output[1].value = deposit_amount;
 
     tx
+}
+
+/// Builds the witness of a script-path spend of a DRT output through its takeback leaf.
+///
+/// This is the witness a depositor produces when reclaiming the DRT output after the recovery
+/// delay: `[signature, leaf script, control block]`. The leaf script and control block are the
+/// real ones for the DRT described by the arguments. The signature is a placeholder, since
+/// parsing and validation never verify signatures; integration tests that need Bitcoin to accept
+/// the spend sign it for real.
+pub fn create_drt_takeback_witness(
+    drt_header_aux: &DrtHeaderAux,
+    internal_key: XOnlyPublicKey,
+    recovery_delay: u16,
+) -> Witness {
+    let spend_info = build_deposit_request_spend_info(
+        drt_header_aux.recovery_pk(),
+        internal_key,
+        recovery_delay,
+    );
+    let (leaf_script, leaf_version) = spend_info
+        .script_map()
+        .keys()
+        .next()
+        .expect("DRT spend info has its takeback leaf");
+    let control_block = spend_info
+        .control_block(&(leaf_script.clone(), *leaf_version))
+        .expect("takeback leaf is in the DRT script tree");
+
+    let mut witness = Witness::new();
+    witness.push([0x01; 64]);
+    witness.push(leaf_script.as_bytes());
+    witness.push(control_block.serialize());
+    witness
 }
