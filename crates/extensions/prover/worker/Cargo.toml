@@ -13,6 +13,8 @@ moho-types.workspace = true
 strata-asm-common.workspace = true
 strata-asm-moho-storage.workspace = true
 strata-asm-proof-impl.workspace = true
+strata-asm-proto-admin.workspace = true
+strata-asm-proto-admin-txs.workspace = true
 strata-asm-prover-storage.workspace = true
 strata-asm-prover-types.workspace = true
 strata-asm-rpc = { workspace = true, features = ["client"] }
