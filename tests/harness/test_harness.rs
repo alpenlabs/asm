@@ -76,7 +76,9 @@ use tokio::{
 
 use super::{
     admin::{create_test_admin_setup, AdminContext, DEFAULT_CONFIRMATION_DEPTH},
-    bridge::{create_test_bridge_setup, BridgeContext, DEFAULT_NUM_OPERATORS},
+    bridge::{
+        create_test_bridge_setup, BridgeContext, DEFAULT_NUM_OPERATORS, DEFAULT_RECOVERY_DELAY,
+    },
     checkpoint::create_test_checkpoint_setup,
     moho::TestMohoWorkerContext,
 };
@@ -784,6 +786,7 @@ pub struct AsmTestHarnessBuilder {
     admin_confirmation_depth: u16,
     admin_customize: Option<AdminConfigCustomizer>,
     num_operators: usize,
+    recovery_delay: u16,
     txindex: bool,
     registry_factory: fn() -> ExecutionRegistry,
 }
@@ -795,6 +798,7 @@ impl Default for AsmTestHarnessBuilder {
             admin_confirmation_depth: DEFAULT_CONFIRMATION_DEPTH,
             admin_customize: None,
             num_operators: DEFAULT_NUM_OPERATORS,
+            recovery_delay: DEFAULT_RECOVERY_DELAY,
             txindex: false,
             registry_factory: default_execution_registry,
         }
@@ -810,6 +814,7 @@ impl fmt::Debug for AsmTestHarnessBuilder {
             .field("admin_confirmation_depth", &self.admin_confirmation_depth)
             .field("admin_customize", &self.admin_customize.is_some())
             .field("num_operators", &self.num_operators)
+            .field("recovery_delay", &self.recovery_delay)
             .field("txindex", &self.txindex)
             .finish()
     }
@@ -859,6 +864,15 @@ impl AsmTestHarnessBuilder {
         self
     }
 
+    /// Sets the bridge's DRT recovery delay in blocks (default: [`DEFAULT_RECOVERY_DELAY`]).
+    ///
+    /// Lower it for tests that exercise the depositor's takeback path, which only becomes
+    /// spendable once the delay has elapsed.
+    pub fn bridge_recovery_delay(mut self, delay: u16) -> Self {
+        self.recovery_delay = delay;
+        self
+    }
+
     /// Enables transaction indexing (`-txindex`) on the Bitcoin regtest node.
     ///
     /// Required for subprotocols that fetch confirmed non-wallet transactions
@@ -901,7 +915,8 @@ impl AsmTestHarnessBuilder {
         if let Some(customize) = self.admin_customize {
             customize(&mut admin_config);
         }
-        let (bridge_config, bridge_ctx) = create_test_bridge_setup(self.num_operators);
+        let (bridge_config, bridge_ctx) =
+            create_test_bridge_setup(self.num_operators, self.recovery_delay);
         let (checkpoint_config, checkpoint_harness) =
             create_test_checkpoint_setup(genesis_height as u32);
 

@@ -5,18 +5,19 @@
     reason = "test dependencies shared across test suite"
 )]
 
+use bitcoin::BlockHash;
 use harness::{
     bridge::{
-        submit_attacker_keyed_unstake_tx, submit_forged_unstake_tx,
-        submit_withdrawal_fulfillment_tx, BridgeExt,
+        submit_attacker_keyed_unstake_tx, submit_drt_takeback_as_deposit, submit_forged_unstake_tx,
+        submit_withdrawal_fulfillment_tx, BridgeExt, DepositRequest,
     },
     checkpoint::CheckpointExt,
-    test_harness::{AsmTestHarnessBuilder, Setup},
+    test_harness::{AsmTestHarness, AsmTestHarnessBuilder, Setup},
 };
 use integration_tests::harness;
 use strata_asm_bridge_types::{OperatorIdx, OperatorSelection};
 use strata_asm_common::Subprotocol;
-use strata_asm_logs::ExportExtraDataUpdate;
+use strata_asm_logs::{DepositLog, ExportExtraDataUpdate};
 use strata_asm_proto_bridge::{BridgeStateV1, BridgeSubprotoV1, OperatorClaimUnlockV0};
 use strata_asm_proto_bridge_txs::BRIDGE_SUBPROTOCOL_ID;
 
@@ -360,4 +361,130 @@ async fn test_reorg_drops_moho_export_entry_when_fulfillment_excluded() {
         0,
         "the reorged-out fulfillment must leave the bridge export MMR empty",
     );
+}
+
+/// Counts the [`DepositLog`]s the ASM emitted for `block`.
+async fn deposit_logs_in(harness: &AsmTestHarness, block: BlockHash) -> usize {
+    let commitment = harness
+        .commitment_of(block)
+        .await
+        .expect("block should be processed");
+    harness
+        .get_logs_at(&commitment)
+        .iter()
+        .filter(|log| log.try_into_log::<DepositLog>().is_ok())
+        .count()
+}
+
+/// Regression: a depositor sweeping their own DRT through the takeback leaf must NOT register a
+/// deposit, even when the sweep is shaped exactly like a deposit transaction.
+///
+/// After the recovery delay the depositor alone can spend the DRT output via
+/// `<recovery_pk> OP_CHECKSIGVERIFY <recovery_delay> OP_CSV`. The sweep carries a deposit SPS-50
+/// tag for an index of the depositor's choosing and pays the denomination to the current N/N
+/// output, so its outputs and the DRT it spends pass every deposit check. Only requiring input 0
+/// to be a key-path spend, which needs the N/N signature, rejects it. The index it named must
+/// stay free for the operators' honest deposit.
+#[tokio::test(flavor = "multi_thread")]
+async fn test_drt_takeback_sweep_does_not_register_deposit() {
+    let recovery_delay = 2;
+    let Setup {
+        harness, bridge, ..
+    } = AsmTestHarnessBuilder::default()
+        .with_txindex()
+        .bridge_recovery_delay(recovery_delay)
+        .build()
+        .await;
+
+    let squatted_idx = 0;
+    let sweep_block = submit_drt_takeback_as_deposit(&harness, &bridge, squatted_idx)
+        .await
+        .expect("takeback sweep should be accepted by Bitcoin");
+    assert_eq!(
+        deposit_logs_in(&harness, sweep_block).await,
+        0,
+        "takeback sweep must not credit a deposit on L2",
+    );
+
+    let state = harness.bridge_state().unwrap();
+    assert!(
+        state.deposits().get_deposit(squatted_idx).is_none(),
+        "takeback sweep registered deposit {squatted_idx} without N/N authorization",
+    );
+    assert_eq!(state.deposits().len(), 0);
+
+    // The operators' honest deposit at the same index still goes through.
+    harness
+        .submit_deposit(&bridge, squatted_idx, &DepositRequest::random())
+        .await
+        .expect("honest deposit should be submitted");
+    let state = harness.bridge_state().unwrap();
+    let entry = state
+        .deposits()
+        .get_deposit(squatted_idx)
+        .expect("honest deposit should be registered at the index the sweep named");
+    assert_eq!(entry.amt(), bridge.denomination());
+}
+
+/// Regression: a takeback sweep naming an index whose deposit is already *assigned* must neither
+/// register nor break the next withdrawal dispatch.
+///
+/// Assigning a withdrawal moves the deposit out of the deposits table, so a second deposit at the
+/// same index would not collide there. Were it accepted, it would become the oldest unassigned
+/// deposit, and the next dispatch would try to insert a second assignment for the index, which
+/// `AssignmentTable::insert` treats as a broken invariant and panics on, halting the ASM. The
+/// key-path rule rejects the sweep, and the deposit handler independently refuses any index with
+/// a live assignment.
+#[tokio::test(flavor = "multi_thread")]
+async fn test_drt_takeback_sweep_at_assigned_idx_does_not_break_dispatch() {
+    let Setup {
+        harness,
+        bridge,
+        checkpoint: mut checkpoint_harness,
+        ..
+    } = AsmTestHarnessBuilder::default()
+        .with_txindex()
+        .bridge_recovery_delay(2)
+        .build()
+        .await;
+    let denomination = bridge.denomination().to_sat();
+
+    // 1. Honest deposit 0, then a withdrawal that assigns it.
+    let assigned_idx = 0;
+    harness.submit_deposits(&bridge, 1).await.unwrap();
+    harness
+        .submit_checkpoint_with_withdrawals(&mut checkpoint_harness, &[denomination])
+        .await
+        .unwrap();
+    let state = harness.bridge_state().unwrap();
+    assert!(state.assignments().get_assignment(assigned_idx).is_some());
+    assert_eq!(state.deposits().len(), 0);
+
+    // 2. The sweep names the assigned index and must be ignored.
+    let sweep_block = submit_drt_takeback_as_deposit(&harness, &bridge, assigned_idx)
+        .await
+        .expect("takeback sweep should be accepted by Bitcoin");
+    assert_eq!(deposit_logs_in(&harness, sweep_block).await, 0);
+    let state = harness.bridge_state().unwrap();
+    assert_eq!(
+        state.deposits().len(),
+        0,
+        "sweep registered a deposit at assigned index {assigned_idx}",
+    );
+
+    // 3. The next honest deposit and dispatch proceed; the original assignment is untouched.
+    let next_idx = 1;
+    harness
+        .submit_deposit(&bridge, next_idx, &DepositRequest::random())
+        .await
+        .unwrap();
+    harness
+        .submit_checkpoint_with_withdrawals(&mut checkpoint_harness, &[denomination])
+        .await
+        .expect("dispatch after the sweep should be processed");
+    let state = harness.bridge_state().unwrap();
+    assert!(state.assignments().get_assignment(assigned_idx).is_some());
+    assert!(state.assignments().get_assignment(next_idx).is_some());
+    assert_eq!(state.assignments().len(), 2);
+    assert_eq!(state.deposits().len(), 0);
 }
