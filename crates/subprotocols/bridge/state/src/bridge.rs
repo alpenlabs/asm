@@ -142,9 +142,21 @@ impl BridgeStateV1 {
     /// - The deposit amount is zero or negative
     /// - The internal key doesn't match the current aggregated operator key
     /// - The deposit index already exists in the deposits table
+    /// - The deposit index already backs a live withdrawal assignment
     pub fn add_deposit(&mut self, info: &DepositInfo) -> Result<(), DepositValidationError> {
+        let deposit_idx = info.header_aux().deposit_idx();
+
+        // Assigning a withdrawal moves its deposit out of the deposits table, so the table's own
+        // uniqueness check cannot see an assigned index. Admitting one would make it the oldest
+        // unassigned deposit, and the next dispatch would hit `AssignmentTable::insert`'s
+        // duplicate-index panic, halting the state transition. Keeping the two tables disjoint
+        // here keeps that panic unreachable whoever signed the deposit.
+        if self.assignments.get_assignment(deposit_idx).is_some() {
+            return Err(DepositValidationError::DepositIdxAssigned(deposit_idx));
+        }
+
         let notary_set = self.operators.current_nn_script_index();
-        let entry = DepositEntry::new(info.header_aux().deposit_idx(), notary_set, info.amt());
+        let entry = DepositEntry::new(deposit_idx, notary_set, info.amt());
         self.deposits.insert_deposit(entry)?;
 
         Ok(())
@@ -310,6 +322,64 @@ mod tests {
         let intent: WithdrawalIntent = arb.generate();
         let res = state.create_withdrawal_assignment(&intent, &l1blk);
         assert!(res.is_err());
+    }
+
+    /// A deposit naming an index that backs a live assignment is rejected without touching state.
+    ///
+    /// Assignment moves the deposit out of the deposits table, so only this check stops a second
+    /// deposit at the index. Without it the next dispatch would pick the new deposit and panic in
+    /// `AssignmentTable::insert` on the duplicate index.
+    #[test]
+    fn test_add_deposit_rejects_assigned_idx() {
+        let (mut state, _privkeys) = create_test_state();
+        let mut arb = ArbitraryGenerator::new();
+
+        let deposit = add_deposits(&mut state, 1)[0].clone();
+        let deposit_idx = deposit.header_aux().deposit_idx();
+        let mut intent: WithdrawalIntent = arb.generate();
+        intent.amt = state.denomination;
+        let l1blk: L1BlockCommitment = arb.generate();
+        let assignment = state
+            .create_withdrawal_assignment(&intent, &l1blk)
+            .expect("creating an assignment for a matching deposit should succeed");
+        state.insert_withdrawal_assignment(assignment);
+        assert_eq!(state.deposits.len(), 0);
+
+        let err = state.add_deposit(&deposit).unwrap_err();
+        assert!(
+            matches!(err, DepositValidationError::DepositIdxAssigned(idx) if idx == deposit_idx),
+            "expected DepositIdxAssigned({deposit_idx}), got {err:?}",
+        );
+        assert_eq!(state.deposits.len(), 0);
+        assert_eq!(state.assignments.len(), 1);
+    }
+
+    /// Once the assignment for an index is fulfilled and removed, the index is free again.
+    ///
+    /// Only live assignments block an index. Fulfilled ones leave no trace in state, and both
+    /// tables stay disjoint either way, so reuse cannot reach the duplicate-assignment panic.
+    #[test]
+    fn test_add_deposit_allows_idx_after_assignment_removed() {
+        let (mut state, _privkeys) = create_test_state();
+        let mut arb = ArbitraryGenerator::new();
+
+        let deposit = add_deposits(&mut state, 1)[0].clone();
+        let deposit_idx = deposit.header_aux().deposit_idx();
+        let mut intent: WithdrawalIntent = arb.generate();
+        intent.amt = state.denomination;
+        let l1blk: L1BlockCommitment = arb.generate();
+        let assignment = state
+            .create_withdrawal_assignment(&intent, &l1blk)
+            .expect("creating an assignment for a matching deposit should succeed");
+        state.insert_withdrawal_assignment(assignment);
+        state
+            .remove_assignment(deposit_idx)
+            .expect("assignment was just inserted");
+
+        state
+            .add_deposit(&deposit)
+            .expect("an index with no live deposit or assignment is free");
+        assert!(state.deposits.get_deposit(deposit_idx).is_some());
     }
 
     /// Test withdrawal assignment creation failure scenarios.

@@ -277,6 +277,7 @@ mod tests {
     use strata_asm_common::{HeaderVerificationState, Subprotocol};
     use strata_asm_logs::DepositLog;
     use strata_asm_proto_bridge_msgs::{BridgeIncomingMsg, DefconPayload};
+    use strata_asm_proto_bridge_state::BridgeStateV1;
     use strata_asm_proto_bridge_txs::{
         deposit_request::DrtHeaderAux,
         test_utils::{create_drt_takeback_witness, parse_sps50_tx},
@@ -473,6 +474,70 @@ mod tests {
             1,
             "honest deposit must be credited"
         );
+        assert!(state.deposits().get_deposit(deposit_idx).is_some());
+    }
+
+    /// A deposit naming an index with a live assignment is ignored, even when it is a valid
+    /// key-path spend, and the next dispatch still succeeds. Once the assignment is gone the
+    /// index is accepted again.
+    ///
+    /// Synthetic: the operators' own deposit is replayed through `process_txs`, standing in for
+    /// any N/N-signed deposit that names an assigned index (an operator bug, or a takeback sweep
+    /// confirmed before the key-path rule applied). Without the check, the replay would be
+    /// admitted and the next dispatch would panic on the duplicate assignment.
+    #[test]
+    fn process_txs_ignores_deposit_at_assigned_idx() {
+        let (mut state, operators) = create_test_state();
+        let drt_aux: DrtHeaderAux = ArbitraryGenerator::new().generate();
+        let (aux_data, info, deposit_tx) = setup_deposit_tx_test(
+            &drt_aux,
+            *state.denomination(),
+            state.recovery_delay(),
+            &operators,
+        );
+        let deposit_idx = info.header_aux().deposit_idx();
+        let header_vs = HeaderVerificationState::default();
+        let l1ref: L1BlockCommitment = ArbitraryGenerator::new().generate();
+        let dispatch_one = |state: &mut BridgeStateV1| {
+            let mut intent: WithdrawalIntent = ArbitraryGenerator::new().generate();
+            intent.amt = *state.denomination();
+            let msgs = vec![BridgeIncomingMsg::DispatchWithdrawal(intent)];
+            BridgeSubprotoV1::process_msgs(state, &msgs, &l1ref);
+        };
+
+        // 1. The deposit lands and a withdrawal assigns it.
+        let mut relayer = MockMsgRelayer::default();
+        let txs = [parse_sps50_tx(&deposit_tx)];
+        BridgeSubprotoV1::process_txs(&mut state, &txs, &header_vs, &aux_data, &mut relayer);
+        dispatch_one(&mut state);
+        assert!(state.assignments().get_assignment(deposit_idx).is_some());
+        assert_eq!(state.deposits().len(), 0);
+
+        // 2. A second deposit at the assigned index is ignored.
+        let state_before = format!("{state:?}");
+        let mut relayer = MockMsgRelayer::default();
+        BridgeSubprotoV1::process_txs(&mut state, &txs, &header_vs, &aux_data, &mut relayer);
+        assert_eq!(format!("{state:?}"), state_before, "state must not change");
+        assert_eq!(
+            deposit_log_count(&relayer),
+            0,
+            "deposit must not be credited"
+        );
+
+        // 3. The next dispatch consumes a fresh deposit instead of panicking.
+        add_deposits(&mut state, 1);
+        dispatch_one(&mut state);
+        assert_eq!(state.assignments().len(), 2);
+        assert_eq!(state.deposits().len(), 0);
+
+        // 4. Once the assignment is removed (as fulfillment does), the index carries no state and
+        //    is free again.
+        state
+            .remove_assignment(deposit_idx)
+            .expect("assignment for the deposit is live");
+        let mut relayer = MockMsgRelayer::default();
+        BridgeSubprotoV1::process_txs(&mut state, &txs, &header_vs, &aux_data, &mut relayer);
+        assert_eq!(deposit_log_count(&relayer), 1);
         assert!(state.deposits().get_deposit(deposit_idx).is_some());
     }
 

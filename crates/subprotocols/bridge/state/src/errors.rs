@@ -26,6 +26,12 @@ pub enum DepositValidationError {
     #[error("Deposit index {0} already exists in deposits table")]
     DepositIdxAlreadyExists(u32),
 
+    /// The deposit index already backs a live withdrawal assignment.
+    ///
+    /// Assignment removes the deposit from the deposits table, so this is checked separately.
+    #[error("Deposit index {0} already backs a withdrawal assignment")]
+    DepositIdxAssigned(u32),
+
     /// The DRT output script does not match the expected locking script.
     #[error("DRT output script mismatch {0}")]
     DrtOutputScriptMismatch(Mismatch<ScriptBuf>),
