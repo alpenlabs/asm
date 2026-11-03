@@ -183,7 +183,7 @@ impl TxStructureError {
 }
 
 /// Further details for invalid witness errors.
-#[derive(Debug, Error)]
+#[derive(Debug, Error, Clone, PartialEq, Eq)]
 pub enum WitnessError {
     /// Witness length did not match expected layout.
     #[error("invalid witness length: expected {expected}, got {actual}")]
@@ -192,6 +192,20 @@ pub enum WitnessError {
     /// Witness script bytes failed validation.
     #[error("invalid witness script structure")]
     InvalidScriptStructure,
+
+    /// Taproot input was not spent through the key path.
+    ///
+    /// After an optional annex is set aside, a BIP341 key-path spend leaves exactly one witness
+    /// element. Zero elements is not a taproot spend at all; two or more is a script-path spend.
+    #[error("expected a taproot key-path spend, got {elements} witness elements besides any annex")]
+    NotKeyPathSpend {
+        /// Number of witness elements left once any annex is removed.
+        elements: usize,
+    },
+
+    /// Sole witness element of a taproot key-path spend is not a BIP340 signature.
+    #[error("invalid taproot key-path signature length {0}, expected 64 or 65")]
+    InvalidKeyPathSignatureLength(usize),
 }
 
 /// Errors that can occur when building transaction tag data for any bridge v1 transaction type.

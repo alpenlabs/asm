@@ -9,9 +9,12 @@
 //! the following structure:
 //!
 //! ### Inputs
-//! - **First Input** (required): Spends a P2TR output from a Deposit Request Transaction
-//!   - Contains a witness with a Taproot signature from the aggregated operator key
-//!   - The signature proves authorization to create the deposit
+//! - **First Input** (required): Spends the P2TR deposit request output of a Deposit Request
+//!   Transaction
+//!   - Must be a taproot key-path spend: its witness is a single Schnorr signature, optionally
+//!     followed by an annex. The key path requires the aggregated operator key, so this is what
+//!     proves the operators authorized the deposit. The depositor's takeback leaf, a script-path
+//!     spend, is rejected.
 //!   - Additional inputs may be present but are ignored
 //!
 //! ### Outputs

@@ -40,6 +40,7 @@ use strata_asm_proto_bridge_txs::{
     deposit::DepositTxHeaderAux,
     deposit_request::{
         build_deposit_request_spend_info, create_deposit_request_locking_script, DrtHeaderAux,
+        DRT_OUTPUT_INDEX,
     },
     test_utils::create_test_operators,
     unstake::{stake_connector_script, UnstakeTxHeaderAux},
@@ -59,6 +60,9 @@ use super::test_harness::AsmTestHarness;
 
 /// Default number of operators in the bridge notary set for tests.
 pub const DEFAULT_NUM_OPERATORS: usize = 3;
+
+/// Default DRT recovery delay, in blocks, for tests.
+pub const DEFAULT_RECOVERY_DELAY: u16 = 1008;
 
 // ============================================================================
 // Bridge Context
@@ -605,6 +609,102 @@ pub async fn submit_attacker_keyed_unstake_tx(
 }
 
 // ============================================================================
+// Depositor takeback reproduction
+// ============================================================================
+
+/// Submits a DRT owned by a fresh recovery key, waits out the recovery delay, then sweeps the DRT
+/// output through its takeback leaf into a transaction shaped exactly like a deposit for
+/// `deposit_idx`.
+///
+/// No operator signs anything. The sweep carries the deposit SPS-50 tag in output 0 and pays
+/// exactly the denomination to the current N/N key-path-only output in output 1, so every check
+/// the bridge applies to a deposit's outputs and to the DRT it spends holds. What distinguishes it
+/// from an honest deposit is only the spend path of input 0: the depositor's
+/// `<recovery_pk> OP_CHECKSIGVERIFY <recovery_delay> OP_CSV` leaf rather than an N/N key-path
+/// signature.
+///
+/// Returns the block hash containing the sweep.
+pub async fn submit_drt_takeback_as_deposit(
+    harness: &AsmTestHarness,
+    ctx: &BridgeContext,
+    deposit_idx: u32,
+) -> anyhow::Result<BlockHash> {
+    // 1. A depositor key whose secret the "attacker" holds, used as the DRT recovery key.
+    let mut key_bytes = [0u8; 32];
+    rand::thread_rng().fill_bytes(&mut key_bytes);
+    let recovery_keypair = UntweakedKeypair::from_seckey_slice(SECP256K1, &key_bytes)?;
+    let (recovery_xonly, _) = XOnlyPublicKey::from_keypair(&recovery_keypair);
+    let request = DepositRequest {
+        recovery_pk: recovery_xonly.serialize(),
+        destination: DepositRequest::random().destination,
+    };
+
+    // 2. Confirm a well-formed DRT, then let the takeback leaf's relative timelock mature.
+    let drt_tx = harness.build_drt_tx(ctx, &request).await?;
+    let drt_txid = harness.submit_transaction(&drt_tx).await?;
+    harness.mine_block(None).await?;
+    harness.mine_blocks(ctx.recovery_delay as usize).await?;
+
+    // 3. The deposit-shaped sweep: SPS-50 deposit tag, then the denomination to the N/N output.
+    let drt_output = drt_tx.output[DRT_OUTPUT_INDEX].clone();
+    let tag_data = DepositTxHeaderAux::new(deposit_idx).build_tag_data();
+    let op_return_script =
+        ParseConfig::new(harness.asm_params.magic).encode_script_buf(&tag_data.as_ref())?;
+    let (_, internal_key) = derive_musig2_p2tr_address(ctx.operator_privkeys())?;
+    let mut sweep_tx = Transaction {
+        version: Version::TWO,
+        lock_time: LockTime::ZERO,
+        input: vec![TxIn {
+            previous_output: OutPoint::new(drt_txid, DRT_OUTPUT_INDEX as u32),
+            script_sig: ScriptBuf::new(),
+            // The leaf's OP_CSV requires the input's relative lock to cover the delay.
+            sequence: Sequence::from_height(ctx.recovery_delay),
+            witness: Witness::new(),
+        }],
+        output: vec![
+            TxOut {
+                value: Amount::ZERO,
+                script_pubkey: op_return_script,
+            },
+            TxOut {
+                value: ctx.denomination.into(),
+                script_pubkey: ScriptBuf::new_p2tr(SECP256K1, internal_key, None),
+            },
+        ],
+    };
+
+    // 4. Script-path spend through the takeback leaf, signed by the recovery key alone.
+    let spend_info =
+        build_deposit_request_spend_info(&request.recovery_pk, internal_key, ctx.recovery_delay);
+    let (leaf_script, leaf_version) = spend_info
+        .script_map()
+        .keys()
+        .next()
+        .cloned()
+        .ok_or_else(|| anyhow::anyhow!("DRT spend info must have its takeback leaf"))?;
+    let leaf_hash = TapLeafHash::from_script(&leaf_script, leaf_version);
+    let sighash = SighashCache::new(&sweep_tx).taproot_script_spend_signature_hash(
+        0,
+        &Prevouts::All(slice::from_ref(&drt_output)),
+        leaf_hash,
+        TapSighashType::Default,
+    )?;
+    let message = Message::from_digest(*sighash.as_ref());
+    let signature = SECP256K1.sign_schnorr_no_aux_rand(&message, &recovery_keypair);
+    let control_block = spend_info
+        .control_block(&(leaf_script.clone(), leaf_version))
+        .ok_or_else(|| anyhow::anyhow!("control block must exist for the takeback leaf"))?;
+
+    let mut witness = Witness::new();
+    witness.push(signature.serialize());
+    witness.push(leaf_script.as_bytes());
+    witness.push(control_block.serialize());
+    sweep_tx.input[0].witness = witness;
+
+    harness.submit_and_mine_tx(&sweep_tx).await
+}
+
+// ============================================================================
 // Withdrawal fulfillment
 // ============================================================================
 
@@ -688,12 +788,14 @@ pub async fn submit_withdrawal_fulfillment_tx(
 ///
 /// Generates operator keys and returns a [`BridgeInitConfig`] (for the harness builder)
 /// and a [`BridgeContext`] (for submitting deposits).
-pub fn create_test_bridge_setup(num_operators: usize) -> (BridgeInitConfig, BridgeContext) {
+pub fn create_test_bridge_setup(
+    num_operators: usize,
+    recovery_delay: u16,
+) -> (BridgeInitConfig, BridgeContext) {
     let (privkeys, pubkeys) = create_test_operators(num_operators);
 
     let denomination = BitcoinAmount::try_from(1_000_000)
         .expect("test amount must be within the Bitcoin money supply");
-    let recovery_delay = 1008;
     let operator_fee = BitcoinAmount::try_from(100_000)
         .expect("test amount must be within the Bitcoin money supply");
     let safe_harbor: SafeHarborAddress = ArbitraryGenerator::new().generate();
