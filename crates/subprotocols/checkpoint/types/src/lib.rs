@@ -44,7 +44,7 @@ mod transition;
 #[cfg(any(test, feature = "test-utils"))]
 pub mod test_utils;
 
-pub use config::CheckpointInitConfig;
+pub use config::{CheckpointGenesisHeightMismatch, CheckpointInitConfig};
 pub use error::CheckpointPayloadError;
 
 /// SSZ-generated types for serialization and merkleization.

@@ -119,15 +119,22 @@ impl<'a> Arbitrary<'a> for AsmParams {
             network,
         };
 
+        // Draw in subprotocol order so seeded instances keep their other values.
+        let admin = AdministrationInitConfig::arbitrary_for_network(u, network)?;
+        // Deserialization requires the checkpoint genesis height to match the anchor.
+        let checkpoint = CheckpointInitConfig {
+            genesis_l1_height: anchor.block.height(),
+            ..CheckpointInitConfig::arbitrary(u)?
+        };
+        let bridge = BridgeInitConfig::arbitrary_for_network(u, network)?;
+
         Ok(Self {
             magic: MagicBytes::new(*b"ALPN"),
             anchor,
             subprotocols: vec![
-                SubprotocolInstance::Admin(AdministrationInitConfig::arbitrary_for_network(
-                    u, network,
-                )?),
-                SubprotocolInstance::Checkpoint(CheckpointInitConfig::arbitrary(u)?),
-                SubprotocolInstance::Bridge(BridgeInitConfig::arbitrary_for_network(u, network)?),
+                SubprotocolInstance::Admin(admin),
+                SubprotocolInstance::Checkpoint(checkpoint),
+                SubprotocolInstance::Bridge(bridge),
             ],
         })
     }
@@ -175,8 +182,8 @@ mod tests {
             #[test]
             fn test_arbitrary(seed in collection::vec(any::<u8>(), 0..4096)) {
                 let mut u = Unstructured::new(&seed);
-                let res = AsmParams::arbitrary(&mut u);
-                prop_assert!(res.is_ok());
+                let params = AsmParams::arbitrary(&mut u).expect("arbitrary params");
+                prop_assert_eq!(params.check_invariants(), Ok(()));
             }
         }
     }

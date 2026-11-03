@@ -7,6 +7,7 @@
 
 use strata_asm_admin_types::SignerNetworkMismatch;
 use strata_asm_bridge_types::SafeHarborNetworkMismatch;
+use strata_asm_checkpoint_types::CheckpointGenesisHeightMismatch;
 use thiserror::Error;
 
 use crate::params::AsmParams;
@@ -28,6 +29,10 @@ impl AsmParams {
             config.check_safe_harbor_network(self.anchor.network)?;
         }
 
+        if let Some(config) = self.checkpoint_config() {
+            config.check_genesis_l1_height(self.anchor.block.height())?;
+        }
+
         Ok(())
     }
 }
@@ -42,6 +47,10 @@ pub enum InvalidAsmParams {
     /// The bridge safe harbor was written as an address on another network.
     #[error(transparent)]
     BridgeSafeHarborNetwork(#[from] SafeHarborNetworkMismatch),
+
+    /// The checkpoint genesis L1 height is not the height of the L1 anchor.
+    #[error(transparent)]
+    CheckpointGenesisHeight(#[from] CheckpointGenesisHeightMismatch),
 }
 
 #[cfg(test)]
@@ -80,6 +89,29 @@ mod tests {
             error
                 .to_string()
                 .contains("signer at index 0 is not an address on bitcoin"),
+            "unexpected error: {error}"
+        );
+    }
+
+    /// The checkpoint genesis tip and the manifest accumulator must start from the same L1
+    /// block, or the first checkpoint's coverage lands outside what the accumulator holds.
+    #[test]
+    fn deserialize_rejects_a_checkpoint_genesis_height_off_the_anchor() {
+        let fixture = regtest_params_json();
+        let json = fixture.replace(
+            r#""genesis_l1_height": 50462976"#,
+            r#""genesis_l1_height": 4294967295"#,
+        );
+        assert_ne!(json, fixture, "fixture carries the anchor's genesis height");
+
+        let error = serde_json::from_str::<AsmParams>(&json)
+            .expect_err("a checkpoint genesis height off the anchor is rejected");
+
+        assert!(
+            error.to_string().contains(
+                "checkpoint genesis L1 height 4294967295 does not match the L1 anchor height \
+                 50462976"
+            ),
             "unexpected error: {error}"
         );
     }
