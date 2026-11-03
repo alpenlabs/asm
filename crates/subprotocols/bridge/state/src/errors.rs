@@ -57,6 +57,17 @@ pub enum DepositOutputError {
     MissingDepositOutput(usize),
 }
 
+/// Errors that can occur when applying an operator membership change.
+///
+/// A rejected change is applied all-or-nothing: the operator table is left exactly as it was.
+#[derive(Debug, Error, Clone, PartialEq, Eq)]
+pub enum OperatorSetUpdateError {
+    /// The change would leave the N/N multisig with no active operator, for which no aggregated
+    /// key (and so no N/N script) exists.
+    #[error("membership change would leave no active operator in the N/N multisig")]
+    NoActiveOperators,
+}
+
 /// Errors that can occur when creating or managing withdrawal assignments.
 ///
 /// Covers the full withdrawal-assignment flow: locating an unassigned deposit,

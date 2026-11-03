@@ -117,7 +117,9 @@ mod tests {
         // Add a fresh operator after genesis: it joins the new N/N config but was never part of
         // the genesis one the witness pubkey identifies.
         let (_, new_pubkeys) = create_test_operators(1);
-        state.apply_operator_set_update(&new_pubkeys, &[]);
+        state
+            .apply_operator_set_update(&new_pubkeys, &[])
+            .expect("membership change keeps an active operator");
 
         // The unstake commits to the genesis N/N key but names the newly added operator.
         let (info, aux) = setup_unstake_test(genesis_count, &operators);

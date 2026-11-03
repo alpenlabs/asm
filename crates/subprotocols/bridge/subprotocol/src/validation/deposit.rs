@@ -102,7 +102,9 @@ mod tests {
         let drt_info = drt_info_from_aux(&info, &aux);
 
         let old_script = state.operators().current_nn_script().script().clone();
-        state.remove_operator(1);
+        state
+            .remove_operator(1)
+            .expect("membership change keeps an active operator");
         let new_script = state.operators().current_nn_script().script().clone();
 
         let err = validate_deposit_info(&state, &info, &drt_info).unwrap_err();
@@ -127,7 +129,9 @@ mod tests {
         let drt_info = drt_info_from_aux(&info, &aux);
 
         let old_agg_key = *state.operators().agg_key();
-        state.remove_operator(1);
+        state
+            .remove_operator(1)
+            .expect("membership change keeps an active operator");
         let new_agg_key = state.operators().agg_key();
 
         // Set the correct locked script

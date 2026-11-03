@@ -1,3 +1,4 @@
+use strata_asm_bridge_types::OperatorIdx;
 use strata_asm_common::{
     AsmLogEntry, AuxRequestCollector, MsgRelayer, VerifiedAuxData,
     logging::{error, info},
@@ -117,7 +118,7 @@ pub(crate) fn handle_parsed_tx<C: ClaimVersion>(
                 operator_idx,
                 &stake_connector_txout.script_pubkey,
             )?;
-            state.remove_operator(operator_idx);
+            remove_operator(state, operator_idx)?;
 
             info!(operator_idx, "Removed operator via slash");
             Ok(())
@@ -132,12 +133,28 @@ pub(crate) fn handle_parsed_tx<C: ClaimVersion>(
                 });
             validate_unstake_info(state, &info, &stake_connector_txout.script_pubkey)?;
             let operator_idx = info.header_aux().operator_idx();
-            state.remove_operator(operator_idx);
+            remove_operator(state, operator_idx)?;
 
             info!(operator_idx, "Removed operator via unstake");
             Ok(())
         }
     }
+}
+
+/// Removes `operator_idx` from the N/N multisig on behalf of a validated slash or unstake.
+///
+/// The removal is refused, leaving the state unchanged, when the operator is the last active
+/// one: an empty multisig has no aggregated key, and the bridge cannot operate without one.
+fn remove_operator(
+    state: &mut BridgeStateV1,
+    operator_idx: OperatorIdx,
+) -> Result<(), BridgeSubprotocolError> {
+    state
+        .remove_operator(operator_idx)
+        .map_err(|source| BridgeSubprotocolError::OperatorRemoval {
+            operator: operator_idx,
+            source,
+        })
 }
 
 /// Pre-processes a parsed transaction to collect auxiliary data requests.
@@ -183,11 +200,14 @@ mod tests {
     use strata_identifiers::Buf32;
     use strata_test_utils_arb::ArbitraryGenerator;
 
-    use super::{BRIDGE_SUBPROTOCOL_ID, NewExportEntry, handle_parsed_tx};
+    use super::{
+        BRIDGE_SUBPROTOCOL_ID, BridgeStateV1, NewExportEntry, VerifiedAuxData, handle_parsed_tx,
+    };
     use crate::{
+        BridgeSubprotocolError, OperatorSetUpdateError,
         claim::{ClaimV0, ClaimV1},
         test_utils::{
-            MockMsgRelayer, add_deposits_and_assignments, create_test_state,
+            MockMsgRelayer, add_deposits, add_deposits_and_assignments, create_test_state,
             create_verified_aux_data, create_withdrawal_info_from_assignment, setup_deposit_test,
             setup_slash_test, setup_unstake_test,
         },
@@ -379,6 +399,98 @@ mod tests {
         assert!(
             !state.operators().is_in_current_multisig(operator_idx),
             "Operator should be removed"
+        );
+    }
+
+    /// Populates deposits and assignments, then deactivates every genesis operator except
+    /// `survivor` by applying an operator set update directly to the state (the same call the
+    /// admin message ends in). `survivor` is then the last active operator while genesis stake
+    /// connectors stay recognized.
+    fn leave_single_active_operator(state: &mut BridgeStateV1, survivor: u32, count: usize) {
+        // Give the refused removal some non-operator state it must also leave alone: assigned
+        // deposits (created while every operator is active) and one unassigned deposit.
+        add_deposits_and_assignments(state, 2);
+        add_deposits(state, 1);
+        let others: Vec<u32> = (0..count as u32).filter(|&i| i != survivor).collect();
+        state
+            .apply_operator_set_update(&[], &others)
+            .expect("the survivor stays active");
+        assert_eq!(
+            state
+                .operators()
+                .current_multisig()
+                .active_indices()
+                .collect::<Vec<_>>(),
+            vec![survivor]
+        );
+    }
+
+    /// Asserts a slash or unstake of the last active operator is refused without mutating state.
+    fn assert_last_operator_removal_rejected(
+        state: &mut BridgeStateV1,
+        parsed_tx: ParsedTx,
+        aux: &VerifiedAuxData,
+        operator_idx: u32,
+    ) {
+        let operators_before = state.operators().clone();
+        let deposits_before = state.deposits().clone();
+        let assignments_before = state.assignments().clone();
+        let safe_harbor_before = state.safe_harbor().clone();
+        let mut relayer = MockMsgRelayer::default();
+
+        let err = handle_parsed_tx::<ClaimV0>(state, parsed_tx, aux, &mut relayer).unwrap_err();
+
+        assert!(
+            matches!(
+                err,
+                BridgeSubprotocolError::OperatorRemoval {
+                    operator,
+                    source: OperatorSetUpdateError::NoActiveOperators,
+                } if operator == operator_idx
+            ),
+            "unexpected error: {err:?}"
+        );
+        assert_eq!(
+            state.operators(),
+            &operators_before,
+            "a refused removal must leave the operator table unchanged"
+        );
+        assert_eq!(state.deposits(), &deposits_before);
+        assert_eq!(state.assignments(), &assignments_before);
+        assert_eq!(state.safe_harbor(), &safe_harbor_before);
+        assert!(state.operators().is_in_current_multisig(operator_idx));
+        assert!(relayer.logs().is_empty());
+    }
+
+    #[test]
+    fn test_handle_slash_tx_of_last_active_operator_is_rejected() {
+        let operator_idx = 0;
+        let (mut state, operators) = create_test_state();
+        leave_single_active_operator(&mut state, operator_idx, operators.len());
+
+        // The stake connector is locked to the genesis N/N, which still validates.
+        let (info, aux) = setup_slash_test(operator_idx, &operators);
+        assert_last_operator_removal_rejected(
+            &mut state,
+            ParsedTx::Slash(info),
+            &aux,
+            operator_idx,
+        );
+    }
+
+    #[test]
+    fn test_handle_unstake_tx_of_last_active_operator_is_rejected() {
+        let operator_idx = 1;
+        let (mut state, operators) = create_test_state();
+        leave_single_active_operator(&mut state, operator_idx, operators.len());
+
+        // The unstake commits to the genesis N/N key, which still validates.
+        let (info, aux) = setup_unstake_test(operator_idx, &operators);
+        assert_last_operator_removal_rejected(
+            &mut state,
+            ParsedTx::Unstake(info),
+            &aux,
+            operator_idx,
         );
     }
 

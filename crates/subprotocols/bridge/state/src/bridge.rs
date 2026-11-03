@@ -10,7 +10,7 @@ use strata_identifiers::L1BlockCommitment;
 use crate::{
     assignment::{AssignmentEntry, AssignmentTable},
     deposit::{DepositEntry, DepositsTable},
-    errors::{DepositValidationError, WithdrawalAssignmentError},
+    errors::{DepositValidationError, OperatorSetUpdateError, WithdrawalAssignmentError},
     operator::OperatorTable,
 };
 
@@ -256,23 +256,32 @@ impl BridgeStateV1 {
     }
 
     /// Applies an operator set update by adding new operators and removing existing ones.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`OperatorSetUpdateError::NoActiveOperators`] if the update would leave no active
+    /// operator. The update is then rejected as a whole and the state is left unchanged.
     pub fn apply_operator_set_update(
         &mut self,
         add_members: &[strata_crypto::EvenPublicKey],
         remove_members: &[OperatorIdx],
-    ) {
+    ) -> Result<(), OperatorSetUpdateError> {
         self.operators
-            .apply_membership_changes(add_members, remove_members);
+            .apply_membership_changes(add_members, remove_members)
     }
 
     /// Removes an operator from the active multisig by deactivating them.
     ///
-    /// # Panics
+    /// # Errors
     ///
-    /// Panics if removing this operator would result in no active operators remaining.
-    pub fn remove_operator(&mut self, operator_idx: OperatorIdx) {
+    /// Returns [`OperatorSetUpdateError::NoActiveOperators`] if `operator_idx` is the last active
+    /// operator. The operator then stays active and the state is left unchanged.
+    pub fn remove_operator(
+        &mut self,
+        operator_idx: OperatorIdx,
+    ) -> Result<(), OperatorSetUpdateError> {
         self.operators
-            .apply_membership_changes(&[], &[operator_idx]);
+            .apply_membership_changes(&[], &[operator_idx])
     }
 }
 

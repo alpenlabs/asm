@@ -80,7 +80,9 @@ mod tests {
         // Add a fresh operator after genesis: it joins the *new* N/N config but was never part of
         // the genesis one that the stake connector commits to.
         let (_, new_pubkeys) = create_test_operators(1);
-        state.apply_operator_set_update(&new_pubkeys, &[]);
+        state
+            .apply_operator_set_update(&new_pubkeys, &[])
+            .expect("membership change keeps an active operator");
 
         // Stake connector built from the genesis operators matches the genesis historical script.
         let (info, aux) = setup_slash_test(genesis_count, &operators);

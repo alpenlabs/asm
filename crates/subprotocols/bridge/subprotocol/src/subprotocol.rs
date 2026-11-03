@@ -9,7 +9,7 @@ use strata_asm_bridge_types::BridgeInitConfig;
 use strata_asm_common::{
     AsmLogEntry, AuxRequestCollector, HeaderVerificationState, MsgRelayer, SectionStateVersion,
     Subprotocol, SubprotocolId, TxInputRef, VerifiedAuxData,
-    logging::{debug, error, info},
+    logging::{debug, error, info, warn},
 };
 use strata_asm_logs::ExportExtraDataUpdate;
 use strata_asm_proto_bridge_msgs::BridgeIncomingMsg;
@@ -243,12 +243,21 @@ impl<C: ClaimVersion> Subprotocol for BridgeSubproto<C> {
                 BridgeIncomingMsg::UpdateOperatorSet(payload) => {
                     let add_members = &payload.add_members;
                     let remove_members = &payload.remove_members;
-                    info!(
-                        added = add_members.len(),
-                        removed = remove_members.len(),
-                        "Applying operator set update from admin subprotocol",
-                    );
-                    state.apply_operator_set_update(add_members, remove_members);
+                    // An update that would empty the multisig is dropped whole rather than
+                    // halting the STF; the admin has to resubmit a set that keeps an operator.
+                    match state.apply_operator_set_update(add_members, remove_members) {
+                        Ok(()) => info!(
+                            added = add_members.len(),
+                            removed = remove_members.len(),
+                            "Applied operator set update from admin subprotocol",
+                        ),
+                        Err(e) => warn!(
+                            added = add_members.len(),
+                            removed = remove_members.len(),
+                            error = %e,
+                            "Rejected operator set update from admin subprotocol",
+                        ),
+                    }
                 }
 
                 BridgeIncomingMsg::UpdateSafeHarborAddress(address) => {
@@ -276,11 +285,13 @@ mod tests {
     use strata_asm_bridge_types::{SafeHarborAddress, WithdrawalIntent};
     use strata_asm_common::{HeaderVerificationState, Subprotocol};
     use strata_asm_logs::DepositLog;
-    use strata_asm_proto_bridge_msgs::{BridgeIncomingMsg, DefconPayload};
+    use strata_asm_proto_bridge_msgs::{
+        BridgeIncomingMsg, DefconPayload, UpdateOperatorSetPayload,
+    };
     use strata_asm_proto_bridge_state::BridgeStateV1;
     use strata_asm_proto_bridge_txs::{
         deposit_request::DrtHeaderAux,
-        test_utils::{create_drt_takeback_witness, parse_sps50_tx},
+        test_utils::{create_drt_takeback_witness, create_test_operators, parse_sps50_tx},
     };
     use strata_btc_types::BitcoinAmount;
     use strata_identifiers::L1BlockCommitment;
@@ -580,6 +591,56 @@ mod tests {
         assert_eq!(
             state.safe_harbor().active_address(),
             Some(&original_address)
+        );
+    }
+
+    /// An admin update that would empty the multisig must be dropped as a whole, without halting
+    /// the STF, and must not stop later messages in the same batch from applying.
+    #[test]
+    fn process_msgs_rejects_operator_set_update_emptying_multisig() {
+        let (mut state, privkeys) = create_test_state();
+        let l1ref: L1BlockCommitment = ArbitraryGenerator::new().generate();
+        let count = privkeys.len() as u32;
+        let operators_before = state.operators().clone();
+
+        // Index `count` is the operator added by the second update, removed in the same batch.
+        let (_, new_pubkeys) = create_test_operators(1);
+        let msgs = vec![
+            BridgeIncomingMsg::UpdateOperatorSet(UpdateOperatorSetPayload {
+                add_members: vec![],
+                remove_members: (0..count).collect(),
+            }),
+            BridgeIncomingMsg::UpdateOperatorSet(UpdateOperatorSetPayload {
+                add_members: new_pubkeys.clone(),
+                remove_members: (0..=count).collect(),
+            }),
+        ];
+        BridgeSubprotoV1::process_msgs(&mut state, &msgs, &l1ref);
+        assert_eq!(
+            state.operators(),
+            &operators_before,
+            "rejected updates must leave the operator table unchanged"
+        );
+
+        // A rejection does not poison later messages: a valid update in the same batch applies.
+        let msgs = vec![
+            BridgeIncomingMsg::UpdateOperatorSet(UpdateOperatorSetPayload {
+                add_members: vec![],
+                remove_members: (0..count).collect(),
+            }),
+            BridgeIncomingMsg::UpdateOperatorSet(UpdateOperatorSetPayload {
+                add_members: new_pubkeys,
+                remove_members: (0..count).collect(),
+            }),
+        ];
+        BridgeSubprotoV1::process_msgs(&mut state, &msgs, &l1ref);
+        assert_eq!(
+            state
+                .operators()
+                .current_multisig()
+                .active_indices()
+                .collect::<Vec<_>>(),
+            vec![count]
         );
     }
 }

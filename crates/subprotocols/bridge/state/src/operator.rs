@@ -17,6 +17,8 @@ use strata_btc_types::{BitcoinScriptBuf, BitcoinXOnlyPublicKey};
 use strata_crypto::{EvenPublicKey, aggregate_schnorr_keys};
 use strata_identifiers::Buf32;
 
+use crate::errors::OperatorSetUpdateError;
+
 /// Bridge operator entry containing identification and cryptographic keys.
 ///
 /// Each operator registered in the bridge has:
@@ -363,7 +365,9 @@ impl OperatorTable {
         };
 
         // Reuse membership change flow to handle deduplication and seed script history.
-        table.apply_membership_changes(operators, &[]);
+        table
+            .apply_membership_changes(operators, &[])
+            .expect("a non-empty operator list leaves at least one operator active");
 
         table
     }
@@ -479,10 +483,16 @@ impl OperatorTable {
     /// Additions are processed before removals. If an operator index appears in both parameters,
     /// the removal will override the addition's `is_active` value.
     ///
+    /// # Errors
+    ///
+    /// Returns [`OperatorSetUpdateError::NoActiveOperators`] if the resolved set would have no
+    /// active operator. The change is validated before anything is written, so on error the table
+    /// is left unchanged: no operator is registered, `next_idx` does not advance, and no
+    /// configuration is recorded.
+    ///
     /// # Panics
     ///
     /// Panics if:
-    /// - The changes would result in no active operators
     /// - Sequential operator insertion fails (bitmap index management error)
     /// - `next_idx` reaches `u32::MAX` when inserting new operators (since operator indices are
     ///   never reused, this limits the total number of unique operators that can ever be registered
@@ -491,7 +501,7 @@ impl OperatorTable {
         &mut self,
         add_members: &[EvenPublicKey],
         remove_members: &[OperatorIdx],
-    ) {
+    ) -> Result<(), OperatorSetUpdateError> {
         // Start from the current active set and mutate a copy. The set is empty only while
         // bootstrapping, before the first script is pushed.
         let initial_active = self
@@ -502,13 +512,27 @@ impl OperatorTable {
             .unwrap_or_else(OperatorBitmap::new_empty);
 
         let mut active = initial_active.clone();
-        self.add_operators(&mut active, add_members);
-        self.remove_operators(&mut active, remove_members);
+        let new_entries = self.stage_additions(&mut active, add_members);
+        self.stage_removals(&mut active, remove_members, &new_entries);
+
+        // An empty set has no aggregated key, so the change cannot be represented. Reject it
+        // before committing anything, so the STF never reaches the aggregation with no keys.
+        if active.active_count() == 0 {
+            return Err(OperatorSetUpdateError::NoActiveOperators);
+        }
+
+        for entry in new_entries {
+            debug!(operator_idx = entry.idx, "Added operator");
+            self.operators.insert(entry);
+            self.next_idx += 1;
+        }
 
         // Record a new configuration only if the resolved set actually changed.
         if active != initial_active {
             self.record_nn_script(active);
         }
+
+        Ok(())
     }
 
     /// Recomputes the aggregated key for `active` and records the resulting N/N configuration.
@@ -530,66 +554,83 @@ impl OperatorTable {
         ));
     }
 
-    /// Adds new operators to the table and marks them as active.
+    /// Stages new operators for registration and marks them active in `active`.
+    ///
+    /// The table itself is not modified: the returned entries, with indices assigned
+    /// sequentially from `next_idx`, are inserted by the caller once the whole change has been
+    /// validated.
     ///
     /// # Duplicate Keys
     ///
-    /// Duplicate public keys are **NOT** allowed. If an operator already exists in the table,
-    /// the duplicate addition is ignored, and the existing operator remains unaffected.
+    /// Duplicate public keys are **NOT** allowed. If an operator already exists in the table, or
+    /// appears earlier in `operators`, the duplicate addition is ignored, and the existing operator
+    /// remains unaffected.
     ///
     /// # Panics
     ///
     /// Panics if:
     /// - Sequential operator insertion fails (bitmap index management error)
-    /// - `next_idx` reaches `u32::MAX` (reserved as the "no selected operator" sentinel)
-    fn add_operators(&mut self, active: &mut OperatorBitmap, operators: &[EvenPublicKey]) {
+    /// - The next index reaches `u32::MAX` (reserved as the "no selected operator" sentinel)
+    fn stage_additions(
+        &self,
+        active: &mut OperatorBitmap,
+        operators: &[EvenPublicKey],
+    ) -> Vec<OperatorEntry> {
+        let mut staged: Vec<OperatorEntry> = Vec::new();
         for musig2_pk in operators {
-            // Check if it already exists in the table (which handles both existing operators
-            // and internal duplicates in the input list, as the first occurrence is added)
-            if self.operators.iter().any(|op| op.musig2_pk() == musig2_pk) {
+            // Check both the table and the entries staged so far, so a key repeated within the
+            // input list is only added once.
+            if self
+                .operators
+                .iter()
+                .chain(staged.iter())
+                .any(|op| op.musig2_pk() == musig2_pk)
+            {
                 warn!(?musig2_pk, "Skipping duplicate operator");
                 continue;
             }
 
-            if self.next_idx == u32::MAX {
+            // Cannot overflow: the previous staged index was checked to be below `u32::MAX`.
+            let idx = self.next_idx + staged.len() as OperatorIdx;
+            if idx == u32::MAX {
                 panic!("Operator index space exhausted: u32::MAX is reserved as a sentinel");
             }
-
-            let idx = self.next_idx;
-            let entry = OperatorEntry {
-                idx,
-                musig2_pk: *musig2_pk,
-            };
-
-            // SortedVec handles insertion and maintains sorted order
-            self.operators.insert(entry);
 
             // Set new operator as active in bitmap
             active
                 .try_set(idx, true)
                 .expect("Sequential operator insertion should always succeed");
 
-            debug!(operator_idx = idx, "Added operator");
-            self.next_idx += 1;
+            staged.push(OperatorEntry {
+                idx,
+                musig2_pk: *musig2_pk,
+            });
         }
+        staged
     }
 
-    /// Deactivates existing operators by their indices.
-    fn remove_operators(&mut self, active: &mut OperatorBitmap, indices: &[OperatorIdx]) {
+    /// Deactivates existing operators by their indices in `active`.
+    ///
+    /// An operator exists if it is registered in the table or staged in `staged` by
+    /// [`Self::stage_additions`] in the same change, so a batch can remove an operator it adds.
+    /// Staged entries hold the contiguous indices `next_idx..next_idx + staged.len()`.
+    fn stage_removals(
+        &self,
+        active: &mut OperatorBitmap,
+        indices: &[OperatorIdx],
+        staged: &[OperatorEntry],
+    ) {
+        // Cannot overflow: `stage_additions` keeps every staged index below `u32::MAX`.
+        let staged_range = self.next_idx..self.next_idx + staged.len() as OperatorIdx;
         for &idx in indices {
             // Only update if the operator exists
-            if self
-                .operators
-                .as_slice()
-                .binary_search_by_key(&idx, |e| e.idx)
-                .is_ok()
-            {
+            if self.get_operator(idx).is_some() || staged_range.contains(&idx) {
                 // For existing operators, we can set their status directly
                 if (idx as usize) < active.len() {
                     active
                         .try_set(idx, false)
                         .expect("Setting existing operator status should succeed");
-                    debug!(operator_idx = idx, "Deactivated operator");
+                    debug!(operator_idx = idx, "Staged operator deactivation");
                 }
             } else {
                 warn!(operator_idx = idx, "Skipping removal of unknown operator");
@@ -604,7 +645,8 @@ impl OperatorTable {
     ///
     /// # Panics
     ///
-    /// Panics if there are no active operators.
+    /// Panics if there are no active operators. [`Self::apply_membership_changes`] rejects such a
+    /// set before it gets here, so reaching the panic indicates a bug.
     fn calculate_aggregated_key(&self, active: &OperatorBitmap) -> BitcoinXOnlyPublicKey {
         let active_keys: Vec<Buf32> = active
             .active_indices()
@@ -684,7 +726,9 @@ mod tests {
         let mut table = OperatorTable::from_operator_list(&initial_operators);
 
         let new_operators = create_test_operator_pubkeys(2);
-        table.apply_membership_changes(&new_operators, &[]);
+        table
+            .apply_membership_changes(&new_operators, &[])
+            .expect("membership change keeps an active operator");
 
         assert_eq!(table.len(), 3);
         assert_eq!(table.next_idx, 3);
@@ -705,7 +749,9 @@ mod tests {
         let mut table = OperatorTable::from_operator_list(&initial_operators);
 
         // Try to add the same operator again - should be silently ignored
-        table.apply_membership_changes(&initial_operators, &[]);
+        table
+            .apply_membership_changes(&initial_operators, &[])
+            .expect("membership change keeps an active operator");
 
         // Check that state hasn't changed (still 1 operator)
         assert_eq!(table.len(), 1);
@@ -734,7 +780,9 @@ mod tests {
         // Try to add the same new operator twice in the same batch
         let duplicates = vec![new_operators[0], new_operators[0]];
 
-        table.apply_membership_changes(&duplicates, &[]);
+        table
+            .apply_membership_changes(&duplicates, &[])
+            .expect("membership change keeps an active operator");
 
         // Should have only added one new operator
         assert_eq!(table.len(), 2);
@@ -753,14 +801,18 @@ mod tests {
 
         // Update multiple operators at once
         let removals = vec![0, 2];
-        table.apply_membership_changes(&[], &removals);
+        table
+            .apply_membership_changes(&[], &removals)
+            .expect("membership change keeps an active operator");
         assert!(!table.is_in_current_multisig(0));
         assert!(table.is_in_current_multisig(1)); // unchanged
         assert!(!table.is_in_current_multisig(2));
 
         // Test re-adding operator 0
         let additions = vec![0];
-        table.apply_membership_changes(&[], &additions);
+        table
+            .apply_membership_changes(&[], &additions)
+            .expect("membership change keeps an active operator");
 
         // Operator 0 should remain inactive (it was already added)
         assert!(!table.is_in_current_multisig(0));
@@ -776,7 +828,9 @@ mod tests {
         assert_eq!(active_indices, vec![0, 1, 2]);
 
         // Mark operator 1 as inactive
-        table.apply_membership_changes(&[], &[1]);
+        table
+            .apply_membership_changes(&[], &[1])
+            .expect("membership change keeps an active operator");
 
         // Now only operators 0 and 2 should be active
         let active_indices: Vec<_> = table.current_multisig().active_indices().collect();
@@ -793,7 +847,9 @@ mod tests {
         let initial_script = table.current_nn_script().script().clone();
         assert_eq!(historical_scripts[0].script(), &initial_script);
 
-        table.apply_membership_changes(&[], &[0]);
+        table
+            .apply_membership_changes(&[], &[0])
+            .expect("membership change keeps an active operator");
 
         let second_script = table.current_nn_script().script().clone();
         assert_ne!(second_script, initial_script);
@@ -803,7 +859,9 @@ mod tests {
         assert_eq!(historical_scripts[0].script(), &initial_script);
         assert_eq!(historical_scripts[1].script(), &second_script);
 
-        table.apply_membership_changes(&[], &[1]);
+        table
+            .apply_membership_changes(&[], &[1])
+            .expect("membership change keeps an active operator");
 
         let third_script = table.current_nn_script().script().clone();
         assert_ne!(third_script, second_script);
@@ -826,17 +884,25 @@ mod tests {
         assert_eq!(table.historical_nn_scripts().count(), 1);
 
         // Removing an operator that isn't registered resolves to the same active set.
-        table.apply_membership_changes(&[], &[99]);
+        table
+            .apply_membership_changes(&[], &[99])
+            .expect("membership change keeps an active operator");
         assert_eq!(table.historical_nn_scripts().count(), 1);
 
         // Re-adding an operator that is already active is deduplicated away.
-        table.apply_membership_changes(&[operators[0]], &[]);
+        table
+            .apply_membership_changes(&[operators[0]], &[])
+            .expect("membership change keeps an active operator");
         assert_eq!(table.historical_nn_scripts().count(), 1);
 
         // Removing an operator that is already inactive is also a no-op.
-        table.apply_membership_changes(&[], &[0]);
+        table
+            .apply_membership_changes(&[], &[0])
+            .expect("membership change keeps an active operator");
         assert_eq!(table.historical_nn_scripts().count(), 2);
-        table.apply_membership_changes(&[], &[0]);
+        table
+            .apply_membership_changes(&[], &[0])
+            .expect("membership change keeps an active operator");
         assert_eq!(table.historical_nn_scripts().count(), 2);
     }
 
@@ -850,7 +916,9 @@ mod tests {
         let initial_script = table.current_nn_script().script().clone();
 
         let new_operators = create_test_operator_pubkeys(2);
-        table.apply_membership_changes(&new_operators, &[]);
+        table
+            .apply_membership_changes(&new_operators, &[])
+            .expect("membership change keeps an active operator");
 
         let new_script = table.current_nn_script().script().clone();
         assert_ne!(new_script, initial_script);
@@ -859,5 +927,200 @@ mod tests {
         assert_eq!(historical_scripts.len(), 2);
         assert_eq!(historical_scripts[0].script(), &initial_script);
         assert_eq!(historical_scripts[1].script(), &new_script);
+    }
+
+    /// Applies a change that must be rejected and asserts the table is left exactly as it was.
+    fn assert_rejected_without_mutation(
+        table: &mut OperatorTable,
+        add_members: &[EvenPublicKey],
+        remove_members: &[OperatorIdx],
+    ) {
+        let before = table.clone();
+        let res = table.apply_membership_changes(add_members, remove_members);
+        assert_eq!(res, Err(OperatorSetUpdateError::NoActiveOperators));
+        assert_eq!(
+            *table, before,
+            "a rejected change must not mutate the table"
+        );
+    }
+
+    #[test]
+    fn test_removing_sole_operator_is_rejected() {
+        let mut table = OperatorTable::from_operator_list(&create_test_operator_pubkeys(1));
+        assert_rejected_without_mutation(&mut table, &[], &[0]);
+        assert!(table.is_in_current_multisig(0));
+    }
+
+    #[test]
+    fn test_removing_all_operators_in_one_batch_is_rejected() {
+        let mut table = OperatorTable::from_operator_list(&create_test_operator_pubkeys(3));
+        assert_rejected_without_mutation(&mut table, &[], &[0, 1, 2]);
+        // Duplicate and unknown indices do not change the outcome.
+        assert_rejected_without_mutation(&mut table, &[], &[2, 0, 1, 1, 99]);
+        assert_eq!(table.historical_nn_scripts().count(), 1);
+    }
+
+    #[test]
+    fn test_removing_last_remaining_operator_is_rejected() {
+        let mut table = OperatorTable::from_operator_list(&create_test_operator_pubkeys(3));
+        table
+            .apply_membership_changes(&[], &[0, 1])
+            .expect("operator 2 stays active");
+        assert_eq!(table.historical_nn_scripts().count(), 2);
+
+        assert_rejected_without_mutation(&mut table, &[], &[2]);
+        assert_eq!(
+            table
+                .current_multisig()
+                .active_indices()
+                .collect::<Vec<_>>(),
+            vec![2]
+        );
+    }
+
+    /// Operators added in a rejected batch must not be registered, otherwise their indices
+    /// would be burned and their keys could never be added again.
+    #[test]
+    fn test_rejected_batch_does_not_register_added_operators() {
+        let mut table = OperatorTable::from_operator_list(&create_test_operator_pubkeys(2));
+        let new_operators = create_test_operator_pubkeys(2);
+
+        // The new operators get indices 2 and 3, and are removed again in the same batch.
+        assert_rejected_without_mutation(&mut table, &new_operators, &[0, 1, 2, 3]);
+        assert_eq!(table.len(), 2);
+        assert_eq!(table.next_idx, 2);
+
+        // Re-adding an existing (already active) key while removing everything is still empty.
+        let existing = *table.get_operator(0).unwrap().musig2_pk();
+        assert_rejected_without_mutation(&mut table, &[existing], &[0, 1]);
+
+        // The keys from the rejected batch can still be added, at the indices they would have had.
+        table
+            .apply_membership_changes(&new_operators, &[])
+            .expect("additions keep the set non-empty");
+        assert_eq!(
+            table.get_operator(2).unwrap().musig2_pk(),
+            &new_operators[0]
+        );
+        assert_eq!(
+            table.get_operator(3).unwrap().musig2_pk(),
+            &new_operators[1]
+        );
+    }
+
+    /// The operator table accepts replacing the entire set in one batch.
+    ///
+    /// This is a table-level check only: in a live bridge the one-shot rotation can strand
+    /// deposits notarised only by the removed operators (finding 3.17), so it is not by itself a
+    /// safe way to rotate out every operator.
+    #[test]
+    fn test_replacing_entire_operator_set_succeeds() {
+        let mut table = OperatorTable::from_operator_list(&create_test_operator_pubkeys(2));
+        let replacement = create_test_operator_pubkeys(1);
+
+        table
+            .apply_membership_changes(&replacement, &[0, 1])
+            .expect("the replacement operator stays active");
+
+        assert_eq!(
+            table
+                .current_multisig()
+                .active_indices()
+                .collect::<Vec<_>>(),
+            vec![2]
+        );
+        assert_eq!(table.historical_nn_scripts().count(), 2);
+        assert_eq!(
+            table.current_nn_script().script(),
+            build_nn_script(table.agg_key()).inner()
+        );
+    }
+
+    /// Exhaustively checks every removal subset, with and without an addition, for small sets:
+    /// a change is accepted iff it leaves an operator active, and a rejection never mutates.
+    ///
+    /// Accepted changes are pinned in full (bitmap, `next_idx`, history length, and the agg key
+    /// recomputed independently from the expected active keys), so the staging refactor cannot
+    /// drift from the previous add-then-remove semantics, including the "add X and remove X" case
+    /// that registers X inactive and still records a configuration.
+    #[test]
+    fn test_membership_change_never_empties_multisig() {
+        for n in 1..=3u32 {
+            let extra = create_test_operator_pubkeys(1);
+            // Indices `0..n` are the initial operators, `n` is the optional addition.
+            for add in [false, true] {
+                let candidates = if add { n + 1 } else { n };
+                for mask in 0u32..(1 << candidates) {
+                    let initial_keys = create_test_operator_pubkeys(n as usize);
+                    let mut table = OperatorTable::from_operator_list(&initial_keys);
+                    // Keys by operator index: the initial operators, then the optional addition.
+                    let keys_by_idx: Vec<EvenPublicKey> = initial_keys
+                        .iter()
+                        .chain(if add { extra.iter() } else { [].iter() })
+                        .copied()
+                        .collect();
+                    let initial = table.clone();
+                    let adds: &[EvenPublicKey] = if add { &extra } else { &[] };
+                    let removals: Vec<OperatorIdx> =
+                        (0..candidates).filter(|i| mask & (1 << i) != 0).collect();
+                    let survivors = candidates as usize - removals.len();
+
+                    if survivors == 0 {
+                        assert_rejected_without_mutation(&mut table, adds, &removals);
+                        continue;
+                    }
+
+                    table
+                        .apply_membership_changes(adds, &removals)
+                        .expect("a change leaving an operator active is accepted");
+
+                    let mut expected = OperatorBitmap::new_with_size(candidates as usize, true);
+                    for &idx in &removals {
+                        expected.try_set(idx, false).unwrap();
+                    }
+                    let ctx = format!("n={n} add={add} removals={removals:?}");
+                    assert_eq!(table.current_multisig(), &expected, "{ctx}");
+                    assert_eq!(table.next_idx, candidates, "{ctx}");
+                    assert_eq!(table.len(), candidates, "{ctx}");
+
+                    // A configuration is recorded iff the bitmap changed; an addition always
+                    // lengthens it, even when the added operator is removed again.
+                    let changed = expected != *initial.current_multisig();
+                    assert_eq!(
+                        table.historical_nn_scripts().count(),
+                        if changed { 2 } else { 1 },
+                        "{ctx}"
+                    );
+                    assert_eq!(
+                        table.current_nn_script().script(),
+                        build_nn_script(table.agg_key()).inner(),
+                        "{ctx}"
+                    );
+
+                    // The agg key is the MuSig2 aggregation of the expected active keys in index
+                    // order, computed here independently of the table.
+                    let expected_keys: Vec<Buf32> = expected
+                        .active_indices()
+                        .map(|idx| {
+                            let pk = keys_by_idx[idx as usize];
+                            Buf32::from(pk.x_only_public_key().0.serialize())
+                        })
+                        .collect();
+                    let expected_agg_key: BitcoinXOnlyPublicKey =
+                        aggregate_schnorr_keys(expected_keys.iter())
+                            .expect("expected active keys aggregate")
+                            .into();
+                    assert_eq!(table.agg_key(), &expected_agg_key, "{ctx}");
+
+                    // Same active operators as before (no-op, or add X + remove X): same key.
+                    if expected
+                        .active_indices()
+                        .eq(initial.current_multisig().active_indices())
+                    {
+                        assert_eq!(table.agg_key(), initial.agg_key(), "{ctx}");
+                    }
+                }
+            }
+        }
     }
 }

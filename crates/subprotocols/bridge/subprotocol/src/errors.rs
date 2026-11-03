@@ -2,7 +2,7 @@ use bitcoin::ScriptBuf;
 use strata_asm_bridge_types::OperatorIdx;
 // Re-exported so downstream users keep finding the state-owned errors here.
 pub use strata_asm_proto_bridge_state::{
-    DepositOutputError, DepositValidationError, WithdrawalAssignmentError,
+    DepositOutputError, DepositValidationError, OperatorSetUpdateError, WithdrawalAssignmentError,
 };
 use strata_asm_proto_bridge_txs::errors::Mismatch;
 use strata_btc_types::BitcoinAmount;
@@ -21,6 +21,14 @@ pub enum BridgeSubprotocolError {
 
     #[error("failed to validate unstake tx: {0}")]
     UnstakeTxValidation(#[from] UnstakeValidationError),
+
+    /// A validated slash or unstake could not remove its operator from the N/N multisig.
+    #[error("failed to remove operator {operator}: {source}")]
+    OperatorRemoval {
+        operator: OperatorIdx,
+        #[source]
+        source: OperatorSetUpdateError,
+    },
 }
 
 /// Errors that can occur when validating withdrawal fulfillment transactions.
