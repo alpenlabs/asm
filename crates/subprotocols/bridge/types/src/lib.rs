@@ -30,6 +30,11 @@
 //! - [`OperatorClaimUnlockV1`] — names the assignee by public key. Committed by the successor
 //!   subprotocol version, which reaching takes a spec activation.
 //!
+//! # Deposit Destinations
+//!
+//! - [`DepositDescriptor`] — the authoritative codec for the destination a deposit request carries,
+//!   naming the execution-layer account serial and subject to credit.
+//!
 //! # Configuration
 //!
 //! - [`BridgeInitConfig`] — genesis configuration for the bridge subprotocol.
@@ -38,12 +43,14 @@
 
 mod claim;
 mod config;
+mod deposit_descriptor;
 mod operator;
 mod safe_harbor;
 mod withdrawal;
 
 pub use claim::{OperatorClaimUnlockV0, OperatorClaimUnlockV1};
 pub use config::{BridgeInitConfig, SafeHarborNetworkMismatch, UncheckedSafeHarborAddress};
+pub use deposit_descriptor::{DepositDescriptor, DepositDescriptorError};
 pub use operator::{
     OperatorBitmap, OperatorBitmapError, OperatorIdx, OperatorSelection, filter_eligible_operators,
 };
