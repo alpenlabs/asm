@@ -48,12 +48,12 @@ fn genesis_params(parent: BlockHash) -> AsmParams {
     let mut rng = StdRng::seed_from_u64(5);
     let mut params: AsmParams = ArbitraryGenerator::new().generate_with_rng(&mut rng);
     params.magic = TEST_MAGIC_BYTES;
-    params.anchor = L1Anchor {
+    params.set_anchor(L1Anchor {
         block: L1BlockCommitment::new(GENESIS_HEIGHT, parent.to_l1_block_id()),
         next_target: target().to_consensus(),
         epoch_start_timestamp: 0,
         network: Network::Regtest,
-    };
+    });
     params
 }
 

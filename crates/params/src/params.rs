@@ -96,6 +96,21 @@ impl AsmParams {
             _ => None,
         })
     }
+
+    /// Replaces the L1 anchor and moves the checkpoint genesis L1 height to its height.
+    ///
+    /// The two heights must agree (see
+    /// [`CheckpointInitConfig::check_genesis_l1_height`]), so moving one without the other
+    /// leaves parameters that genesis construction rejects.
+    pub fn set_anchor(&mut self, anchor: L1Anchor) {
+        let height = anchor.block.height();
+        self.anchor = anchor;
+        for instance in &mut self.subprotocols {
+            if let SubprotocolInstance::Checkpoint(config) = instance {
+                config.genesis_l1_height = height;
+            }
+        }
+    }
 }
 
 #[cfg(feature = "arbitrary")]
