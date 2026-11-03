@@ -7,6 +7,7 @@
 //! - Operator additions → bridge operator table gains new members
 //! - Operator removals → bridge operator table deactivates members
 //! - Combined add/remove → both applied atomically after activation
+//! - Removing every operator → rejected by the bridge, ASM keeps processing blocks
 //! - Defcon1 from the security council → bridge activates the safe harbor immediately
 //! - Defcon3 from the security council → bridge activates the safe harbor after the timelock
 //! - Defcon1/Defcon3 signed by any other role → rejected, bridge unchanged
@@ -149,6 +150,48 @@ async fn test_operator_add_and_remove_propagates_to_bridge() {
         *bridge.operators().agg_key(),
         initial_agg_key,
         "aggregate key should change after the combined update"
+    );
+}
+
+/// Regression (SECFND-734): an admin update removing every operator must be rejected by the
+/// bridge without halting the ASM.
+///
+/// An empty N/N multisig has no aggregated key. Before the fix, applying this update panicked in
+/// the bridge STF at the activation block, so the ASM could never process that block.
+#[tokio::test(flavor = "multi_thread")]
+async fn test_operator_remove_all_is_rejected_without_halting() {
+    let Setup {
+        harness,
+        admin: mut ctx,
+        ..
+    } = AsmTestHarnessBuilder::default().build().await;
+
+    let operators_before = harness.bridge_state().unwrap().operators().clone();
+
+    // `submit_and_activate` mines up to and including the activation block, waiting for ASM to
+    // process each one, so it fails if ASM cannot process the activation block.
+    submit_and_activate(
+        &harness,
+        &mut ctx,
+        operator_set_update(vec![], vec![0, 1, 2]),
+    )
+    .await;
+    assert!(
+        harness.admin_state().unwrap().queued().is_empty(),
+        "the update should have activated"
+    );
+
+    // ASM also keeps processing the blocks after the activation.
+    harness.mine_block(None).await.unwrap();
+    assert_eq!(
+        harness.get_processed_height().unwrap(),
+        harness.get_chain_tip().await.unwrap(),
+        "ASM should keep processing blocks past the activation of the rejected update"
+    );
+    assert_eq!(
+        harness.bridge_state().unwrap().operators(),
+        &operators_before,
+        "the rejected update must leave the operator table unchanged"
     );
 }
 
