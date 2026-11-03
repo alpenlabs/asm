@@ -14,6 +14,10 @@ use crate::{
 /// auxiliary data includes the recovery public key (first 32 bytes) and destination
 /// descriptor (remaining bytes).
 ///
+/// The ASM uses this parser when it processes a deposit, so it checks structure only and keeps
+/// the destination as opaque bytes. Admitting a request for sweeping additionally requires the
+/// descriptor syntax validation in [`DrtHeaderAux::decode_destination`] to succeed.
+///
 /// # Errors
 ///
 /// Returns [`TxStructureError`] if the SPS-50 format cannot be parsed, the auxiliary
@@ -140,8 +144,9 @@ mod tests {
             TxStructureErrorKind::InvalidAuxiliaryData(_)
         ));
 
-        // REVIEW: Since we don't parse the deposit destination and treat it as a `Vec<u8>`, any
-        // SPS-50 auxiliary data with length ≥ [`MIN_AUX_LEN`] is considered valid at the
-        // ASM level, including empty destinations (32 bytes of just recovery_pk).
+        // Consensus parsing treats the destination as opaque bytes, so any SPS-50 auxiliary
+        // data with length ≥ [`MIN_AUX_LEN`] parses, including an empty destination (32 bytes
+        // of just recovery_pk). Descriptor syntax is validated at admission instead, via
+        // `DrtHeaderAux::decode_destination`.
     }
 }

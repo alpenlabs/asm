@@ -173,17 +173,29 @@ pub(crate) fn preprocess_parsed_tx(
 
 #[cfg(test)]
 mod tests {
-    use strata_asm_bridge_types::{OperatorClaimUnlockV0, OperatorClaimUnlockV1};
+    use bitcoin::{
+        OutPoint, TxOut,
+        secp256k1::{Keypair, SECP256K1},
+    };
+    use strata_asm_bridge_types::{
+        DepositDescriptor, OperatorClaimUnlockV0, OperatorClaimUnlockV1,
+    };
     use strata_asm_proto_bridge_txs::{
-        deposit_request::DrtHeaderAux,
+        deposit::{DepositInfo, DepositTxHeaderAux},
+        deposit_request::{DRT_OUTPUT_INDEX, DrtHeaderAux},
         parser::ParsedTx,
-        test_utils::{create_test_withdrawal_fulfillment_tx, parse_sps50_tx},
+        test_utils::{
+            create_test_deposit_request_tx, create_test_withdrawal_fulfillment_tx, parse_sps50_tx,
+        },
         withdrawal_fulfillment::parse_withdrawal_fulfillment_tx,
     };
-    use strata_identifiers::Buf32;
+    use strata_identifiers::{AccountSerial, Buf32, SubjectIdBytes};
     use strata_test_utils_arb::ArbitraryGenerator;
 
-    use super::{BRIDGE_SUBPROTOCOL_ID, NewExportEntry, handle_parsed_tx};
+    use super::{
+        BRIDGE_SUBPROTOCOL_ID, BridgeStateV1, DepositLog, NewExportEntry, VerifiedAuxData,
+        handle_parsed_tx,
+    };
     use crate::{
         claim::{ClaimV0, ClaimV1},
         test_utils::{
@@ -225,6 +237,95 @@ mod tests {
             state.deposits().get_deposit(deposit_idx).is_some(),
             "entry should be added"
         );
+    }
+
+    /// Builds a DRT and a matching deposit for `state` without a Bitcoin node, so the handler's
+    /// destination behaviour can be exercised deterministically.
+    fn build_deposit_without_node(
+        state: &BridgeStateV1,
+        destination: Vec<u8>,
+        deposit_idx: u32,
+    ) -> (ParsedTx, VerifiedAuxData) {
+        let recovery_pk = Keypair::from_seckey_slice(SECP256K1, &[7; 32])
+            .expect("constant secret key is valid")
+            .x_only_public_key()
+            .0
+            .serialize();
+        let drt_aux = DrtHeaderAux::from_aux_data(&[&recovery_pk[..], &destination].concat())
+            .expect("destination within SPS-50 budget");
+        let drt = create_test_deposit_request_tx(
+            &drt_aux,
+            state.operators().agg_key().to_xonly_public_key(),
+            (*state.denomination()).into(),
+            state.recovery_delay(),
+        );
+
+        let deposit_output = TxOut {
+            value: (*state.denomination()).into(),
+            script_pubkey: state.operators().current_nn_script().script().clone(),
+        };
+        let info = DepositInfo::new(
+            DepositTxHeaderAux::new(deposit_idx),
+            deposit_output
+                .try_into()
+                .expect("deposit script within size bound"),
+            OutPoint::new(drt.compute_txid(), DRT_OUTPUT_INDEX as u32).into(),
+        );
+        let aux = create_verified_aux_data(vec![drt.into()]);
+        (ParsedTx::Deposit(info), aux)
+    }
+
+    /// A swept deposit is recorded, counted for withdrawal gating, and its destination forwarded
+    /// verbatim whether or not the destination is a syntactically valid deposit descriptor
+    /// (SECFND-736). Rejecting it here would strand the locked BTC outside bridge accounting
+    /// instead of refunding the depositor; descriptor syntax is checked at admission instead.
+    #[test]
+    fn test_handle_deposit_records_and_forwards_any_destination() {
+        let valid = DepositDescriptor::new(
+            AccountSerial::new(1),
+            SubjectIdBytes::try_new(vec![0xaa; 20]).expect("subject length is within bounds"),
+        )
+        .expect("serial is encodable")
+        .encode_to_vec();
+        let cases: [(&str, Vec<u8>); 5] = [
+            ("valid descriptor", valid),
+            ("empty", vec![]),
+            ("truncated serial", vec![0x20, 0x01]),
+            ("reserved control bits", vec![0xab; 20]),
+            ("oversized subject", vec![0x00; 42]),
+        ];
+
+        for (deposit_idx, (name, destination)) in (0u32..).zip(cases) {
+            let (mut state, _) = create_test_state();
+            let (parsed_tx, aux) =
+                build_deposit_without_node(&state, destination.clone(), deposit_idx);
+
+            let mut relayer = MockMsgRelayer::default();
+            handle_parsed_tx::<ClaimV0>(&mut state, parsed_tx, &aux, &mut relayer)
+                .unwrap_or_else(|e| panic!("{name}: swept deposit must be accepted: {e}"));
+
+            let entry = state
+                .deposits()
+                .get_deposit(deposit_idx)
+                .unwrap_or_else(|| panic!("{name}: deposit must enter bridge accounting"));
+            assert_eq!(entry.amt(), *state.denomination(), "{name}");
+
+            let logs: Vec<DepositLog> = relayer
+                .logs()
+                .iter()
+                .filter_map(|log| log.try_into_log::<DepositLog>().ok())
+                .collect();
+            assert_eq!(logs.len(), 1, "{name}: exactly one deposit log");
+            assert_eq!(&logs[0].destination[..], destination, "{name}");
+            assert_eq!(logs[0].amount, state.denomination().to_sat(), "{name}");
+
+            // The checkpoint subprotocol counts the deposit toward withdrawal gating.
+            assert_eq!(
+                relayer.deposits_processed(),
+                [*state.denomination()],
+                "{name}: deposit must be relayed to the checkpoint subprotocol"
+            );
+        }
     }
 
     #[test]

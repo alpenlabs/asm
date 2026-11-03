@@ -21,14 +21,17 @@ use strata_asm_proto_bridge_txs::{
     unstake::{UnstakeInfo, UnstakeTxHeaderAux, parse_unstake_tx},
     withdrawal_fulfillment::{WithdrawalFulfillmentInfo, WithdrawalFulfillmentTxHeaderAux},
 };
+use strata_asm_proto_checkpoint_msgs::CheckpointIncomingMsg;
 use strata_btc_types::{BitcoinAmount, RawBitcoinTx};
 use strata_crypto::EvenSecretKey;
 use strata_test_utils_arb::ArbitraryGenerator;
 
-/// A Mock MsgRelayer that captures emitted logs and discards relayed messages.
+/// A Mock MsgRelayer that captures emitted logs and deposit notifications relayed to the
+/// checkpoint subprotocol, and discards other relayed messages.
 #[derive(Default)]
 pub(crate) struct MockMsgRelayer {
     logs: Vec<AsmLogEntry>,
+    deposits_processed: Vec<BitcoinAmount>,
 }
 
 impl MockMsgRelayer {
@@ -36,10 +39,21 @@ impl MockMsgRelayer {
     pub(crate) fn logs(&self) -> &[AsmLogEntry] {
         &self.logs
     }
+
+    /// Amounts of relayed [`CheckpointIncomingMsg::DepositProcessed`] messages, in relay order.
+    pub(crate) fn deposits_processed(&self) -> &[BitcoinAmount] {
+        &self.deposits_processed
+    }
 }
 
 impl MsgRelayer for MockMsgRelayer {
-    fn relay_msg(&mut self, _m: &dyn InterprotoMsg) {}
+    fn relay_msg(&mut self, m: &dyn InterprotoMsg) {
+        if let Some(CheckpointIncomingMsg::DepositProcessed(amt)) =
+            m.as_dyn_any().downcast_ref::<CheckpointIncomingMsg>()
+        {
+            self.deposits_processed.push(*amt);
+        }
+    }
     fn emit_log(&mut self, log: AsmLogEntry) {
         self.logs.push(log);
     }

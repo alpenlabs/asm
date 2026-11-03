@@ -45,6 +45,13 @@ fn baseline_deposit_requests_preserve_metadata_and_locking_script() {
         .unwrap();
         let parsed = parse_drt(&tx).expect("baseline deposit request remains accepted");
         assert_eq!(parsed.header_aux(), &aux, "destination length {len}");
+        // None of these destinations is a syntactically valid deposit descriptor (`0xab` sets a
+        // reserved control bit), so a `parse_drt` that validated descriptors would reject these
+        // frozen consensus vectors. Descriptor syntax is an admission-only check.
+        assert!(
+            parsed.header_aux().decode_destination().is_err(),
+            "destination length {len} must fail descriptor syntax validation"
+        );
         assert_eq!(parsed.deposit_request_output().inner(), &tx.output[1]);
         assert_eq!(tx.output[1].value, Amount::from_sat(100_000));
         let rebuilt =

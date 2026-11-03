@@ -8285,6 +8285,7 @@ dependencies = [
  "strata-btc-types",
  "strata-codec",
  "strata-crypto",
+ "strata-identifiers",
  "strata-l1-txfmt",
  "strata-test-utils-arb",
  "strata-test-utils-btcio",
