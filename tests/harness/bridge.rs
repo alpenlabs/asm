@@ -22,7 +22,7 @@ use bitcoin::{
     key::UntweakedKeypair,
     opcodes::all::{OP_DROP, OP_PUSHNUM_1},
     script,
-    secp256k1::{Message, Secp256k1, XOnlyPublicKey, SECP256K1},
+    secp256k1::{schnorr, Message, Secp256k1, XOnlyPublicKey, SECP256K1},
     sighash::{Prevouts, SighashCache},
     taproot::{LeafVersion, TapLeafHash, TaprootBuilder, TaprootSpendInfo},
     transaction::Version,
@@ -54,7 +54,10 @@ use strata_crypto::{
 };
 use strata_l1_txfmt::ParseConfig;
 use strata_test_utils_arb::ArbitraryGenerator;
-use strata_test_utils_btcio::{address::derive_musig2_p2tr_address, signing::sign_musig2_keypath};
+use strata_test_utils_btcio::{
+    address::derive_musig2_p2tr_address,
+    signing::{sign_musig2_keypath, sign_musig2_scriptpath},
+};
 
 use super::test_harness::AsmTestHarness;
 
@@ -520,18 +523,72 @@ pub async fn submit_attacker_keyed_unstake_tx(
     harness: &AsmTestHarness,
     victim_idx: OperatorIdx,
 ) -> anyhow::Result<BlockHash> {
-    // 1. Attacker's own key — never part of the operator set, but the attacker holds its secret.
+    // Attacker's own key — never part of the operator set, but the attacker holds its secret.
     let mut key_bytes = [0u8; 32];
     rand::thread_rng().fill_bytes(&mut key_bytes);
     let attacker_keypair = UntweakedKeypair::from_seckey_slice(SECP256K1, &key_bytes)?;
     let (attacker_xonly, _) = XOnlyPublicKey::from_keypair(&attacker_keypair);
 
-    // 2. Canonical stake connector committing to (stake_hash, attacker_key): P2TR(NUMS, single
-    //    leaf). Its scriptPubKey is what an honest stake connector for this key would have, so the
-    //    prevout-binding check passes.
+    submit_stake_connector_unstake_tx(harness, victim_idx, attacker_xonly, |tx, prevout, leaf| {
+        let leaf_hash = TapLeafHash::from_script(leaf, LeafVersion::TapScript);
+        let sighash = SighashCache::new(tx).taproot_script_spend_signature_hash(
+            0,
+            &Prevouts::All(slice::from_ref(prevout)),
+            leaf_hash,
+            TapSighashType::Default,
+        )?;
+        let message = Message::from_digest(*sighash.as_ref());
+        Ok(SECP256K1.sign_schnorr_no_aux_rand(&message, &attacker_keypair))
+    })
+    .await
+}
+
+/// Submits a genuine unstake of `operator_idx`, authorized by the N/N multisig of
+/// `operator_keys`.
+///
+/// The stake connector commits to the MuSig2 aggregate of `operator_keys`, and the spend carries a
+/// real MuSig2 script-path signature from all of them. With the genesis operator keys this is an
+/// unstake ASM must accept as authentic.
+///
+/// Returns the block hash containing the unstake transaction.
+pub async fn submit_unstake_tx(
+    harness: &AsmTestHarness,
+    operator_keys: &[EvenSecretKey],
+    operator_idx: OperatorIdx,
+) -> anyhow::Result<BlockHash> {
+    let (_, nn_key) = derive_musig2_p2tr_address(operator_keys)?;
+    submit_stake_connector_unstake_tx(harness, operator_idx, nn_key, |tx, prevout, leaf| {
+        sign_musig2_scriptpath(
+            tx,
+            operator_keys,
+            slice::from_ref(prevout),
+            0,
+            leaf,
+            LeafVersion::TapScript,
+        )
+    })
+    .await
+}
+
+/// Funds a canonical stake connector committing to `stake_key` and submits an unstake naming
+/// `operator_idx` that spends it through the script path.
+///
+/// The stake connector is `P2TR(NUMS, stake_connector_script(stake_hash, stake_key))`, so its
+/// `scriptPubKey` is what an honest stake connector for `stake_key` would have. `sign` produces
+/// the script-path Schnorr signature over input 0 given the unsigned tx, the spent prevout and the
+/// leaf script. The spend is authentic on Bitcoin either way; ASM accepts the unstake only if
+/// `stake_key` is a historical N/N key, `operator_idx` was a member of that configuration, and
+/// removing it would leave at least one operator active.
+async fn submit_stake_connector_unstake_tx(
+    harness: &AsmTestHarness,
+    operator_idx: OperatorIdx,
+    stake_key: XOnlyPublicKey,
+    sign: impl FnOnce(&Transaction, &TxOut, &ScriptBuf) -> anyhow::Result<schnorr::Signature>,
+) -> anyhow::Result<BlockHash> {
+    // 1. Canonical stake connector committing to (stake_hash, stake_key): P2TR(NUMS, single leaf).
     let preimage = [0xABu8; 32];
     let stake_hash = sha256::Hash::hash(&preimage).to_byte_array();
-    let leaf_script = stake_connector_script(stake_hash, attacker_xonly);
+    let leaf_script = stake_connector_script(stake_hash, stake_key);
     let spend_info = TaprootBuilder::new()
         .add_leaf(0, leaf_script.clone())?
         .finalize(SECP256K1, *UNSPENDABLE_PUBLIC_KEY)
@@ -543,15 +600,15 @@ pub async fn submit_attacker_keyed_unstake_tx(
         Network::Regtest,
     );
 
-    // 3. Fund and confirm the stake connector so the exploit tx has a spendable prevout.
+    // 2. Fund and confirm the stake connector so the unstake has a spendable prevout.
     let funding_amount = Amount::from_sat(10_000);
     let (funding_txid, funding_vout) = harness
         .create_funding_utxo(&stake_connector_address, funding_amount)
         .await?;
     harness.mine_block(None).await?;
 
-    // 4. SPS-50 OP_RETURN naming the victim, plus a change output so the tx pays a fee.
-    let aux = UnstakeTxHeaderAux::new(victim_idx);
+    // 3. SPS-50 OP_RETURN naming the operator, plus a change output so the tx pays a fee.
+    let aux = UnstakeTxHeaderAux::new(operator_idx);
     let tag_data = aux.build_tag_data();
     let op_return_script =
         ParseConfig::new(harness.asm_params.magic).encode_script_buf(&tag_data.as_ref())?;
@@ -562,7 +619,7 @@ pub async fn submit_attacker_keyed_unstake_tx(
         value: funding_amount,
         script_pubkey: stake_connector_address.script_pubkey(),
     };
-    let mut exploit_tx = Transaction {
+    let mut unstake_tx = Transaction {
         version: Version::TWO,
         lock_time: LockTime::ZERO,
         input: vec![TxIn {
@@ -583,17 +640,9 @@ pub async fn submit_attacker_keyed_unstake_tx(
         ],
     };
 
-    // 5. Real taproot script-path spend: sign the leaf with the attacker key, then assemble the
-    //    witness in the same [preimage, sig, script, control_block] layout ASM parses.
-    let leaf_hash = TapLeafHash::from_script(&leaf_script, LeafVersion::TapScript);
-    let sighash = SighashCache::new(&exploit_tx).taproot_script_spend_signature_hash(
-        0,
-        &Prevouts::All(slice::from_ref(&prevout)),
-        leaf_hash,
-        TapSighashType::Default,
-    )?;
-    let message = Message::from_digest(*sighash.as_ref());
-    let signature = SECP256K1.sign_schnorr_no_aux_rand(&message, &attacker_keypair);
+    // 4. Real taproot script-path spend, with the witness in the same [preimage, sig, script,
+    //    control_block] layout ASM parses.
+    let signature = sign(&unstake_tx, &prevout, &leaf_script)?;
     let control_block = spend_info
         .control_block(&(leaf_script.clone(), LeafVersion::TapScript))
         .ok_or_else(|| anyhow::anyhow!("control block must exist for stake-connector leaf"))?;
@@ -603,9 +652,9 @@ pub async fn submit_attacker_keyed_unstake_tx(
     witness.push(signature.serialize());
     witness.push(leaf_script.as_bytes());
     witness.push(control_block.serialize());
-    exploit_tx.input[0].witness = witness;
+    unstake_tx.input[0].witness = witness;
 
-    harness.submit_and_mine_tx(&exploit_tx).await
+    harness.submit_and_mine_tx(&unstake_tx).await
 }
 
 // ============================================================================

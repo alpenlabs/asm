@@ -9,7 +9,7 @@ use bitcoin::BlockHash;
 use harness::{
     bridge::{
         submit_attacker_keyed_unstake_tx, submit_drt_takeback_as_deposit, submit_forged_unstake_tx,
-        submit_withdrawal_fulfillment_tx, BridgeExt, DepositRequest,
+        submit_unstake_tx, submit_withdrawal_fulfillment_tx, BridgeExt, DepositRequest,
     },
     checkpoint::CheckpointExt,
     test_harness::{AsmTestHarness, AsmTestHarnessBuilder, Setup},
@@ -20,6 +20,7 @@ use strata_asm_common::Subprotocol;
 use strata_asm_logs::{DepositLog, ExportExtraDataUpdate};
 use strata_asm_proto_bridge::{BridgeStateV1, BridgeSubprotoV1, OperatorClaimUnlockV0};
 use strata_asm_proto_bridge_txs::BRIDGE_SUBPROTOCOL_ID;
+use strata_test_utils_btcio::address::derive_musig2_p2tr_address;
 
 /// Regression: a forged unstake transaction must NOT remove an operator.
 ///
@@ -103,6 +104,97 @@ async fn test_attacker_keyed_unstake_does_not_remove_operator() {
         initial_agg_key,
         "agg key must remain unchanged when no real unstake happened",
     );
+}
+
+/// A genuine unstake, spending a stake connector committed to the genesis N/N key with a real
+/// MuSig2 signature, removes the named operator.
+///
+/// This is the positive control for [`test_unstake_of_last_operator_does_not_halt_asm`]: it shows
+/// [`submit_unstake_tx`] builds an unstake ASM accepts as authentic.
+#[tokio::test(flavor = "multi_thread")]
+async fn test_genuine_unstake_removes_operator() {
+    let Setup {
+        harness, bridge, ..
+    } = AsmTestHarnessBuilder::default()
+        .with_txindex()
+        .build()
+        .await;
+
+    let operator_idx = 1u32;
+    assert!(harness
+        .bridge_state()
+        .unwrap()
+        .operators()
+        .is_in_current_multisig(operator_idx));
+
+    submit_unstake_tx(&harness, bridge.operator_privkeys(), operator_idx)
+        .await
+        .expect("genuine unstake should be accepted by Bitcoin and processed by ASM");
+
+    assert!(
+        !harness
+            .bridge_state()
+            .unwrap()
+            .operators()
+            .is_in_current_multisig(operator_idx),
+        "a genuine unstake must remove the operator"
+    );
+}
+
+/// Regression (SECFND-734): a genuine unstake of the last active operator must be refused
+/// without halting the ASM.
+///
+/// The operator alone holds its stake preimage, so before the fix the last active operator could
+/// halt the ASM unilaterally: removing it emptied the N/N multisig and the bridge STF panicked
+/// while aggregating no keys, so no node could process the block.
+#[tokio::test(flavor = "multi_thread")]
+async fn test_unstake_of_last_operator_does_not_halt_asm() {
+    let Setup {
+        harness, bridge, ..
+    } = AsmTestHarnessBuilder::default()
+        .num_operators(1)
+        .with_txindex()
+        .build()
+        .await;
+
+    let operators_before = harness.bridge_state().unwrap().operators().clone();
+    assert_eq!(
+        operators_before
+            .current_multisig()
+            .active_indices()
+            .collect::<Vec<OperatorIdx>>(),
+        vec![0],
+        "operator 0 must start as the only active operator"
+    );
+
+    // Pin the test to the last-operator guard: the unstake commits to the current N/N key and
+    // names a member of it, so every other unstake check passes.
+    let (_, nn_key) = derive_musig2_p2tr_address(bridge.operator_privkeys()).unwrap();
+    assert_eq!(
+        nn_key,
+        operators_before.agg_key().to_xonly_public_key(),
+        "the unstake must commit to the bridge's current N/N key"
+    );
+
+    // `submit_unstake_tx` waits for ASM to process the block carrying the unstake.
+    submit_unstake_tx(&harness, bridge.operator_privkeys(), 0)
+        .await
+        .expect("ASM must process the block carrying the last operator's unstake");
+
+    // And it keeps processing the blocks after it.
+    harness.mine_block(None).await.unwrap();
+    assert_eq!(
+        harness.get_processed_height().unwrap(),
+        harness.get_chain_tip().await.unwrap(),
+        "ASM should keep processing blocks after the refused unstake"
+    );
+
+    let operators_after = harness.bridge_state().unwrap().operators().clone();
+    assert_eq!(
+        operators_after, operators_before,
+        "the refused unstake must leave the operator table unchanged"
+    );
+    assert!(operators_after.is_in_current_multisig(0));
 }
 
 /// Every L1 block, the bridge must publish the verified accumulated proof of work as its export
