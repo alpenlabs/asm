@@ -2,9 +2,9 @@
 zkaleido_sp1_guest_env::entrypoint!(main);
 
 use strata_asm_proof_impl::statements::process_asm_stf;
-use strata_asm_spec::StrataAsmSpecV1;
+use strata_asm_spec::StrataAsmSpecV2;
 use zkaleido_sp1_guest_env::Sp1ZkVmEnv;
 
 fn main() {
-    process_asm_stf(&Sp1ZkVmEnv, &StrataAsmSpecV1)
+    process_asm_stf(&Sp1ZkVmEnv, &StrataAsmSpecV2)
 }
