@@ -38,9 +38,11 @@ repository validation checks.
 4. **Build its guest.** Each guest compiles one concrete spec; the witness cannot select rules.
    The local guest (`guest-builder/sp1/guest-asm/src/main.rs`) always compiles the newest spec,
    so point it at the new one. Older specs keep the guest from the release that shipped them, and
-   tests download it with its predicate (`functional-tests/envs/prover_env.py` for spec 0). Retain
-   old guests while delayed jobs or reorgs may still need them. Record the source commit,
-   `Cargo.lock`, toolchain, ELF digest, derived predicate, and spec ID together.
+   tests download it with its predicate. When you move the local guest, add the spec it compiled
+   before to `ASM_GUEST_RELEASE_TAGS` in `functional-tests/envs/prover_env.py` with the last
+   release that shipped it, and bump `LOCAL_GUEST_SPEC_ID`. Retain old guests while delayed jobs
+   or reorgs may still need them. Record the source commit, `Cargo.lock`, toolchain, ELF digest,
+   derived predicate, and spec ID together.
 
    ```sh
    cargo metadata --locked --offline --manifest-path guest-builder/sp1/guest-asm/Cargo.toml --format-version 1 > /dev/null
@@ -108,11 +110,11 @@ Put `bitcoind` on `PATH` for integration tests. CI pins Bitcoin Core 30.2 in
   with no bridge transactions apart from that section's encoding.
 
 The functional test `fn_asm_upgrade_test` covers the proving side. It starts
-`strata-asm-runner` with spec 0 and spec 1 loaded and activates spec 1 with a signed admin update
-from `asm-test-cli`. It checks that the old spec executes the enacting block, and that ASM and
-Moho proofs continue across the switch. On the SP1 backend, spec 0 runs the v0.4.0 release guest
-and spec 1 runs the local build. See [the functional test README](../functional-tests/README.md)
-for the SP1 variables.
+`strata-asm-runner` with specs 0, 1 and 2 loaded, then activates spec 1 and then spec 2 with
+signed admin updates from `asm-test-cli`. It checks that the old spec executes each enacting
+block, and that ASM and Moho proofs continue across both switches. On the SP1 backend, spec 0 runs
+the v0.4.0 release guest, spec 1 runs the v0.5.0-rc.1 release guest, and spec 2 runs the local
+build. See [the functional test README](../functional-tests/README.md) for the SP1 variables.
 
 ```sh
 cd functional-tests && ./run_test.sh fn_asm_upgrade_test

@@ -32,8 +32,17 @@ NATIVE_TEST_ASM_PREDICATE = (
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SP1_GENERATED_DIR = REPO_ROOT / "guest-builder" / "sp1" / "generated"
 
-# The last ASM release whose guest compiles spec 0.
-ASM_V0_RELEASE_URL = "https://github.com/alpenlabs/asm/releases/download/v0.4.0"
+# The spec the local guest build (`guest-builder/sp1/guest-asm`) compiles. It is always the
+# newest spec; every older spec runs the guest from the release that shipped it.
+LOCAL_GUEST_SPEC_ID = 2
+
+ASM_RELEASES_URL = "https://github.com/alpenlabs/asm/releases/download"
+# The ASM release whose guest compiles each older spec. v0.5.0-rc.1 is the only release cut
+# while the local guest compiled spec 1.
+ASM_GUEST_RELEASE_TAGS = {
+    0: "v0.4.0",
+    1: "v0.5.0-rc.1",
+}
 
 
 class ProverEnv(BasicEnv):
@@ -66,12 +75,11 @@ def _artifact_sources() -> tuple[ArtifactSource, ArtifactSource, str]:
     """
     backend = os.environ.get("ASM_PROVER_BACKEND", "native")
     if backend == "sp1":
-        # The local guest build compiles the newest spec, so spec 0 comes from its release.
-        asm_v0_elf, asm_v0_predicate = _fetch_asm_v0_artifacts()
+        asm_source, asm_predicate = sp1_asm_artifact(0)
         return (
             Sp1Artifact(elf_path=str(SP1_GENERATED_DIR / "moho.elf")),
-            Sp1Artifact(elf_path=str(asm_v0_elf)),
-            asm_v0_predicate,
+            asm_source,
+            asm_predicate,
         )
     if backend == "native":
         return (
@@ -82,19 +90,36 @@ def _artifact_sources() -> tuple[ArtifactSource, ArtifactSource, str]:
     raise ValueError(f"Unknown ASM_PROVER_BACKEND: {backend!r} (expected: native|sp1)")
 
 
+def sp1_asm_artifact(spec_id: int) -> tuple[Sp1Artifact, str]:
+    """Return the SP1 guest for `spec_id`, together with the predicate it must resolve to.
+
+    The newest spec runs the local build. run_test.sh derives its predicate from that same build,
+    so the startup predicate check only catches a mix-up between files, not a wrong guest. Older
+    specs run the guest their release shipped.
+    """
+    if spec_id == LOCAL_GUEST_SPEC_ID:
+        return (
+            Sp1Artifact(elf_path=str(SP1_GENERATED_DIR / "asm.elf")),
+            (SP1_GENERATED_DIR / "asm-predicate.txt").read_text().strip(),
+        )
+    elf_path, predicate = _fetch_release_asm_artifacts(spec_id)
+    return Sp1Artifact(elf_path=str(elf_path)), predicate
+
+
 @functools.cache
-def _fetch_asm_v0_artifacts() -> tuple[Path, str]:
-    """Download the spec 0 guest from its release, once per run.
+def _fetch_release_asm_artifacts(spec_id: int) -> tuple[Path, str]:
+    """Download the guest for `spec_id` from the release that shipped it, once per run.
 
     Checks the ELF and the predicate against the release's `SHA256SUMS`, writes the ELF next to
     the local build, and returns its path together with the predicate.
     """
-    logging.info("Fetching the spec 0 ASM guest from %s", ASM_V0_RELEASE_URL)
-    sums = _download_release_file("SHA256SUMS").decode()
+    release_url = f"{ASM_RELEASES_URL}/{ASM_GUEST_RELEASE_TAGS[spec_id]}"
+    logging.info("Fetching the spec %s ASM guest from %s", spec_id, release_url)
+    sums = _download_release_file(release_url, "SHA256SUMS").decode()
     digests = {name: digest for digest, name in (line.split() for line in sums.splitlines())}
 
     def download_checked(name: str) -> bytes:
-        data = _download_release_file(name)
+        data = _download_release_file(release_url, name)
         digest = hashlib.sha256(data).hexdigest()
         if digest != digests[name]:
             raise RuntimeError(f"{name} has sha256 {digest}, release lists {digests[name]}")
@@ -103,13 +128,13 @@ def _fetch_asm_v0_artifacts() -> tuple[Path, str]:
     elf = download_checked("asm.elf")
     predicate = download_checked("asm-predicate.txt").decode().strip()
 
-    elf_path = SP1_GENERATED_DIR / "asm-v0.elf"
+    elf_path = SP1_GENERATED_DIR / f"asm-v{spec_id}.elf"
     SP1_GENERATED_DIR.mkdir(parents=True, exist_ok=True)
     elf_path.write_bytes(elf)
     return elf_path, predicate
 
 
-def _download_release_file(name: str) -> bytes:
-    response = requests.get(f"{ASM_V0_RELEASE_URL}/{name}", timeout=60)
+def _download_release_file(release_url: str, name: str) -> bytes:
+    response = requests.get(f"{release_url}/{name}", timeout=60)
     response.raise_for_status()
     return response.content
