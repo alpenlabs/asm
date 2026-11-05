@@ -13,7 +13,9 @@ use harness::{
     test_harness::{AsmTestHarnessBuilder, Setup},
 };
 use integration_tests::harness;
-use strata_asm_worker::{test_utils::TestAsmWorkerContext, AnchorStateStore, L1DataProvider};
+use strata_asm_worker::{
+    test_utils::TestAsmWorkerContext, AnchorStateStore, L1DataProvider, WorkerError,
+};
 use strata_btc_types::BlockHashExt;
 use strata_test_utils_btcio::{get_bitcoind_and_client, mine_blocks};
 
@@ -85,10 +87,10 @@ async fn test_genesis_manifest_not_stored() {
 
     // Right after init: only the genesis prefix (`0..=genesis_height`) exists,
     // no real manifest — the genesis block never gets one.
-    let prefill_count = harness.genesis_height + 1;
+    let genesis_entries = harness.genesis_height + 1;
     assert_eq!(
         harness.get_mmr_leaf_count() as u64,
-        prefill_count,
+        genesis_entries,
         "no manifest should be stored before any post-genesis block is processed"
     );
 
@@ -115,7 +117,7 @@ async fn test_genesis_manifest_not_stored() {
 
     assert_eq!(
         harness.get_mmr_leaf_count() as u64,
-        prefill_count + 1,
+        genesis_entries + 1,
         "mining one block should append exactly one manifest leaf"
     );
     let manifest = harness
@@ -207,10 +209,10 @@ async fn test_proven_and_external_mmr_index_alignment() {
     // sentinels, the external one with just their peaks. The worker never
     // produces or stores a manifest for the genesis block; the first real
     // manifest is for the block at `genesis_height + 1`.
-    let prefill_count = genesis_height + 1;
+    let genesis_entries = genesis_height + 1;
     assert_eq!(
         harness.get_mmr_leaf_count() as u64,
-        prefill_count,
+        genesis_entries,
         "external MMR should be seeded to `genesis_height + 1` entries"
     );
 
@@ -283,20 +285,28 @@ async fn test_proven_and_external_mmr_index_alignment() {
     // -- Leaf hash integrity over real (post-genesis) leaves --
     // Verify every post-genesis external MMR leaf matches its corresponding
     // manifest hash. Indices `0..=genesis_height` hold no stored leaves.
-    let prefill_count = (genesis_height + 1) as usize;
+    let genesis_entries = (genesis_height + 1) as usize;
 
     assert_eq!(
         harness.get_mmr_leaf_count(),
-        prefill_count + total_blocks_mined,
-        "final external MMR should have {prefill_count} prefill + {total_blocks_mined} real leaves"
+        genesis_entries + total_blocks_mined,
+        "final external MMR should have {genesis_entries} genesis + {total_blocks_mined} real leaves"
     );
 
-    // The seed stores only the genesis peaks. With the default genesis height
-    // no leaf at or below genesis is itself a peak, so none of them is stored.
-    for mmr_index in 0..prefill_count as u64 {
+    // The seed stores only the genesis peaks. Every leaf below genesis sits
+    // under a multi-leaf peak, so none is stored. The genesis leaf itself is
+    // left out: it is a lone peak, and so stored, when the genesis height is
+    // even.
+    for mmr_index in 0..genesis_height {
+        let err = harness
+            .get_manifest_hash(mmr_index)
+            .expect_err("leaf below genesis must not be stored");
         assert!(
-            harness.get_manifest_hash(mmr_index).is_err(),
-            "leaf at or below genesis at index {mmr_index} must not be stored"
+            matches!(
+                err.downcast_ref::<WorkerError>(),
+                Some(WorkerError::ManifestHashNotFound { index }) if *index == mmr_index
+            ),
+            "expected ManifestHashNotFound for index {mmr_index}, got {err:?}"
         );
     }
 
