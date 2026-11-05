@@ -7,7 +7,7 @@
 use anyhow::Result;
 use strata_asm_common::AsmManifestHash;
 use strata_merkle::{MerkleProofB32, Sha256Hasher};
-use strata_merkle_node_store::{MmrNodeStore, NodePos, StoredMmr};
+use strata_merkle_node_store::{MmrNodeStore, NodePos, StoredMmr, StoredMmrExt};
 
 use crate::AsmManifestMmrDb;
 
@@ -105,7 +105,7 @@ impl SledAsmManifestMmrDb {
 
     /// Synchronous variant of [`AsmManifestMmrDb::leaf_count`].
     pub fn leaf_count(&self) -> Result<u64> {
-        Ok(StoredMmr::<Sha256Hasher>::leaf_count(&self.inner)?)
+        Ok(StoredMmr::leaf_count(&self.inner)?)
     }
 
     /// Synchronous variant of [`AsmManifestMmrDb::put_leaf`].
@@ -115,13 +115,13 @@ impl SledAsmManifestMmrDb {
     /// append) or an existing index (an overwrite); a gap past the end is
     /// rejected.
     pub fn put_leaf(&self, height: u64, hash: AsmManifestHash) -> Result<()> {
-        StoredMmr::<Sha256Hasher>::put_leaf(&self.inner, height, *hash.as_ref())?;
+        StoredMmrExt::put_leaf::<Sha256Hasher>(&self.inner, height, *hash.as_ref())?;
         Ok(())
     }
 
     /// Synchronous variant of [`AsmManifestMmrDb::get_leaf`].
     pub fn get_leaf(&self, index: u64) -> Result<Option<AsmManifestHash>> {
-        Ok(StoredMmr::<Sha256Hasher>::get_leaf(&self.inner, index)?.map(AsmManifestHash::from))
+        Ok(StoredMmr::get_leaf(&self.inner, index)?.map(AsmManifestHash::from))
     }
 
     /// Synchronous variant of [`AsmManifestMmrDb::generate_proof`].
@@ -131,8 +131,7 @@ impl SledAsmManifestMmrDb {
     /// it is repacked as a [`MerkleProofB32`] so the store's public API and the
     /// accumulators it verifies against are unchanged.
     pub fn generate_proof(&self, index: u64, at_leaf_count: u64) -> Result<MerkleProofB32> {
-        let proof =
-            StoredMmr::<Sha256Hasher>::generate_proof_at_size(&self.inner, index, at_leaf_count)?;
+        let proof = StoredMmr::generate_proof_at_size(&self.inner, index, at_leaf_count)?;
         Ok(MerkleProofB32::from_generic(&proof))
     }
 }

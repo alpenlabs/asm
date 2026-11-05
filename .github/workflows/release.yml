@@ -20,7 +20,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 90
     env:
-      SP1_VERSION: v6.8.1
+      SP1_VERSION: v6.10.0
     permissions:
       contents: write # create the release (if missing) and upload assets via the GitHub Releases API
     steps:

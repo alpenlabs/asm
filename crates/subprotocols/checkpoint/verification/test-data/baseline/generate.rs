@@ -47,7 +47,7 @@ fn main() {
         complement.compute_hash(),
     );
     let sidecar = CheckpointSidecar::new(diff, logs, complement).unwrap();
-    let key = SigningKey::from_bytes(&[7; 32]).unwrap();
+    let key = SigningKey::from_slice(&[7; 32]).unwrap();
     let signature: Signature = key.sign(&claim.as_ssz_bytes());
     let predicate = PredicateKey::new(
         PredicateTypeId::Bip340Schnorr,
