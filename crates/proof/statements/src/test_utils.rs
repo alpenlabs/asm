@@ -47,8 +47,7 @@ pub fn create_l1_anchor_to_process_block(block: &Block) -> L1Anchor {
 /// Use [`create_deterministic_genesis_anchor_state`] when reproducibility matters.
 pub fn create_genesis_anchor_state(block: &Block) -> AnchorState {
     let mut params: AsmParams = ArbitraryGenerator::new().generate();
-    let anchor = create_l1_anchor_to_process_block(block);
-    params.anchor = anchor;
+    params.set_anchor(create_l1_anchor_to_process_block(block));
     construct_genesis_state(&params)
 }
 
@@ -60,8 +59,7 @@ pub fn create_deterministic_genesis_anchor_state(block: &Block) -> AnchorState {
     let buf = [42u8; 65_536];
     let mut u = Unstructured::new(&buf);
     let mut params = AsmParams::arbitrary(&mut u).expect("deterministic AsmParams");
-    let anchor = create_l1_anchor_to_process_block(block);
-    params.anchor = anchor;
+    params.set_anchor(create_l1_anchor_to_process_block(block));
     construct_genesis_state(&params)
 }
 
