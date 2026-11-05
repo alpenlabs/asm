@@ -946,6 +946,59 @@ mod tests {
         ));
     }
 
+    /// An intent worth `2^32` UTXOs is rejected by the pool even when the proof verifies.
+    ///
+    /// The always-accept predicate stands in for a valid proof over the logs, so the pool
+    /// check is the only thing that can reject it. A one-UTXO withdrawal through the same
+    /// pipeline is accepted, which shows the rejection comes from the pool and not the harness.
+    #[test]
+    fn test_withdrawal_of_u32_overflowing_utxo_count_is_rejected_end_to_end() {
+        const DENOM_SATS: u64 = 1_000;
+
+        let harness = CheckpointTestHarness::new_random();
+        let mut state = CheckpointState::new(
+            harness.sequencer_key(),
+            PredicateKey::always_accept(),
+            *harness.verified_tip(),
+        );
+        state.record_deposit(
+            BitcoinAmount::try_from(DENOM_SATS)
+                .expect("test amount must be within the Bitcoin money supply"),
+        );
+
+        let base = harness.build_payload();
+        let hash = harness.gen_asm_manifests_hash(base.new_tip());
+        let current_l1_height = base.new_tip().l1_height + 1;
+        let payload_withdrawing = |sats: u64| {
+            let dest = Descriptor::new_p2wpkh(&[0x14; 20]).to_bytes();
+            let intent = SimpleWithdrawalIntentLogData::new(sats, dest, 0)
+                .expect("withdrawal intent creation should not fail");
+            let log = OLLog::from_log(BRIDGE_GATEWAY_ACCT_SERIAL, &intent).unwrap();
+            let mut payload = base.clone();
+            payload.sidecar.ol_logs = VariableList::new(vec![log]).unwrap();
+            payload
+        };
+
+        let payload = payload_withdrawing((1u64 << 32) * DENOM_SATS);
+        let previous_tip = *state.verified_tip();
+
+        let err = run_proof_pipeline(&mut state, current_l1_height, &payload, hash).unwrap_err();
+        assert!(matches!(
+            err,
+            CheckpointValidationError::InvalidPayload(
+                InvalidCheckpointPayload::InsufficientFunds { .. }
+            )
+        ));
+        assert_eq!(state.verified_tip(), &previous_tip);
+        assert_eq!(state.available_deposit_sum(), DENOM_SATS);
+
+        let payload = payload_withdrawing(DENOM_SATS);
+        let intents = run_proof_pipeline(&mut state, current_l1_height, &payload, hash)
+            .expect("a withdrawal the pool can cover is accepted");
+        assert_eq!(intents.len(), 1);
+        assert_eq!(state.available_deposit_sum(), 0);
+    }
+
     #[test]
     fn test_invalid_terminal_header_complement() {
         let (mut state, harness) = test_setup();

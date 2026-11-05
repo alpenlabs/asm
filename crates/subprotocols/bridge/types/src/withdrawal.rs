@@ -70,26 +70,35 @@ impl WithdrawalIntent {
         WithdrawalOutput::new(self.destination.clone(), self.amt)
     }
 
-    /// Decomposes this intent into `N = amt / denomination` single-denomination intents.
+    /// Returns how many `denomination` UTXOs this intent consumes.
+    ///
+    /// This is the one place the count is derived. The checkpoint subprotocol deducts it from its
+    /// deposit pool and the bridge assigns that many deposits, so the two must agree.
+    ///
+    /// Returns `None` if the denomination is zero or the amount is not a whole multiple of it.
+    pub fn denomination_units(&self, denomination: BitcoinAmount) -> Option<u64> {
+        let amt = self.amt.to_sat();
+        let denom = denomination.to_sat();
+        if denom == 0 || !amt.is_multiple_of(denom) {
+            return None;
+        }
+        Some(amt / denom)
+    }
+
+    /// Decomposes this intent into [`denomination_units`](Self::denomination_units)
+    /// single-denomination intents.
     ///
     /// Each yielded intent carries `denomination` as its amount and inherits this intent's
     /// destination and operator selection. The intents are produced lazily as the iterator is
     /// consumed.
     ///
-    /// Returns `None` if the amount is not a whole multiple of the denomination; the caller decides
-    /// what such a mismatch means in its own error vocabulary.
+    /// Returns `None` where `denomination_units` does; the caller decides what such a mismatch
+    /// means in its own error vocabulary.
     pub fn decompose(
         &self,
         denomination: BitcoinAmount,
     ) -> Option<impl Iterator<Item = WithdrawalIntent>> {
-        let amt = self.amt.to_sat();
-        let denom = denomination.to_sat();
-
-        if !amt.is_multiple_of(denom) {
-            return None;
-        }
-
-        let n = amt / denom;
+        let n = self.denomination_units(denomination)?;
         let destination = self.destination.clone();
         let selected_operator = self.selected_operator;
 
@@ -167,5 +176,19 @@ mod tests {
             .expect("test amount must be within the Bitcoin money supply");
 
         assert!(intent.decompose(denomination).is_none());
+    }
+
+    /// A zero amount is a whole multiple of a zero denomination, so a plain `is_multiple_of`
+    /// check lets it through to a `0 / 0` division.
+    #[test]
+    fn zero_denomination_returns_none() {
+        let mut arb = ArbitraryGenerator::new();
+        let zero = BitcoinAmount::default();
+
+        let mut intent: WithdrawalIntent = arb.generate();
+        intent.amt = zero;
+
+        assert!(intent.denomination_units(zero).is_none());
+        assert!(intent.decompose(zero).is_none());
     }
 }
