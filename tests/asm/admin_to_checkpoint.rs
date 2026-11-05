@@ -447,6 +447,7 @@ async fn run_immediate_sequencer_same_block(admin_first: bool) {
         checkpoint: mut checkpoint_harness,
         ..
     } = AsmTestHarnessBuilder::default()
+        .with_txindex()
         .customize_admin(|c| c.confirmation_depths.sequencer_update = 0)
         .build()
         .await;
@@ -514,7 +515,10 @@ async fn test_queued_sequencer_update_activation_same_block_checkpoint_validates
         admin: mut ctx,
         checkpoint: mut checkpoint_harness,
         ..
-    } = AsmTestHarnessBuilder::default().build().await;
+    } = AsmTestHarnessBuilder::default()
+        .with_txindex()
+        .build()
+        .await;
 
     harness.mine_blocks(2).await.unwrap();
 
@@ -575,6 +579,7 @@ async fn test_predicate_immediate_update_same_block_checkpoint_validates() {
         checkpoint: mut checkpoint_harness,
         ..
     } = AsmTestHarnessBuilder::default()
+        .with_txindex()
         .customize_admin(|c| c.confirmation_depths.ol_stf_vk_update = 0)
         .build()
         .await;
@@ -643,7 +648,10 @@ async fn test_queued_predicate_update_activation_same_block_checkpoint_validates
         admin: mut ctx,
         checkpoint: mut checkpoint_harness,
         ..
-    } = AsmTestHarnessBuilder::default().build().await;
+    } = AsmTestHarnessBuilder::default()
+        .with_txindex()
+        .build()
+        .await;
 
     harness.mine_blocks(2).await.unwrap();
 

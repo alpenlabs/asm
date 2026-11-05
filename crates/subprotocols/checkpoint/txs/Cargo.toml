@@ -14,5 +14,10 @@ strata-codec-utils.workspace = true
 strata-l1-envelope-fmt.workspace = true
 strata-l1-txfmt.workspace = true
 
-bitcoin.workspace = true
 thiserror.workspace = true
+
+[dev-dependencies]
+strata-asm-checkpoint-types = { workspace = true, features = ["test-utils"] }
+strata-asm-proto-txs-test-utils.workspace = true
+
+bitcoin.workspace = true

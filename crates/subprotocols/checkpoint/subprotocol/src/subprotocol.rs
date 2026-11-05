@@ -7,12 +7,13 @@ use strata_asm_common::{
 };
 use strata_asm_proto_checkpoint_msgs::CheckpointIncomingMsg;
 use strata_asm_proto_checkpoint_txs::{
-    CHECKPOINT_SUBPROTOCOL_ID, OL_STF_CHECKPOINT_TX_TYPE, extract_checkpoint_from_envelope,
+    CHECKPOINT_SUBPROTOCOL_ID, OL_STF_CHECKPOINT_TX_TYPE, decode_checkpoint_payload,
+    parse_checkpoint_envelope,
 };
 use strata_checkpoint_verification::CheckpointState;
 use strata_identifiers::L1BlockCommitment;
 
-use crate::handler::handle_checkpoint_tx;
+use crate::{auth::verify_envelope_key, handler::handle_checkpoint_tx};
 
 /// Checkpoint subprotocol implementation.
 ///
@@ -45,36 +46,7 @@ impl Subprotocol for CheckpointSubprotocol {
     ) {
         for tx in txs {
             if tx.tag().tx_type() == OL_STF_CHECKPOINT_TX_TYPE {
-                match extract_checkpoint_from_envelope(tx) {
-                    Ok(envelope) => {
-                        // Skip request when the checkpoint covers no new L1 blocks
-                        // (zero L1 progress). Mirrors the `CheckpointL1Range::Empty`
-                        // branch in `handler.rs` so we never ask for an inverted range.
-                        let prev_height = state.verified_tip().l1_height;
-                        let new_height = envelope.payload.new_tip().l1_height;
-                        if prev_height < new_height {
-                            logging::trace!(
-                                txid = %tx.tx().compute_txid(),
-                                start = prev_height + 1,
-                                end = new_height,
-                                "requesting manifest hashes"
-                            );
-                            collector.request_manifest_hashes(
-                                (prev_height + 1) as u64,
-                                new_height as u64,
-                            );
-                        }
-                    }
-                    Err(e) => {
-                        // The handler authoritatively warns on this same failure during
-                        // `process_txs`; keep this at debug to avoid double-logging per block.
-                        logging::debug!(
-                            txid = %tx.tx().compute_txid(),
-                            error = %e,
-                            "failed to parse checkpoint tx in pre_process; skipping aux request"
-                        );
-                    }
-                }
+                request_checkpoint_aux(state, tx, collector);
             }
         }
     }
@@ -141,5 +113,142 @@ impl Subprotocol for CheckpointSubprotocol {
                 }
             }
         }
+    }
+}
+
+/// Requests the auxiliary data [`handle_checkpoint_tx`] needs for one checkpoint transaction.
+///
+/// Requests are issued exactly when the handler will read them: only for an envelope that parses
+/// and passes [`verify_envelope_key`], the checks the handler runs before its first aux read. This
+/// also keeps envelopes that anyone can post through a standard transaction from making the worker
+/// fetch and prove data the handler would never use.
+fn request_checkpoint_aux(
+    state: &CheckpointState,
+    tx: &TxInputRef<'_>,
+    collector: &mut AuxRequestCollector,
+) {
+    // The handler authoritatively warns on both failures below during `process_txs`; keep
+    // them at debug to avoid double-logging per block.
+    let spend = match parse_checkpoint_envelope(tx) {
+        Ok(spend) => spend,
+        Err(e) => {
+            logging::debug!(
+                txid = %tx.tx().compute_txid(),
+                error = %e,
+                "failed to parse checkpoint envelope in pre_process; skipping aux request"
+            );
+            return;
+        }
+    };
+    if let Err(e) = verify_envelope_key(state.sequencer_key(), &spend) {
+        logging::debug!(
+            txid = %tx.tx().compute_txid(),
+            error = %e,
+            "checkpoint envelope not under the sequencer key in pre_process; skipping aux request"
+        );
+        return;
+    }
+
+    // The handler authenticates the output this input spends.
+    collector.request_bitcoin_tx(spend.spent_outpoint().txid);
+
+    // The payload is not authenticated yet, but it only sizes the manifest request; the handler
+    // authenticates it before reading the manifests.
+    let payload = match decode_checkpoint_payload(spend.unverified_leaf().payload()) {
+        Ok(payload) => payload,
+        Err(e) => {
+            logging::debug!(
+                txid = %tx.tx().compute_txid(),
+                error = %e,
+                "failed to decode checkpoint payload in pre_process; skipping manifest request"
+            );
+            return;
+        }
+    };
+
+    // Skip request when the checkpoint covers no new L1 blocks
+    // (zero L1 progress). Mirrors the `CheckpointL1Range::Empty`
+    // branch in `handler.rs` so we never ask for an inverted range.
+    let prev_height = state.verified_tip().l1_height;
+    let new_height = payload.new_tip().l1_height;
+    if prev_height < new_height {
+        logging::trace!(
+            txid = %tx.tx().compute_txid(),
+            start = prev_height + 1,
+            end = new_height,
+            "requesting manifest hashes"
+        );
+        collector.request_manifest_hashes((prev_height + 1) as u64, new_height as u64);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use bitcoin::{
+        Transaction, XOnlyPublicKey, key::Keypair, secp256k1::SECP256K1, taproot::LeafVersion,
+    };
+    use strata_asm_common::AuxRequests;
+    use strata_asm_proto_txs_test_utils::parse_sps50_tx;
+
+    use super::*;
+    use crate::test_utils::{CheckpointFixture, p2tr_script};
+
+    fn collect_requests(fixture: &CheckpointFixture, carrier: &Transaction) -> AuxRequests {
+        let mut collector = AuxRequestCollector::new(u64::MAX);
+        CheckpointSubprotocol::pre_process_txs(
+            &fixture.state,
+            &[parse_sps50_tx(carrier)],
+            &mut collector,
+        );
+        collector.into_requests()
+    }
+
+    #[test]
+    fn sequencer_tapscript_envelope_requests_prevout_and_manifests() {
+        let fixture = CheckpointFixture::new();
+        let (funding, carrier) = fixture.build_carrier(
+            &fixture.sequencer_key(),
+            LeafVersion::TapScript,
+            p2tr_script(),
+        );
+
+        let requests = collect_requests(&fixture, &carrier);
+
+        let start = fixture.state.verified_tip().l1_height() as u64 + 1;
+        let end = fixture.new_tip.l1_height() as u64;
+        let ranges: Vec<_> = requests
+            .manifest_hashes()
+            .iter()
+            .map(|range| (range.start_height(), range.end_height()))
+            .collect();
+        assert_eq!(ranges, vec![(start, end)]);
+        assert_eq!(requests.bitcoin_txs(), &[funding.compute_txid().into()]);
+    }
+
+    #[test]
+    fn future_leaf_version_envelope_requests_nothing() {
+        let fixture = CheckpointFixture::new();
+        let future = LeafVersion::from_consensus(0xc2).expect("0xc2 is a future leaf version");
+        let (_, carrier) = fixture.build_carrier(&fixture.sequencer_key(), future, p2tr_script());
+
+        let requests = collect_requests(&fixture, &carrier);
+
+        assert!(requests.manifest_hashes().is_empty());
+        assert!(requests.bitcoin_txs().is_empty());
+    }
+
+    #[test]
+    fn non_sequencer_envelope_requests_nothing() {
+        let fixture = CheckpointFixture::new();
+        let other_key: XOnlyPublicKey = Keypair::from_seckey_slice(SECP256K1, &[0x42; 32])
+            .expect("valid secret key")
+            .x_only_public_key()
+            .0;
+        let (_, carrier) = fixture.build_carrier(&other_key, LeafVersion::TapScript, p2tr_script());
+
+        let requests = collect_requests(&fixture, &carrier);
+
+        assert!(requests.manifest_hashes().is_empty());
+        assert!(requests.bitcoin_txs().is_empty());
     }
 }

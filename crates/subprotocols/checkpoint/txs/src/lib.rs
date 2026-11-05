@@ -8,4 +8,6 @@ pub use constants::{
     CHECKPOINT_SUBPROTOCOL_ID, OL_STF_CHECKPOINT_TX_TAG, OL_STF_CHECKPOINT_TX_TYPE,
 };
 pub use errors::{CheckpointTxError, CheckpointTxResult};
-pub use parser::{EnvelopeCheckpoint, extract_checkpoint_from_envelope};
+pub use parser::{
+    decode_checkpoint_payload, extract_checkpoint_from_envelope, parse_checkpoint_envelope,
+};

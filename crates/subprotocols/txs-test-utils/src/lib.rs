@@ -59,10 +59,29 @@ pub fn create_reveal_transaction_stub(envelope_payload: Vec<u8>, tag: &TagData) 
     let key_pair = UntweakedKeypair::from_seckey_slice(SECP256K1, &rand_bytes).unwrap();
     let public_key = XOnlyPublicKey::from_keypair(&key_pair).0;
 
-    // Start creating envelope content
-    let reveal_script = EnvelopeScriptBuilder::with_pubkey(&public_key.serialize())
+    create_reveal_transaction_stub_with_leaf(
+        &public_key,
+        &envelope_payload,
+        tag,
+        LeafVersion::TapScript,
+    )
+}
+
+/// Creates a stub reveal transaction whose first input script-path spends an SPS-51 envelope
+/// leaf for `envelope_pubkey`, committed in the taproot tree under `leaf_version`.
+///
+/// The witness carries a placeholder signature, so the transaction is only meaningful to
+/// parsers; it is not a valid spend. Pass a leaf version other than
+/// [`LeafVersion::TapScript`] to model a spend whose leaf script Bitcoin never executes.
+pub fn create_reveal_transaction_stub_with_leaf(
+    envelope_pubkey: &XOnlyPublicKey,
+    envelope_payload: &[u8],
+    tag: &TagData,
+    leaf_version: LeafVersion,
+) -> Transaction {
+    let reveal_script = EnvelopeScriptBuilder::with_pubkey(&envelope_pubkey.serialize())
         .unwrap()
-        .add_envelope(&envelope_payload)
+        .add_envelope(envelope_payload)
         .unwrap()
         .build()
         .unwrap();
@@ -73,9 +92,9 @@ pub fn create_reveal_transaction_stub(envelope_payload: Vec<u8>, tag: &TagData) 
 
     // Create spend info for tapscript
     let taproot_spend_info = TaprootBuilder::new()
-        .add_leaf(0, reveal_script.clone())
+        .add_leaf_with_ver(0, reveal_script.clone(), leaf_version)
         .unwrap()
-        .finalize(SECP256K1, public_key)
+        .finalize(SECP256K1, *envelope_pubkey)
         .expect("Could not build taproot spend info");
 
     let signature = Signature::from_slice(&[0u8; 64]).unwrap();
@@ -84,7 +103,7 @@ pub fn create_reveal_transaction_stub(envelope_payload: Vec<u8>, tag: &TagData) 
     witness.push(reveal_script.clone());
     witness.push(
         taproot_spend_info
-            .control_block(&(reveal_script, LeafVersion::TapScript))
+            .control_block(&(reveal_script, leaf_version))
             .expect("Could not create control block")
             .serialize(),
     );

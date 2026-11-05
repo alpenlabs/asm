@@ -45,7 +45,10 @@ async fn test_full_predicate_handover_selects_key_by_l1_range() {
         admin: mut admin_ctx,
         checkpoint: mut checkpoint_harness,
         ..
-    } = AsmTestHarnessBuilder::default().build().await;
+    } = AsmTestHarnessBuilder::default()
+        .with_txindex()
+        .build()
+        .await;
 
     // Arrange: enact a predicate rotation at boundary B and preserve the initial active key.
     let old_predicate = checkpoint_harness.checkpoint_predicate();

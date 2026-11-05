@@ -14,7 +14,10 @@
 
 use std::future::Future;
 
-use bitcoin::{key::UntweakedKeypair, secp256k1::Secp256k1, BlockHash, Transaction};
+use bitcoin::{
+    key::UntweakedKeypair, secp256k1::Secp256k1, taproot::LeafVersion, BlockHash, ScriptBuf,
+    Transaction,
+};
 use bitcoin_bosd::Descriptor;
 use strata_asm_bridge_types::OperatorSelection;
 use strata_asm_checkpoint_types::{
@@ -179,6 +182,15 @@ fn build_withdrawal_ol_logs(intents: &[(u64, OperatorSelection)]) -> Vec<OLLog> 
 // Checkpoint transaction building
 // ============================================================================
 
+/// How a checkpoint envelope is carried on L1.
+enum CheckpointCarrier {
+    /// A P2TR script-path spend of the envelope leaf committed under this leaf version. Only a
+    /// [`LeafVersion::TapScript`] spend is signed.
+    Leaf(LeafVersion),
+    /// An unsigned spend of an output locked by this script, with a TapScript-shaped witness.
+    UnencumberedPrevout(ScriptBuf),
+}
+
 impl AsmTestHarness {
     /// Build a checkpoint envelope transaction WITHOUT submitting or mining it, advancing one
     /// epoch from the checkpoint harness's current verified tip.
@@ -228,8 +240,61 @@ impl AsmTestHarness {
         new_tip: CheckpointTip,
         ol_logs: Vec<OLLog>,
     ) -> anyhow::Result<Transaction> {
-        self.build_checkpoint_tx_for_tip_with_payload(checkpoint_harness, new_tip, ol_logs, None)
-            .await
+        self.build_checkpoint_tx_for_tip_with_payload(
+            checkpoint_harness,
+            new_tip,
+            ol_logs,
+            None,
+            CheckpointCarrier::Leaf(LeafVersion::TapScript),
+        )
+        .await
+    }
+
+    /// Build a checkpoint envelope transaction whose reveal leaf is committed under
+    /// `leaf_version`.
+    ///
+    /// The payload is valid and the envelope carries the sequencer pubkey, but a leaf version
+    /// other than [`LeafVersion::TapScript`] spends without the sequencer's signature, so the
+    /// transaction is non-standard and must be mined with
+    /// [`AsmTestHarness::mine_block_with_ordered_txs`].
+    pub async fn build_checkpoint_tx_for_tip_with_leaf_version(
+        &self,
+        checkpoint_harness: &CheckpointTestHarness,
+        new_tip: CheckpointTip,
+        ol_logs: Vec<OLLog>,
+        leaf_version: LeafVersion,
+    ) -> anyhow::Result<Transaction> {
+        self.build_checkpoint_tx_for_tip_with_payload(
+            checkpoint_harness,
+            new_tip,
+            ol_logs,
+            None,
+            CheckpointCarrier::Leaf(leaf_version),
+        )
+        .await
+    }
+
+    /// Build a checkpoint envelope transaction whose input spends an output locked by
+    /// `prevout_script`, with a TapScript-shaped envelope witness and no signature.
+    ///
+    /// For an unencumbered witness program (segwit v2 to v16, non-32-byte v1 such as P2A) the
+    /// spend is consensus-valid although the sequencer never signed it. It is non-standard and
+    /// must be mined with [`AsmTestHarness::mine_block_with_ordered_txs`].
+    pub async fn build_checkpoint_tx_for_tip_on_unencumbered_prevout(
+        &self,
+        checkpoint_harness: &CheckpointTestHarness,
+        new_tip: CheckpointTip,
+        ol_logs: Vec<OLLog>,
+        prevout_script: ScriptBuf,
+    ) -> anyhow::Result<Transaction> {
+        self.build_checkpoint_tx_for_tip_with_payload(
+            checkpoint_harness,
+            new_tip,
+            ol_logs,
+            None,
+            CheckpointCarrier::UnencumberedPrevout(prevout_script),
+        )
+        .await
     }
 
     /// Build a checkpoint envelope transaction for a chosen tip and proof signer.
@@ -248,6 +313,7 @@ impl AsmTestHarness {
             new_tip,
             ol_logs,
             Some(signer),
+            CheckpointCarrier::Leaf(LeafVersion::TapScript),
         )
         .await
     }
@@ -258,6 +324,7 @@ impl AsmTestHarness {
         new_tip: CheckpointTip,
         ol_logs: Vec<OLLog>,
         signer: Option<&CheckpointTestSigner>,
+        carrier: CheckpointCarrier,
     ) -> anyhow::Result<Transaction> {
         let verified_l1 = checkpoint_harness.verified_tip().l1_height();
         let manifest_hashes = self.checkpoint_manifest_leaves(verified_l1, new_tip.l1_height());
@@ -282,8 +349,26 @@ impl AsmTestHarness {
         let secp = Secp256k1::new();
         let sequencer_keypair =
             UntweakedKeypair::from_seckey_slice(&secp, checkpoint_harness.sequencer_secret_key())?;
-        self.build_envelope_tx_with_keypair(checkpoint_tag, payload_bytes, &sequencer_keypair)
-            .await
+        match carrier {
+            CheckpointCarrier::Leaf(leaf_version) => {
+                self.build_envelope_tx_with_keypair_and_leaf_version(
+                    checkpoint_tag,
+                    payload_bytes,
+                    &sequencer_keypair,
+                    leaf_version,
+                )
+                .await
+            }
+            CheckpointCarrier::UnencumberedPrevout(prevout_script) => {
+                self.build_unencumbered_envelope_tx(
+                    checkpoint_tag,
+                    payload_bytes,
+                    &sequencer_keypair,
+                    prevout_script,
+                )
+                .await
+            }
+        }
     }
 
     /// Collect the live ASM MMR manifest hashes for L1 heights `(verified_l1, new_l1_height]`.

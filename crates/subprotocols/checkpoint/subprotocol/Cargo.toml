@@ -15,3 +15,14 @@ strata-asm-proto-checkpoint-msgs.workspace = true
 strata-asm-proto-checkpoint-txs.workspace = true
 strata-checkpoint-verification.workspace = true
 strata-identifiers.workspace = true
+strata-l1-envelope-fmt.workspace = true
+
+bitcoin.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+strata-asm-proto-txs-test-utils.workspace = true
+strata-codec.workspace = true
+strata-codec-utils.workspace = true
+strata-test-utils-arb.workspace = true
+strata-test-utils-checkpoint.workspace = true
