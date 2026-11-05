@@ -43,7 +43,9 @@ use harness::{
     test_harness::{AsmTestHarnessBuilder, Setup},
 };
 use integration_tests::harness;
+use strata_asm_admin_types::Role;
 use strata_asm_logs::CheckpointPredicateEnacted;
+use strata_asm_proto_admin_txs::actions::{updates::SequencerUpdate, MultisigAction, UpdateAction};
 use strata_identifiers::Buf32;
 use strata_predicate::PredicateKey;
 
@@ -90,6 +92,61 @@ async fn test_sequencer_update_propagates_to_checkpoint() {
     );
 }
 
+/// Verifies a signed sequencer update whose key is not an x-only point is ignored.
+///
+/// The checkpoint keeps its key and the sequencer manager's seqno is left unused, so the
+/// corrected key can be submitted at that same seqno.
+#[tokio::test(flavor = "multi_thread")]
+async fn test_sequencer_update_with_invalid_key_is_ignored() {
+    let Setup {
+        harness,
+        admin: mut ctx,
+        ..
+    } = AsmTestHarnessBuilder::default()
+        .customize_admin(|c| c.confirmation_depths.sequencer_update = 0)
+        .build()
+        .await;
+
+    let initial_sequencer_key = *harness.checkpoint_state().unwrap().sequencer_key();
+
+    // Act: submit a correctly signed update whose key `[3; 32]` has no point on the curve.
+    // `sequencer_update` refuses such a key, so build the action directly.
+    let invalid = MultisigAction::Update(UpdateAction::Sequencer(SequencerUpdate::new(
+        Buf32::from([3u8; 32]),
+    )));
+    harness
+        .submit_admin_action_with_seqno(&ctx, invalid, 1)
+        .await
+        .unwrap();
+
+    // Assert: nothing changed, and seqno 1 is still unused.
+    assert_eq!(
+        harness.checkpoint_state().unwrap().sequencer_key(),
+        &initial_sequencer_key,
+        "checkpoint must keep its key"
+    );
+    let admin = harness.admin_state().unwrap();
+    assert_eq!(
+        admin
+            .authority(Role::StrataSequencerManager)
+            .unwrap()
+            .last_seqno(),
+        0
+    );
+    assert_eq!(admin.next_update_id(), 0);
+
+    // Act: the corrected key at seqno 1 is accepted.
+    let new_key = [8u8; 32];
+    harness
+        .submit_admin_action(&mut ctx, sequencer_update(new_key))
+        .await
+        .unwrap();
+    assert_eq!(
+        harness.checkpoint_state().unwrap().sequencer_key(),
+        &Buf32::from(new_key)
+    );
+}
+
 /// Verifies multiple sequential sequencer key updates result in checkpoint having the latest key.
 ///
 /// Uses confirmation depth 0 for sequencer updates so each update is applied on inclusion.
@@ -107,7 +164,7 @@ async fn test_multiple_sequencer_updates_checkpoint_has_latest() {
     // Act: three sequencer key updates in sequence (each applies immediately at depth 0).
     let key1 = [1u8; 32];
     let key2 = [2u8; 32];
-    let key3 = [3u8; 32];
+    let key3 = [7u8; 32];
     harness
         .submit_admin_action(&mut ctx, sequencer_update(key1))
         .await

@@ -29,7 +29,10 @@ pub use strata_security_council_multisig::StrataSecurityCouncilMultisigUpdate;
 pub use strata_seq_manager_multisig::StrataSeqManagerMultisigUpdate;
 pub use strata_sequencer::SequencerUpdate;
 
-use crate::actions::{IndentedDetails, RenderSigningMessage};
+use crate::{
+    actions::{IndentedDetails, RenderSigningMessage},
+    errors::AdministrationTxParseError,
+};
 
 /// An action that updates some part of the ASM.
 ///
@@ -117,6 +120,31 @@ impl RenderSigningMessage for UpdateAction {
         }
     }
 }
+
+/// Checks an update must pass to be accepted from a newly parsed admin tx.
+///
+/// These are not part of the update's codec. The same types are stored in the admin queue and
+/// embedded in cancels, and those copies must keep decoding whatever they hold, or a state written
+/// before a check existed could no longer be loaded. Running the check at parse time instead
+/// drops the tx before it is authorized, so it neither consumes a seqno nor reaches the queue.
+pub(crate) trait ParseCheck {
+    /// Returns an error if the update must not be accepted.
+    fn check_on_parse(&self) -> Result<(), AdministrationTxParseError> {
+        Ok(())
+    }
+}
+
+impl ParseCheck for StrataAdminMultisigUpdate {}
+impl ParseCheck for StrataSeqManagerMultisigUpdate {}
+impl ParseCheck for AlpenAdminMultisigUpdate {}
+impl ParseCheck for StrataSecurityCouncilMultisigUpdate {}
+impl ParseCheck for OperatorSetUpdate {}
+impl ParseCheck for OlStfVkUpdate {}
+impl ParseCheck for AsmStfVkUpdate {}
+impl ParseCheck for EeStfVkUpdate {}
+impl ParseCheck for Defcon1Update {}
+impl ParseCheck for Defcon3Update {}
+impl ParseCheck for SafeHarborAddressUpdate {}
 
 impl From<StrataAdminMultisigUpdate> for UpdateAction {
     fn from(update: StrataAdminMultisigUpdate) -> Self {
