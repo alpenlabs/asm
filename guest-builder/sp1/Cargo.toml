@@ -8,7 +8,7 @@ default = []
 docker-build = []
 
 [build-dependencies]
-sp1-build = "6.8.1"
+sp1-build = "6.10.0"
 anyhow = { workspace = true }
 sp1-sdk = { workspace = true, features = ["blocking"] }
 sp1-verifier = { workspace = true }

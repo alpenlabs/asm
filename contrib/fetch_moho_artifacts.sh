@@ -3,23 +3,25 @@
 # Download the Moho recursive proof guest ELF from a moho GitHub release.
 #
 # The ELF lands in guest-builder/sp1/generated/, next to the ASM guest ELF. The release tag
-# defaults to the moho tag this workspace depends on in Cargo.toml, so the ELF matches the moho
-# crates the host links against. Set MOHO_TAG to use another release.
+# defaults to MOHO_GUEST_TAG below, the deployed Moho guest, which is pinned separately from the
+# moho crates in Cargo.toml: the crates can move (for example a dependency bump) while the guest
+# stays put, as long as the encodings the host produces for it don't change. Set MOHO_TAG to use
+# another release.
 #
 # Usage:
 #   ./contrib/fetch_moho_artifacts.sh
-#   MOHO_TAG=v0.4.0 ./contrib/fetch_moho_artifacts.sh
+#   MOHO_TAG=v0.5.0 ./contrib/fetch_moho_artifacts.sh
 
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 out_dir="$repo_root/guest-builder/sp1/generated"
 
-tag="${MOHO_TAG:-$(sed -n 's/^moho-types = .*tag = "\([^"]*\)".*/\1/p' "$repo_root/Cargo.toml")}"
-if [ -z "$tag" ]; then
-    echo "ERROR: could not read the moho tag from Cargo.toml; set MOHO_TAG." >&2
-    exit 1
-fi
+# The Moho guest this ASM release proves with. Change it only when deciding to upgrade the
+# deployed Moho guest, not when bumping the moho crates.
+MOHO_GUEST_TAG="v0.4.0"
+
+tag="${MOHO_TAG:-$MOHO_GUEST_TAG}"
 
 base_url="https://github.com/alpenlabs/moho/releases/download/$tag"
 echo "Fetching the Moho guest ELF from $base_url"

@@ -120,7 +120,7 @@ mod tests {
     #[test]
     fn bound_host_uses_its_key_and_allows_same_spec_key_rotation() {
         let bind = |seed| {
-            let key = SigningKey::from_bytes(&[seed; 32]).expect("valid test key");
+            let key = SigningKey::from_slice(&[seed; 32]).expect("valid test key");
             let host = NativeHost::new(key, |zkvm| process_asm_stf(zkvm, &StrataAsmSpec));
             AsmProofHost::bind::<StrataAsmSpec>(host).expect("native host binds")
         };
@@ -155,7 +155,7 @@ mod tests {
     fn checked_binding_rejects_a_different_program_key() {
         let host = |seed| {
             NativeHost::new(
-                SigningKey::from_bytes(&[seed; 32]).expect("valid test key"),
+                SigningKey::from_slice(&[seed; 32]).expect("valid test key"),
                 |zkvm| process_asm_stf(zkvm, &StrataAsmSpec),
             )
         };
@@ -182,7 +182,7 @@ mod tests {
         let calls = Arc::new(AtomicUsize::new(0));
         let observed = calls.clone();
         let host = NativeHost::new(
-            SigningKey::from_bytes(&[3; 32]).expect("valid test key"),
+            SigningKey::from_slice(&[3; 32]).expect("valid test key"),
             move |_| {
                 observed.fetch_add(1, Ordering::SeqCst);
             },
