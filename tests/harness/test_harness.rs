@@ -562,12 +562,50 @@ impl AsmTestHarness {
         payload: Vec<u8>,
         envelope_keypair: &UntweakedKeypair,
     ) -> anyhow::Result<Transaction> {
-        build_envelope_tx(
+        self.build_envelope_tx_with_keypair_and_leaf_version(
+            sps50_tag,
+            payload,
+            envelope_keypair,
+            LeafVersion::TapScript,
+        )
+        .await
+    }
+
+    /// Build an SPS-50 envelope transaction spending an output locked by `prevout_script`. See
+    /// [`build_unencumbered_envelope_tx`].
+    pub async fn build_unencumbered_envelope_tx(
+        &self,
+        sps50_tag: TagData,
+        payload: Vec<u8>,
+        envelope_keypair: &UntweakedKeypair,
+        prevout_script: ScriptBuf,
+    ) -> anyhow::Result<Transaction> {
+        build_unencumbered_envelope_tx(
+            &self.bitcoind.client,
+            self.asm_params.magic,
+            sps50_tag,
+            payload,
+            envelope_keypair,
+            prevout_script,
+        )
+    }
+
+    /// Build a funded SPS-50 envelope transaction whose SPS-51 reveal leaf is committed under
+    /// `leaf_version`. See [`build_envelope_tx_with_leaf_version`].
+    pub async fn build_envelope_tx_with_keypair_and_leaf_version(
+        &self,
+        sps50_tag: TagData,
+        payload: Vec<u8>,
+        envelope_keypair: &UntweakedKeypair,
+        leaf_version: LeafVersion,
+    ) -> anyhow::Result<Transaction> {
+        build_envelope_tx_with_leaf_version(
             &self.bitcoind.client,
             self.asm_params.magic,
             sps50_tag,
             payload,
             Some(envelope_keypair),
+            leaf_version,
         )
     }
 }
@@ -607,6 +645,29 @@ pub fn build_envelope_tx(
     payload: Vec<u8>,
     envelope_keypair: Option<&UntweakedKeypair>,
 ) -> anyhow::Result<Transaction> {
+    build_envelope_tx_with_leaf_version(
+        rpc,
+        magic,
+        sps50_tag,
+        payload,
+        envelope_keypair,
+        LeafVersion::TapScript,
+    )
+}
+
+/// Like [`build_envelope_tx`], but commits the reveal script under `leaf_version`.
+///
+/// Only a [`LeafVersion::TapScript`] spend is signed. BIP341 does not execute a leaf with any
+/// other version, so such a spend needs no signature; the resulting transaction is
+/// non-standard and has to be mined with [`AsmTestHarness::mine_block_with_ordered_txs`].
+pub fn build_envelope_tx_with_leaf_version(
+    rpc: &BitcoindClient,
+    magic: MagicBytes,
+    sps50_tag: TagData,
+    payload: Vec<u8>,
+    envelope_keypair: Option<&UntweakedKeypair>,
+    leaf_version: LeafVersion,
+) -> anyhow::Result<Transaction> {
     let fee = AsmTestHarness::DEFAULT_FEE;
     let dust_amount = Amount::from_sat(1000);
     let funding_amount = fee + dust_amount + Amount::from_sat(1000);
@@ -631,7 +692,8 @@ pub fn build_envelope_tx(
     };
 
     // Create taproot spend info
-    let taproot_spend_info = create_taproot_spend_info(&secp, internal_key, reveal_script.clone())?;
+    let taproot_spend_info =
+        create_taproot_spend_info(&secp, internal_key, reveal_script.clone(), leaf_version)?;
 
     // Create taproot address for the commit output
     let taproot_address = Address::p2tr(
@@ -663,7 +725,7 @@ pub fn build_envelope_tx(
 
     // Build control block for tapscript spend
     let control_block = taproot_spend_info
-        .control_block(&(reveal_script.clone(), LeafVersion::TapScript))
+        .control_block(&(reveal_script.clone(), leaf_version))
         .ok_or_else(|| anyhow::anyhow!("Failed to create control block"))?;
 
     // Build unsigned tx first
@@ -684,7 +746,7 @@ pub fn build_envelope_tx(
     // Build witness. SPS-51 envelopes need a Schnorr signature; simple
     // envelopes just need the script and control block.
     let mut witness = Witness::new();
-    if envelope_keypair.is_some() {
+    if envelope_keypair.is_some() && leaf_version == LeafVersion::TapScript {
         let commit_output = TxOut {
             value: funding_amount,
             script_pubkey: taproot_address.script_pubkey(),
@@ -707,6 +769,73 @@ pub fn build_envelope_tx(
     Ok(reveal_tx)
 }
 
+/// Builds an SPS-50 envelope transaction whose input spends an output locked by
+/// `prevout_script`, with an SPS-51 envelope leaf for `envelope_keypair` in a
+/// TapScript-shaped witness (`[leaf script, control block]`) and no signature.
+///
+/// Meant for unencumbered witness programs (segwit v2 to v16, non-32-byte v1 such as P2A):
+/// Bitcoin never interprets their witness, so the spend is valid without the key's signature
+/// even though the witness looks like a TapScript spend. Spending them is non-standard, so the
+/// result has to be mined with [`AsmTestHarness::mine_block_with_ordered_txs`].
+pub fn build_unencumbered_envelope_tx(
+    rpc: &BitcoindClient,
+    magic: MagicBytes,
+    sps50_tag: TagData,
+    payload: Vec<u8>,
+    envelope_keypair: &UntweakedKeypair,
+    prevout_script: ScriptBuf,
+) -> anyhow::Result<Transaction> {
+    let fee = AsmTestHarness::DEFAULT_FEE;
+    let funding_amount = fee + Amount::from_sat(20_000);
+
+    let secp = Secp256k1::new();
+    let (envelope_key, _parity) = XOnlyPublicKey::from_keypair(envelope_keypair);
+    let reveal_script = EnvelopeScriptBuilder::with_pubkey(&envelope_key.serialize())?
+        .add_envelope(&payload)?
+        .build()?;
+    // A genuine TapScript control block, so the witness is indistinguishable from a real
+    // script-path spend; it commits to a key the funded output never uses.
+    let control_block = create_taproot_spend_info(
+        &secp,
+        envelope_key,
+        reveal_script.clone(),
+        LeafVersion::TapScript,
+    )?
+    .control_block(&(reveal_script.clone(), LeafVersion::TapScript))
+    .ok_or_else(|| anyhow::anyhow!("Failed to create control block"))?;
+
+    let prevout_address = Address::from_script(&prevout_script, Network::Regtest)?;
+    let (funding_txid, funding_vout) = create_funding_utxo(rpc, &prevout_address, funding_amount)?;
+
+    let op_return_script = ParseConfig::new(magic).encode_script_buf(&sps50_tag.as_ref())?;
+    let change_address = rpc.new_address()?;
+
+    let mut witness = Witness::new();
+    witness.push(reveal_script.as_bytes());
+    witness.push(control_block.serialize());
+
+    Ok(Transaction {
+        version: Version::TWO,
+        lock_time: LockTime::ZERO,
+        input: vec![TxIn {
+            previous_output: OutPoint::new(funding_txid, funding_vout),
+            script_sig: ScriptBuf::new(),
+            sequence: Sequence::ENABLE_RBF_NO_LOCKTIME,
+            witness,
+        }],
+        output: vec![
+            TxOut {
+                value: Amount::ZERO,
+                script_pubkey: op_return_script,
+            },
+            TxOut {
+                value: funding_amount - fee,
+                script_pubkey: change_address.script_pubkey(),
+            },
+        ],
+    })
+}
+
 /// Build a simple envelope script for subprotocols that don't need SPS-51 auth.
 ///
 /// Creates an `OP_FALSE OP_IF <data> OP_ENDIF OP_TRUE` tapscript.
@@ -721,14 +850,15 @@ fn build_simple_envelope_script(payload: &[u8]) -> ScriptBuf {
 
 /// Create taproot spend info with reveal script.
 ///
-/// Builds a taproot tree with the reveal script as a leaf.
+/// Builds a taproot tree with the reveal script as its only leaf, under `leaf_version`.
 fn create_taproot_spend_info(
     secp: &Secp256k1<All>,
     internal_key: XOnlyPublicKey,
     reveal_script: ScriptBuf,
+    leaf_version: LeafVersion,
 ) -> anyhow::Result<TaprootSpendInfo> {
     let taproot_spend_info = TaprootBuilder::new()
-        .add_leaf(0, reveal_script)?
+        .add_leaf_with_ver(0, reveal_script, leaf_version)?
         .finalize(secp, internal_key)
         .map_err(|_| anyhow::anyhow!("Failed to finalize taproot spend info"))?;
 

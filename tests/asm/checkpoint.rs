@@ -13,6 +13,7 @@
     reason = "test dependencies shared across test suite"
 )]
 
+use bitcoin::{taproot::LeafVersion, ScriptBuf, WitnessProgram, WitnessVersion};
 use harness::{
     bridge::{BridgeExt, DEFAULT_NUM_OPERATORS},
     checkpoint::CheckpointExt,
@@ -740,5 +741,176 @@ async fn test_reorg_invalidates_checkpoint_proof_via_manifest_mmr() {
     assert!(
         harness.checkpoint_tip_update_logs().unwrap().is_empty(),
         "the rejected checkpoint must emit no tip-update log on branch B",
+    );
+}
+
+// ============================================================================
+// Envelope authentication
+// ============================================================================
+
+/// Verifies that a checkpoint envelope committed under a non-TapScript leaf version is ignored,
+/// even though it carries the sequencer pubkey and an otherwise valid checkpoint.
+///
+/// BIP341 does not execute a leaf whose version is not TapScript, so such an input spends without
+/// the sequencer's signature and the envelope pubkey proves nothing. The transaction is
+/// non-standard but consensus-valid, so it is mined directly with `generateblock`, as a
+/// cooperating miner would. A positive control then submits the same tip through a signed
+/// TapScript leaf to show that only the leaf version caused the rejection.
+#[tokio::test(flavor = "multi_thread")]
+async fn test_checkpoint_with_non_tapscript_leaf_is_ignored() {
+    let Setup {
+        harness,
+        checkpoint: mut checkpoint_harness,
+        ..
+    } = AsmTestHarnessBuilder::default()
+        .with_txindex()
+        .build()
+        .await;
+
+    // Arrange: advance L1 so the checkpoint covers a real manifest range, then build both the
+    // forged (unsigned, future leaf version) and the legitimate (signed TapScript) carriers.
+    harness.mine_blocks(3).await.unwrap();
+    let (legit_tx, new_tip) = harness
+        .build_checkpoint_tx(&checkpoint_harness, vec![])
+        .await
+        .unwrap();
+    let future_leaf = LeafVersion::from_consensus(0xc2).expect("0xc2 is a future leaf version");
+    let forged_tx = harness
+        .build_checkpoint_tx_for_tip_with_leaf_version(
+            &checkpoint_harness,
+            new_tip,
+            vec![],
+            future_leaf,
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        forged_tx.input[0].witness.len(),
+        2,
+        "the forged spend carries only the leaf script and control block, no signature",
+    );
+
+    // Act: mine the forged checkpoint.
+    let forged_txid = forged_tx.compute_txid();
+    let forged_block = harness
+        .mine_block_with_ordered_txs(&[forged_tx])
+        .await
+        .unwrap();
+
+    // Assert: the forged checkpoint is on chain but did not move the verified tip.
+    assert!(
+        harness
+            .get_block(forged_block)
+            .await
+            .unwrap()
+            .txdata
+            .iter()
+            .any(|tx| tx.compute_txid() == forged_txid),
+        "the forged checkpoint must be mined for the test to mean anything",
+    );
+    assert!(
+        harness.checkpoint_tip_update_logs().unwrap().is_empty(),
+        "a forged checkpoint must emit no CheckpointTipUpdate log",
+    );
+    assert_eq!(
+        harness.checkpoint_state().unwrap().verified_tip(),
+        checkpoint_harness.verified_tip(),
+        "a forged checkpoint must not advance the verified tip",
+    );
+
+    // Positive control: the same tip through a signed TapScript leaf is accepted.
+    harness.submit_and_mine_tx(&legit_tx).await.unwrap();
+    checkpoint_harness.update_verified_tip(new_tip);
+    assert_eq!(
+        harness.checkpoint_state().unwrap().verified_tip(),
+        &new_tip,
+        "the signed TapScript checkpoint for the same tip should be accepted",
+    );
+}
+
+/// Verifies that a checkpoint envelope spending an unencumbered witness program is ignored,
+/// even though its witness is shaped like a TapScript spend and carries the sequencer pubkey.
+///
+/// Bitcoin never interprets the witness of a segwit v2+ or non-32-byte v1 output (P2A included),
+/// so these spends need no signature. A leaf-version check cannot catch them; only checking that
+/// the spent output is a native P2TR output does. The carriers are non-standard, so they are
+/// mined directly with `generateblock`. A positive control then submits the same tip through a
+/// signed P2TR spend.
+#[tokio::test(flavor = "multi_thread")]
+async fn test_checkpoint_on_unencumbered_prevout_is_ignored() {
+    let Setup {
+        harness,
+        checkpoint: mut checkpoint_harness,
+        ..
+    } = AsmTestHarnessBuilder::default()
+        .with_txindex()
+        .build()
+        .await;
+
+    // Arrange: one legitimate carrier and one forged carrier per unencumbered program type.
+    harness.mine_blocks(3).await.unwrap();
+    let (legit_tx, new_tip) = harness
+        .build_checkpoint_tx(&checkpoint_harness, vec![])
+        .await
+        .unwrap();
+    let unencumbered_programs = [
+        ("segwit v2", WitnessVersion::V2, vec![0x11; 32]),
+        ("P2A", WitnessVersion::V1, vec![0x4e, 0x73]),
+        ("segwit v1 33-byte", WitnessVersion::V1, vec![0x11; 33]),
+    ];
+    let mut forged_txs = Vec::new();
+    for (name, version, program) in unencumbered_programs {
+        let program = WitnessProgram::new(version, &program).expect("valid witness program");
+        let forged_tx = harness
+            .build_checkpoint_tx_for_tip_on_unencumbered_prevout(
+                &checkpoint_harness,
+                new_tip,
+                vec![],
+                ScriptBuf::new_witness_program(&program),
+            )
+            .await
+            .unwrap_or_else(|e| panic!("building the {name} carrier failed: {e}"));
+        forged_txs.push(forged_tx);
+    }
+    let forged_txids: Vec<_> = forged_txs.iter().map(|tx| tx.compute_txid()).collect();
+
+    // Act: mine every forged carrier in one block.
+    let forged_block = harness
+        .mine_block_with_ordered_txs(&forged_txs)
+        .await
+        .unwrap();
+
+    // Assert: all forged carriers are on chain, none moved the verified tip.
+    let mined: Vec<_> = harness
+        .get_block(forged_block)
+        .await
+        .unwrap()
+        .txdata
+        .iter()
+        .map(|tx| tx.compute_txid())
+        .collect();
+    for txid in &forged_txids {
+        assert!(
+            mined.contains(txid),
+            "forged carrier {txid} must be mined for the test to mean anything",
+        );
+    }
+    assert!(
+        harness.checkpoint_tip_update_logs().unwrap().is_empty(),
+        "forged checkpoints must emit no CheckpointTipUpdate log",
+    );
+    assert_eq!(
+        harness.checkpoint_state().unwrap().verified_tip(),
+        checkpoint_harness.verified_tip(),
+        "forged checkpoints must not advance the verified tip",
+    );
+
+    // Positive control: the same tip through a signed P2TR spend is accepted.
+    harness.submit_and_mine_tx(&legit_tx).await.unwrap();
+    checkpoint_harness.update_verified_tip(new_tip);
+    assert_eq!(
+        harness.checkpoint_state().unwrap().verified_tip(),
+        &new_tip,
+        "the signed P2TR checkpoint for the same tip should be accepted",
     );
 }
