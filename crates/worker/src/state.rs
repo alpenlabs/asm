@@ -67,16 +67,6 @@ where
         let genesis_block = genesis_state.last_processed_block();
         let genesis_height = u64::from(genesis_block.height());
 
-        // Align the manifest MMR with L1 heights before processing any block.
-        // It is height-indexed: the genesis accumulator covers heights
-        // `0..=genesis_height`, so the manifest for height `h` lands at index
-        // `h`. A store that already reaches genesis was seeded on an earlier
-        // start.
-        let genesis_accumulator = &genesis_state.chain_view.history_accumulator;
-        if context.manifest_mmr_leaf_count()? < genesis_accumulator.num_entries() {
-            context.seed_manifest_mmr(genesis_accumulator)?;
-        }
-
         // The configured anchor is otherwise trusted blindly: a wrong block,
         // target, epoch timestamp, or network would only surface one L1 block
         // later when header verification rejects the anchor's successor. Validate
@@ -98,6 +88,19 @@ where
             Ok(_) | Err(WorkerError::MissingAsmState(_)) => {}
             Err(error) => return Err(error),
         }
+
+        // Align the manifest MMR with L1 heights before processing any block.
+        // It is height-indexed: the genesis accumulator covers heights
+        // `0..=genesis_height`, so the manifest for height `h` lands at index
+        // `h`. A store that already reaches genesis was seeded on an earlier
+        // start. This runs only after the anchor checks above pass. Seeding
+        // for an anchor they reject would pin the store to that height, and a
+        // corrected anchor could then never seed or append.
+        let genesis_accumulator = &genesis_state.chain_view.history_accumulator;
+        if context.manifest_mmr_leaf_count()? < genesis_accumulator.num_entries() {
+            context.seed_manifest_mmr(genesis_accumulator)?;
+        }
+
         let anchor = match latest {
             Some(state) => {
                 tracing::info!(blkid = %state.last_processed_block(), "ASM worker resuming from stored anchor state");
@@ -660,6 +663,40 @@ mod tests {
             ),
             "expected AnchorMismatch::Network, got {err:?}",
         );
+    }
+
+    /// A start whose anchor fails L1 validation leaves the manifest MMR empty,
+    /// so a corrected anchor at a different height still seeds and appends.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn new_rejected_by_anchor_validation_leaves_mmr_empty() {
+        let fx = fixtures::setup_context(101).await;
+
+        let mut bad = fixtures::genesis_params(&fx.client, 101).await;
+        bad.anchor.next_target = bad.anchor.next_target.wrapping_add(1);
+        let err = fixtures::new_state(fx.context.clone(), bad).unwrap_err();
+        assert!(
+            matches!(err, WorkerError::AnchorMismatch(_)),
+            "expected AnchorMismatch, got {err:?}",
+        );
+        assert_eq!(
+            fx.context.mmr_leaf_count(),
+            0,
+            "rejected start must not seed"
+        );
+
+        let fixed = fixtures::genesis_params(&fx.client, 100).await;
+        let state =
+            fixtures::new_state(fx.context.clone(), fixed).expect("corrected anchor starts");
+        assert_eq!(state.context.mmr_leaf_count(), 101);
+
+        let hash = fx.client.get_block_hash(101).await.unwrap();
+        let block = fx.client.get_block(&hash).await.expect("fetch block 101");
+        let (out, _aux) = state.transition(&block).expect("process block 101");
+        state
+            .context
+            .record_manifest(out.manifest)
+            .expect("first manifest appends at the corrected genesis + 1");
+        assert_eq!(state.context.mmr_leaf_count(), 102);
     }
 
     /// `new` seeds the manifest MMR up to genesis without storing the leaves
