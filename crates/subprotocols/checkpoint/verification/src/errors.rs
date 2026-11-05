@@ -87,8 +87,8 @@ pub enum InvalidCheckpointPayload {
     InvalidWithdrawalAmount { sats: u64 },
 
     /// Combined withdrawal amount exceeds the maximum Bitcoin money supply.
-    #[error("combined withdrawal intent amount {sats} sat exceeds the Bitcoin money supply")]
-    WithdrawalTotalTooLarge { sats: u128 },
+    #[error("combined withdrawal intent amount exceeds the Bitcoin money supply")]
+    WithdrawalTotalTooLarge,
 
     /// Epoch counter overflow.
     #[error("epoch overflow: verified tip epoch is at maximum value")]

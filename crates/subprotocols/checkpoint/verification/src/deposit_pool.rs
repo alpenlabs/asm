@@ -19,14 +19,12 @@ fn bitcoin_amount(sats: u64) -> BitcoinAmount {
 fn total_withdrawal_amount(
     intents: &[WithdrawalIntent],
 ) -> Result<BitcoinAmount, InvalidCheckpointPayload> {
+    // A u64 overflow is far past the money supply, so it fails the same way.
     let sats = intents
         .iter()
-        .map(|intent| u128::from(intent.amt().to_sat()))
-        .sum();
-    let sats_u64 = u64::try_from(sats)
-        .map_err(|_| InvalidCheckpointPayload::WithdrawalTotalTooLarge { sats })?;
-    BitcoinAmount::try_from(sats_u64)
-        .map_err(|_| InvalidCheckpointPayload::WithdrawalTotalTooLarge { sats })
+        .try_fold(0u64, |acc, intent| acc.checked_add(intent.amt().to_sat()))
+        .ok_or(InvalidCheckpointPayload::WithdrawalTotalTooLarge)?;
+    BitcoinAmount::try_from(sats).map_err(|_| InvalidCheckpointPayload::WithdrawalTotalTooLarge)
 }
 
 /// Opaque proof token for a verified set of withdrawal intents.
@@ -268,8 +266,7 @@ mod tests {
 
         assert!(matches!(
             err,
-            InvalidCheckpointPayload::WithdrawalTotalTooLarge { sats }
-                if sats == u128::from(MAX_MONEY_SATS) * 2
+            InvalidCheckpointPayload::WithdrawalTotalTooLarge
         ));
     }
 
