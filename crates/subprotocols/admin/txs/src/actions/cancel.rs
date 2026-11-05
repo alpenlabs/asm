@@ -44,6 +44,7 @@ impl RenderSigningMessage for CancelAction {
 #[cfg(test)]
 mod tests {
     use bitcoin::Network;
+    use strata_crypto::EvenPublicKey;
     use strata_identifiers::Buf32;
 
     use crate::{
@@ -55,7 +56,8 @@ mod tests {
 
     #[test]
     fn test_cancel_message_renders_embedded_update() {
-        let update = UpdateAction::Sequencer(SequencerUpdate::new(Buf32::from([0x11u8; 32])));
+        let key = EvenPublicKey::try_from(Buf32::from([7u8; 32])).expect("valid x-only key");
+        let update = UpdateAction::Sequencer(SequencerUpdate::new(key));
         let action = MultisigAction::Cancel(CancelAction::new(7, update));
 
         let message = SigningMessage::for_action(&action, 9, Network::Regtest);
@@ -69,7 +71,7 @@ mod tests {
              Action Details:\n  \
              Target Id: 7\n  \
              Target Update: Sequencer Update\n  \
-             New Sequencer Key: 1111111111111111111111111111111111111111111111111111111111111111"
+             New Sequencer Key: 0707070707070707070707070707070707070707070707070707070707070707"
         );
     }
 }

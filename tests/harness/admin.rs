@@ -233,10 +233,9 @@ impl AdminContext {
 /// Panics if `key` is not a BIP340 x-only public key. The ASM drops such an update when it
 /// parses the tx, so a test using one would observe nothing and could pass for the wrong reason.
 pub fn sequencer_update(key: [u8; 32]) -> MultisigAction {
-    let update = SequencerUpdate::new(Buf32::from(key));
-    update
-        .parse_pub_key()
-        .expect("sequencer key must be an x-only point");
+    let key =
+        EvenPublicKey::try_from(Buf32::from(key)).expect("sequencer key must be an x-only point");
+    let update = SequencerUpdate::new(key);
     MultisigAction::Update(UpdateAction::Sequencer(update))
 }
 

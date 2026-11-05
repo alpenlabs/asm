@@ -45,7 +45,6 @@ use harness::{
 use integration_tests::harness;
 use strata_asm_admin_types::Role;
 use strata_asm_logs::CheckpointPredicateEnacted;
-use strata_asm_proto_admin_txs::actions::{updates::SequencerUpdate, MultisigAction, UpdateAction};
 use strata_identifiers::Buf32;
 use strata_predicate::PredicateKey;
 
@@ -92,7 +91,7 @@ async fn test_sequencer_update_propagates_to_checkpoint() {
     );
 }
 
-/// Verifies a signed sequencer update whose key is not an x-only point is ignored.
+/// Verifies a malformed sequencer update whose key is not an x-only point is ignored.
 ///
 /// The checkpoint keeps its key and the sequencer manager's seqno is left unused, so the
 /// corrected key can be submitted at that same seqno.
@@ -109,15 +108,16 @@ async fn test_sequencer_update_with_invalid_key_is_ignored() {
 
     let initial_sequencer_key = *harness.checkpoint_state().unwrap().sequencer_key();
 
-    // Act: submit a correctly signed update whose key `[3; 32]` has no point on the curve.
-    // `sequencer_update` refuses such a key, so build the action directly.
-    let invalid = MultisigAction::Update(UpdateAction::Sequencer(SequencerUpdate::new(
-        Buf32::from([3u8; 32]),
-    )));
-    harness
-        .submit_admin_action_with_seqno(&ctx, invalid, 1)
+    // Corrupt the key in a valid payload; typed builders cannot construct invalid keys.
+    let action = sequencer_update([7u8; 32]);
+    let mut payload = ctx.sign_with_seqno(&action, 1);
+    assert_eq!(&payload[8..40], &[7u8; 32]);
+    payload[8..40].copy_from_slice(&[3u8; 32]);
+    let tx = harness
+        .build_envelope_tx(action.tag(), payload)
         .await
         .unwrap();
+    harness.submit_and_mine_tx(&tx).await.unwrap();
 
     // Assert: nothing changed, and seqno 1 is still unused.
     assert_eq!(

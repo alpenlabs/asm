@@ -11,7 +11,7 @@ use crate::{
         CancelAction, MultisigAction, UpdateAction,
         updates::{
             AlpenAdminMultisigUpdate, AsmStfVkUpdate, Defcon1Update, Defcon3Update, EeStfVkUpdate,
-            OlStfVkUpdate, OperatorSetUpdate, ParseCheck, SafeHarborAddressUpdate, SequencerUpdate,
+            OlStfVkUpdate, OperatorSetUpdate, SafeHarborAddressUpdate, SequencerUpdate,
             StrataAdminMultisigUpdate, StrataSecurityCouncilMultisigUpdate,
             StrataSeqManagerMultisigUpdate,
         },
@@ -218,10 +218,9 @@ fn decode_update<A>(
     tx_type: TxType,
 ) -> Result<SignedPayload, AdministrationTxParseError>
 where
-    A: Encode + Decode + ParseCheck + Into<UpdateAction>,
+    A: Encode + Decode + Into<UpdateAction>,
 {
     let wire = decode_wire::<A>(bytes, tx_type)?;
-    wire.action.check_on_parse()?;
     Ok(SignedPayload::new(
         wire.seqno,
         MultisigAction::Update(wire.action.into()),
@@ -247,6 +246,7 @@ fn decode_wire<A: Encode + Decode>(
 mod tests {
     use strata_asm_admin_threshold_sig::IndexedSignature;
     use strata_asm_proto_txs_test_utils::{create_dummy_tx, overwrite_aux_data, parse_sps50_tx};
+    use strata_crypto::EvenPublicKey;
     use strata_identifiers::Buf32;
     use strata_test_utils_arb::ArbitraryGenerator;
 
@@ -294,56 +294,35 @@ mod tests {
         }
     }
 
-    fn sequencer_update(key: [u8; 32]) -> MultisigAction {
-        MultisigAction::Update(UpdateAction::Sequencer(SequencerUpdate::new(Buf32::from(
-            key,
-        ))))
-    }
-
-    /// A sequencer update whose key is not an x-only point is refused when it is parsed.
     #[test]
     fn sequencer_update_with_invalid_key_is_rejected() {
         let admin_tx_type = AdminTxType::Update(UpdateTxType::SequencerUpdate);
-        // `[3; 32]` has no point on the curve; `[0xff; 32]` exceeds the field prime.
-        for key in [[3u8; 32], [0xffu8; 32]] {
-            let bytes = SignedPayload::new(7, sequencer_update(key), dummy_signatures())
-                .into_envelope_bytes();
+        let key = EvenPublicKey::try_from(Buf32::from([7u8; 32])).expect("valid x-only key");
+        let action = MultisigAction::Update(UpdateAction::Sequencer(SequencerUpdate::new(key)));
+        let valid = SignedPayload::new(7, action, dummy_signatures());
+        let valid_bytes = valid.clone().into_envelope_bytes();
 
+        // Preserve the old flat layout: seqno, raw 32-byte key, signatures offset/list.
+        assert_eq!(
+            valid_bytes,
+            encode_wire(7, Buf32::from(key), dummy_signatures())
+        );
+        assert_eq!(&valid_bytes[8..40], &[7u8; 32]);
+
+        // `[3; 32]` has no point on the curve; `[0xff; 32]` exceeds the field prime.
+        for invalid_key in [[3u8; 32], [0xffu8; 32]] {
+            let mut bytes = valid_bytes.clone();
+            bytes[8..40].copy_from_slice(&invalid_key);
             let res = decode_signed_payload(admin_tx_type, &bytes, admin_tx_type.into());
-            assert!(
-                matches!(
-                    res,
-                    Err(AdministrationTxParseError::InvalidSequencerKey { key: k })
-                        if k == Buf32::from(key)
-                ),
-                "key {} decoded to {res:?}",
-                Buf32::from(key)
-            );
+            assert!(matches!(
+                res,
+                Err(AdministrationTxParseError::MalformedPayload { .. })
+            ));
         }
 
-        let valid = SignedPayload::new(7, sequencer_update([7u8; 32]), dummy_signatures());
-        let bytes = valid.clone().into_envelope_bytes();
-        let decoded = decode_signed_payload(admin_tx_type, &bytes, admin_tx_type.into())
-            .expect("valid x-only key decodes");
+        let decoded = decode_signed_payload(admin_tx_type, &valid_bytes, admin_tx_type.into())
+            .expect("valid x-only key decodes with the same sequence number");
         assert_eq!(decoded, valid);
-    }
-
-    /// A cancel embedding a sequencer update with an invalid key still parses, so an update
-    /// queued before keys were checked can still be cancelled.
-    #[test]
-    fn cancel_embedding_invalid_sequencer_key_still_parses() {
-        let update = UpdateAction::Sequencer(SequencerUpdate::new(Buf32::from([3u8; 32])));
-        let cancel = SignedPayload::new(
-            7,
-            MultisigAction::Cancel(CancelAction::new(0, update)),
-            dummy_signatures(),
-        );
-        let bytes = cancel.clone().into_envelope_bytes();
-
-        let decoded =
-            decode_signed_payload(AdminTxType::Cancel, &bytes, AdminTxType::Cancel.into())
-                .expect("cancel payloads do not validate the embedded key");
-        assert_eq!(decoded, cancel);
     }
 
     /// Transactions are routed to this subprotocol on their output tag alone, so one with

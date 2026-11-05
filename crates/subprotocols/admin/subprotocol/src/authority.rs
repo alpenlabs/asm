@@ -124,6 +124,7 @@ mod tests {
         parser::SignedPayload,
         test_utils::create_signature_set,
     };
+    use strata_crypto::EvenPublicKey;
     use strata_identifiers::Buf32;
 
     use super::*;
@@ -139,9 +140,8 @@ mod tests {
     }
 
     fn sample_action() -> MultisigAction {
-        MultisigAction::Update(UpdateAction::Sequencer(SequencerUpdate::new(Buf32::from(
-            [7u8; 32],
-        ))))
+        let key = EvenPublicKey::try_from(Buf32::from([7u8; 32])).expect("valid x-only key");
+        MultisigAction::Update(UpdateAction::Sequencer(SequencerUpdate::new(key)))
     }
 
     #[test]
