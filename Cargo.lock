@@ -877,6 +877,7 @@ dependencies = [
  "strata-merkle",
  "strata-merkle-node-store",
  "tempfile",
+ "tokio",
 ]
 
 [[package]]

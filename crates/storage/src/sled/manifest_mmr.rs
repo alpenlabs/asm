@@ -174,6 +174,7 @@ impl AsmManifestMmrDb for SledAsmManifestMmrDb {
 mod tests {
     use strata_asm_common::AsmManifestHash;
     use strata_merkle::{Mmr, Mmr64B32, MmrState, Sha256Hasher};
+    use strata_merkle_node_store::MmrError;
 
     use super::*;
 
@@ -303,5 +304,66 @@ mod tests {
         // Proof at size 4 should verify against the snapshot.
         let proof = mmr_db.generate_proof(2, 4).unwrap();
         assert!(compact_at_4.verify(&proof, make_leaf(2).as_ref()));
+    }
+
+    /// A seeded store reports the prefix's leaf count, stores none of its
+    /// leaves, and proves later leaves against the prefix grown by them.
+    #[test]
+    fn seed_aligns_later_leaves_with_the_prefix() {
+        let db = test_db();
+        let mmr_db = SledAsmManifestMmrDb::open(&db).unwrap();
+        let prefix_len = 102;
+        let prefix = Mmr::<Sha256Hasher>::new_repeated(*make_leaf(0xEE).as_ref(), prefix_len);
+
+        mmr_db.seed(&prefix).unwrap();
+        assert_eq!(mmr_db.leaf_count().unwrap(), prefix_len);
+        assert_eq!(mmr_db.get_leaf(0).unwrap(), None);
+        assert_eq!(mmr_db.get_leaf(prefix_len - 1).unwrap(), None);
+
+        let mut compact: Mmr64B32 = prefix;
+        for i in 0u8..5 {
+            let leaf = make_leaf(i);
+            mmr_db.put_leaf(prefix_len + u64::from(i), leaf).unwrap();
+            Mmr::<Sha256Hasher>::add_leaf(&mut compact, *leaf.as_ref()).unwrap();
+        }
+        let size = prefix_len + 5;
+        for i in 0u8..5 {
+            let proof = mmr_db
+                .generate_proof(prefix_len + u64::from(i), size)
+                .unwrap();
+            assert!(
+                compact.verify(&proof, make_leaf(i).as_ref()),
+                "proof for leaf {} must verify",
+                prefix_len + u64::from(i)
+            );
+        }
+    }
+
+    /// Seeding needs an empty store, so a second seed fails.
+    #[test]
+    fn seed_rejects_non_empty_store() {
+        let db = test_db();
+        let mmr_db = SledAsmManifestMmrDb::open(&db).unwrap();
+        let prefix = Mmr::<Sha256Hasher>::new_repeated(*make_leaf(0xEE).as_ref(), 4);
+
+        mmr_db.seed(&prefix).unwrap();
+        let err = mmr_db.seed(&prefix).unwrap_err();
+        assert!(
+            matches!(
+                err.downcast_ref::<MmrError<sled::Error>>(),
+                Some(MmrError::NotEmpty { leaf_count: 4 })
+            ),
+            "expected NotEmpty, got {err:?}",
+        );
+    }
+
+    #[tokio::test]
+    async fn seed_through_async_trait() {
+        let db = test_db();
+        let mmr_db = SledAsmManifestMmrDb::open(&db).unwrap();
+        let prefix = Mmr::<Sha256Hasher>::new_repeated(*make_leaf(0xEE).as_ref(), 7);
+
+        AsmManifestMmrDb::seed(&mmr_db, &prefix).await.unwrap();
+        assert_eq!(AsmManifestMmrDb::leaf_count(&mmr_db).await.unwrap(), 7);
     }
 }
