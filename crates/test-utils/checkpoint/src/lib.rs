@@ -2,6 +2,7 @@
 
 use k256::{
     ecdsa::signature::SignatureEncoding,
+    elliptic_curve::Generate,
     schnorr::{signature::Signer, SigningKey},
 };
 use rand::{thread_rng, Rng};
@@ -75,11 +76,11 @@ impl CheckpointTestHarness {
         let genesis_ol_blkid = ArbitraryGenerator::new().generate();
         let genesis_blk = OLBlockCommitment::new(0, genesis_ol_blkid);
 
-        let sequencer_key = SigningKey::random(&mut rng);
+        let sequencer_key = SigningKey::generate();
         let sequencer_secret_key = sequencer_key.to_bytes().into();
         let sequencer_pubkey =
             Buf32::from(<[u8; 32]>::from(sequencer_key.verifying_key().to_bytes()));
-        let checkpoint_predicate = SigningKey::random(&mut rng);
+        let checkpoint_predicate = SigningKey::generate();
 
         let genesis_tip = CheckpointTip::new(0, genesis_l1_height, genesis_blk);
         Self {
@@ -97,14 +98,13 @@ impl CheckpointTestHarness {
     /// provided genesis values. This ensures the harness's `verified_tip` matches
     /// the live ASM's checkpoint state when used in integration tests.
     pub fn new_with_genesis(genesis_l1_height: u32, genesis_ol_blkid: OLBlockId) -> Self {
-        let mut rng = thread_rng();
         let genesis_blk = OLBlockCommitment::new(0, genesis_ol_blkid);
 
-        let sequencer_key = SigningKey::random(&mut rng);
+        let sequencer_key = SigningKey::generate();
         let sequencer_secret_key = sequencer_key.to_bytes().into();
         let sequencer_pubkey =
             Buf32::from(<[u8; 32]>::from(sequencer_key.verifying_key().to_bytes()));
-        let checkpoint_predicate = SigningKey::random(&mut rng);
+        let checkpoint_predicate = SigningKey::generate();
 
         let genesis_tip = CheckpointTip::new(0, genesis_l1_height, genesis_blk);
         Self {
@@ -134,7 +134,7 @@ impl CheckpointTestHarness {
     /// Mints an additional checkpoint proof signer.
     pub fn mint_checkpoint_signer() -> CheckpointTestSigner {
         CheckpointTestSigner {
-            signing_key: SigningKey::random(&mut thread_rng()),
+            signing_key: SigningKey::generate(),
         }
     }
 
