@@ -201,7 +201,7 @@ mod tests {
     use crate::AsmProofHost;
 
     fn host(seed: u8) -> NativeHost {
-        NativeHost::new(SigningKey::from_bytes(&[seed; 32]).unwrap(), |_| {})
+        NativeHost::new(SigningKey::from_slice(&[seed; 32]).unwrap(), |_| {})
     }
 
     fn endpoint(seed: u8) -> StateRefAttestation {

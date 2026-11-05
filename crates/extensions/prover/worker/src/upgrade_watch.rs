@@ -88,7 +88,7 @@ mod tests {
 
     /// Returns a registry with one host, and that host's predicate.
     fn registry() -> (AsmHostRegistry<NativeHost>, PredicateKey) {
-        let key = SigningKey::from_bytes(&[1; 32]).expect("valid test key");
+        let key = SigningKey::from_slice(&[1; 32]).expect("valid test key");
         let host = NativeHost::new(key, |zkvm| process_asm_stf(zkvm, &StrataAsmSpec));
         let host = AsmProofHost::bind::<StrataAsmSpec>(host).expect("native host binds");
         let predicate = host.descriptor().predicate().clone();

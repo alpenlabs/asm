@@ -88,7 +88,7 @@ mod tests {
     }
 
     fn host<S: AsmSpec>(seed: u8) -> AsmProofHost<NativeHost> {
-        let key = SigningKey::from_bytes(&[seed; 32]).expect("valid test key");
+        let key = SigningKey::from_slice(&[seed; 32]).expect("valid test key");
         let host = NativeHost::new(key, |zkvm| process_asm_stf(zkvm, &StrataAsmSpec));
         AsmProofHost::bind::<S>(host).expect("native host binds")
     }

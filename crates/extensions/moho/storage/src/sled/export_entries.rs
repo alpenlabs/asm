@@ -16,7 +16,7 @@ use std::ops::Range;
 
 use anyhow::{Context, Result};
 use strata_merkle::{MerkleProofB32, Sha256Hasher};
-use strata_merkle_node_store::{LeafPos, MmrNodeStore, NodePos, StoredMmr};
+use strata_merkle_node_store::{LeafPos, MmrNodeStore, NodePos, StoredMmr, StoredMmrExt};
 
 use crate::ExportEntriesDb;
 
@@ -122,7 +122,7 @@ impl ContainerView<'_> {
             .insert(self.height_key(height), &encode_idx(self.num_entries()?))?;
 
         for entry in entries {
-            let index = StoredMmr::<Sha256Hasher>::append_leaf(self, entry)?;
+            let index = StoredMmrExt::append_leaf::<Sha256Hasher>(self, entry)?;
             self.index_by_hash
                 .insert(self.hash_key(&entry), &encode_idx(index))?;
         }
@@ -131,18 +131,17 @@ impl ContainerView<'_> {
 
     /// See [`SledExportEntriesDb::get`].
     fn get(&self, mmr_index: u64) -> Result<Option<[u8; 32]>> {
-        Ok(StoredMmr::<Sha256Hasher>::get_leaf(self, mmr_index)?)
+        Ok(StoredMmr::get_leaf(self, mmr_index)?)
     }
 
     /// See [`SledExportEntriesDb::num_entries`].
     fn num_entries(&self) -> Result<u64> {
-        Ok(StoredMmr::<Sha256Hasher>::leaf_count(self)?)
+        Ok(StoredMmr::leaf_count(self)?)
     }
 
     /// See [`SledExportEntriesDb::generate_proof`].
     fn generate_proof(&self, mmr_index: u64, at_leaf_count: u64) -> Result<MerkleProofB32> {
-        let proof =
-            StoredMmr::<Sha256Hasher>::generate_proof_at_size(self, mmr_index, at_leaf_count)?;
+        let proof = StoredMmr::generate_proof_at_size(self, mmr_index, at_leaf_count)?;
         Ok(MerkleProofB32::from_generic(&proof))
     }
 
@@ -170,7 +169,7 @@ impl ContainerView<'_> {
     fn entry_height(&self, mmr_index: u64) -> Result<Option<u32>> {
         // Guard on leaf presence so an out-of-range index resolves to `None`
         // rather than the height of the last run the scan below would settle on.
-        if StoredMmr::<Sha256Hasher>::get_leaf(self, mmr_index)?.is_none() {
+        if StoredMmr::get_leaf(self, mmr_index)?.is_none() {
             return Ok(None);
         }
 
@@ -241,7 +240,7 @@ impl ContainerView<'_> {
     /// Truncates the MMR to the leaves below `first_dropped`, discarding that
     /// leaf and every one after it.
     fn drop_leaves_from(&self, first_dropped: u64) -> Result<()> {
-        StoredMmr::<Sha256Hasher>::prune_after(self, LeafPos::new(first_dropped))?;
+        StoredMmr::prune_after(self, LeafPos::new(first_dropped))?;
         Ok(())
     }
 
