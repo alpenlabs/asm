@@ -8,11 +8,12 @@ use strata_asm_common::{
 use strata_asm_proto_checkpoint_msgs::CheckpointIncomingMsg;
 use strata_asm_proto_checkpoint_txs::{
     CHECKPOINT_SUBPROTOCOL_ID, OL_STF_CHECKPOINT_TX_TYPE, decode_checkpoint_payload,
+    parse_checkpoint_envelope,
 };
 use strata_checkpoint_verification::CheckpointState;
 use strata_identifiers::L1BlockCommitment;
 
-use crate::{auth::parse_sequencer_envelope, handler::handle_checkpoint_tx};
+use crate::{auth::verify_envelope_key, handler::handle_checkpoint_tx};
 
 /// Checkpoint subprotocol implementation.
 ///
@@ -117,28 +118,36 @@ impl Subprotocol for CheckpointSubprotocol {
 
 /// Requests the auxiliary data [`handle_checkpoint_tx`] needs for one checkpoint transaction.
 ///
-/// Requests are issued exactly when the handler will read them: only for an envelope that passes
-/// [`parse_sequencer_envelope`], the checks the handler runs before its first aux read. This also
-/// keeps envelopes that anyone can post through a standard transaction from making the worker
+/// Requests are issued exactly when the handler will read them: only for an envelope that parses
+/// and passes [`verify_envelope_key`], the checks the handler runs before its first aux read. This
+/// also keeps envelopes that anyone can post through a standard transaction from making the worker
 /// fetch and prove data the handler would never use.
 fn request_checkpoint_aux(
     state: &CheckpointState,
     tx: &TxInputRef<'_>,
     collector: &mut AuxRequestCollector,
 ) {
-    let spend = match parse_sequencer_envelope(state.sequencer_key(), tx) {
+    // The handler authoritatively warns on both failures below during `process_txs`; keep
+    // them at debug to avoid double-logging per block.
+    let spend = match parse_checkpoint_envelope(tx) {
         Ok(spend) => spend,
         Err(e) => {
-            // The handler authoritatively warns on this same failure during
-            // `process_txs`; keep this at debug to avoid double-logging per block.
             logging::debug!(
                 txid = %tx.tx().compute_txid(),
                 error = %e,
-                "checkpoint envelope not authenticated in pre_process; skipping aux request"
+                "failed to parse checkpoint envelope in pre_process; skipping aux request"
             );
             return;
         }
     };
+    if let Err(e) = verify_envelope_key(state.sequencer_key(), &spend) {
+        logging::debug!(
+            txid = %tx.tx().compute_txid(),
+            error = %e,
+            "checkpoint envelope not under the sequencer key in pre_process; skipping aux request"
+        );
+        return;
+    }
 
     // The handler authenticates the output this input spends.
     collector.request_bitcoin_tx(spend.spent_outpoint().txid);

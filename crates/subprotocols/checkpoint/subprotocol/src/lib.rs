@@ -12,7 +12,7 @@ mod subprotocol;
 #[cfg(test)]
 mod test_utils;
 
-pub use auth::{authenticate_checkpoint_tx, parse_sequencer_envelope};
+pub use auth::{authenticate_checkpoint_envelope, authenticate_checkpoint_tx, verify_envelope_key};
 pub use errors::CheckpointEnvelopeError;
 pub use strata_checkpoint_verification::CheckpointState;
 pub use subprotocol::CheckpointSubprotocol;

@@ -2,67 +2,84 @@
 //!
 //! The ASM verifies no signature over a checkpoint. Following SPS-51, it accepts the envelope
 //! pubkey in place of one, on the grounds that Bitcoin verified a signature by that pubkey when
-//! it accepted the carrier transaction. [`SignedEnvelopeSpend`] establishes when that holds: the
-//! envelope must be a strict signed envelope leaf, under the tapscript leaf version, spending a
-//! native P2TR output. This module adds the checkpoint policy on top: the pubkey must be the
-//! sequencer key.
+//! it accepted the carrier transaction. That holds only for a strict signed envelope leaf, under
+//! the tapscript leaf version, spending a native P2TR output.
 //!
-//! The spent output reaches the ASM only through aux data, so authentication splits in two.
-//! [`parse_sequencer_envelope`] runs every check the transaction alone supports, and decides
-//! which spent outputs `pre_process_txs` requests. [`authenticate_checkpoint_tx`] runs it again,
-//! then checks the spent output, and is the only way to obtain an authenticated payload.
+//! Parsing and authentication are separate steps. Parsing
+//! ([`parse_checkpoint_envelope`]) reads the envelope spend from the transaction; the leaf shape
+//! and leaf version are part of its format, so a [`SignedEnvelopeSpend`] already satisfies them.
+//! Authentication ([`authenticate_checkpoint_envelope`]) adds what the transaction alone cannot
+//! show: the pubkey must be the sequencer key, and the spent output, which reaches the ASM only
+//! through aux data, must be native P2TR. Pre-process runs only the key check
+//! ([`verify_envelope_key`]) to decide which spent outputs to request.
 
 use strata_asm_checkpoint_types::CheckpointPayload;
 use strata_asm_common::{TxInputRef, VerifiedAuxData};
 use strata_asm_proto_checkpoint_txs::{decode_checkpoint_payload, parse_checkpoint_envelope};
 use strata_checkpoint_verification::verify_sequencer_key;
 use strata_identifiers::Buf32;
-use strata_l1_envelope_fmt::SignedEnvelopeSpend;
+use strata_l1_envelope_fmt::{SignedEnvelopeLeaf, SignedEnvelopeSpend};
 
 use crate::errors::CheckpointEnvelopeError;
 
-/// Parses the checkpoint envelope in `tx` and checks that its pubkey is `sequencer_key`.
+/// Checks that the envelope pubkey of `spend` is `sequencer_key`.
 ///
-/// Runs the checks that need only the transaction. The returned spend is not authenticated:
-/// [`authenticate_checkpoint_tx`] must still check the output at
-/// [`SignedEnvelopeSpend::spent_outpoint`].
+/// This needs no aux data, so pre-process uses it to decide whether to request the spent
+/// output. It does not authenticate the envelope; see [`authenticate_checkpoint_envelope`].
 ///
 /// # Errors
 ///
-/// [`CheckpointEnvelopeError::Envelope`] if `tx` carries no signed envelope spend, or
 /// [`CheckpointEnvelopeError::SequencerKey`] if the envelope pubkey is not `sequencer_key`.
-pub fn parse_sequencer_envelope(
+pub fn verify_envelope_key(
     sequencer_key: &Buf32,
-    tx: &TxInputRef<'_>,
-) -> Result<SignedEnvelopeSpend, CheckpointEnvelopeError> {
-    let spend = parse_checkpoint_envelope(tx)?;
+    spend: &SignedEnvelopeSpend,
+) -> Result<(), CheckpointEnvelopeError> {
     verify_sequencer_key(sequencer_key, spend.unverified_leaf().pubkey())?;
-    Ok(spend)
+    Ok(())
 }
 
-/// Authenticates the checkpoint envelope in `tx` as the sequencer's and returns its payload.
+/// Authenticates a parsed checkpoint envelope as the sequencer's and returns its leaf.
 ///
-/// `verified_aux_data` must carry the transaction spent by the envelope input; `pre_process_txs`
-/// requests it for every envelope that passes [`parse_sequencer_envelope`].
+/// Checks that the envelope pubkey is `sequencer_key` and that the output the envelope input
+/// spends, read from `verified_aux_data`, is a native P2TR output. `verified_aux_data` must carry
+/// the transaction spent by the envelope input; pre-process requests it for every envelope that
+/// passes [`verify_envelope_key`].
 ///
 /// # Errors
 ///
 /// [`CheckpointEnvelopeError::MissingSpentOutput`] if `verified_aux_data` lacks the spent output,
-/// which means the aux request was not honored. Every other variant means `tx` does not carry a
-/// sequencer checkpoint.
-pub fn authenticate_checkpoint_tx(
+/// which means the aux request was not honored. Every other variant means the envelope is not
+/// the sequencer's.
+pub fn authenticate_checkpoint_envelope(
     sequencer_key: &Buf32,
-    tx: &TxInputRef<'_>,
+    spend: SignedEnvelopeSpend,
     verified_aux_data: &VerifiedAuxData,
-) -> Result<CheckpointPayload, CheckpointEnvelopeError> {
-    let spend = parse_sequencer_envelope(sequencer_key, tx)?;
+) -> Result<SignedEnvelopeLeaf, CheckpointEnvelopeError> {
+    verify_envelope_key(sequencer_key, &spend)?;
 
     let outpoint = spend.spent_outpoint();
     let spent_output = verified_aux_data
         .get_bitcoin_txout(&outpoint)
         .map_err(|source| CheckpointEnvelopeError::MissingSpentOutput { outpoint, source })?;
-    let leaf = spend.verify_spent_output(&spent_output.script_pubkey)?;
+    Ok(spend.verify_spent_output(&spent_output.script_pubkey)?)
+}
 
+/// Parses, authenticates and decodes the checkpoint in `tx`.
+///
+/// Composes [`parse_checkpoint_envelope`], [`authenticate_checkpoint_envelope`] and
+/// [`decode_checkpoint_payload`], for consumers that need the authenticated payload in one call.
+///
+/// # Errors
+///
+/// [`CheckpointEnvelopeError::Envelope`] if `tx` carries no checkpoint envelope or its payload
+/// does not decode, and the errors of [`authenticate_checkpoint_envelope`].
+pub fn authenticate_checkpoint_tx(
+    sequencer_key: &Buf32,
+    tx: &TxInputRef<'_>,
+    verified_aux_data: &VerifiedAuxData,
+) -> Result<CheckpointPayload, CheckpointEnvelopeError> {
+    let spend = parse_checkpoint_envelope(tx)?;
+    let leaf = authenticate_checkpoint_envelope(sequencer_key, spend, verified_aux_data)?;
     Ok(decode_checkpoint_payload(leaf.payload())?)
 }
 
@@ -165,8 +182,15 @@ mod tests {
         let (_, carrier) =
             fixture.build_carrier(&other_key(), LeafVersion::TapScript, p2tr_script());
 
-        let result =
-            parse_sequencer_envelope(fixture.state.sequencer_key(), &parse_sps50_tx(&carrier));
+        let spend = parse_checkpoint_envelope(&parse_sps50_tx(&carrier)).expect("envelope parses");
+        // No funding transaction in aux: the key check must reject before the aux lookup.
+        let aux_without_funding = fixture.harness.gen_verified_aux(&fixture.new_tip);
+
+        let result = authenticate_checkpoint_envelope(
+            fixture.state.sequencer_key(),
+            spend,
+            &aux_without_funding,
+        );
 
         assert!(
             matches!(

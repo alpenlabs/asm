@@ -7,7 +7,8 @@ use thiserror::Error;
 
 /// Reasons a transaction does not yield a checkpoint payload authenticated as the sequencer's.
 ///
-/// Returned by [`parse_sequencer_envelope`](crate::parse_sequencer_envelope) and
+/// Returned by [`verify_envelope_key`](crate::verify_envelope_key),
+/// [`authenticate_checkpoint_envelope`](crate::authenticate_checkpoint_envelope) and
 /// [`authenticate_checkpoint_tx`](crate::authenticate_checkpoint_tx).
 #[derive(Debug, Error)]
 pub enum CheckpointEnvelopeError {

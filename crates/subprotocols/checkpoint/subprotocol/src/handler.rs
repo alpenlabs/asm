@@ -2,10 +2,11 @@ use strata_asm_checkpoint_types::{AsmManifestRangeHash, compute_asm_manifests_ha
 use strata_asm_common::{AsmLogEntry, MsgRelayer, TxInputRef, VerifiedAuxData, logging};
 use strata_asm_logs::CheckpointTipUpdate;
 use strata_asm_proto_bridge_msgs::BridgeIncomingMsg;
+use strata_asm_proto_checkpoint_txs::{decode_checkpoint_payload, parse_checkpoint_envelope};
 use strata_checkpoint_verification::{CheckpointL1Range, CheckpointState, verify_progression};
 use strata_identifiers::L1Height;
 
-use crate::{auth::authenticate_checkpoint_tx, errors::CheckpointEnvelopeError};
+use crate::{auth::authenticate_checkpoint_envelope, errors::CheckpointEnvelopeError};
 
 /// Processes a checkpoint transaction from L1.
 ///
@@ -25,27 +26,58 @@ pub(crate) fn handle_checkpoint_tx(
     verified_aux_data: &VerifiedAuxData,
     relayer: &mut impl MsgRelayer,
 ) {
-    // Authenticate the envelope before doing any progression or proof work.
-    let payload = match authenticate_checkpoint_tx(state.sequencer_key(), tx, verified_aux_data) {
-        Ok(payload) => payload,
-        // `pre_process_txs` requests the spent transaction for every envelope that reaches this
-        // lookup, so its absence means the runtime did not honor the request.
-        Err(CheckpointEnvelopeError::MissingSpentOutput { outpoint, source }) => {
-            logging::error!(
-                txid = %tx.tx().compute_txid(),
-                %outpoint,
-                error = %source,
-                "envelope spent output missing from verified aux data"
-            );
-            panic!("checkpoint aux data missing for envelope spent output {outpoint}: {source}");
-        }
+    // Parse: read the envelope spend from the transaction. The leaf shape and leaf version are
+    // part of the SPS-51 envelope format, so a parsed spend already satisfies them.
+    let spend = match parse_checkpoint_envelope(tx) {
+        Ok(spend) => spend,
         Err(e) => {
             // `compute_txid` stays inside the macro: in zkVM the logging shim is a no-op
             // that discards its args, so the hash is never computed there.
             logging::warn!(
                 txid = %tx.tx().compute_txid(),
                 error = %e,
-                "checkpoint envelope not authenticated, ignoring"
+                "failed to parse checkpoint envelope, ignoring"
+            );
+            return;
+        }
+    };
+
+    // Authenticate: the envelope pubkey must be the sequencer key and the spent output must be
+    // native P2TR, before doing any progression or proof work.
+    let leaf =
+        match authenticate_checkpoint_envelope(state.sequencer_key(), spend, verified_aux_data) {
+            Ok(leaf) => leaf,
+            // `pre_process_txs` requests the spent transaction for every envelope that reaches this
+            // lookup, so its absence means the runtime did not honor the request.
+            Err(CheckpointEnvelopeError::MissingSpentOutput { outpoint, source }) => {
+                logging::error!(
+                    txid = %tx.tx().compute_txid(),
+                    %outpoint,
+                    error = %source,
+                    "envelope spent output missing from verified aux data"
+                );
+                panic!(
+                    "checkpoint aux data missing for envelope spent output {outpoint}: {source}"
+                );
+            }
+            Err(e) => {
+                logging::warn!(
+                    txid = %tx.tx().compute_txid(),
+                    error = %e,
+                    "checkpoint envelope not authenticated, ignoring"
+                );
+                return;
+            }
+        };
+
+    // Decode the now-authenticated payload.
+    let payload = match decode_checkpoint_payload(leaf.payload()) {
+        Ok(payload) => payload,
+        Err(e) => {
+            logging::warn!(
+                txid = %tx.tx().compute_txid(),
+                error = %e,
+                "failed to decode checkpoint payload, ignoring"
             );
             return;
         }
