@@ -51,20 +51,27 @@ class AsmDbtoolReadsTest(flexitest.Test):
         m_missing = run_dbtool_json(db, "asm", "manifest", "get", f"999999:{'00' * 32}")
         assert m_missing["found"] is False, m_missing
 
-        # manifest-mmr: count / leaf (found + missing) / proof (default + explicit --at).
+        # manifest-mmr: count / leaf (found + pre-genesis + missing) / proof (default + --at).
         count = run_dbtool_json(db, "asm", "manifest-mmr", "count")
         leaf_count = count["leaf_count"]
         assert leaf_count > 0, count
         logging.info("manifest-mmr reports %d leaves", leaf_count)
 
-        leaf = run_dbtool_json(db, "asm", "manifest-mmr", "leaf", "0")
+        # The store is seeded from the genesis peaks, so only leaves above genesis are
+        # stored. The newest leaf is always one of them.
+        last_leaf = str(leaf_count - 1)
+        leaf = run_dbtool_json(db, "asm", "manifest-mmr", "leaf", last_leaf)
         assert leaf["found"] is True and leaf["hash"], leaf
+        pre_genesis = run_dbtool_json(db, "asm", "manifest-mmr", "leaf", "0")
+        assert pre_genesis["found"] is False, pre_genesis
         leaf_missing = run_dbtool_json(db, "asm", "manifest-mmr", "leaf", str(leaf_count + 1000))
         assert leaf_missing["found"] is False, leaf_missing
 
-        proof = run_dbtool_json(db, "asm", "manifest-mmr", "proof", "0")
+        proof = run_dbtool_json(db, "asm", "manifest-mmr", "proof", last_leaf)
         assert proof["proof_ssz_hex"], proof
-        proof_at = run_dbtool_json(db, "asm", "manifest-mmr", "proof", "0", "--at", str(leaf_count))
+        proof_at = run_dbtool_json(
+            db, "asm", "manifest-mmr", "proof", last_leaf, "--at", str(leaf_count)
+        )
         assert proof_at["at_leaf_count"] == leaf_count, proof_at
 
         return True
