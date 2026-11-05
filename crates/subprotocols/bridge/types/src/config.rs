@@ -245,6 +245,40 @@ mod tests {
             .expect_err("descriptor hex rejected");
     }
 
+    /// Amounts can be written with a unit so the params file is readable. A bare satoshi count
+    /// still loads as before.
+    #[test]
+    fn config_amounts_deserialize_from_denominated_strings() {
+        let config_json = |denomination: &str, operator_fee: &str| {
+            format!(
+                r#"{{
+                    "operators": [],
+                    "denomination": {denomination},
+                    "assignment_duration": 0,
+                    "operator_fee": {operator_fee},
+                    "recovery_delay": 0,
+                    "safe_harbor_address": "{REGTEST_P2TR}"
+                }}"#
+            )
+        };
+
+        let denominated: BridgeInitConfig =
+            serde_json::from_str(&config_json(r#""10 BTC""#, r#""1 BTC""#))
+                .expect("denominated amounts accepted");
+        let sats: BridgeInitConfig = serde_json::from_str(&config_json("1000000000", "100000000"))
+            .expect("satoshi counts accepted");
+
+        assert_eq!(
+            denominated.denomination,
+            Amount::from_sat(1_000_000_000).into()
+        );
+        assert_eq!(
+            denominated.operator_fee,
+            Amount::from_sat(100_000_000).into()
+        );
+        assert_eq!(denominated, sats);
+    }
+
     #[test]
     fn check_safe_harbor_network_accepts_matching_network() {
         let config = config_with_safe_harbor(REGTEST_P2TR);
