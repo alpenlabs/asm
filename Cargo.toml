@@ -156,7 +156,7 @@ zkaleido-sp1-host = { git = "https://github.com/alpenlabs/zkaleido", tag = "v0.5
 sp1-sdk = "6.10.0"
 sp1-verifier = "6.10.0"
 
-bitcoin-bosd = { git = "https://github.com/alpenlabs/bitcoin-bosd", version = "0.12.0", tag = "v0.12.0", features = [
+bitcoin-bosd = { git = "https://github.com/alpenlabs/bitcoin-bosd", version = "0.12.0", tag = "v0.13.0", features = [
   "ssz",
 ] }
 
