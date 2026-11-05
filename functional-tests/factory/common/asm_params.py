@@ -76,9 +76,9 @@ class CheckpointSubprotocol:
 @dataclass
 class BridgeSubprotocol:
     operators: list[str]
-    denomination: int
+    denomination: str
     assignment_duration: int
-    operator_fee: int
+    operator_fee: str
     recovery_delay: int
     safe_harbor_address: str
 
@@ -152,9 +152,9 @@ def build_subprotocols(
     musig2_keys: list[str],
     admin_address: str,
     genesis_height: int,
-    denomination: int = 1_000_000_000,
+    denomination: str = "10 BTC",
     assignment_duration: int = 100_000,
-    operator_fee: int = 100_000_000,
+    operator_fee: str = "1 BTC",
     recovery_delay: int = 1_008,
     safe_harbor_address: str = DEFAULT_SAFE_HARBOR_ADDRESS,
     admin_confirmation_depth: int = 144,
@@ -223,9 +223,9 @@ def build_asm_params(
     header: dict[str, Any],
     epoch_start_header: dict[str, Any],
     magic: str = ASM_MAGIC_BYTES,
-    denomination: int = 1_000_000_000,
+    denomination: str = "10 BTC",
     assignment_duration: int = 10_000,
-    operator_fee: int = 100_000_000,
+    operator_fee: str = "1 BTC",
     recovery_delay: int = 1_008,
     safe_harbor_address: str = DEFAULT_SAFE_HARBOR_ADDRESS,
     network: str = "regtest",
