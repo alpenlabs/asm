@@ -8441,14 +8441,22 @@ dependencies = [
 name = "strata-asm-proto-checkpoint"
 version = "0.1.0"
 dependencies = [
+ "bitcoin",
  "strata-asm-checkpoint-types",
  "strata-asm-common",
  "strata-asm-logs",
  "strata-asm-proto-bridge-msgs",
  "strata-asm-proto-checkpoint-msgs",
  "strata-asm-proto-checkpoint-txs",
+ "strata-asm-proto-txs-test-utils",
  "strata-checkpoint-verification",
+ "strata-codec",
+ "strata-codec-utils",
  "strata-identifiers",
+ "strata-l1-envelope-fmt",
+ "strata-test-utils-arb",
+ "strata-test-utils-checkpoint",
+ "thiserror 2.0.18",
 ]
 
 [[package]]
@@ -8471,6 +8479,7 @@ dependencies = [
  "bitcoin",
  "strata-asm-checkpoint-types",
  "strata-asm-common",
+ "strata-asm-proto-txs-test-utils",
  "strata-codec",
  "strata-codec-utils",
  "strata-l1-envelope-fmt",
@@ -9085,7 +9094,6 @@ dependencies = [
  "strata-asm-checkpoint-types",
  "strata-asm-common",
  "strata-asm-manifest-types",
- "strata-asm-proto-checkpoint-txs",
  "strata-crypto",
  "strata-identifiers",
  "strata-merkle",

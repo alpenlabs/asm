@@ -1,5 +1,5 @@
 use strata_codec::CodecError;
-use strata_l1_envelope_fmt::EnvelopeParseError;
+use strata_l1_envelope_fmt::SignedEnvelopeSpendError;
 use thiserror::Error;
 
 /// Errors that can occur while parsing checkpoint transactions from SPS-50 envelopes.
@@ -13,17 +13,9 @@ pub enum CheckpointTxError {
     #[error("checkpoint transaction missing inputs")]
     MissingInputs,
 
-    /// The taproot leaf script was not present in the first input witness.
-    #[error("checkpoint transaction missing taproot leaf script in first input witness")]
-    MissingLeafScript,
-
-    /// Envelope contained no payload chunk.
-    #[error("checkpoint envelope contains no payload")]
-    MissingPayload,
-
-    /// Failed to parse the envelope script structure.
-    #[error("failed to parse checkpoint envelope script: {0}")]
-    EnvelopeParse(#[from] EnvelopeParseError),
+    /// The first input is not an SPS-51 signed envelope spend.
+    #[error("checkpoint transaction carries no signed envelope in its first input: {0}")]
+    EnvelopeSpend(#[from] SignedEnvelopeSpendError),
 
     /// Failed to decode the checkpoint payload via strata-codec.
     #[error("failed to decode checkpoint payload: {0}")]

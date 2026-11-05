@@ -164,8 +164,9 @@ pub(crate) fn verify_proof(
 ///
 /// Uses the SPS-51 envelope trick: the envelope container commits to an initial pubkey that
 /// controls the spend, and the ASM treats the script-spend signature as transitively signing
-/// the envelope contents. Bitcoin consensus already verified that signature, so matching the
-/// pubkey is all that is left to check.
+/// the envelope contents. A key match alone does not establish that signature. Bitcoin
+/// verified it only if the envelope leaf is a TapScript leaf and the spent output is a native
+/// P2TR output; the checkpoint subprotocol checks both alongside this match.
 ///
 /// `envelope_pubkey` is whatever the leaf script pushed, so its length is not known to be 32
 /// here. The comparison rejects a wrong length along with a wrong key.

@@ -12,12 +12,11 @@ use strata_asm_checkpoint_types::{
     CheckpointTip, L2BlockRange, OLLog, TerminalHeaderComplement,
 };
 use strata_asm_common::{
-    AsmHistoryAccumulatorState, AuxData, VerifiableManifestHash, VerifiedAuxData,
+    AsmHistoryAccumulatorState, AuxData, RawBitcoinTx, VerifiableManifestHash, VerifiedAuxData,
 };
 use strata_asm_manifest_types::{
     AsmManifestHash, AsmManifestRangeHash, ASM_MANIFEST_MMR_PREFILL_LEAF,
 };
-use strata_asm_proto_checkpoint_txs::EnvelopeCheckpoint;
 use strata_crypto::hash;
 use strata_identifiers::{Buf32, OLBlockCommitment, OLBlockId};
 use strata_merkle::{Mmr, Mmr64B32, Sha256Hasher};
@@ -213,6 +212,16 @@ impl CheckpointTestHarness {
     /// Constructs a complete ASM history accumulator state with manifests for all L1 blocks
     /// from genesis to the new tip, including Merkle proofs for each manifest hash.
     pub fn gen_verified_aux(&self, new_tip: &CheckpointTip) -> VerifiedAuxData {
+        self.gen_verified_aux_with_txs(new_tip, Vec::new())
+    }
+
+    /// Like [`Self::gen_verified_aux`], but also supplies `bitcoin_txs`, such as the
+    /// transaction spent by a checkpoint envelope input.
+    pub fn gen_verified_aux_with_txs(
+        &self,
+        new_tip: &CheckpointTip,
+        bitcoin_txs: Vec<RawBitcoinTx>,
+    ) -> VerifiedAuxData {
         let leaves = self.gen_manifest_leaves(new_tip);
 
         // The proven MMR is height-indexed: positions `0..=genesis_l1_height`
@@ -249,7 +258,7 @@ impl CheckpointTestHarness {
             .map(|(leaf, proof)| VerifiableManifestHash::new(*leaf, proof))
             .collect();
 
-        let data = AuxData::new(manifest_hashes, vec![]);
+        let data = AuxData::new(manifest_hashes, bitcoin_txs);
         VerifiedAuxData::try_new(&data, &asm_accumulator_state).unwrap()
     }
 
@@ -370,17 +379,5 @@ impl CheckpointTestHarness {
         let proof = signing_key.sign(&claim.as_ssz_bytes()).to_vec();
 
         CheckpointPayload::new(new_tip, sidecar, proof).unwrap()
-    }
-
-    /// Wraps a checkpoint payload into an [`EnvelopeCheckpoint`] with the sequencer's pubkey.
-    ///
-    /// This simulates the extraction that would happen on the ASM side when parsing
-    /// an SPS-51 envelope transaction where the sequencer's pubkey is used as the
-    /// taproot key.
-    pub fn wrap_in_envelope(&self, payload: CheckpointPayload) -> EnvelopeCheckpoint {
-        EnvelopeCheckpoint {
-            payload,
-            envelope_pubkey: self.sequencer_pubkey.as_ref().to_vec(),
-        }
     }
 }
