@@ -246,6 +246,8 @@ fn decode_wire<A: Encode + Decode>(
 mod tests {
     use strata_asm_admin_threshold_sig::IndexedSignature;
     use strata_asm_proto_txs_test_utils::{create_dummy_tx, overwrite_aux_data, parse_sps50_tx};
+    use strata_crypto::EvenPublicKey;
+    use strata_identifiers::Buf32;
     use strata_test_utils_arb::ArbitraryGenerator;
 
     use super::*;
@@ -290,6 +292,37 @@ mod tests {
                 Err(AdministrationTxParseError::MalformedPayload { .. })
             ));
         }
+    }
+
+    #[test]
+    fn sequencer_update_with_invalid_key_is_rejected() {
+        let admin_tx_type = AdminTxType::Update(UpdateTxType::SequencerUpdate);
+        let key = EvenPublicKey::try_from(Buf32::from([7u8; 32])).expect("valid x-only key");
+        let action = MultisigAction::Update(UpdateAction::Sequencer(SequencerUpdate::new(key)));
+        let valid = SignedPayload::new(7, action, dummy_signatures());
+        let valid_bytes = valid.clone().into_envelope_bytes();
+
+        // Preserve the old flat layout: seqno, raw 32-byte key, signatures offset/list.
+        assert_eq!(
+            valid_bytes,
+            encode_wire(7, Buf32::from(key), dummy_signatures())
+        );
+        assert_eq!(&valid_bytes[8..40], &[7u8; 32]);
+
+        // `[3; 32]` has no point on the curve; `[0xff; 32]` exceeds the field prime.
+        for invalid_key in [[3u8; 32], [0xffu8; 32]] {
+            let mut bytes = valid_bytes.clone();
+            bytes[8..40].copy_from_slice(&invalid_key);
+            let res = decode_signed_payload(admin_tx_type, &bytes, admin_tx_type.into());
+            assert!(matches!(
+                res,
+                Err(AdministrationTxParseError::MalformedPayload { .. })
+            ));
+        }
+
+        let decoded = decode_signed_payload(admin_tx_type, &valid_bytes, admin_tx_type.into())
+            .expect("valid x-only key decodes with the same sequence number");
+        assert_eq!(decoded, valid);
     }
 
     /// Transactions are routed to this subprotocol on their output tag alone, so one with

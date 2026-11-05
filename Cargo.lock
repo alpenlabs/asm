@@ -8184,6 +8184,7 @@ dependencies = [
  "strata-asm-proto-admin-txs",
  "strata-asm-proto-bridge-msgs",
  "strata-asm-proto-checkpoint-msgs",
+ "strata-asm-proto-txs-test-utils",
  "strata-crypto",
  "strata-identifiers",
  "strata-predicate",

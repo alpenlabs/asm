@@ -232,7 +232,7 @@ fn handle_update(
         }
         UpdateAction::Sequencer(update) => {
             let new_key = update.into_inner();
-            relay_checkpoint_sequencer_update(relayer, new_key);
+            relay_checkpoint_sequencer_update(relayer, new_key.into());
         }
         UpdateAction::OlStfVk(update) => {
             relay_checkpoint_predicate_update(relayer, update.into_key());
@@ -316,11 +316,14 @@ fn relay_bridge_safe_harbor_address_update(
 mod tests {
     use std::any::Any;
 
-    use bitcoin::secp256k1::SecretKey;
+    use bitcoin::{Network, Transaction, secp256k1::SecretKey};
     use rand::{seq::SliceRandom, thread_rng};
     use strata_asm_admin_types::{AdministrationInitConfig, Role, UpdateTxType};
     use strata_asm_bridge_types::SafeHarborAddress;
-    use strata_asm_common::{AsmLogEntry, InterprotoMsg, MsgRelayer};
+    use strata_asm_common::{
+        AsmHistoryAccumulatorState, AsmLogEntry, AuxData, HeaderVerificationState, InterprotoMsg,
+        MsgRelayer, Subprotocol, VerifiedAuxData,
+    };
     use strata_asm_logs::{AsmStfUpdate, CheckpointPredicateEnacted};
     use strata_asm_proto_admin_txs::{
         actions::{
@@ -331,11 +334,13 @@ mod tests {
             },
         },
         parser::SignedPayload,
-        test_utils::create_signature_set,
+        test_utils::{create_signature_set, create_test_admin_tx},
     };
     use strata_asm_proto_bridge_msgs::BridgeIncomingMsg;
     use strata_asm_proto_checkpoint_msgs::CheckpointIncomingMsg;
-    use strata_identifiers::{Buf32, L1Height};
+    use strata_asm_proto_txs_test_utils::{create_reveal_transaction_stub, parse_sps50_tx};
+    use strata_crypto::EvenPublicKey;
+    use strata_identifiers::{Buf32, L1BlockCommitment, L1Height};
     use strata_predicate::{PredicateKey, PredicateTypeId};
     use strata_test_utils_arb::ArbitraryGenerator;
 
@@ -344,6 +349,7 @@ mod tests {
         error::AdministrationError,
         queued_update::QueuedUpdate,
         state::AdministrationSubprotoState,
+        subprotocol::AdministrationSubprotocol,
         test_utils::{TEST_NETWORK, new_keys, signer_config, uniform_confirmation_depths},
     };
 
@@ -748,6 +754,117 @@ mod tests {
         );
     }
 
+    /// Runs one L1 block's admin txs at `height` through the subprotocol entry point, the same
+    /// path the STF takes: queued updates due at `height` are enacted, then each tx is parsed
+    /// and handled.
+    fn process_block(
+        state: &mut AdministrationSubprotoState,
+        relayer: &mut MockRelayer<CheckpointIncomingMsg>,
+        height: L1Height,
+        txs: &[Transaction],
+    ) {
+        let mut header_vs = HeaderVerificationState::default();
+        header_vs.last_verified_block =
+            L1BlockCommitment::new(height, ArbitraryGenerator::new().generate());
+        let aux = VerifiedAuxData::try_new(
+            &AuxData::new(vec![], vec![]),
+            &AsmHistoryAccumulatorState::new(16),
+        )
+        .expect("empty aux data verifies");
+        let tx_refs: Vec<_> = txs.iter().map(parse_sps50_tx).collect();
+        AdministrationSubprotocol::process_txs(state, &tx_refs, &header_vs, &aux, relayer);
+    }
+
+    /// Network the signing message must name for [`process_block`] to accept a signature.
+    fn block_network() -> Network {
+        HeaderVerificationState::default().network()
+    }
+
+    fn sequencer_update_action(key: [u8; 32]) -> MultisigAction {
+        let key = EvenPublicKey::try_from(Buf32::from(key)).expect("valid x-only key");
+        MultisigAction::Update(UpdateAction::Sequencer(SequencerUpdate::new(key)))
+    }
+
+    /// A malformed sequencer key is dropped before authorization. It is not enacted, even at zero
+    /// confirmation depth, and it is not queued. It also leaves the seqno unused, so a
+    /// corrected key can be signed at that same seqno.
+    #[test]
+    fn test_sequencer_update_with_invalid_key_is_dropped_before_scheduling() {
+        let height = 1000;
+        for depth in [0, 2016] {
+            let (mut params, _, seq_manager_sks, _) = create_test_params();
+            params.confirmation_depths.sequencer_update = depth;
+            let mut state = AdministrationSubprotoState::new(&params);
+            let mut relayer = MockRelayer::<CheckpointIncomingMsg>::new();
+            let role = Role::StrataSequencerManager;
+            let seqno = 1;
+
+            // `[3; 32]` has no point on the curve; `[0xff; 32]` exceeds the field prime.
+            let bad_txs: Vec<_> = [[3u8; 32], [0xffu8; 32]]
+                .into_iter()
+                .map(|key| {
+                    let action = sequencer_update_action([7u8; 32]);
+                    let signatures = create_signature_set(
+                        &seq_manager_sks,
+                        &[0, 2],
+                        &action,
+                        seqno,
+                        block_network(),
+                    );
+                    let mut bytes =
+                        SignedPayload::new(seqno, action.clone(), signatures).into_envelope_bytes();
+                    // SSZ seqno is eight bytes, followed by the 32-byte key.
+                    assert_eq!(&bytes[8..40], &[7u8; 32]);
+                    bytes[8..40].copy_from_slice(&key);
+                    create_reveal_transaction_stub(bytes, &action.tag())
+                })
+                .collect();
+            process_block(&mut state, &mut relayer, height, &bad_txs);
+
+            assert_eq!(
+                state.authority(role).unwrap().last_seqno(),
+                0,
+                "depth {depth}"
+            );
+            assert_eq!(state.next_update_id(), 0, "depth {depth}");
+            assert!(state.queued().is_empty(), "depth {depth}");
+            assert!(relayer.messages().is_empty(), "depth {depth}");
+
+            // A corrected key signed at the same seqno is accepted as usual.
+            let good_key = [8u8; 32];
+            let good_action = sequencer_update_action(good_key);
+            let good_tx = create_test_admin_tx(
+                &seq_manager_sks,
+                &[0, 2],
+                &good_action,
+                seqno,
+                block_network(),
+            );
+            process_block(&mut state, &mut relayer, height + 1, &[good_tx]);
+
+            assert_eq!(
+                state.authority(role).unwrap().last_seqno(),
+                seqno,
+                "depth {depth}"
+            );
+            assert_eq!(state.next_update_id(), 1, "depth {depth}");
+            let MultisigAction::Update(good_update) = good_action else {
+                unreachable!("built as an update");
+            };
+            if depth == 0 {
+                assert!(state.queued().is_empty());
+                assert!(matches!(
+                    relayer.messages(),
+                    [CheckpointIncomingMsg::UpdateSequencerKey(key)] if *key == Buf32::from(good_key)
+                ));
+            } else {
+                assert!(relayer.messages().is_empty());
+                let queued = state.find_queued(&0).expect("corrected update is queued");
+                assert_eq!(queued.action(), &good_update);
+            }
+        }
+    }
+
     #[test]
     fn test_rollup_verifying_key_update_forwarded_to_checkpoint() {
         let (params, _, _, _) = create_test_params();
@@ -970,9 +1087,9 @@ mod tests {
         let mut state = AdministrationSubprotoState::new(&params);
         let mut relayer = MockRelayer::<CheckpointIncomingMsg>::new();
         let activation_height = 42;
-        let first_key = Buf32::from([1; 32]);
-        let second_key = Buf32::from([2; 32]);
-        let third_key = Buf32::from([3; 32]);
+        let first_key = Buf32::from([7; 32]);
+        let second_key = Buf32::from([8; 32]);
+        let third_key = Buf32::from([42; 32]);
 
         state.enqueue(QueuedUpdate::new(
             0,
@@ -982,7 +1099,9 @@ mod tests {
         for (id, key) in [(1, first_key), (2, second_key), (3, third_key)] {
             state.enqueue(QueuedUpdate::new(
                 id,
-                UpdateAction::Sequencer(SequencerUpdate::new(key)),
+                UpdateAction::Sequencer(SequencerUpdate::new(
+                    EvenPublicKey::try_from(key).expect("valid x-only key"),
+                )),
                 activation_height,
             ));
         }

@@ -28,5 +28,6 @@ thiserror.workspace = true
 [dev-dependencies]
 strata-asm-proto-admin-txs = { workspace = true, features = ["test-utils"] }
 strata-asm-bridge-types = { workspace = true, features = ["arbitrary"] }
+strata-asm-proto-txs-test-utils.workspace = true
 strata-test-utils-arb.workspace = true
 rand.workspace = true

@@ -356,7 +356,7 @@ async fn test_corrupted_signature_rejected() {
         ..
     } = AsmTestHarnessBuilder::default().build().await;
 
-    let action = sequencer_update([88u8; 32]);
+    let action = sequencer_update([86u8; 32]);
     let seqno = 1;
     let role = action.required_role();
     let sig_set = create_signature_set(
@@ -561,13 +561,13 @@ async fn test_replay_attack_rejected() {
 
     // Submit first transaction (seqno=0, auto-incremented to 1)
     harness
-        .submit_admin_action(&mut ctx, sequencer_update([4u8; 32]))
+        .submit_admin_action(&mut ctx, sequencer_update([12u8; 32]))
         .await
         .unwrap();
 
     // Try to replay with seqno=0 (should fail)
     harness
-        .submit_admin_action_with_seqno(&ctx, sequencer_update([5u8; 32]), 0)
+        .submit_admin_action_with_seqno(&ctx, sequencer_update([13u8; 32]), 0)
         .await
         .unwrap();
 
