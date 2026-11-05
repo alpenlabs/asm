@@ -97,8 +97,22 @@ where
         // for an anchor they reject would pin the store to that height, and a
         // corrected anchor could then never seed or append.
         let genesis_accumulator = &genesis_state.chain_view.history_accumulator;
-        if context.manifest_mmr_leaf_count()? < genesis_accumulator.num_entries() {
-            context.seed_manifest_mmr(genesis_accumulator)?;
+        let expected = genesis_accumulator.num_entries();
+        match context.manifest_mmr_leaf_count()? {
+            0 => {
+                context.seed_manifest_mmr(genesis_accumulator)?;
+                tracing::info!(
+                    leaf_count = expected,
+                    "seeded manifest MMR from the genesis accumulator"
+                );
+            }
+            leaf_count if leaf_count >= expected => {}
+            leaf_count => {
+                return Err(WorkerError::PartialManifestMmr {
+                    leaf_count,
+                    expected,
+                });
+            }
         }
 
         let anchor = match latest {
@@ -345,7 +359,7 @@ fn validate_anchor_against_l1<W: L1DataProvider>(
 mod tests {
     use bitcoin::Network;
     use bitcoind_async_client::{Auth, Client, traits::Reader};
-    use strata_asm_common::{AsmLogEntry, AsmManifest, AsmSpec};
+    use strata_asm_common::{AsmLogEntry, AsmManifest, AsmManifestHash, AsmSpec};
     use strata_asm_logs::AsmStfUpdate;
     use strata_btc_verification::L1Anchor;
     use strata_identifiers::{Buf32, L1BlockId};
@@ -697,6 +711,32 @@ mod tests {
             .record_manifest(out.manifest)
             .expect("first manifest appends at the corrected genesis + 1");
         assert_eq!(state.context.mmr_leaf_count(), 102);
+    }
+
+    /// A manifest MMR below genesis but not empty, as an interrupted prefill by
+    /// an older release leaves it, fails startup with a dedicated error rather
+    /// than a generic store error from the seed.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn new_rejects_partially_populated_mmr() {
+        let fx = fixtures::setup_context(101).await;
+        for height in 0..10 {
+            fx.context
+                .put_manifest_hash(height, AsmManifestHash::from([0u8; 32]))
+                .expect("append leaf");
+        }
+
+        let params = fixtures::genesis_params(&fx.client, 101).await;
+        let err = fixtures::new_state(fx.context.clone(), params).unwrap_err();
+        assert!(
+            matches!(
+                err,
+                WorkerError::PartialManifestMmr {
+                    leaf_count: 10,
+                    expected: 102
+                }
+            ),
+            "expected PartialManifestMmr, got {err:?}",
+        );
     }
 
     /// `new` seeds the manifest MMR up to genesis without storing the leaves

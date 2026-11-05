@@ -128,8 +128,8 @@ pub trait ManifestMmrStore {
     /// only those peaks. Seeding from the proven accumulator keeps the stored
     /// MMR in step with it by construction.
     ///
-    /// Called at worker startup while the MMR holds fewer leaves than the
-    /// genesis accumulator. Errors if the MMR already holds leaves.
+    /// Requires an empty MMR. The worker calls it at startup only when the
+    /// MMR holds no leaves.
     fn seed_manifest_mmr(&self, genesis: &AsmHistoryAccumulatorState) -> WorkerResult<()>;
 
     /// Persists a manifest in full: the [`AsmManifest`] struct via
