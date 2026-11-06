@@ -62,12 +62,12 @@ impl Subprotocol for AdministrationSubprotocol {
         // logged and skipped inside `parse_tx` to maintain system resilience.
         let mut block_updates = BlockUpdateGuard::default();
         for tx in txs {
-            let Some(signed_payload) = parse_tx(tx) else {
+            let Some(payload) = parse_tx(tx) else {
                 continue;
             };
             if let Err(e) = handle_action(
                 state,
-                signed_payload,
+                payload,
                 current_height,
                 network,
                 relayer,

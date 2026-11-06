@@ -8,7 +8,7 @@ use strata_l1_txfmt::TxType;
 
 use crate::{
     actions::{
-        CancelAction, MultisigAction, UpdateAction,
+        CancelAction, MultisigAction, UpdateAction, UpdateId,
         updates::{
             AlpenAdminMultisigUpdate, AsmStfVkUpdate, Defcon1Update, Defcon3Update, EeStfVkUpdate,
             OlStfVkUpdate, OperatorSetUpdate, SafeHarborAddressUpdate, SequencerUpdate,
@@ -21,11 +21,8 @@ use crate::{
 
 /// A signed administration payload containing both the action and its signatures.
 ///
-/// In-memory representation handed to the subprotocol handler. On the wire the action is
-/// encoded *without* enum discriminants: the SPS-50 tag's tx type selects the concrete
-/// action type, and the envelope carries the seqno, that action and the signatures as a
-/// flat SSZ struct. Use [`into_envelope_bytes`](Self::into_envelope_bytes) / [`parse_tx`]
-/// to cross that boundary.
+/// This is the full payload that signers sign over and the handler verifies. A cancel holds
+/// the update it targets, but only the target id goes on chain: see [`EnvelopePayload`].
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct SignedPayload {
     /// Sequence number used to prevent replay attacks and enforce ordering.
@@ -46,6 +43,80 @@ impl SignedPayload {
         }
     }
 
+    /// Encodes this payload into the envelope wire format. See
+    /// [`EnvelopePayload::into_envelope_bytes`].
+    pub fn into_envelope_bytes(self) -> Vec<u8> {
+        EnvelopePayload::from(self).into_envelope_bytes()
+    }
+}
+
+/// An administration action as carried in a transaction envelope.
+///
+/// A cancel names the queued update it targets by id only. The update itself is already on
+/// chain in the queue, so the handler looks it up there to rebuild the [`CancelAction`].
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum EnvelopeAction {
+    /// Cancel the update queued under this id.
+    Cancel(UpdateId),
+    /// Propose an update.
+    Update(UpdateAction),
+}
+
+impl From<MultisigAction> for EnvelopeAction {
+    fn from(action: MultisigAction) -> Self {
+        match action {
+            MultisigAction::Cancel(cancel) => EnvelopeAction::Cancel(*cancel.target_id()),
+            MultisigAction::Update(update) => EnvelopeAction::Update(update),
+        }
+    }
+}
+
+/// A signed administration payload as carried in a transaction envelope.
+///
+/// In-memory form of the envelope. On the wire the action is encoded *without* enum
+/// discriminants: the SPS-50 tag's tx type selects the concrete action type, and the envelope
+/// carries the seqno, that action and the signatures as a flat SSZ struct. Use
+/// [`into_envelope_bytes`](Self::into_envelope_bytes) / [`parse_tx`] to cross that boundary,
+/// and [`resolve`](Self::resolve) to get the [`SignedPayload`] the signatures cover.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct EnvelopePayload {
+    /// Sequence number used to prevent replay attacks and enforce ordering.
+    pub seqno: u64,
+    /// The administrative action being proposed
+    pub action: EnvelopeAction,
+    /// The set of ECDSA signatures authorizing this action
+    pub signatures: SignatureSet,
+}
+
+impl From<SignedPayload> for EnvelopePayload {
+    fn from(payload: SignedPayload) -> Self {
+        Self {
+            seqno: payload.seqno,
+            action: payload.action.into(),
+            signatures: payload.signatures,
+        }
+    }
+}
+
+impl EnvelopePayload {
+    /// Rebuilds the full [`SignedPayload`], taking a cancel's target update from
+    /// `find_queued`.
+    ///
+    /// Returns the target id as the error if nothing is queued under it.
+    pub fn resolve(
+        self,
+        find_queued: impl FnOnce(UpdateId) -> Option<UpdateAction>,
+    ) -> Result<SignedPayload, UpdateId> {
+        let action = match self.action {
+            EnvelopeAction::Cancel(target_id) => {
+                let update = find_queued(target_id).ok_or(target_id)?;
+                MultisigAction::Cancel(CancelAction::new(target_id, update))
+            }
+            EnvelopeAction::Update(update) => MultisigAction::Update(update),
+        };
+        Ok(SignedPayload::new(self.seqno, action, self.signatures))
+    }
+
     /// Encodes this payload into the envelope wire format.
     ///
     /// The action is encoded without its enum discriminants; the receiver re-derives the
@@ -58,8 +129,8 @@ impl SignedPayload {
             signatures,
         } = self;
         match action {
-            MultisigAction::Cancel(action) => encode_wire(seqno, action, signatures),
-            MultisigAction::Update(update) => match update {
+            EnvelopeAction::Cancel(target_id) => encode_wire(seqno, target_id, signatures),
+            EnvelopeAction::Update(update) => match update {
                 UpdateAction::StrataAdminMultisig(u) => encode_wire(seqno, u, signatures),
                 UpdateAction::StrataSeqManagerMultisig(u) => encode_wire(seqno, u, signatures),
                 UpdateAction::AlpenAdminMultisig(u) => encode_wire(seqno, u, signatures),
@@ -99,7 +170,7 @@ fn encode_wire<A: Encode + Decode>(seqno: u64, action: A, signatures: SignatureS
     .as_ssz_bytes()
 }
 
-/// Parses a transaction into a [`SignedPayload`] based on its SPS-50 tx type.
+/// Parses a transaction into an [`EnvelopePayload`] based on its SPS-50 tx type.
 ///
 /// The tag's tx type selects the concrete action type to decode from the taproot leaf
 /// script envelope in the transaction's witness; the payload itself carries no enum
@@ -107,9 +178,9 @@ fn encode_wire<A: Encode + Decode>(seqno: u64, action: A, signatures: SignatureS
 ///
 /// # Returns
 ///
-/// Returns `Some(SignedPayload)` when the tx type is known and the envelope payload is
+/// Returns `Some(EnvelopePayload)` when the tx type is known and the envelope payload is
 /// well-formed, returns None (with a warning logged) otherwise.
-pub fn parse_tx(tx: &TxInputRef<'_>) -> Option<SignedPayload> {
+pub fn parse_tx(tx: &TxInputRef<'_>) -> Option<EnvelopePayload> {
     // Decode the SPS-50 tag's tx type byte into a known `AdminTxType`. An unknown
     // discriminant means the tx was tagged for the administration subprotocol but with a
     // type this build doesn't recognize — likely a protocol/version mismatch.
@@ -147,7 +218,7 @@ pub fn parse_tx(tx: &TxInputRef<'_>) -> Option<SignedPayload> {
 fn extract_signed_payload(
     tx: &TxInputRef<'_>,
     admin_tx_type: AdminTxType,
-) -> Result<SignedPayload, AdministrationTxParseError> {
+) -> Result<EnvelopePayload, AdministrationTxParseError> {
     let tx_type = tx.tag().tx_type();
 
     // Extract the taproot leaf script from the first input's witness. Index through
@@ -176,15 +247,15 @@ fn decode_signed_payload(
     admin_tx_type: AdminTxType,
     bytes: &[u8],
     tx_type: TxType,
-) -> Result<SignedPayload, AdministrationTxParseError> {
+) -> Result<EnvelopePayload, AdministrationTxParseError> {
     match admin_tx_type {
         AdminTxType::Cancel => {
-            let wire = decode_wire::<CancelAction>(bytes, tx_type)?;
-            Ok(SignedPayload::new(
-                wire.seqno,
-                MultisigAction::Cancel(wire.action),
-                wire.signatures,
-            ))
+            let wire = decode_wire::<UpdateId>(bytes, tx_type)?;
+            Ok(EnvelopePayload {
+                seqno: wire.seqno,
+                action: EnvelopeAction::Cancel(wire.action),
+                signatures: wire.signatures,
+            })
         }
         AdminTxType::Update(update_type) => match update_type {
             UpdateTxType::StrataAdminMultisigUpdate => {
@@ -216,16 +287,16 @@ fn decode_signed_payload(
 fn decode_update<A>(
     bytes: &[u8],
     tx_type: TxType,
-) -> Result<SignedPayload, AdministrationTxParseError>
+) -> Result<EnvelopePayload, AdministrationTxParseError>
 where
     A: Encode + Decode + Into<UpdateAction>,
 {
     let wire = decode_wire::<A>(bytes, tx_type)?;
-    Ok(SignedPayload::new(
-        wire.seqno,
-        MultisigAction::Update(wire.action.into()),
-        wire.signatures,
-    ))
+    Ok(EnvelopePayload {
+        seqno: wire.seqno,
+        action: EnvelopeAction::Update(wire.action.into()),
+        signatures: wire.signatures,
+    })
 }
 
 fn decode_wire<A: Encode + Decode>(
@@ -275,7 +346,7 @@ mod tests {
 
             let decoded = decode_signed_payload(admin_tx_type, &bytes, admin_tx_type.into())
                 .expect("wire payload must decode under its own tx type");
-            assert_eq!(decoded, original);
+            assert_eq!(decoded, original.into());
         }
     }
 
@@ -322,7 +393,25 @@ mod tests {
 
         let decoded = decode_signed_payload(admin_tx_type, &valid_bytes, admin_tx_type.into())
             .expect("valid x-only key decodes with the same sequence number");
-        assert_eq!(decoded, valid);
+        assert_eq!(decoded, valid.into());
+    }
+
+    /// A cancel goes on chain as seqno, target id and signatures. The update it cancels stays
+    /// off the wire, and the decoded cancel names only the id.
+    #[test]
+    fn cancel_envelope_carries_only_the_target_id() {
+        let key = EvenPublicKey::try_from(Buf32::from([7u8; 32])).expect("valid x-only key");
+        let update = UpdateAction::Sequencer(SequencerUpdate::new(key));
+        let action = MultisigAction::Cancel(CancelAction::new(3, update));
+        let bytes = SignedPayload::new(7, action, dummy_signatures()).into_envelope_bytes();
+
+        assert_eq!(bytes, encode_wire(7, 3u32, dummy_signatures()));
+        assert_eq!(&bytes[8..12], &3u32.to_le_bytes());
+
+        let decoded =
+            decode_signed_payload(AdminTxType::Cancel, &bytes, AdminTxType::Cancel.into())
+                .expect("cancel payload decodes");
+        assert_eq!(decoded.action, EnvelopeAction::Cancel(3));
     }
 
     /// Transactions are routed to this subprotocol on their output tag alone, so one with

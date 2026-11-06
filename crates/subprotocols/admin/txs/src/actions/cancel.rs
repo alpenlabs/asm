@@ -1,17 +1,19 @@
 use arbitrary::Arbitrary;
-use ssz_derive::{Decode, Encode};
 use strata_asm_admin_types::AdminTxType;
 
 use super::{IndentedDetails, RenderSigningMessage, UpdateAction};
 use crate::actions::UpdateId;
 
-#[derive(Clone, Debug, Eq, PartialEq, Arbitrary, Encode, Decode)]
+/// A cancel of a queued update.
+///
+/// Only `target_id` goes on chain. The handler rebuilds the rest from the update queued under
+/// that id, so a wrong id yields a different signing message and the signatures fail.
+#[derive(Clone, Debug, Eq, PartialEq, Arbitrary)]
 pub struct CancelAction {
-    /// ID of the update that needs to be cancelled.
+    /// ID of the queued update to cancel.
     target_id: UpdateId,
-    /// The update being cancelled. Embedded so the signing message describes the full
-    /// payload signers are authorizing the cancellation of, and so role resolution can
-    /// proceed without consulting the queue.
+    /// The update queued under `target_id`. The signing message shows it, and its role is
+    /// the one that must authorize the cancel.
     update: UpdateAction,
 }
 
@@ -55,7 +57,7 @@ mod tests {
     };
 
     #[test]
-    fn test_cancel_message_renders_embedded_update() {
+    fn test_cancel_message_renders_target_update() {
         let key = EvenPublicKey::try_from(Buf32::from([7u8; 32])).expect("valid x-only key");
         let update = UpdateAction::Sequencer(SequencerUpdate::new(key));
         let action = MultisigAction::Cancel(CancelAction::new(7, update));

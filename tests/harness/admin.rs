@@ -248,8 +248,8 @@ pub fn operator_set_update(add: Vec<EvenPublicKey>, remove: Vec<u32>) -> Multisi
 
 /// Create a cancel action for a queued update.
 ///
-/// Looks up the queued action at `id` so the cancel embeds the correct `UpdateAction`
-/// payload (required for role resolution and the handler's equality check).
+/// Looks up the queued action at `id`, which signers need to render the signing message and
+/// pick the signing role. Only the id goes on chain.
 pub fn cancel_update(id: u32, state: &AdministrationSubprotoState) -> MultisigAction {
     let update = state
         .find_queued(&id)

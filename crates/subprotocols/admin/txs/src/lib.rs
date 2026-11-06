@@ -13,9 +13,8 @@
 //!
 //! - [`actions::MultisigAction`]: High-level multisig operations that can be proposed (Cancel or
 //!   Update)
-//! - [`actions::CancelAction`]: Specific action to cancel a pending update; embeds the target ID
-//!   and the full `UpdateAction` payload so signers see what they're cancelling and role resolution
-//!   does not require queue context
+//! - [`actions::CancelAction`]: Specific action to cancel a pending update; holds the target ID and
+//!   the queued `UpdateAction` so signers see what they're cancelling. Only the ID goes on chain
 //! - [`actions::UpdateAction`]: Various update types (multisig, operator, sequencer, verifying key)
 
 pub mod actions;

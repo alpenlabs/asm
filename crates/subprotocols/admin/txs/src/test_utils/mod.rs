@@ -76,7 +76,7 @@ pub fn create_signature_set(
 /// # Arguments
 /// * `privkeys` - Private keys of all signers in the threshold config
 /// * `signer_indices` - Indices of signers participating in this signature
-/// * `action` - The MultisigAction to sign and embed (Update or Cancel)
+/// * `action` - The MultisigAction to sign and embed (a cancel embeds only its target id)
 /// * `seqno` - The sequence number for this operation
 /// * `network` - Network any address in the rendered message is shown on
 ///
@@ -119,7 +119,7 @@ mod tests {
     use super::*;
     use crate::{
         actions::{MultisigAction, UpdateAction, updates::SequencerUpdate},
-        parser::parse_tx,
+        parser::{EnvelopeAction, parse_tx},
     };
 
     fn sample_update_action() -> MultisigAction {
@@ -186,7 +186,7 @@ mod tests {
         let tx_input = TxInputRef::new(&tx, tag_data_ref);
 
         let parsed = parse_tx(&tx_input).unwrap();
-        assert_eq!(action, parsed.action);
+        assert_eq!(EnvelopeAction::from(action.clone()), parsed.action);
 
         // Verify the signatures
         let sign_message_hash =

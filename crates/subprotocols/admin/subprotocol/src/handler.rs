@@ -8,7 +8,7 @@ use strata_asm_common::{
 use strata_asm_logs::{AsmStfUpdate, CheckpointPredicateEnacted, EePredicateKeyUpdate};
 use strata_asm_proto_admin_txs::{
     actions::{MultisigAction, UpdateAction},
-    parser::SignedPayload,
+    parser::EnvelopePayload,
 };
 use strata_asm_proto_bridge_msgs::{BridgeIncomingMsg, DefconPayload, UpdateOperatorSetPayload};
 use strata_asm_proto_checkpoint_msgs::CheckpointIncomingMsg;
@@ -96,29 +96,36 @@ pub(crate) fn handle_pending_updates(
 /// and executing the requested operation.
 ///
 /// This function handles the complete lifecycle of a multisig action:
-/// 1. Determines the required role based on the action type
-/// 2. Validates that the signature set meets the threshold requirements for that role
-/// 3. Increments the authority's sequence number to prevent replay attacks
-/// 4. Enforces the per-block limit on update types that may only be accepted once per block
-/// 5. Processes the action based on its type:
+/// 1. For a cancel, rebuilds the full action from the update queued under its target id
+/// 2. Determines the required role based on the action type
+/// 3. Validates that the signature set meets the threshold requirements for that role
+/// 4. Increments the authority's sequence number to prevent replay attacks
+/// 5. Enforces the per-block limit on update types that may only be accepted once per block
+/// 6. Processes the action based on its type:
 ///    - `Update`: Queues the action for later execution, or applies it immediately if the
 ///      configured confirmation depth for that update variant is zero
 ///    - `Cancel`: Removes a previously queued action from the queue
 ///
 /// The sequence number advances on every payload whose signature verifies, including ones
-/// rejected by steps 4 and 5.
+/// rejected by steps 5 and 6.
 ///
 /// # Returns
 /// * `Ok(())` if the action was successfully processed
 /// * `Err(AdministrationError)` if validation failed or the action could not be processed
 pub(crate) fn handle_action(
     state: &mut AdministrationSubprotoState,
-    payload: SignedPayload,
+    payload: EnvelopePayload,
     current_height: L1Height,
     network: Network,
     relayer: &mut impl MsgRelayer,
     block_updates: &mut BlockUpdateGuard,
 ) -> Result<(), AdministrationError> {
+    // A cancel carries only its target id. Rebuild it from the queue so the signing message
+    // shows the update actually queued there.
+    let payload = payload
+        .resolve(|id| state.find_queued(&id).map(|queued| queued.action().clone()))
+        .map_err(AdministrationError::UnknownAction)?;
+
     // Determine the required role; both update and cancel actions are self-describing.
     let role = state.resolve_action_role(&payload.action);
 
@@ -184,17 +191,6 @@ pub(crate) fn handle_action(
             state.increment_next_update_id();
         }
         MultisigAction::Cancel(cancel) => {
-            // The signature already covers the embedded update, so this equality check is
-            // belt-and-suspenders: turn what would otherwise be a generic verification
-            // failure into a precise, actionable error.
-            let queued = state
-                .find_queued(cancel.target_id())
-                .ok_or(AdministrationError::UnknownAction(*cancel.target_id()))?;
-            if queued.action() != cancel.update() {
-                return Err(AdministrationError::CancelUpdateMismatch {
-                    target_id: *cancel.target_id(),
-                });
-            }
             state.remove_queued(cancel.target_id());
             info!(target_id = %cancel.target_id(), %role, "cancelled queued admin update");
         }
@@ -467,7 +463,7 @@ mod tests {
         let payload = SignedPayload::new(seqno, action, sig_set);
         handle_action(
             state,
-            payload,
+            payload.into(),
             current_height,
             TEST_NETWORK,
             relayer,
@@ -509,7 +505,7 @@ mod tests {
             let payload = SignedPayload::new(seqno, action, sig_set);
             handle_action(
                 &mut state,
-                payload,
+                payload.into(),
                 current_height,
                 TEST_NETWORK,
                 &mut relayer,
@@ -567,7 +563,7 @@ mod tests {
 
         let result = handle_action(
             &mut state,
-            payload,
+            payload.into(),
             current_height,
             TEST_NETWORK,
             &mut relayer,
@@ -623,7 +619,7 @@ mod tests {
         let payload = SignedPayload::new(valid_seqno, action, sig_set);
         let res = handle_action(
             &mut state,
-            payload,
+            payload.into(),
             current_height,
             TEST_NETWORK,
             &mut relayer,
@@ -638,7 +634,7 @@ mod tests {
         let payload = SignedPayload::new(1, action, sig_set);
         let res = handle_action(
             &mut state,
-            payload,
+            payload.into(),
             current_height,
             TEST_NETWORK,
             &mut relayer,
@@ -661,7 +657,7 @@ mod tests {
         let payload = SignedPayload::new(0, action, sig_set);
         let res = handle_action(
             &mut state,
-            payload,
+            payload.into(),
             current_height,
             TEST_NETWORK,
             &mut relayer,
@@ -718,7 +714,7 @@ mod tests {
             let payload = SignedPayload::new(payload_seqno, action, sig_set);
             handle_action(
                 &mut state,
-                payload,
+                payload.into(),
                 current_height,
                 TEST_NETWORK,
                 &mut relayer,
@@ -1261,7 +1257,7 @@ mod tests {
             let payload = SignedPayload::new(payload_seqno, update_action, sig_set);
             handle_action(
                 &mut state,
-                payload,
+                payload.into(),
                 current_height,
                 TEST_NETWORK,
                 &mut relayer,
@@ -1296,7 +1292,7 @@ mod tests {
             let payload = SignedPayload::new(payload_seqno, cancel_action, sig_set);
             handle_action(
                 &mut state,
-                payload,
+                payload.into(),
                 current_height,
                 TEST_NETWORK,
                 &mut relayer,
@@ -1331,8 +1327,8 @@ mod tests {
         let current_height = 1000;
         let signer_indices = [0u8, 2u8];
 
-        // Build a cancel whose embedded update routes to StrataAdministrator (so admin_sks
-        // can sign it), but whose target_id is not in the (empty) queue.
+        // Build a cancel whose update routes to StrataAdministrator (so admin_sks can sign
+        // it), but whose target_id is not in the (empty) queue.
         let nonexistent_id = 42;
         let update = get_strata_administrator_update_actions(1).pop().unwrap();
         let cancel_action = MultisigAction::Cancel(CancelAction::new(nonexistent_id, update));
@@ -1348,7 +1344,7 @@ mod tests {
         let payload = SignedPayload::new(payload_seqno, cancel_action, sig_set);
         let res = handle_action(
             &mut state,
-            payload,
+            payload.into(),
             current_height,
             TEST_NETWORK,
             &mut relayer,
@@ -1394,7 +1390,7 @@ mod tests {
         let payload = SignedPayload::new(update_seqno, update_action, sig_set);
         handle_action(
             &mut state,
-            payload,
+            payload.into(),
             current_height,
             TEST_NETWORK,
             &mut relayer,
@@ -1416,7 +1412,7 @@ mod tests {
         let payload = SignedPayload::new(cancel_seqno, cancel_action, sig_set);
         let res = handle_action(
             &mut state,
-            payload,
+            payload.into(),
             current_height,
             TEST_NETWORK,
             &mut relayer,
@@ -1438,7 +1434,7 @@ mod tests {
         let payload = SignedPayload::new(retry_seqno, cancel_action, sig_set);
         let res = handle_action(
             &mut state,
-            payload,
+            payload.into(),
             current_height,
             TEST_NETWORK,
             &mut relayer,
@@ -1466,7 +1462,7 @@ mod tests {
         let payload = SignedPayload::new(1, action, sig_set);
         handle_action(
             &mut state,
-            payload,
+            payload.into(),
             current_height,
             TEST_NETWORK,
             &mut relayer,
@@ -1487,7 +1483,7 @@ mod tests {
         let payload = SignedPayload::new(gap_seqno, action, sig_set);
         let res = handle_action(
             &mut state,
-            payload,
+            payload.into(),
             current_height,
             TEST_NETWORK,
             &mut relayer,
@@ -1524,7 +1520,7 @@ mod tests {
         let payload = SignedPayload::new(too_far_seqno, action, sig_set);
         let res = handle_action(
             &mut state,
-            payload,
+            payload.into(),
             current_height,
             TEST_NETWORK,
             &mut relayer,

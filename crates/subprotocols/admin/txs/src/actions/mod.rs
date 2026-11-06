@@ -1,5 +1,4 @@
 use arbitrary::Arbitrary;
-use ssz_derive::{Decode, Encode};
 use strata_asm_admin_types::{AdminTxType, Role};
 use strata_l1_txfmt::TagData;
 
@@ -16,8 +15,7 @@ use crate::constants::ADMINISTRATION_SUBPROTOCOL_ID;
 pub type UpdateId = u32;
 
 /// A high‐level multisig operation that participants can propose.
-#[derive(Clone, Debug, Eq, PartialEq, Arbitrary, Encode, Decode)]
-#[ssz(enum_behaviour = "union")]
+#[derive(Clone, Debug, Eq, PartialEq, Arbitrary)]
 pub enum MultisigAction {
     /// Cancel a pending action.
     Cancel(CancelAction),
@@ -53,9 +51,8 @@ impl MultisigAction {
 
     /// The role authorized to enact this action.
     ///
-    /// Both variants are self-describing: an update carries its type directly, and a cancel
-    /// embeds the [`UpdateAction`] it targets — so the role is derivable without external
-    /// context (queue lookup, authority registry).
+    /// An update carries its type directly, and a cancel holds the [`UpdateAction`] it
+    /// targets, so no authority registry is needed.
     pub fn required_role(&self) -> Role {
         match self {
             MultisigAction::Update(update) => update.required_role(),
