@@ -120,8 +120,9 @@ pub(crate) fn handle_action(
     relayer: &mut impl MsgRelayer,
     block_updates: &mut BlockUpdateGuard,
 ) -> Result<(), AdministrationError> {
-    // A cancel carries only its target id. Rebuild it from the queue so the signing message
-    // shows the update actually queued there.
+    // A cancel carries only its target id, which is not signed. Rebuilding it from the queue
+    // makes the signing message show the update actually queued there, so a wrong id fails
+    // verification below without burning the seqno.
     let payload = payload
         .resolve(|id| state.find_queued(&id).map(|queued| queued.action().clone()))
         .map_err(AdministrationError::UnknownAction)?;
@@ -329,7 +330,7 @@ mod tests {
                 SafeHarborAddressUpdate, SequencerUpdate,
             },
         },
-        parser::SignedPayload,
+        parser::{EnvelopeAction, EnvelopePayload, SignedPayload},
         test_utils::{create_signature_set, create_test_admin_tx},
     };
     use strata_asm_proto_bridge_msgs::BridgeIncomingMsg;
@@ -1352,6 +1353,88 @@ mod tests {
         );
 
         assert!(matches!(res, Err(AdministrationError::UnknownAction(_))));
+    }
+
+    /// A cancel goes on chain with only its target id, which is not signed. A wrong id fails
+    /// verification without burning the seqno, so the same signatures still land under the
+    /// right id.
+    #[test]
+    fn test_cancel_with_wrong_target_id_keeps_its_signature_usable() {
+        let (params, admin_sks, _, _) = create_test_params();
+        let mut state = AdministrationSubprotoState::new(&params);
+        let mut relayer = MockRelayer::<CheckpointIncomingMsg>::new();
+        let current_height = 1000;
+        let signer_indices = [0u8, 2u8];
+        let role = Role::StrataAdministrator;
+
+        let updates = get_strata_administrator_update_actions(2);
+        assert_ne!(updates[0], updates[1]);
+        for update in &updates {
+            let payload_seqno = state.authority(role).unwrap().last_seqno() + 1;
+            let action = MultisigAction::Update(update.clone());
+            let sig_set = create_signature_set(
+                &admin_sks,
+                &signer_indices,
+                &action,
+                payload_seqno,
+                TEST_NETWORK,
+            );
+            handle_action(
+                &mut state,
+                SignedPayload::new(payload_seqno, action, sig_set).into(),
+                current_height,
+                TEST_NETWORK,
+                &mut relayer,
+                &mut BlockUpdateGuard::default(),
+            )
+            .unwrap();
+        }
+        let (target_id, wrong_id) = (0, 1);
+
+        let last_seqno = state.authority(role).unwrap().last_seqno();
+        let payload_seqno = last_seqno + 1;
+        let cancel = MultisigAction::Cancel(CancelAction::new(target_id, updates[0].clone()));
+        let signatures = create_signature_set(
+            &admin_sks,
+            &signer_indices,
+            &cancel,
+            payload_seqno,
+            TEST_NETWORK,
+        );
+        let envelope = |id| EnvelopePayload {
+            seqno: payload_seqno,
+            action: EnvelopeAction::Cancel(id),
+            signatures: signatures.clone(),
+        };
+
+        // The wrong id rebuilds a cancel of the second update, which the signers never saw.
+        let res = handle_action(
+            &mut state,
+            envelope(wrong_id),
+            current_height,
+            TEST_NETWORK,
+            &mut relayer,
+            &mut BlockUpdateGuard::default(),
+        );
+        assert!(matches!(
+            res,
+            Err(AdministrationError::ThresholdSignature(_))
+        ));
+        assert_eq!(state.authority(role).unwrap().last_seqno(), last_seqno);
+        assert_eq!(state.queued().len(), 2);
+
+        handle_action(
+            &mut state,
+            envelope(target_id),
+            current_height,
+            TEST_NETWORK,
+            &mut relayer,
+            &mut BlockUpdateGuard::default(),
+        )
+        .unwrap();
+        assert_eq!(state.authority(role).unwrap().last_seqno(), payload_seqno);
+        assert!(state.find_queued(&target_id).is_none());
+        assert_eq!(state.find_queued(&wrong_id).unwrap().action(), &updates[1]);
     }
 
     /// Test that attempting to cancel a same action twice returns an error:

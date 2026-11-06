@@ -11,6 +11,9 @@ use crate::actions::UpdateId;
 #[derive(Clone, Debug, Eq, PartialEq, Arbitrary)]
 pub struct CancelAction {
     /// ID of the queued update to cancel.
+    ///
+    /// Not part of the signing message. Update IDs come from a global counter, so a signer
+    /// cannot check one without looking up the live queue.
     target_id: UpdateId,
     /// The update queued under `target_id`. The signing message shows it, and its role is
     /// the one that must authorize the cancel.
@@ -37,7 +40,6 @@ impl RenderSigningMessage for CancelAction {
     }
 
     fn render_details(&self, details: &mut IndentedDetails<'_>) {
-        details.push(format!("Target Id: {}", self.target_id));
         details.push(format!("Target Update: {}", self.update.update_tx_type()));
         self.update.render_details(details);
     }
@@ -71,7 +73,6 @@ mod tests {
              Authorized By: Strata Sequencer Manager\n\
              Sequence: 9\n\
              Action Details:\n  \
-             Target Id: 7\n  \
              Target Update: Sequencer Update\n  \
              New Sequencer Key: 0707070707070707070707070707070707070707070707070707070707070707"
         );
