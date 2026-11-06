@@ -427,7 +427,7 @@ async fn test_ol_stf_vk_only_administrator_can_send() {
 // Cancel Role Authorization
 // ============================================================================
 //
-// Cancel actions derive their required role from the embedded update, not from the
+// Cancel actions derive their required role from the queued update they target, not from the
 // signer or any default. These tests guard that resolution path: an AlpenAdministrator-
 // queued update must be cancellable only by the AlpenAdministrator, and any other role
 // holding a valid signing key for its own authority must not be able to cancel it.
@@ -435,7 +435,7 @@ async fn test_ol_stf_vk_only_administrator_can_send() {
 /// An AlpenAdministrator can cancel an update it previously queued.
 ///
 /// Establishes the positive baseline for cancel-path role resolution: the handler must
-/// walk the embedded update to find AlpenAdministrator and accept the AlpenAdministrator's
+/// look up the queued update to find AlpenAdministrator and accept the AlpenAdministrator's
 /// signature.
 #[tokio::test(flavor = "multi_thread")]
 async fn test_cancel_of_alpen_update_by_alpen_admin_succeeds() {
@@ -454,7 +454,7 @@ async fn test_cancel_of_alpen_update_by_alpen_admin_succeeds() {
     let state = harness.admin_state().unwrap();
     assert_eq!(state.queued().len(), 1, "Setup: update should be queued");
 
-    // Cancel: auto-routing again picks alpen (the embedded update's required role).
+    // Cancel: auto-routing again picks alpen (the target update's required role).
     let cancel = cancel_update(0, &state);
     harness.submit_admin_action(&mut ctx, cancel).await.unwrap();
 
@@ -468,7 +468,7 @@ async fn test_cancel_of_alpen_update_by_alpen_admin_succeeds() {
 
 /// The StrataAdministrator cannot cancel an Alpen-authorized queued update.
 ///
-/// The cancel embeds the original AlpenAdministrator update, so role resolution must
+/// The cancel targets an AlpenAdministrator update, so role resolution must
 /// land on AlpenAdministrator and verification fails against the StrataAdministrator's
 /// signature. The explicit seqno=2 sits above alpen's `last_seqno` (=1 after the initial
 /// queue), so signature verification is the unambiguous rejection path — not replay

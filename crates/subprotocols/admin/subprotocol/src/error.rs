@@ -17,10 +17,6 @@ pub enum AdministrationError {
     #[error("no pending update found for action_id = {0:?}")]
     UnknownAction(UpdateId),
 
-    /// The cancel's embedded update does not match the queued action at the target id.
-    #[error("cancel target_id {target_id} update payload does not match queued action")]
-    CancelUpdateMismatch { target_id: UpdateId },
-
     /// An update of this type was already accepted in the block being processed.
     ///
     /// Verifying-key rotations are announced outside the ASM, so only the first one in a

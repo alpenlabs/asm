@@ -78,8 +78,7 @@ impl AdministrationSubprotoState {
 
     /// Resolves which role must authorize the provided action.
     ///
-    /// Both action variants are self-describing: updates carry their type directly, and cancels
-    /// embed the `UpdateAction` they target so the role can be derived without queue context.
+    /// Updates carry their type directly, and cancels hold the `UpdateAction` they target.
     pub fn resolve_action_role(&self, action: &MultisigAction) -> Role {
         match action {
             MultisigAction::Update(update) => update.required_role(),
