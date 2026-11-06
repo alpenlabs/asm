@@ -73,6 +73,16 @@ pub enum WorkerError {
     #[error("configured genesis anchor differs from persisted genesis")]
     GenesisStateMismatch,
 
+    /// The manifest MMR holds some leaves but fewer than the genesis
+    /// accumulator. Seeding needs an empty MMR, so startup cannot fix this.
+    /// An interrupted prefill by an older release leaves the MMR in this
+    /// state.
+    #[error(
+        "manifest MMR holds {leaf_count} leaves, below the {expected} the genesis accumulator \
+         covers; wipe the datadir and resync"
+    )]
+    PartialManifestMmr { leaf_count: u64, expected: u64 },
+
     /// Upgrade recovery cannot proceed without a committed block's manifest.
     #[error("missing committed manifest for {0}")]
     MissingManifest(L1BlockCommitment),

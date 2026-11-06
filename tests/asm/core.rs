@@ -13,8 +13,9 @@ use harness::{
     test_harness::{AsmTestHarnessBuilder, Setup},
 };
 use integration_tests::harness;
-use strata_asm_manifest_types::{AsmManifestHash, ASM_MANIFEST_MMR_PREFILL_LEAF};
-use strata_asm_worker::{test_utils::TestAsmWorkerContext, AnchorStateStore, L1DataProvider};
+use strata_asm_worker::{
+    test_utils::TestAsmWorkerContext, AnchorStateStore, L1DataProvider, WorkerError,
+};
 use strata_btc_types::BlockHashExt;
 use strata_test_utils_btcio::{get_bitcoind_and_client, mine_blocks};
 
@@ -77,25 +78,25 @@ async fn test_single_block_processing() {
 /// Verifies the worker does not produce or store a manifest for the genesis
 /// block, and that the first stored manifest is for `genesis_height + 1`.
 ///
-/// The genesis MMR slot is occupied by the prefill sentinel; appending a
+/// The genesis MMR slot belongs to the seeded genesis prefix; appending a
 /// genesis manifest would shift every subsequent leaf one position past its
 /// L1 height and break alignment between the proven and external MMRs.
 #[tokio::test(flavor = "multi_thread")]
 async fn test_genesis_manifest_not_stored() {
     let Setup { harness, .. } = AsmTestHarnessBuilder::default().build().await;
 
-    // Right after init: only the sentinel prefill (`0..=genesis_height`) exists,
+    // Right after init: only the genesis prefix (`0..=genesis_height`) exists,
     // no real manifest — the genesis block never gets one.
-    let prefill_count = harness.genesis_height + 1;
+    let genesis_entries = harness.genesis_height + 1;
     assert_eq!(
         harness.get_mmr_leaf_count() as u64,
-        prefill_count,
+        genesis_entries,
         "no manifest should be stored before any post-genesis block is processed"
     );
 
     // The genesis anchor is the latest stored state before any block is mined;
     // assert the manifest store itself holds nothing for it, not merely that its
-    // MMR slot is a sentinel.
+    // MMR slot holds no leaf.
     let genesis_commitment = harness
         .get_latest_asm_state()
         .unwrap()
@@ -116,7 +117,7 @@ async fn test_genesis_manifest_not_stored() {
 
     assert_eq!(
         harness.get_mmr_leaf_count() as u64,
-        prefill_count + 1,
+        genesis_entries + 1,
         "mining one block should append exactly one manifest leaf"
     );
     let manifest = harness
@@ -172,8 +173,10 @@ async fn test_multiple_block_processing() {
 //
 // **External (full) MMR** — the worker-side database managed by `WorkerContext`.
 //   - Lives outside the proven state, in the worker's persistent storage.
-//   - Full tree: stores all leaves and intermediate nodes.
-//   - Can *generate* inclusion proofs for any leaf via `generate_mmr_proof`.
+//   - Seeded at startup with the internal MMR's genesis peaks, so it covers the same
+//     `0..=genesis_height` positions without storing the sentinel leaves.
+//   - Full tree above genesis: stores every leaf and intermediate node after the seeded peaks.
+//   - Can *generate* inclusion proofs for any leaf above genesis via `generate_mmr_proof`.
 //   - Populated by the ASM worker after each STF execution.
 //
 // **How they interact during checkpoint verification:**
@@ -185,10 +188,10 @@ async fn test_multiple_block_processing() {
 //      compact MMR.
 //
 // The two MMRs must have identical leaves at identical indices. Both are
-// height-indexed (sentinel-prefilled at and before genesis); if either side
-// appended the genesis manifest, all subsequent indices would shift by 1 and
-// every proof generated from the external MMR would fail verification against
-// the internal one.
+// height-indexed (the external one seeded from the internal one's genesis
+// peaks); if either side appended the genesis manifest, all subsequent indices
+// would shift by 1 and every proof generated from the external MMR would fail
+// verification against the internal one.
 
 /// Verifies the external (full) MMR stays index-aligned with the internal
 /// (proven compact) MMR after block processing.
@@ -201,15 +204,16 @@ async fn test_proven_and_external_mmr_index_alignment() {
 
     let genesis_height = harness.genesis_height;
 
-    // After genesis processing, both MMRs are height-indexed and prefilled
-    // with `MMR_PREFILL_LEAF` sentinels for every L1 height `0..=genesis_height`.
-    // The worker never produces or stores a manifest for the genesis block;
-    // the first real manifest is for the block at `genesis_height + 1`.
-    let prefill_count = genesis_height + 1;
+    // After genesis processing, both MMRs are height-indexed and cover every
+    // L1 height `0..=genesis_height`: the proven one with `MMR_PREFILL_LEAF`
+    // sentinels, the external one with just their peaks. The worker never
+    // produces or stores a manifest for the genesis block; the first real
+    // manifest is for the block at `genesis_height + 1`.
+    let genesis_entries = genesis_height + 1;
     assert_eq!(
         harness.get_mmr_leaf_count() as u64,
-        prefill_count,
-        "external MMR should be sentinel-prefilled to `genesis_height + 1` entries"
+        genesis_entries,
+        "external MMR should be seeded to `genesis_height + 1` entries"
     );
 
     // The genesis anchor is the latest stored state before any block is mined;
@@ -267,7 +271,7 @@ async fn test_proven_and_external_mmr_index_alignment() {
         let external_leaf_count = harness.get_mmr_leaf_count();
 
         // Core invariant: both MMRs must have the same number of leaves.
-        // Both are height-indexed with `genesis_height + 1` prefill sentinels
+        // Both are height-indexed with `genesis_height + 1` genesis positions
         // plus one real leaf per mined block.
         assert_eq!(
             proven_entries as usize,
@@ -280,21 +284,29 @@ async fn test_proven_and_external_mmr_index_alignment() {
 
     // -- Leaf hash integrity over real (post-genesis) leaves --
     // Verify every post-genesis external MMR leaf matches its corresponding
-    // manifest hash. Indices `0..=genesis_height` are prefill sentinels.
-    let prefill_count = (genesis_height + 1) as usize;
+    // manifest hash. Indices `0..=genesis_height` hold no stored leaves.
+    let genesis_entries = (genesis_height + 1) as usize;
 
     assert_eq!(
         harness.get_mmr_leaf_count(),
-        prefill_count + total_blocks_mined,
-        "final external MMR should have {prefill_count} prefill + {total_blocks_mined} real leaves"
+        genesis_entries + total_blocks_mined,
+        "final external MMR should have {genesis_entries} genesis + {total_blocks_mined} real leaves"
     );
 
-    let sentinel = AsmManifestHash::from(ASM_MANIFEST_MMR_PREFILL_LEAF);
-    for mmr_index in 0..prefill_count as u64 {
-        assert_eq!(
-            harness.get_manifest_hash(mmr_index).expect("prefill leaf"),
-            sentinel,
-            "pre-genesis leaf at index {mmr_index} must be the prefill sentinel"
+    // The seed stores only the genesis peaks. Every leaf below genesis sits
+    // under a multi-leaf peak, so none is stored. The genesis leaf itself is
+    // left out: it is a lone peak, and so stored, when the genesis height is
+    // even.
+    for mmr_index in 0..genesis_height {
+        let err = harness
+            .get_manifest_hash(mmr_index)
+            .expect_err("leaf below genesis must not be stored");
+        assert!(
+            matches!(
+                err.downcast_ref::<WorkerError>(),
+                Some(WorkerError::ManifestHashNotFound { index }) if *index == mmr_index
+            ),
+            "expected ManifestHashNotFound for index {mmr_index}, got {err:?}"
         );
     }
 
@@ -318,8 +330,9 @@ async fn test_proven_and_external_mmr_index_alignment() {
     }
 
     // The worker stores no manifest for the genesis block: assert its manifest
-    // store holds nothing at the genesis commitment. The sentinel prefill loop
-    // above independently confirms genesis's MMR slot was never overwritten.
+    // store holds nothing at the genesis commitment. The loop over the genesis
+    // positions above independently confirms genesis's MMR slot never got a
+    // leaf.
     assert!(
         harness.get_manifest(&genesis_commitment).is_none(),
         "no manifest should be stored for the genesis block"

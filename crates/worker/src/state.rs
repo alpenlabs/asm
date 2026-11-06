@@ -35,9 +35,9 @@ pub struct AsmWorkerServiceState<W> {
     /// Current anchor block.
     pub blkid: L1BlockCommitment,
 
-    /// L1 genesis block height. The MMR is height-indexed and prefilled with
-    /// sentinels for heights `0..=genesis_height`, so this is the height just
-    /// below the first real manifest.
+    /// L1 genesis block height. The MMR is height-indexed and seeded with the
+    /// genesis accumulator, which covers heights `0..=genesis_height`, so this
+    /// is the height just below the first real manifest.
     pub(crate) genesis_height: u64,
 
     /// Registry of ASM-commit subscribers. After each successful anchor commit
@@ -67,12 +67,6 @@ where
         let genesis_block = genesis_state.last_processed_block();
         let genesis_height = u64::from(genesis_block.height());
 
-        // Align the manifest MMR with L1 heights before processing any block:
-        // it is height-indexed, prefilled with sentinels for heights
-        // `0..=genesis_height` so the manifest for height `h` lands at index
-        // `h`. Idempotent, so safe to run on every startup.
-        context.prefill_manifest_mmr(genesis_height)?;
-
         // The configured anchor is otherwise trusted blindly: a wrong block,
         // target, epoch timestamp, or network would only surface one L1 block
         // later when header verification rejects the anchor's successor. Validate
@@ -94,6 +88,33 @@ where
             Ok(_) | Err(WorkerError::MissingAsmState(_)) => {}
             Err(error) => return Err(error),
         }
+
+        // Align the manifest MMR with L1 heights before processing any block.
+        // It is height-indexed: the genesis accumulator covers heights
+        // `0..=genesis_height`, so the manifest for height `h` lands at index
+        // `h`. A store that already reaches genesis was seeded on an earlier
+        // start. This runs only after the anchor checks above pass. Seeding
+        // for an anchor they reject would pin the store to that height, and a
+        // corrected anchor could then never seed or append.
+        let genesis_accumulator = &genesis_state.chain_view.history_accumulator;
+        let expected = genesis_accumulator.num_entries();
+        match context.manifest_mmr_leaf_count()? {
+            0 => {
+                context.seed_manifest_mmr(genesis_accumulator)?;
+                tracing::info!(
+                    leaf_count = expected,
+                    "seeded manifest MMR from the genesis accumulator"
+                );
+            }
+            leaf_count if leaf_count >= expected => {}
+            leaf_count => {
+                return Err(WorkerError::PartialManifestMmr {
+                    leaf_count,
+                    expected,
+                });
+            }
+        }
+
         let anchor = match latest {
             Some(state) => {
                 tracing::info!(blkid = %state.last_processed_block(), "ASM worker resuming from stored anchor state");
@@ -338,7 +359,7 @@ fn validate_anchor_against_l1<W: L1DataProvider>(
 mod tests {
     use bitcoin::Network;
     use bitcoind_async_client::{Auth, Client, traits::Reader};
-    use strata_asm_common::{AsmLogEntry, AsmManifest, AsmSpec};
+    use strata_asm_common::{AsmLogEntry, AsmManifest, AsmManifestHash, AsmSpec};
     use strata_asm_logs::AsmStfUpdate;
     use strata_btc_verification::L1Anchor;
     use strata_identifiers::{Buf32, L1BlockId};
@@ -658,13 +679,78 @@ mod tests {
         );
     }
 
-    /// `new` prefills the manifest MMR with one sentinel per height up to genesis,
-    /// and re-running it on the same store is a no-op (restart safety).
+    /// A start whose anchor fails L1 validation leaves the manifest MMR empty,
+    /// so a corrected anchor at a different height still seeds and appends.
     #[tokio::test(flavor = "multi_thread")]
-    async fn new_prefills_mmr_to_genesis_height() {
+    async fn new_rejected_by_anchor_validation_leaves_mmr_empty() {
+        let fx = fixtures::setup_context(101).await;
+
+        let mut bad = fixtures::genesis_params(&fx.client, 101).await;
+        bad.anchor.next_target = bad.anchor.next_target.wrapping_add(1);
+        let err = fixtures::new_state(fx.context.clone(), bad).unwrap_err();
+        assert!(
+            matches!(err, WorkerError::AnchorMismatch(_)),
+            "expected AnchorMismatch, got {err:?}",
+        );
+        assert_eq!(
+            fx.context.mmr_leaf_count(),
+            0,
+            "rejected start must not seed"
+        );
+
+        let fixed = fixtures::genesis_params(&fx.client, 100).await;
+        let state =
+            fixtures::new_state(fx.context.clone(), fixed).expect("corrected anchor starts");
+        assert_eq!(state.context.mmr_leaf_count(), 101);
+
+        let hash = fx.client.get_block_hash(101).await.unwrap();
+        let block = fx.client.get_block(&hash).await.expect("fetch block 101");
+        let (out, _aux) = state.transition(&block).expect("process block 101");
+        state
+            .context
+            .record_manifest(out.manifest)
+            .expect("first manifest appends at the corrected genesis + 1");
+        assert_eq!(state.context.mmr_leaf_count(), 102);
+    }
+
+    /// A manifest MMR below genesis but not empty, as an interrupted prefill by
+    /// an older release leaves it, fails startup with a dedicated error rather
+    /// than a generic store error from the seed.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn new_rejects_partially_populated_mmr() {
+        let fx = fixtures::setup_context(101).await;
+        for height in 0..10 {
+            fx.context
+                .put_manifest_hash(height, AsmManifestHash::from([0u8; 32]))
+                .expect("append leaf");
+        }
+
+        let params = fixtures::genesis_params(&fx.client, 101).await;
+        let err = fixtures::new_state(fx.context.clone(), params).unwrap_err();
+        assert!(
+            matches!(
+                err,
+                WorkerError::PartialManifestMmr {
+                    leaf_count: 10,
+                    expected: 102
+                }
+            ),
+            "expected PartialManifestMmr, got {err:?}",
+        );
+    }
+
+    /// `new` seeds the manifest MMR up to genesis without storing the leaves
+    /// under it, and re-running it on the same store is a no-op (restart
+    /// safety).
+    #[tokio::test(flavor = "multi_thread")]
+    async fn new_seeds_mmr_to_genesis_height() {
         let fx = fixtures::setup_state(101).await;
-        // Sentinels for heights 0..=101.
+        // The genesis accumulator covers heights 0..=101.
         assert_eq!(fx.state.context.mmr_leaf_count(), 102);
+        assert!(matches!(
+            fx.state.context.get_manifest_hash(0),
+            Err(WorkerError::ManifestHashNotFound { index: 0 })
+        ));
 
         let context = fx.state.context.clone();
         let params = fixtures::genesis_params(&fx.client, 101).await;
@@ -673,7 +759,7 @@ mod tests {
         assert_eq!(
             fx.state.context.mmr_leaf_count(),
             102,
-            "prefill is idempotent across restart",
+            "seeding is skipped on restart",
         );
     }
 }

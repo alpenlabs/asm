@@ -877,6 +877,7 @@ dependencies = [
  "strata-merkle",
  "strata-merkle-node-store",
  "tempfile",
+ "tokio",
 ]
 
 [[package]]
@@ -8731,7 +8732,6 @@ dependencies = [
  "sled",
  "strata-asm-common",
  "strata-asm-logs",
- "strata-asm-manifest-types",
  "strata-asm-stf",
  "strata-btc-types",
  "strata-btc-verification",

@@ -9,7 +9,9 @@ use std::sync::Arc;
 use anyhow::Context;
 use asm_storage::{SledAsmAuxDataDb, SledAsmManifestDb, SledAsmManifestMmrDb, SledAsmStateDb};
 use bitcoin::{Block, BlockHash, Network, block::Header};
-use strata_asm_common::{AnchorState, AsmManifest, AsmManifestHash, AuxData};
+use strata_asm_common::{
+    AnchorState, AsmHistoryAccumulatorState, AsmManifest, AsmManifestHash, AuxData,
+};
 use strata_asm_worker::{
     AnchorStateStore, AuxDataStore, L1DataProvider, ManifestMmrStore, WorkerError, WorkerResult,
 };
@@ -157,6 +159,12 @@ impl ManifestMmrStore for AsmWorkerContext {
     fn put_manifest_hash(&self, height: u64, hash: AsmManifestHash) -> WorkerResult<()> {
         self.mmr_db
             .put_leaf(height, hash)
+            .map_err(WorkerError::DbError)
+    }
+
+    fn seed_manifest_mmr(&self, genesis: &AsmHistoryAccumulatorState) -> WorkerResult<()> {
+        self.mmr_db
+            .seed(&genesis.manifest_mmr)
             .map_err(WorkerError::DbError)
     }
 
