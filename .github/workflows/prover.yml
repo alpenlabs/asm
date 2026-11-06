@@ -20,8 +20,6 @@ jobs:
     name: Run prover-perf (SP1)
     runs-on: ubuntu-latest
     timeout-minutes: 120
-    env:
-      SP1_VERSION: v6.10.0
     permissions:
       contents: read
       pull-requests: write
@@ -38,8 +36,6 @@ jobs:
 
       - name: Set up SP1 toolchain
         uses: $/.github/actions/setup-sp1
-        with:
-          version: ${{ env.SP1_VERSION }}
 
       # `sp1-core-executor-runner`'s build.rs embeds a nested-built helper that
       # breaks on a cache hit; the action pre-builds it and returns the path to

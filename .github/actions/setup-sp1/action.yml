@@ -1,25 +1,26 @@
 name: Set up SP1 toolchain
 description: >-
   Install the SP1 toolchain via sp1up, add it to PATH, and verify cargo prove is
-  available. Requires a Rust toolchain to already be on PATH.
-inputs:
-  version:
-    description: 'SP1 toolchain release to install (e.g. "v6.10.0").'
-    required: true
+  available. Requires the repo checked out and a Rust toolchain on PATH.
+
+# The toolchain version is read from the `sp1-build` entry in Cargo.lock. That
+# crate drives the guest build through `cargo prove`, so the two must match.
+# Reading it here means a dependency bump moves the toolchain with it instead
+# of needing a second hand-edited pin.
 runs:
   using: composite
   steps:
     - name: Install SP1 toolchain
       shell: bash
-      env:
-        SP1_VERSION: ${{ inputs.version }}
       # The only env-file write appends a fixed, trusted dir ($HOME/.sp1/bin) to
       # PATH; persisting PATH across steps requires $GITHUB_PATH and there is no
       # user input, so the github-env finding is a false positive.
       run: | # zizmor: ignore[github-env]
         set -euo pipefail
+        VER="$(awk -F'"' '/^name = "sp1-build"$/{f=1;next} f&&/^version = /{print $2;exit}' Cargo.lock)"
+        test -n "$VER" || { echo "::error::could not determine sp1-build version from Cargo.lock"; exit 1; }
         curl -fsSL --proto '=https' --tlsv1.2 https://sp1.succinct.xyz | bash
-        ~/.sp1/bin/sp1up -v "$SP1_VERSION"
+        ~/.sp1/bin/sp1up -v "v$VER"
         echo "$HOME/.sp1/bin" >> "$GITHUB_PATH"
 
     - name: Check SP1 toolchain

@@ -19,8 +19,6 @@ jobs:
     name: Build and publish the SP1 ASM guest ELF and vk files
     runs-on: ubuntu-latest
     timeout-minutes: 90
-    env:
-      SP1_VERSION: v6.10.0
     permissions:
       contents: write # create the release (if missing) and upload assets via the GitHub Releases API
     steps:
@@ -37,8 +35,6 @@ jobs:
 
       - name: Set up SP1 toolchain
         uses: $/.github/actions/setup-sp1
-        with:
-          version: ${{ env.SP1_VERSION }}
 
       - name: Build guest ELF and vk files
         # The guest build and vk derivation are both opt-in (see the crate's build.rs).
