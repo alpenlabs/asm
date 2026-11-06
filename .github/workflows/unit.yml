@@ -31,10 +31,10 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Install Rust toolchain
-        run: |
-          rustup toolchain install nightly --profile minimal --component llvm-tools-preview
-          rustup default nightly
+      - name: Set up Rust
+        uses: $/.github/actions/setup-rust
+        with:
+          components: llvm-tools-preview
 
       - name: Install latest cargo-nextest release
         uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
@@ -58,16 +58,6 @@ jobs:
           sudo install -m 0755 -t /usr/local/bin bitcoin-"$BITCOIND_VERSION"/bin/*
           bitcoind --version
           rm -rf SHA256SUMS "bitcoin-$BITCOIND_VERSION" "bitcoin-$BITCOIND_VERSION-$BITCOIND_ARCH.tar.gz"
-
-      - name: Rust cache
-        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
-        with:
-          cache-on-failure: true
-
-      - name: Install protoc
-        uses: arduino/setup-protoc@c65c819552d16ad3c9b72d9dfd5ba5237b9c906b # v3.0.0
-        with:
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
 
       # `--all-features` pulls in `sp1-core-executor-runner`, whose build.rs
       # embeds a nested-built helper that breaks on a cache hit; the action
@@ -104,20 +94,8 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Install Rust toolchain
-        run: |
-          rustup toolchain install nightly --profile minimal
-          rustup default nightly
-
-      - name: Rust cache
-        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
-        with:
-          cache-on-failure: true
-
-      - name: Install protoc
-        uses: arduino/setup-protoc@c65c819552d16ad3c9b72d9dfd5ba5237b9c906b # v3.0.0
-        with:
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Set up Rust
+        uses: $/.github/actions/setup-rust
 
       # See the test job above: `--all-features` pulls in
       # `sp1-core-executor-runner`; pre-build its helper and pass the override.
