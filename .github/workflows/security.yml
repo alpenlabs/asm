@@ -24,15 +24,11 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Install Rust toolchain
-        run: |
-          rustup toolchain install nightly --profile minimal --component clippy
-          rustup default nightly
-
-      - name: Rust cache
-        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - name: Set up Rust
+        uses: $/.github/actions/setup-rust
         with:
-          cache-on-failure: true
+          components: clippy
+          protoc: "false"
 
       - name: Install latest cargo-audit from source
         run: cargo install cargo-audit --force --locked
