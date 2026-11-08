@@ -74,9 +74,18 @@ Examples of unacceptable behaviour:
 Please install the following tools in your development environment to make sure that
 you can run the basic CI checks in your local environment:
 
+- [`just`](https://github.com/casey/just):
+  runs the commands in `.justfile`. `just` lists them.
 - [`taplo`](https://taplo.tamasfe.dev/cli/installation/binary.html):
   used to lint and format `TOML` files.
 - [`cargo-nextest`](https://nexte.st):
   modern test runner for Rust.
 - [`cargo-audit`](https://docs.rs/cargo-audit/latest/cargo_audit/):
   tool to check `Cargo.lock` files for security vulnerabilities.
+- [`bitcoind`](https://bitcoincore.org/en/download/):
+  must be on `PATH` for the integration and functional tests.
+- [`uv`](https://docs.astral.sh/uv/):
+  runs the Python functional tests and their lints.
+
+The commands to lint and test are in the [README](README.md#development). For how the code
+is organized, see [`docs/`](docs/README.md).
