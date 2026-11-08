@@ -1,140 +1,186 @@
-# ASM Development Guide For AI Agents
+# AGENTS.md
 
-This guide provides comprehensive instructions for AI agents working on the ASM codebase. It
-covers the architecture, development workflows, and critical guidelines for effective
-contributions.
+Guidance for AI coding agents working in this repository.
 
 ## Project Overview
-Strata ASM (Anchor State Machine) is the core component of the Strata protocol. The ASM processes
-L1 blocks, routes transactions to pluggable subprotocols, applies deterministic state transitions,
-emits manifests/logs, and persists state through a worker service.
 
-## Engineering Best Practices
+Strata ASM (Anchor State Machine) folds Bitcoin blocks into an `AnchorState`. Each block runs
+through a deterministic state transition function (STF) that routes SPS-50 tagged
+transactions to subprotocols (admin, checkpoint, bridge) and emits a manifest of logs.
+The STF runs natively in a worker and inside an SP1 guest for proofs.
+
+Downstream repos depend on this one. [alpen](https://github.com/alpenlabs/alpen) embeds the
+ASM worker and reads manifests and logs. [strata-bridge](https://github.com/alpenlabs/strata-bridge)
+runs `strata-asm-runner` and calls its RPC. Changes to public types, logs, RPC, config, or the
+params file are breaking for them.
+
+Contributor docs are in [`docs/`](docs/README.md). Read
+[`docs/architecture.md`](docs/architecture.md) before changing the STF or the workers.
+
+## Commands
+
+```bash
+just fmt                  # format Rust
+just lints                # every lint and format check CI runs
+just unit-test            # cargo nextest over the workspace
+just doctest
+cargo nextest run --locked --all-features -p <crate>       # one crate
+cargo test --locked -p integration-tests --test asm_admin  # one integration test target
+cd functional-tests && ./run_test.sh fn_asm_block_test     # one functional test
+```
+
+`just lints` needs `taplo` and `uv`. Unit and integration tests need `bitcoind` on `PATH`.
+CI uses Bitcoin Core 30.2. Functional tests need `bitcoind` and `uv`; see
+[`functional-tests/README.md`](functional-tests/README.md).
+
+## Architecture
+
+See [`docs/layout.md`](docs/layout.md) for every crate.
+
+- `crates/common`, `crates/state`, `crates/stf`, `crates/spec`: STF traits, state, and
+  transition. These build into the guest.
+- `crates/subprotocols/`: one directory per subprotocol, split into `types`, `txs`, `msgs`,
+  and `subprotocol` crates.
+- `crates/worker`, `crates/storage`: the ASM worker and its sled stores.
+- `crates/extensions/moho/`, `crates/extensions/prover/`: Moho state and proof workers.
+- `crates/proof/statements`, `guest-builder/sp1`: the ASM step proof and its SP1 guest.
+- `bin/asm-runner`: wires bitcoind, workers, storage, and RPC.
+- `tests/`: Rust integration tests. `functional-tests/`: Python tests against the runner.
+
+## Testing
+
+- Add tests for behavior changes and regressions. Test public behavior and protocol
+  invariants, not private details.
+- Keep unit tests free of external processes. Use `tests/` for anything that needs
+  `bitcoind` or running workers, and `functional-tests/` for the runner binary.
+- Reuse shared fixtures and wait helpers. Add missing ones to `tests/harness` (the
+  `AdminExt`, `BridgeExt`, and `CheckpointExt` traits) instead of copying them into a test.
+- Don't re-test what an upstream library already guarantees.
+- Pin consensus encodings with fixed vectors. SSZ byte-layout tests and the
+  `test-data/baseline` vectors fail on purpose when an encoding moves. Never regenerate a
+  vector just to make a test pass.
+- Exercise the real assembly or encoding path together with its verification or decoding
+  path.
+- Make tests deterministic. Wait on conditions, not sleeps. Prefer `assert_eq!` over
+  `assert!` when comparing values.
+- Run the affected crate first, then widen.
+
+## Commit and PR Style
+
+- Use Conventional Commits with a scope, for example `fix(checkpoint): ...`. Add `!` for a
+  breaking change, for example `feat(admin)!: ...`.
+- Keep each commit to one logical change that builds on its own.
+- Follow [`.github/PULL_REQUEST_TEMPLATE.md`](.github/PULL_REQUEST_TEMPLATE.md).
+- Keep PRs focused. Put unrelated refactors, migrations, and cleanup in their own PR.
+- Run `just fmt`, `just lints`, and the tests for what you changed. Don't add new warnings.
+  Say in the PR what you could not run.
+
+## Notes
+
+- **Determinism**: STF and subprotocol code must not depend on wall-clock time, environment
+  variables, I/O, unseeded randomness, or `HashMap` iteration order. Data from outside the
+  block comes in as aux data, requested in `pre_process_txs` and verified by the STF.
+- **Panics in the STF**: subprotocols skip invalid transactions; they don't fail the block. A
+  panic marks a broken invariant, such as a missing or wrong-version section, and halts the
+  chain on purpose. Don't turn it into an error without a reason.
+- **SSZ schemas**: types in `crates/state`, `crates/manifest-types`,
+  `crates/btc-verification`, and `crates/subprotocols/checkpoint/*` are generated from `.ssz`
+  files by `build.rs`. Edit the schema, not the generated code. Other crates derive SSZ
+  directly.
+- **Consensus changes**: changing an encoded field, its order, a tag, a hash input, or a
+  section's `State` is a consensus change. Mark it breaking with `!`. Once a chain runs the
+  old rules, the change has to ship as a new spec; see
+  [`docs/asm-upgrade-development.md`](docs/asm-upgrade-development.md).
+- **Guest**: `guest-builder/sp1/guest-asm` is its own workspace with its own `Cargo.lock`.
+  Update that lockfile when you change a dependency the guest uses. Set `BUILD_ELF=1` to
+  build the guest. Output in `guest-builder/sp1/generated/` is not tracked and survives
+  `cargo clean`.
+- **TODOs**: every `TODO` or `FIXME` needs a ticket, for example `TODO(STR-1234): ...`.
+  `just check-todos` runs the same check as CI.
+- **Dependencies**: declare versions in the root `Cargo.toml` and use `workspace = true`.
+  `.cargo/config.toml` refuses crates.io versions less than 14 days old.
+
+## Code Style
 
 ### Design and API Boundaries
 
-- Give each crate and component a focused responsibility. Keep protocol and state-transition
-  logic independent of RPC, persistence, orchestration, and runtime policy.
-- Express dependencies through narrow capability or context traits. Keep concrete databases,
-  services, and external clients in integration layers.
-- Keep binaries focused on loading configuration, opening resources, setting up observability,
-  and launching reusable library services. Put substantive processing, synchronization, RPC,
-  and service implementations in library crates.
-- Encode invariants in types so invalid states are difficult to construct. Use typed identifiers
-  and domain values internally, and convert to strings or other presentation types only at
-  boundaries.
-- Do not expose public fields on nontrivial domain structs. Keep representation details private
-  and provide constructors, accessors, borrowed views, and domain operations that preserve
-  invariants. Public fields are appropriate for deliberately transparent data carriers with no
-  invariants.
-- Keep constructors to field assembly and basic sanity checks. Use explicitly named functions
-  for initialization that performs substantial work or I/O.
-- Reuse the authoritative implementation of protocol algorithms, validation, assembly, codecs,
-  and test helpers. Factor repeated behavior into the layer that owns it instead of duplicating
-  it at call sites.
-- Declare shared dependency versions in the workspace root and inherit them with
-  `workspace = true`.
+- Give each crate one focused job. Keep protocol and STF logic independent of RPC,
+  persistence, orchestration, and runtime policy.
+- Take dependencies through narrow context traits. Keep concrete databases, services, and
+  clients in the integration layer.
+- Keep binaries to loading config, opening resources, setting up observability, and
+  launching library services.
+- Encode invariants in types. Use typed IDs and domain values inside, and convert to strings
+  only at boundaries.
+- Don't expose public fields on nontrivial domain structs. Provide constructors, accessors,
+  and operations that keep invariants. Plain data carriers with no invariants may have public
+  fields.
+- Keep constructors to field assembly and basic checks. Give substantial setup or I/O its
+  own named function.
+- Reuse the owning implementation of protocol algorithms, validation, codecs, and test
+  helpers. Don't duplicate them at call sites.
 
-### Determinism and Serialization
+### Serialization
 
-- State transitions and protocol processing must be deterministic. Do not make their results
-  depend on wall-clock time, environment variables, nondeterministic iteration order, external
-  I/O, or unseeded randomness.
-- Use the codec already designated by a protocol, storage, proof, or RPC boundary. Do not
-  introduce a new wire or persistence format without an explicit compatibility and migration
-  plan.
-- Separate domain or runtime types from wire or storage types when they have different fields or
-  invariants. Perform validation at the conversion boundary.
-- Treat changes to encoded fields, ordering, tags, defaults, and hash inputs as compatibility
-  changes. Add round-trip and known-vector tests where encoded data or commitments change.
+- Use the codec the boundary already uses. Don't add a wire or storage format without a
+  compatibility and migration plan.
+- Keep domain types separate from wire or storage types when their fields or invariants
+  differ. Validate at the conversion.
 
 ### Ownership and Allocation
 
-- Borrow values for inspection, consume them when ownership is required, and use `&mut` for
-  in-place updates.
-- Avoid unconditional clones, temporary collections, repeated encoding buffers, and `Arc`
-  without an actual sharing requirement.
-- Prefer straightforward ownership over shared mutable state. When sharing is necessary, keep
-  the synchronization boundary small and make ownership clear.
+- Borrow to inspect, take ownership when you need it, and use `&mut` for in-place updates.
+- Avoid needless clones, temporary collections, repeated encoding buffers, and `Arc` with no
+  sharing need.
+- Prefer plain ownership over shared mutable state. If you must share, keep the lock scope
+  small.
 
 ### Naming and Documentation
 
-- Use `snake_case` for files, modules, variables, functions, and serialized field names;
-  `UpperCamelCase` for types and traits; and `SCREAMING_SNAKE_CASE` for constants.
-- Name work-performing functions with precise verbs. Use bare nouns for cheap accessors, `as_`
-  for cheap borrowed views, `to_` for allocating conversions, and `with_` for builder-style
-  methods.
-- Import symbols with `use` statements rather than scattering long qualified paths through an
-  implementation. Avoid absolute paths as enforced by `clippy::absolute_paths`.
-- Give public items a brief one-sentence summary. Use intra-doc links such as
-  ``[`SomeType`]`` and document non-obvious invariants, ordering requirements, preconditions,
-  panics, and design rationale.
-- Comments should explain why code exists or why an approach is safe, not restate what the code
-  does.
-- Implement `Default` only when the type has a meaningful domain default. Use fixtures or
-  generators for arbitrary test values.
-- Add `const` only when compile-time use is meaningful and intended as an API guarantee.
+- `snake_case` for files, modules, functions, variables, and serialized fields.
+  `UpperCamelCase` for types and traits. `SCREAMING_SNAKE_CASE` for constants.
+- Use precise verbs for functions that do work. Use bare nouns for cheap accessors, `as_` for
+  cheap borrowed views, `to_` for allocating conversions, and `with_` for builders.
+- Import with `use` at the top of the file. CI denies absolute paths through
+  `clippy::absolute_paths`.
+- Give public items a one-sentence summary. Use intra-doc links such as ``[`SomeType`]``.
+  Document invariants, ordering, preconditions, panics, and design reasons.
+- Comments explain why, not what.
+- Implement `Default` only when the type has a real domain default. Add `const` only when
+  compile-time use is part of the API.
 
 ### Error Handling
 
 | Context | Approach |
 | --- | --- |
-| Invalid input or recoverable failure | Return `Result` with structured variants |
-| Expected absence | Return `Option`; do not invent a sentinel or default value |
-| Violated internal invariant or programming bug | Use `assert!`, `unwrap()`, or `expect("specific invariant")` |
-| Library errors | Define an error `enum` or `struct`, normally with `thiserror` |
-| Application boundary errors | Use `anyhow` to attach and propagate context |
+| Invalid input or recoverable failure | `Result` with structured variants |
+| Expected absence | `Option`, not a sentinel or default |
+| Broken internal invariant | `assert!`, `unwrap()`, or `expect("the invariant")` |
+| Library errors | an error `enum` or `struct` with `thiserror` |
+| Application boundary errors | `anyhow` with context |
 
-- Panics identify bugs or violated internal assumptions, never normal user or runtime errors.
-  Document panicking conditions in a `# Panics` section on public APIs.
-- Preserve useful error distinctions and source chains across abstraction boundaries. Do not
-  collapse unrelated failures into opaque strings or catch-all variants.
-- Make `expect` messages state the invariant that was violated. Error messages should describe
-  the failure without a redundant `error` prefix.
+- Panics mean bugs or broken invariants, never normal runtime errors. Document them in a
+  `# Panics` section on public APIs.
+- Keep error variants and source chains distinct across layers. Don't collapse failures into
+  strings or catch-all variants.
+- Error messages describe the failure without an `error` prefix.
 
 ### Async and Concurrency
 
-- Never perform blocking I/O or other blocking work on an async executor thread. Use an async API
-  or isolate the work with the runtime's blocking-task facility.
-- Do not hold a lock guard across an `.await` point.
-- Keep worker state owned by the worker. Expose commands and status through a handle rather than
-  sharing mutable internals behind locks.
-- Make shutdown and cancellation behavior explicit. Ensure partially completed work cannot leave
-  persisted state inconsistent.
+- Never block an async executor thread. Use an async API or the runtime's blocking-task
+  facility.
+- Don't hold a lock guard across `.await`.
+- Workers own their state. Expose commands and status through a handle.
+- Make shutdown and cancellation explicit. Partial work must not leave persisted state
+  inconsistent.
 
 ### Observability
 
-- Use structured `tracing` fields instead of interpolating identifiers into messages. Include the
-  context needed to correlate a log, but do not repeat context already supplied by the module or
-  surrounding span.
-- Reserve `error!` for unrecoverable failures, `warn!` for unexpected actionable conditions where
-  processing can continue, `info!` for significant lifecycle events, and `debug!` or `trace!` for
-  diagnostic detail.
-- Expected lag, graceful shutdown, irrelevant traffic, and rejected untrusted input should not
-  produce repetitive warnings.
-- Keep pure protocol and state-transition code free of operational logging when the caller can
-  report the outcome with better context.
-
-### Testing
-
-- Add tests for behavior changes and regressions. Test public behavior and protocol invariants
-  rather than private implementation details.
-- Keep unit tests independent of external processes. Use integration or functional tests for
-  database, Bitcoin node, RPC, and running-service behavior.
-- Exercise production assembly or encoding paths together with their verification or decoding
-  paths. Use fixed vectors for consensus-sensitive behavior.
-- Reuse shared fixtures, generators, environment-readiness checks, and high-level wait helpers.
-  Do not re-test guarantees that belong to upstream libraries.
-- Make tests deterministic. Prefer explicit synchronization and bounded waits over arbitrary
-  sleeps.
-- Use descriptive test names and assertions that preserve useful failure context; prefer
-  `assert_eq!` over boolean `assert!` when comparing values.
-
-### Change Scope and Validation
-
-- Keep changes focused and independently reviewable. Split unrelated refactors, migrations, and
-  cleanup from the behavior change that motivated them.
-- Read and follow [`.github/PULL_REQUEST_TEMPLATE.md`](.github/PULL_REQUEST_TEMPLATE.md) before
-  preparing a pull request.
-- Run formatting, the relevant tests, and the repository's lint checks. Do not introduce new
-  warnings, and document any validation that could not be run.
+- Use structured `tracing` fields, not interpolated strings. Don't repeat context the module
+  or span already gives.
+- `error!` for unrecoverable failures, `warn!` for unexpected conditions someone should act
+  on, `info!` for lifecycle events, `debug!` and `trace!` for detail.
+- Expected lag, graceful shutdown, irrelevant traffic, and rejected untrusted input should
+  not warn.
+- Keep pure STF code free of operational logs when the caller can report with better
+  context.
