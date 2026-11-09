@@ -1,17 +1,36 @@
 # Architecture
 
-The Anchor State Machine (ASM) reads Bitcoin blocks one at a time. For each block it runs a
-state transition function (STF) that takes the previous `AnchorState` and the block, and
-returns the next `AnchorState` plus an `AsmManifest`. The manifest holds the logs the block
-produced. Other systems (the OL in [alpen](https://github.com/alpenlabs/alpen), the bridge in
-[strata-bridge](https://github.com/alpenlabs/strata-bridge)) read those logs and the proofs
-built over them.
+The Anchor State Machine (ASM) reads Bitcoin blocks one at a time. In each block it picks out
+the transactions tagged for Strata and hands them to the subprotocols, which update their part
+of the state and emit logs. A state transition function (STF) does this work. It takes the
+previous `AnchorState` and the Bitcoin block, and returns the next `AnchorState` plus an
+`AsmManifest`. The manifest lists the logs the subprotocols emitted for that Bitcoin block.
+Each transition is also proven in a zkVM.
 
-The same STF runs natively in the worker and inside the SP1 guest, so it must be
-deterministic and do no I/O.
+ASM consumers, like the Orchestration Layer (OL) in [alpen](https://github.com/alpenlabs/alpen)
+and the bridge in [strata-bridge](https://github.com/alpenlabs/strata-bridge), read the logs
+in the manifests. The proofs tie each manifest to the Bitcoin block it came from, so a
+consumer can check the result without running the STF again. This is how checkpoints,
+deposits, withdrawals, and admin actions posted to Bitcoin take effect in Strata.
 
-This page shows how the pieces fit. The code is the source of truth, so follow the links for
-details.
+## Tagged transactions
+
+The ASM only reads transactions in the SPS-50 format, which
+[`strata-l1-txfmt`](https://github.com/alpenlabs/strata-common/tree/main/crates/l1proto/txfmt)
+in strata-common defines. A tagged transaction's first output is an `OP_RETURN` with this
+data:
+
+| Bytes | Field |
+| --- | --- |
+| 0..4 | Magic. Marks the transaction as Strata's. Set in the genesis params. |
+| 4 | Subprotocol ID |
+| 5 | Transaction type within that subprotocol |
+| 6.. | The rest of the payload, which the subprotocol parses |
+
+The ASM drops every transaction without a valid tag. It also drops the coinbase, even when it
+is tagged. A miner writes the coinbase freely, with no UTXO and no signature, so reading it
+would let any miner feed the subprotocols unauthenticated input. The ASM groups the remaining
+transactions by subprotocol ID and gives each subprotocol only its own.
 
 ## Anchor state
 
@@ -19,8 +38,8 @@ details.
 holds:
 
 - `spec_id`: the ruleset that produced this state.
-- `magic`: the 4-byte SPS-50 tag that marks protocol transactions.
-- `chain_view`: the PoW header verification state, and a history accumulator. The
+- `magic`: the 4-byte SPS-50 magic. See [Tagged transactions](#tagged-transactions).
+- `chain_view`: the Bitcoin header verification state, and a history accumulator. The
   accumulator is an MMR of manifest hashes indexed by L1 height.
 - `sections`: one SSZ-encoded `SectionState` per subprotocol, tagged with the subprotocol ID
   and its schema version.
@@ -33,13 +52,14 @@ The entry point is `compute_asm_transition` in
 1. Calls `AsmSpec::prepare` to get a working copy of the parent state. This is where a new
    spec migrates sections it changed.
 2. Checks the block body against the header: merkle root and witness commitment.
-3. Checks the header against the PoW state and advances it.
+3. Checks the header against the header verification state and advances it.
 4. Verifies the aux data against the history accumulator.
-5. Groups SPS-50 tagged transactions by subprotocol ID. The coinbase is skipped.
-6. Runs three stages. Each stage calls the subprotocols in the order the spec gives:
-   - load each subprotocol's section,
-   - process its transactions, which can emit logs and send messages to other subprotocols,
-   - deliver the buffered messages.
+5. Groups the tagged transactions by subprotocol ID, as described in
+   [Tagged transactions](#tagged-transactions).
+6. Runs three stages: load each subprotocol's section, process its transactions, then
+   deliver the messages the subprotocols sent each other. Each stage calls the subprotocols
+   in the order the spec gives. [subprotocols.md](subprotocols.md) covers what a subprotocol
+   can do in each stage.
 7. Builds the manifest from the logs, adds its hash to the accumulator, and writes the new
    state.
 
@@ -70,8 +90,7 @@ A subprotocol owns one section of the state and the transactions tagged with its
 
 An `AsmSpec` ([`crates/common/src/spec.rs`](../crates/common/src/spec.rs)) lists the
 subprotocols and the order they run in. The concrete specs live in
-[`crates/spec/src/spec.rs`](../crates/spec/src/spec.rs). Spec 0 and spec 1 differ only in
-the bridge version.
+[`crates/spec/src/spec.rs`](../crates/spec/src/spec.rs).
 
 Each spec is bound to a predicate, which is the key that verifies its proofs. The worker
 tracks the predicate for the next block. An `AsmStfUpdate` log, emitted by the admin
@@ -81,13 +100,22 @@ compiled spec that runs the block.
 
 To add a spec, see [asm-upgrade-development.md](asm-upgrade-development.md).
 
+## Moho
+
+[Moho](https://github.com/alpenlabs/moho) is Strata's recursive proof framework. Each Moho
+proof checks the previous Moho proof and one ASM step proof, so a single proof covers the
+chain from genesis up to a given block. The Moho state also carries the predicate for the
+next block, which is how an upgrade switches to a new ASM program. The ASM plugs into Moho by
+implementing its `MohoProgram` trait (see [Proofs](#proofs)).
+
 ## Runtime
 
 `strata-asm-runner` ([`bin/asm-runner`](../bin/asm-runner)) wires the services together in
 [`bootstrap.rs`](../bin/asm-runner/src/bootstrap.rs):
 
 ```text
-bitcoind ──ZMQ hashblock──▶ block watcher ──▶ ASM worker ──▶ Moho worker ──▶ prover worker
+           ZMQ hashblock
+bitcoind ─────────────────▶ block watcher ──▶ ASM worker ──▶ Moho worker ──▶ prover worker
                                                   │               │               │
                                                ASM DB          Moho DB        proof DB
                                                   └───────────────┴───────────────┴──▶ RPC
@@ -131,7 +159,7 @@ The runner uses three sled databases:
 
 ## Proofs
 
-The ASM step proof is the STF run inside the zkVM.
+The ASM step proof runs the same STF as the ASM worker, inside the SP1 zkVM.
 [`crates/proof/statements`](../crates/proof/statements) implements Moho's `MohoProgram` trait
 for it. [`guest-builder/sp1`](../guest-builder/sp1) compiles the SP1 guest, which always runs
 the newest spec. The Moho recursive guest comes from the

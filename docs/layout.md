@@ -1,6 +1,6 @@
 # Repository layout
 
-What each crate is for. Package names are in parentheses where they differ from the
+This page lists each crate and what it does. Package names are in parentheses where they differ from the
 directory name. Each crate's `lib.rs` doc comment has more.
 
 ## State transition
