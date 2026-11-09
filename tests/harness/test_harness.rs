@@ -54,7 +54,7 @@ use rand::RngCore;
 use strata_asm_common::{AnchorState, AsmLogEntry, AsmSpec};
 use strata_asm_manifest_types::AsmLog;
 use strata_asm_moho_worker::{MohoStateStore, MohoWorkerBuilder, MohoWorkerHandle};
-use strata_asm_params::{AdministrationInitConfig, AsmParams, SubprotocolInstance};
+use strata_asm_params::{AdministrationInitConfig, AsmGenesisParams, SubprotocolInstance};
 use strata_asm_spec::StrataAsmSpec;
 use strata_asm_worker::{
     test_utils::{get_l1_anchor, TestAsmWorkerContext},
@@ -112,7 +112,7 @@ pub struct AsmTestHarness {
     /// Moho worker context for querying derived Moho state.
     pub moho_context: TestMohoWorkerContext,
     /// ASM-specific parameters
-    pub asm_params: Arc<AsmParams>,
+    pub asm_params: Arc<AsmGenesisParams>,
     /// Task executor for spawning tasks
     pub executor: TaskExecutor,
     /// Genesis block height
@@ -1050,8 +1050,8 @@ impl AsmTestHarnessBuilder {
         let (checkpoint_config, checkpoint_harness) =
             create_test_checkpoint_setup(genesis_height as u32);
 
-        // 4. Build AsmParams (arbitrary for non-subprotocol fields) and install our configs.
-        let mut asm_params: AsmParams = ArbitraryGenerator::new().generate();
+        // 4. Build AsmGenesisParams (arbitrary for non-subprotocol fields) and install our configs.
+        let mut asm_params: AsmGenesisParams = ArbitraryGenerator::new().generate();
         asm_params.anchor = genesis_view;
         for instance in &mut asm_params.subprotocols {
             match instance {
@@ -1122,7 +1122,7 @@ fn default_execution_registry() -> ExecutionRegistry {
 async fn launch_workers(
     context: &TestAsmWorkerContext,
     moho_context: &TestMohoWorkerContext,
-    params: &AsmParams,
+    params: &AsmGenesisParams,
     registry: ExecutionRegistry,
     executor: &TaskExecutor,
 ) -> anyhow::Result<(AsmWorkerHandle, MohoWorkerHandle)> {

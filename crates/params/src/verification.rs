@@ -1,8 +1,8 @@
-//! Checks over a whole [`AsmParams`] that no single configuration can make on its own.
+//! Checks over a whole [`AsmGenesisParams`] that no single configuration can make on its own.
 //!
 //! Every subprotocol configuration validates itself as it deserializes. What is left are the
 //! questions that need the anchor, or another subprotocol's configuration, to answer.
-//! [`AsmParams`] runs those as part of its own deserialization, so a parameter file that
+//! [`AsmGenesisParams`] runs those as part of its own deserialization, so a parameter file that
 //! parses has already been checked.
 
 use strata_asm_admin_types::SignerNetworkMismatch;
@@ -10,17 +10,17 @@ use strata_asm_bridge_types::SafeHarborNetworkMismatch;
 use strata_asm_checkpoint_types::CheckpointGenesisHeightMismatch;
 use thiserror::Error;
 
-use crate::params::AsmParams;
+use crate::genesis::AsmGenesisParams;
 
-impl AsmParams {
-    /// Checks the invariants that span the whole parameter set.
+impl AsmGenesisParams {
+    /// Checks the invariants that span the whole genesis parameter set.
     ///
     /// Run as part of deserialization, which is where these values come from.
     ///
     /// # Errors
     ///
     /// Returns the first invariant that does not hold.
-    pub(crate) fn check_invariants(&self) -> Result<(), InvalidAsmParams> {
+    pub(crate) fn check_invariants(&self) -> Result<(), InvalidAsmGenesisParams> {
         if let Some(config) = self.admin_config() {
             config.check_signer_networks(self.anchor.network)?;
         }
@@ -37,9 +37,9 @@ impl AsmParams {
     }
 }
 
-/// An invariant spanning the whole parameter set that does not hold.
+/// An invariant spanning the whole genesis parameter set that does not hold.
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
-pub enum InvalidAsmParams {
+pub enum InvalidAsmGenesisParams {
     /// An administration signer was written as an address on another network.
     #[error(transparent)]
     AdminSignerNetwork(#[from] SignerNetworkMismatch),
@@ -65,7 +65,7 @@ mod tests {
     /// network the operator was looking at.
     #[test]
     fn check_invariants_rejects_a_signer_on_another_network() {
-        let mut params: AsmParams =
+        let mut params: AsmGenesisParams =
             serde_json::from_str(regtest_params_json()).expect("fixture deserializes");
         params.anchor.network = Network::Bitcoin;
 
@@ -76,13 +76,13 @@ mod tests {
     }
 
     /// The check runs as the file is read, so a mismatched file never becomes an
-    /// [`AsmParams`] in the first place.
+    /// [`AsmGenesisParams`] in the first place.
     #[test]
     fn deserialize_rejects_a_signer_on_another_network() {
         let json =
             regtest_params_json().replace(r#""network": "regtest""#, r#""network": "bitcoin""#);
 
-        let error = serde_json::from_str::<AsmParams>(&json)
+        let error = serde_json::from_str::<AsmGenesisParams>(&json)
             .expect_err("regtest signers do not belong on a mainnet anchor");
 
         assert!(
@@ -104,7 +104,7 @@ mod tests {
         );
         assert_ne!(json, fixture, "fixture carries the anchor's genesis height");
 
-        let error = serde_json::from_str::<AsmParams>(&json)
+        let error = serde_json::from_str::<AsmGenesisParams>(&json)
             .expect_err("a checkpoint genesis height off the anchor is rejected");
 
         assert!(
@@ -127,7 +127,7 @@ mod tests {
         );
         assert_ne!(json, fixture, "fixture carries the regtest safe harbor");
 
-        let error = serde_json::from_str::<AsmParams>(&json)
+        let error = serde_json::from_str::<AsmGenesisParams>(&json)
             .expect_err("a mainnet safe harbor does not belong on a regtest anchor");
 
         assert!(

@@ -7,7 +7,7 @@ use strata_asm_admin_types::Role;
 use strata_asm_bridge_types::SafeHarbor;
 use strata_asm_checkpoint_types::CheckpointTip;
 use strata_asm_common::{AnchorState, AsmManifest};
-use strata_asm_params::AsmParams;
+use strata_asm_params::AsmGenesisParams;
 use strata_asm_proto_bridge::{AssignmentEntry, DepositEntry};
 use strata_asm_prover_types::{AsmProof, MohoProof, ProverStatus};
 use strata_asm_worker::AsmWorkerStatus;
@@ -28,7 +28,7 @@ pub trait AsmControlApi {
 
     /// Return the static ASM parameters this instance was launched with.
     #[method(name = "getParams")]
-    async fn get_params(&self) -> RpcResult<AsmParams>;
+    async fn get_params(&self) -> RpcResult<AsmGenesisParams>;
 }
 
 /// State-query ASM RPCs: derived purely from the ASM state DB and keyed by L1 block hash.

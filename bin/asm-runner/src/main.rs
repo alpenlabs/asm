@@ -17,7 +17,7 @@ use std::{fs::read_to_string, path::PathBuf, time::Duration};
 
 use anyhow::Result;
 use clap::Parser;
-use strata_asm_params::AsmParams;
+use strata_asm_params::AsmGenesisParams;
 use strata_logging::{LoggingInitConfig, finalize};
 use strata_tasks::TaskManager;
 use tokio::runtime::{Builder, Handle};
@@ -90,7 +90,7 @@ fn main() {
 }
 
 /// Load ASM parameters
-fn load_params(params_path: &PathBuf) -> Result<AsmParams> {
+fn load_params(params_path: &PathBuf) -> Result<AsmGenesisParams> {
     let contents = read_to_string(params_path)?;
     // Deserialization validates the file, including what only the whole file can answer,
     // such as signer addresses written for another network.

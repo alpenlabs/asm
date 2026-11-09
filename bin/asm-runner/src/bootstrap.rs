@@ -3,7 +3,7 @@ use std::sync::Arc;
 use anyhow::{Context, Result};
 use bitcoind_async_client::{Auth, Client};
 use strata_asm_moho_worker::MohoWorkerBuilder;
-use strata_asm_params::AsmParams;
+use strata_asm_params::AsmGenesisParams;
 use strata_asm_prover_worker::{
     ArtifactSource, AsmProofHost, InputBuilder, ProofBackend, ProofHost, ProverResult,
     ProverWorkerBuilder, load_spec_host,
@@ -31,7 +31,7 @@ use crate::{
 };
 pub(crate) async fn bootstrap(
     config: AsmRpcConfig,
-    params: AsmParams,
+    params: AsmGenesisParams,
     executor: TaskExecutor,
 ) -> Result<()> {
     let registry = build_execution_registry(

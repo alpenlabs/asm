@@ -7,10 +7,10 @@ use strata_asm_checkpoint_types::CheckpointInitConfig;
 use strata_btc_verification::L1Anchor;
 use strata_l1_txfmt::MagicBytes;
 
-/// A configured subprotocol that can be registered in [`AsmParams`].
+/// A configured subprotocol that can be registered in [`AsmGenesisParams`].
 ///
 /// Each variant carries the configuration for a single ASM subprotocol.
-/// The list of instances stored in `AsmParams` determines which subprotocols
+/// The list of instances stored in `AsmGenesisParams` determines which subprotocols
 /// are active for a given network.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SubprotocolInstance {
@@ -24,13 +24,14 @@ pub enum SubprotocolInstance {
     Checkpoint(CheckpointInitConfig),
 }
 
-/// Top-level parameters for an ASM instance.
+/// Parameters that build the genesis state of an ASM instance.
 ///
 /// Combines the SPS-50 magic bytes used to tag L1 transactions, the genesis
 /// L1 view that bootstraps header verification, and the set of active
-/// subprotocol configurations.
+/// subprotocol configurations. Every field feeds genesis construction, and none
+/// is read again once the genesis state exists.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub struct AsmParams {
+pub struct AsmGenesisParams {
     /// SPS-50 magic bytes that identify protocol transactions on L1.
     pub magic: MagicBytes,
 
@@ -45,13 +46,13 @@ pub struct AsmParams {
     pub subprotocols: Vec<SubprotocolInstance>,
 }
 
-/// [`Deserialize`] is implemented by hand so that a parameter file is checked against the
-/// invariants spanning the whole parameter set as it is read.
+/// [`Deserialize`] is implemented by hand so that the genesis parameters are checked against
+/// the invariants spanning the whole genesis set as they are read.
 ///
 /// Each subprotocol configuration already validates itself. What is left are the questions
 /// that need more than one field to answer, and a parameter file is the only place those
 /// fields come from, so deserialization is where they are asked.
-impl<'de> Deserialize<'de> for AsmParams {
+impl<'de> Deserialize<'de> for AsmGenesisParams {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: Deserializer<'de>,
@@ -75,7 +76,7 @@ impl<'de> Deserialize<'de> for AsmParams {
     }
 }
 
-impl AsmParams {
+impl AsmGenesisParams {
     pub fn admin_config(&self) -> Option<&AdministrationInitConfig> {
         self.subprotocols.iter().find_map(|s| match s {
             SubprotocolInstance::Admin(cfg) => Some(cfg),
@@ -114,7 +115,7 @@ impl AsmParams {
 }
 
 #[cfg(feature = "arbitrary")]
-impl<'a> Arbitrary<'a> for AsmParams {
+impl<'a> Arbitrary<'a> for AsmGenesisParams {
     fn arbitrary(u: &mut Unstructured<'a>) -> arbitrary::Result<Self> {
         use strata_identifiers::L1BlockCommitment;
 
@@ -163,13 +164,13 @@ mod tests {
     use crate::test_fixtures::regtest_params_json;
 
     #[test]
-    fn test_asm_params_deserialize_from_raw_json() {
+    fn test_asm_genesis_params_deserialize_from_raw_json() {
         let raw_json = regtest_params_json();
 
         // Signers and the safe harbor are written as addresses on the anchor's network, so
         // resolving them is part of what the fixture pins: the anchor is on regtest and both
         // are written as regtest addresses, which deserialization confirms.
-        let params: AsmParams =
+        let params: AsmGenesisParams =
             serde_json::from_str(raw_json).expect("deserialization from raw JSON should succeed");
 
         let admin = params.admin_config().expect("params carry an Admin config");
@@ -197,7 +198,7 @@ mod tests {
             #[test]
             fn test_arbitrary(seed in collection::vec(any::<u8>(), 0..4096)) {
                 let mut u = Unstructured::new(&seed);
-                let params = AsmParams::arbitrary(&mut u).expect("arbitrary params");
+                let params = AsmGenesisParams::arbitrary(&mut u).expect("arbitrary params");
                 prop_assert_eq!(params.check_invariants(), Ok(()));
             }
         }

@@ -1,7 +1,7 @@
 //! Strata ASM specification defining the subprotocol pipeline.
 
 use strata_asm_common::{AnchorState, AsmSpec, SpecId, Stage};
-use strata_asm_params::AsmParams;
+use strata_asm_params::AsmGenesisParams;
 use strata_asm_proto_admin::AdministrationSubprotocol;
 use strata_asm_proto_bridge::{BridgeSubprotoV1, BridgeSubprotoV2};
 use strata_asm_proto_checkpoint::CheckpointSubprotocol;
@@ -17,7 +17,7 @@ pub struct StrataAsmSpec;
 impl AsmSpec for StrataAsmSpec {
     const ID: SpecId = 0;
 
-    type GenesisParams = AsmParams;
+    type GenesisParams = AsmGenesisParams;
 
     fn prepare(&self, state: &AnchorState) -> AnchorState {
         assert_eq!(state.spec_id, Self::ID, "unsupported source spec");
@@ -54,7 +54,7 @@ pub struct StrataAsmSpecV1;
 impl AsmSpec for StrataAsmSpecV1 {
     const ID: SpecId = 1;
 
-    type GenesisParams = AsmParams;
+    type GenesisParams = AsmGenesisParams;
 
     fn prepare(&self, state: &AnchorState) -> AnchorState {
         assert!(
