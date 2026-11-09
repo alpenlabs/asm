@@ -8277,6 +8277,8 @@ dependencies = [
  "proptest",
  "serde",
  "serde_json",
+ "ssz",
+ "ssz_derive",
  "strata-asm-admin-types",
  "strata-asm-bridge-types",
  "strata-asm-checkpoint-types",
