@@ -25,6 +25,11 @@ repository validation checks.
      migration from a numeric configuration value.
    - `prepare` currently panics on an unsupported source. Keep the set of supported predecessors
      explicit, and don't skip versions without a tested edge.
+   - A spec that executes with per-network values gets its own optional section in
+     `AsmRuntimeParams`, named after the spec (`spec_v2`), and takes the section as constructor
+     arguments. The native catalog and the runner's proof host build it from that section and
+     reject a configured spec whose section is missing. Install the values into state in
+     `prepare`, so no later spec reads an earlier spec's section.
 2. **Register it in the native catalog.** Add a `CompiledSpec` variant in
    `crates/spec/src/host.rs`, and extend `CompiledSpec::resolve`, `construct_genesis_state`, and
    `register_execution`. Native callers (the runner and OL) get it through

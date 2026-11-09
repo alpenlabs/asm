@@ -5,6 +5,10 @@
 //! predicate and a trusted predicate-to-spec mapping; registration does not authenticate that
 //! mapping. Keep it immutable across restarts, as required by [`ExecutionRegistry`].
 //!
+//! Callers also supply the chain's [`AsmRuntimeParams`]. A spec that reads a section of them,
+//! such as [`StrataAsmSpecV2`], needs that section to be present, and its values must match the
+//! ones baked into the spec's proof guest, or native execution and proofs disagree.
+//!
 //! The worker owns per-block selection, upgrade activation, and reorg recovery. An embedded
 //! caller configures it with the same native assembly as the runner:
 //!
@@ -17,9 +21,9 @@
 //! # fn configure_worker<W>(context: W, params: &AsmParams,
 //! #     genesis_predicate: PredicateKey, targets: Vec<(PredicateKey, SpecId)>)
 //! #     -> Result<AsmWorkerBuilder<W>, NativeAssemblyError> {
-//! let registry = build_execution_registry(targets)?;
+//! let registry = build_execution_registry(targets, &params.runtime)?;
 //! let spec = CompiledSpec::resolve(registry.resolve(&genesis_predicate)?.spec_id())?;
-//! let genesis = spec.construct_genesis_state(params);
+//! let genesis = spec.construct_genesis_state(params)?;
 //! let builder = AsmWorkerBuilder::new()
 //!     .with_context(context)
 //!     .with_genesis(genesis, genesis_predicate)
@@ -30,12 +34,12 @@
 //! ```
 
 use strata_asm_common::{AnchorState, AsmSpec, SpecId};
-use strata_asm_params::AsmParams;
+use strata_asm_params::{AsmParams, AsmRuntimeParams};
 use strata_asm_worker::{ExecutionRegistry, WorkerError};
 use strata_predicate::PredicateKey;
 use thiserror::Error;
 
-use crate::{StrataAsmSpec, StrataAsmSpecV1};
+use crate::{StrataAsmSpec, StrataAsmSpecV1, StrataAsmSpecV2};
 
 /// A failure to assemble the configured native execution targets.
 #[derive(Debug, Error)]
@@ -46,6 +50,9 @@ pub enum NativeAssemblyError {
     /// The target mapping violates an execution-registry invariant.
     #[error(transparent)]
     Registry(#[from] WorkerError),
+    /// The spec reads a section of the runtime params that the params file does not have.
+    #[error("ASM spec {0} needs its section in the runtime params")]
+    MissingRuntimeParams(SpecId),
 }
 
 /// The native implementations compiled into this release.
@@ -58,6 +65,9 @@ pub enum CompiledSpec {
     V0,
     /// Its successor, which commits `OperatorClaimUnlockV1` bridge export leaves.
     V1,
+    /// The successor to both, which installs the admin confirmation depths from the
+    /// `spec_v2` section of [`AsmRuntimeParams`].
+    V2,
 }
 
 impl CompiledSpec {
@@ -66,28 +76,47 @@ impl CompiledSpec {
         match id {
             StrataAsmSpec::ID => Ok(Self::V0),
             StrataAsmSpecV1::ID => Ok(Self::V1),
+            StrataAsmSpecV2::ID => Ok(Self::V2),
             _ => Err(NativeAssemblyError::UnsupportedSpec(id)),
         }
     }
 
     /// Constructs the genesis anchor under this implementation's rules.
-    pub fn construct_genesis_state(&self, params: &AsmParams) -> AnchorState {
-        match self {
+    pub fn construct_genesis_state(
+        &self,
+        params: &AsmParams,
+    ) -> Result<AnchorState, NativeAssemblyError> {
+        Ok(match self {
             Self::V0 => StrataAsmSpec.construct_genesis_state(&params.genesis),
             Self::V1 => StrataAsmSpecV1.construct_genesis_state(&params.genesis),
-        }
+            Self::V2 => spec_v2(&params.runtime)?.construct_genesis_state(&params.genesis),
+        })
     }
 
     fn register_execution(
         self,
         registry: &mut ExecutionRegistry,
         predicate: PredicateKey,
-    ) -> Result<(), WorkerError> {
+        runtime: &AsmRuntimeParams,
+    ) -> Result<(), NativeAssemblyError> {
         match self {
-            Self::V0 => registry.register(predicate, StrataAsmSpec),
-            Self::V1 => registry.register(predicate, StrataAsmSpecV1),
+            Self::V0 => registry.register(predicate, StrataAsmSpec)?,
+            Self::V1 => registry.register(predicate, StrataAsmSpecV1)?,
+            Self::V2 => registry.register(predicate, spec_v2(runtime)?)?,
         }
+        Ok(())
     }
+}
+
+/// Builds spec 2 from the `spec_v2` section of the runtime params.
+pub fn spec_v2(runtime: &AsmRuntimeParams) -> Result<StrataAsmSpecV2, NativeAssemblyError> {
+    let section = runtime
+        .spec_v2
+        .as_ref()
+        .ok_or(NativeAssemblyError::MissingRuntimeParams(
+            StrataAsmSpecV2::ID,
+        ))?;
+    Ok(StrataAsmSpecV2::new(section.confirmation_depths.clone()))
 }
 
 /// Builds the native registry from trusted `(predicate, spec_id)` associations.
@@ -97,22 +126,48 @@ impl CompiledSpec {
 /// Callers must also resolve their genesis predicate before launching the worker.
 pub fn build_execution_registry(
     targets: impl IntoIterator<Item = (PredicateKey, SpecId)>,
+    runtime: &AsmRuntimeParams,
 ) -> Result<ExecutionRegistry, NativeAssemblyError> {
     let mut registry = ExecutionRegistry::default();
     for (predicate, spec_id) in targets {
-        CompiledSpec::resolve(spec_id)?.register_execution(&mut registry, predicate)?;
+        CompiledSpec::resolve(spec_id)?.register_execution(&mut registry, predicate, runtime)?;
     }
     Ok(registry)
 }
 
 #[cfg(test)]
 mod tests {
+    use strata_asm_params::{ConfirmationDepths, SpecV2Params};
+    use strata_predicate::PredicateTypeId;
+
     use super::*;
+
+    fn runtime_params() -> AsmRuntimeParams {
+        AsmRuntimeParams {
+            spec_v2: Some(SpecV2Params {
+                confirmation_depths: ConfirmationDepths {
+                    strata_admin_multisig_update: 6,
+                    strata_seq_manager_multisig_update: 6,
+                    alpen_admin_multisig_update: 6,
+                    strata_security_council_multisig_update: 6,
+                    operator_update: 6,
+                    sequencer_update: 6,
+                    ol_stf_vk_update: 6,
+                    asm_stf_vk_update: 6,
+                    ee_stf_vk_update: 6,
+                    defcon3: 6,
+                    safe_harbor_address_update: 6,
+                },
+            }),
+        }
+    }
 
     #[test]
     fn native_catalog_resolves_the_configured_program_and_rejects_unknown_authority() {
         let predicate = PredicateKey::always_accept();
-        let registry = build_execution_registry([(predicate.clone(), StrataAsmSpec::ID)]).unwrap();
+        let registry =
+            build_execution_registry([(predicate.clone(), StrataAsmSpec::ID)], &runtime_params())
+                .unwrap();
         assert_eq!(
             registry.resolve(&predicate).unwrap().spec_id(),
             StrataAsmSpec::ID
@@ -123,48 +178,70 @@ mod tests {
         ));
     }
 
-    /// Both rulesets are compiled in, and a registry may carry them at once so that historical
+    /// Every ruleset is compiled in, and a registry may carry them at once so that historical
     /// work keeps resolving its own parent's predicate across an activation.
     #[test]
-    fn native_catalog_carries_both_rulesets_at_once() {
-        let genesis = PredicateKey::always_accept();
-        let successor = PredicateKey::never_accept();
-        let registry = build_execution_registry([
-            (genesis.clone(), StrataAsmSpec::ID),
-            (successor.clone(), StrataAsmSpecV1::ID),
-        ])
-        .unwrap();
+    fn native_catalog_carries_every_ruleset_at_once() {
+        let targets = [
+            (PredicateKey::always_accept(), StrataAsmSpec::ID),
+            (PredicateKey::never_accept(), StrataAsmSpecV1::ID),
+            (
+                PredicateKey::try_new(PredicateTypeId::AlwaysAccept, vec![2]).unwrap(),
+                StrataAsmSpecV2::ID,
+            ),
+        ];
+        let registry = build_execution_registry(targets.clone(), &runtime_params()).unwrap();
 
-        assert_eq!(
-            registry.resolve(&genesis).unwrap().spec_id(),
-            StrataAsmSpec::ID
-        );
-        assert_eq!(
-            registry.resolve(&successor).unwrap().spec_id(),
-            StrataAsmSpecV1::ID
-        );
+        for (predicate, spec_id) in targets {
+            assert_eq!(registry.resolve(&predicate).unwrap().spec_id(), spec_id);
+        }
+    }
+
+    #[test]
+    fn spec_v2_needs_its_runtime_section() {
+        let targets = [(PredicateKey::always_accept(), StrataAsmSpecV2::ID)];
+        let empty = AsmRuntimeParams { spec_v2: None };
+
+        assert!(matches!(
+            build_execution_registry(targets, &empty),
+            Err(NativeAssemblyError::MissingRuntimeParams(
+                StrataAsmSpecV2::ID
+            ))
+        ));
+        // Specs that read no runtime section do not need one.
+        build_execution_registry([(PredicateKey::always_accept(), StrataAsmSpec::ID)], &empty)
+            .expect("spec 0 reads no runtime section");
     }
 
     #[test]
     fn assembly_rejects_unsupported_specs_and_ambiguous_mappings() {
         assert!(matches!(
-            build_execution_registry([(PredicateKey::always_accept(), SpecId::MAX)]),
+            build_execution_registry(
+                [(PredicateKey::always_accept(), SpecId::MAX)],
+                &runtime_params()
+            ),
             Err(NativeAssemblyError::UnsupportedSpec(SpecId::MAX))
         ));
         assert!(matches!(
-            build_execution_registry([
-                (PredicateKey::always_accept(), StrataAsmSpec::ID),
-                (PredicateKey::always_accept(), StrataAsmSpec::ID),
-            ]),
+            build_execution_registry(
+                [
+                    (PredicateKey::always_accept(), StrataAsmSpec::ID),
+                    (PredicateKey::always_accept(), StrataAsmSpec::ID),
+                ],
+                &runtime_params()
+            ),
             Err(NativeAssemblyError::Registry(
                 WorkerError::DuplicateExecutionPredicate
             ))
         ));
         assert!(matches!(
-            build_execution_registry([
-                (PredicateKey::always_accept(), StrataAsmSpec::ID),
-                (PredicateKey::never_accept(), StrataAsmSpec::ID),
-            ]),
+            build_execution_registry(
+                [
+                    (PredicateKey::always_accept(), StrataAsmSpec::ID),
+                    (PredicateKey::never_accept(), StrataAsmSpec::ID),
+                ],
+                &runtime_params()
+            ),
             Err(NativeAssemblyError::Registry(
                 WorkerError::DuplicateExecutionSpec(_)
             ))

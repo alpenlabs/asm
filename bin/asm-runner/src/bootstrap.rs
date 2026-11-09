@@ -3,14 +3,14 @@ use std::sync::Arc;
 use anyhow::{Context, Result};
 use bitcoind_async_client::{Auth, Client};
 use strata_asm_moho_worker::MohoWorkerBuilder;
-use strata_asm_params::AsmParams;
+use strata_asm_params::{AsmParams, AsmRuntimeParams};
 use strata_asm_prover_worker::{
-    ArtifactSource, AsmProofHost, InputBuilder, ProofBackend, ProofHost, ProverResult,
-    ProverWorkerBuilder, load_spec_host,
+    ArtifactSource, AsmProofHost, InputBuilder, ProofBackend, ProofHost, ProverWorkerBuilder,
+    load_spec_host,
 };
 use strata_asm_spec::{
     StrataAsmSpec, StrataAsmSpecV1,
-    host::{CompiledSpec, build_execution_registry},
+    host::{CompiledSpec, build_execution_registry, spec_v2},
 };
 use strata_asm_worker::AsmWorkerBuilder;
 use strata_predicate::PredicateKey;
@@ -40,13 +40,14 @@ pub(crate) async fn bootstrap(
             .targets
             .iter()
             .map(|entry| (entry.predicate.clone(), entry.spec_id)),
+        &params.runtime,
     )?;
     let genesis_predicate = registry
         .predicate(config.execution.genesis_spec_id)
         .context("execution.genesis_spec_id is not listed in [[execution.targets]]")?
         .clone();
     let genesis_spec = CompiledSpec::resolve(config.execution.genesis_spec_id)?;
-    let genesis_state = genesis_spec.construct_genesis_state(&params);
+    let genesis_state = genesis_spec.construct_genesis_state(&params)?;
 
     // 1. Create storage. The ASM and Moho stores live in two separate sled DBs; the proof DB is
     //    opened with the orchestrator that owns it (step 3).
@@ -79,7 +80,8 @@ pub(crate) async fn bootstrap(
                 "orchestrator.asm_artifacts spec_id is not listed in [[execution.targets]]",
             )?;
             let spec = CompiledSpec::resolve(artifact.spec_id)?;
-            asm_hosts.push(load_asm_host(spec, &artifact.source, predicate).await?);
+            asm_hosts
+                .push(load_asm_host(spec, &artifact.source, predicate, &params.runtime).await?);
         }
         let backend = ProofBackend::new(&orch_config.moho, asm_hosts).await?;
         Some((orch_config, proof_db, backend))
@@ -257,9 +259,12 @@ async fn load_asm_host(
     spec: CompiledSpec,
     source: &ArtifactSource,
     expected: &PredicateKey,
-) -> ProverResult<AsmProofHost<ProofHost>> {
-    match spec {
-        CompiledSpec::V0 => load_spec_host(source, expected, StrataAsmSpec).await,
-        CompiledSpec::V1 => load_spec_host(source, expected, StrataAsmSpecV1).await,
-    }
+    runtime: &AsmRuntimeParams,
+) -> Result<AsmProofHost<ProofHost>> {
+    let host = match spec {
+        CompiledSpec::V0 => load_spec_host(source, expected, StrataAsmSpec).await?,
+        CompiledSpec::V1 => load_spec_host(source, expected, StrataAsmSpecV1).await?,
+        CompiledSpec::V2 => load_spec_host(source, expected, spec_v2(runtime)?).await?,
+    };
+    Ok(host)
 }
