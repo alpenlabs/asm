@@ -63,6 +63,11 @@ repository validation checks.
    successful host build does not prove that a new guest was built. Compare the actual ELF and
    verifying key with the release record. Deriving a key from arbitrary bytes does not show that
    the ELF implements the declared spec.
+
+   To publish a network's guest, run the `Publish ASM Guest` workflow from main with the ref to
+   build and the network. It builds with `crates/params/envs/<env>.json` at that ref and uploads
+   the guest files to S3 with a manifest that records the commit, the params file's path, and
+   every digest.
 5. **Configure execution.** Add an `[[execution.targets]]` entry `{ predicate, spec_id }`.
    `execution.genesis_spec_id` names the spec the chain starts under, and the runner takes the
    genesis predicate from its target entry. It stays fixed across upgrades. Each predicate and

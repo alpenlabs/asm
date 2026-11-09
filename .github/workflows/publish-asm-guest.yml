@@ -1,0 +1,180 @@
+name: Publish ASM Guest
+
+# Builds the SP1 ASM guest from a chosen ref for one network and publishes it to
+# S3. The guest bakes in its spec's section of the runtime part of the network's
+# ASM params file, crates/params/envs/<env>.json at that ref, so its ELF and
+# predicate belong to those values.
+#
+# SECURITY MODEL
+# --------------
+# The ref is a free-form dispatch input, so its build scripts are untrusted
+# code. As in publish-baremetal-binaries.yml, two jobs keep that code away from
+# the AWS credentials:
+#   * build   — compiles the untrusted ref with no id-token, and emits the guest
+#               files as a workflow artifact.
+#   * publish — checksums those files, writes the manifest, and uploads to S3.
+#               It has id-token:write but runs only this workflow's own scripts.
+#
+# Publish is gated on the `baremetal-binaries` GitHub Environment, whose OIDC
+# subject github-actions-asm-binary-s3 trusts, and only runs from main.
+#
+# Bundles are keyed by network and built commit, which together pin the params
+# file, so the bundle does not carry the params:
+#   s3://alpen-mosaic-artifacts/elfs/asm-runner/<env>/<commit>/
+#     asm.elf  asm-predicate.txt  asm-vkey-hash.txt
+#     (+ a .sha256 sidecar each)  SHA256SUMS  manifest.json
+# manifest.json records the ref, the commit, and the params file's path. It is
+# written last, so it marks a completed publish. A rerun with the same digests is
+# a no-op, different digests fail, and objects without a manifest are re-uploaded.
+
+on:
+  workflow_dispatch:
+    inputs:
+      env:
+        description: Deployment network recorded in the manifest.
+        required: true
+        type: choice
+        options:
+          - dev
+          - staging
+          - testnet
+          - mainnet
+      ref:
+        description: Commit, tag, or branch to build. Run the workflow itself from main.
+        required: true
+        default: main
+        type: string
+
+# One publish per ref and network at a time; never cancel one mid-upload.
+concurrency:
+  group: publish-asm-guest-${{ inputs.ref }}-${{ inputs.env }}
+  cancel-in-progress: false
+
+permissions: {}
+
+env:
+  CARGO_TERM_COLOR: always
+  AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
+  S3_BUCKET: alpen-mosaic-artifacts
+  S3_PREFIX: elfs/asm-runner
+
+jobs:
+  build:
+    name: Build the SP1 ASM guest (untrusted ref, no credentials)
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    permissions:
+      contents: read
+    outputs:
+      commit: ${{ steps.rev.outputs.sha }}
+      sp1_version: ${{ steps.sp1.outputs.version }}
+    steps:
+      - name: Checkout publishing scripts
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Validate inputs
+        env:
+          INPUT_ENV: ${{ inputs.env }}
+        run: python3 .github/scripts/guest_publish.py validate
+
+      - name: Checkout guest source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.ref }}
+          path: guest-source
+          persist-credentials: false
+
+      - name: Resolve guest commit
+        id: rev
+        run: echo "sha=$(git -C guest-source rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Install Rust toolchain
+        run: |
+          RUST_TOOLCHAIN="$(sed -n 's/^channel = "\(.*\)"/\1/p' guest-source/rust-toolchain.toml)"
+          rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal
+          rustup default "$RUST_TOOLCHAIN"
+
+      - name: Set up SP1 toolchain
+        id: sp1
+        uses: $/.github/actions/setup-sp1
+        with:
+          lockfile: guest-source/Cargo.lock
+
+      - name: Install protoc
+        uses: arduino/setup-protoc@c65c819552d16ad3c9b72d9dfd5ba5237b9c906b # v3.0.0
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build guest ELF and vk files
+        # The guest build and vk derivation are both opt-in (see the crate's build.rs).
+        working-directory: guest-source
+        env:
+          BUILD_ELF: "1"
+          BUILD_VKEY: "1"
+          ASM_PARAMS_PATH: ${{ github.workspace }}/guest-source/crates/params/envs/${{ inputs.env }}.json
+        run: cargo build --locked -p strata-asm-sp1-guest-builder --features docker-build
+
+      # Upload only the declared files by explicit path. The untrusted build could
+      # leave anything else in the workspace, and the publish job checksums what it
+      # receives itself.
+      - name: Upload guest files
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: asm-guest-${{ steps.rev.outputs.sha }}
+          path: |
+            guest-source/guest-builder/sp1/generated/asm.elf
+            guest-source/guest-builder/sp1/generated/asm-predicate.txt
+            guest-source/guest-builder/sp1/generated/asm-vkey-hash.txt
+          if-no-files-found: error
+          retention-days: 30 # environment approval can wait up to 30 days (GitHub max)
+
+  publish:
+    name: Publish the ASM guest to S3 (credentialed, no untrusted code)
+    needs: build
+    # Only the reviewed main copy of this workflow may publish. workflow_dispatch
+    # can run a feature branch's YAML, so gate the OIDC-enabled job on the run ref.
+    if: ${{ github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: baremetal-binaries
+    # Serialize by S3 destination, not by ref. Two refs at the same commit would
+    # otherwise both pass the manifest check and interleave their uploads.
+    concurrency:
+      group: publish-asm-guest-s3-${{ inputs.env }}-${{ needs.build.outputs.commit }}
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      id-token: write # assume the artifacts S3 role via OIDC
+    steps:
+      - name: Checkout publishing scripts
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Download guest files
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: asm-guest-${{ needs.build.outputs.commit }}
+          path: ${{ runner.temp }}/asm-guest
+
+      - name: Checksum guest files and write the manifest
+        env:
+          OUTPUT_DIR: ${{ runner.temp }}/asm-guest
+          DEPLOY_ENV: ${{ inputs.env }}
+          GUEST_REF: ${{ inputs.ref }}
+          COMMIT: ${{ needs.build.outputs.commit }}
+          SP1_VERSION: ${{ needs.build.outputs.sp1_version }}
+        run: python3 .github/scripts/guest_publish.py bundle
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: arn:aws:iam::496607027995:role/github-actions-asm-binary-s3
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Upload to S3
+        env:
+          OUTPUT_DIR: ${{ runner.temp }}/asm-guest
+        run: python3 .github/scripts/guest_publish.py upload
