@@ -43,8 +43,13 @@ jobs:
           cache-on-failure: true
 
       - name: Install SP1 Toolchain
+        # sp1.succinct.xyz only serves a script that downloads sp1up from the SP1 repo, so fetch
+        # it from there directly, at the same version as the toolchain.
         run: |
-          curl -fsSL --proto '=https' --tlsv1.2 https://sp1.succinct.xyz | bash
+          mkdir -p ~/.sp1/bin
+          curl -fsSL --proto '=https' --tlsv1.2 -o ~/.sp1/bin/sp1up \
+            "https://raw.githubusercontent.com/succinctlabs/sp1/${SP1_VERSION}/sp1up/sp1up"
+          chmod +x ~/.sp1/bin/sp1up
           ~/.sp1/bin/sp1up -v "$SP1_VERSION"
           echo "$HOME/.sp1/bin" >> "$GITHUB_PATH"
 
