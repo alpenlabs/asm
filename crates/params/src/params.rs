@@ -32,10 +32,10 @@ mod tests {
     use serde_json::{Value, json};
 
     use super::*;
-    use crate::test_fixtures::regtest_params_json;
+    use crate::test_fixtures::mainnet_params_json;
 
     fn fixture() -> Value {
-        serde_json::from_str(regtest_params_json()).expect("fixture is JSON")
+        serde_json::from_str(mainnet_params_json()).expect("fixture is JSON")
     }
 
     fn parse(file: &Value) -> Result<AsmParams, serde_json::Error> {
@@ -60,20 +60,29 @@ mod tests {
     }
 
     #[test]
-    fn deserializes_the_genesis_and_runtime_parts() {
-        let params = parse(&fixture()).expect("params file deserializes");
+    fn deserializes_a_spec_v2_section() {
+        let mut file = fixture();
+        let depths = file["genesis"]["subprotocols"][0]["Admin"]["confirmation_depths"].clone();
+        file["runtime"] = json!({ "spec_v2": { "confirmation_depths": depths } });
 
-        let spec_v2 = params
-            .runtime
-            .spec_v2
-            .expect("fixture has a spec 2 section");
-        assert_eq!(spec_v2.confirmation_depths.sequencer_update, 288);
+        let params = parse(&file).expect("params file deserializes");
+
+        let admin = params
+            .genesis
+            .admin_config()
+            .expect("params carry an Admin config");
+        let spec_v2 = params.runtime.spec_v2.expect("file has a spec 2 section");
+        assert_eq!(spec_v2.confirmation_depths, admin.confirmation_depths);
     }
 
     #[test]
     fn accepts_an_empty_runtime_part_and_writes_it_back_empty() {
-        let mut file = fixture();
-        file["runtime"] = json!({});
+        let file = fixture();
+        assert_eq!(
+            file["runtime"],
+            json!({}),
+            "mainnet configures no later spec"
+        );
 
         let params = parse(&file).expect("a network with no spec sections is valid");
 
