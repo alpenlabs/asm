@@ -20,6 +20,12 @@ DEFAULT_SAFE_HARBOR_DESCRIPTOR = (
     "040f0c8db753acbd17343a39c2f3f4e35e4be6da749f9e35137ab220e7b238a667"
 )
 
+# P2TR address the rotation tests move the safe harbor to, written as a regtest wallet shows it.
+NEW_SAFE_HARBOR_ADDRESS = "bcrt1p0xlxvlhemja6c4dqv22uapctqupfhlxm9h8z3k2e72q4k9hcz7vqc8gma6"
+
+# BOSD descriptor of `NEW_SAFE_HARBOR_ADDRESS`, the form the RPC reports.
+NEW_SAFE_HARBOR_DESCRIPTOR = "0479be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"
+
 
 @dataclass
 class Block:

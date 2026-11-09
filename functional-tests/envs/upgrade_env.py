@@ -35,7 +35,7 @@ class UpgradeEnv(ProverEnv):
         self, ectx: flexitest.EnvContext, service_name: str = "asm_rpc"
     ) -> OrchestratorConfig:
         config = super()._orchestrator_config(ectx, service_name)
-        source, _ = _asm_v1_artifact()
+        source, _ = asm_v1_artifact()
         config.asm_artifacts.append(AsmArtifact(spec_id=ASM_V1_SPEC_ID, source=source))
         return config
 
@@ -51,11 +51,11 @@ class UpgradeEnv(ProverEnv):
 
 def asm_v1_predicate() -> str:
     """Return the predicate the spec 1 ASM host must resolve to."""
-    _, predicate = _asm_v1_artifact()
+    _, predicate = asm_v1_artifact()
     return predicate
 
 
-def _asm_v1_artifact() -> tuple[ArtifactSource, str]:
+def asm_v1_artifact() -> tuple[ArtifactSource, str]:
     """Pick the spec 1 ASM source matching the binary built by run_test.sh, together with the
     predicate it must resolve to."""
     backend = os.environ.get("ASM_PROVER_BACKEND", "native")

@@ -126,8 +126,13 @@ Moho proofs continue across the switch. On the SP1 backend, spec 0 runs the v0.4
 and spec 1 runs the v0.5.0-rc.2 release guest. See
 [the functional test README](../functional-tests/README.md) for the SP1 variables.
 
+`fn_asm_upgrade_v1_v2_test` does the same for a chain that starts under spec 1 and activates
+spec 2. It then rotates the safe harbor and checks that the rotation waits for spec 2's
+confirmation depth, which comes from the `spec_v2` section of the runner's params file. On the
+SP1 backend, spec 1 runs the v0.5.0-rc.2 release guest and spec 2 runs the local build.
+
 ```sh
-cd functional-tests && ./run_test.sh fn_asm_upgrade_v0_v1_test
+cd functional-tests && ./run_test.sh fn_asm_upgrade_v0_v1_test fn_asm_upgrade_v1_v2_test
 ```
 
 After building the ASM ELF, compare real guest execution with native execution for the

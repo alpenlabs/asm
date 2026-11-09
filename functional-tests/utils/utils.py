@@ -116,6 +116,18 @@ def wait_until_asm_ready(asm_rpc, timeout: int = 60):
     )
 
 
+def safe_harbor_descriptor(asm_rpc, bitcoin_rpc, height: int) -> str:
+    """Return the safe harbor descriptor the ASM reports at `height`, checking that a
+    rotation left it deactivated."""
+    block_hash = bitcoin_rpc.proxy.getblockhash(height)
+    safe_harbor = asm_rpc.strata_asm_getSafeHarbor(block_hash)
+    assert safe_harbor is not None, f"no safe harbor at height {height}"
+    assert safe_harbor["activated"] is False, (
+        f"safe harbor should stay deactivated, got {safe_harbor!r} at height {height}"
+    )
+    return safe_harbor["address"].lower().removeprefix("0x")
+
+
 def wait_until_asm_reaches_height(asm_rpc, min_height: int, timeout: int = 180) -> int:
     """Wait until the ASM has processed at least *min_height* and return the actual height."""
     height_holder: dict[str, int] = {}
