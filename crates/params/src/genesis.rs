@@ -161,7 +161,7 @@ mod tests {
     use strata_asm_bridge_types::SafeHarborAddress;
 
     use super::*;
-    use crate::test_fixtures::regtest_params_json;
+    use crate::{AsmParams, test_fixtures::regtest_params_json};
 
     #[test]
     fn test_asm_genesis_params_deserialize_from_raw_json() {
@@ -170,8 +170,9 @@ mod tests {
         // Signers and the safe harbor are written as addresses on the anchor's network, so
         // resolving them is part of what the fixture pins: the anchor is on regtest and both
         // are written as regtest addresses, which deserialization confirms.
-        let params: AsmGenesisParams =
-            serde_json::from_str(raw_json).expect("deserialization from raw JSON should succeed");
+        let params = serde_json::from_str::<AsmParams>(raw_json)
+            .expect("deserialization from raw JSON should succeed")
+            .genesis;
 
         let admin = params.admin_config().expect("params carry an Admin config");
         assert_eq!(admin.strata_sequencer_manager.signers().len(), 2);

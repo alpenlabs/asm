@@ -57,16 +57,16 @@ pub enum InvalidAsmGenesisParams {
 mod tests {
     use bitcoin::Network;
 
-    use super::*;
-    use crate::test_fixtures::regtest_params_json;
+    use crate::{AsmParams, test_fixtures::regtest_params_json};
 
     /// A signer written for another network is what this check exists to catch: the program
     /// would authorize the same key, but the file and the chain disagree about which
     /// network the operator was looking at.
     #[test]
     fn check_invariants_rejects_a_signer_on_another_network() {
-        let mut params: AsmGenesisParams =
-            serde_json::from_str(regtest_params_json()).expect("fixture deserializes");
+        let mut params = serde_json::from_str::<AsmParams>(regtest_params_json())
+            .expect("fixture deserializes")
+            .genesis;
         params.anchor.network = Network::Bitcoin;
 
         assert_eq!(
@@ -82,7 +82,7 @@ mod tests {
         let json =
             regtest_params_json().replace(r#""network": "regtest""#, r#""network": "bitcoin""#);
 
-        let error = serde_json::from_str::<AsmGenesisParams>(&json)
+        let error = serde_json::from_str::<AsmParams>(&json)
             .expect_err("regtest signers do not belong on a mainnet anchor");
 
         assert!(
@@ -104,7 +104,7 @@ mod tests {
         );
         assert_ne!(json, fixture, "fixture carries the anchor's genesis height");
 
-        let error = serde_json::from_str::<AsmGenesisParams>(&json)
+        let error = serde_json::from_str::<AsmParams>(&json)
             .expect_err("a checkpoint genesis height off the anchor is rejected");
 
         assert!(
@@ -127,7 +127,7 @@ mod tests {
         );
         assert_ne!(json, fixture, "fixture carries the regtest safe harbor");
 
-        let error = serde_json::from_str::<AsmGenesisParams>(&json)
+        let error = serde_json::from_str::<AsmParams>(&json)
             .expect_err("a mainnet safe harbor does not belong on a regtest anchor");
 
         assert!(

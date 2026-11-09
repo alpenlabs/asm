@@ -12,9 +12,9 @@
 //! use strata_asm_spec::host::{CompiledSpec, NativeAssemblyError, build_execution_registry};
 //! use strata_asm_worker::AsmWorkerBuilder;
 //! # use strata_asm_common::SpecId;
-//! # use strata_asm_params::AsmGenesisParams;
+//! # use strata_asm_params::AsmParams;
 //! # use strata_predicate::PredicateKey;
-//! # fn configure_worker<W>(context: W, params: &AsmGenesisParams,
+//! # fn configure_worker<W>(context: W, params: &AsmParams,
 //! #     genesis_predicate: PredicateKey, targets: Vec<(PredicateKey, SpecId)>)
 //! #     -> Result<AsmWorkerBuilder<W>, NativeAssemblyError> {
 //! let registry = build_execution_registry(targets)?;
@@ -30,7 +30,7 @@
 //! ```
 
 use strata_asm_common::{AnchorState, AsmSpec, SpecId};
-use strata_asm_params::AsmGenesisParams;
+use strata_asm_params::AsmParams;
 use strata_asm_worker::{ExecutionRegistry, WorkerError};
 use strata_predicate::PredicateKey;
 use thiserror::Error;
@@ -71,10 +71,10 @@ impl CompiledSpec {
     }
 
     /// Constructs the genesis anchor under this implementation's rules.
-    pub fn construct_genesis_state(&self, params: &AsmGenesisParams) -> AnchorState {
+    pub fn construct_genesis_state(&self, params: &AsmParams) -> AnchorState {
         match self {
-            Self::V0 => StrataAsmSpec.construct_genesis_state(params),
-            Self::V1 => StrataAsmSpecV1.construct_genesis_state(params),
+            Self::V0 => StrataAsmSpec.construct_genesis_state(&params.genesis),
+            Self::V1 => StrataAsmSpecV1.construct_genesis_state(&params.genesis),
         }
     }
 

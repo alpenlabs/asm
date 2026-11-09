@@ -19,7 +19,7 @@ use strata_asm_bridge_types::SafeHarbor;
 use strata_asm_checkpoint_types::CheckpointTip;
 use strata_asm_common::{AnchorState, AsmManifest, SectionStateExt, Subprotocol};
 use strata_asm_moho_storage::{SledExportEntriesDb, SledMohoStateDb, build_export_entry_mmr_proof};
-use strata_asm_params::AsmGenesisParams;
+use strata_asm_params::AsmParams;
 use strata_asm_proto_admin::AdministrationSubprotocol;
 use strata_asm_proto_bridge::{AssignmentEntry, BridgeStateV1, DepositEntry};
 use strata_asm_proto_bridge_txs::BRIDGE_SUBPROTOCOL_ID;
@@ -68,7 +68,7 @@ pub(crate) struct AsmRpcServer {
     manifest_db: Arc<SledAsmManifestDb>,
     asm_worker: Arc<AsmWorkerHandle>,
     bitcoin_client: Arc<RetryingBitcoinClient>,
-    params: Arc<AsmGenesisParams>,
+    params: Arc<AsmParams>,
     /// Monotonic start instant, used to compute uptime for the control API.
     start_time: Instant,
 }
@@ -79,7 +79,7 @@ impl AsmRpcServer {
         manifest_db: Arc<SledAsmManifestDb>,
         asm_worker: Arc<AsmWorkerHandle>,
         bitcoin_client: Arc<RetryingBitcoinClient>,
-        params: AsmGenesisParams,
+        params: AsmParams,
     ) -> Self {
         Self {
             state_db,
@@ -145,7 +145,7 @@ impl AsmControlApiServer for AsmRpcServer {
         Ok(self.asm_worker.monitor().get_current())
     }
 
-    async fn get_params(&self) -> RpcResult<AsmGenesisParams> {
+    async fn get_params(&self) -> RpcResult<AsmParams> {
         Ok((*self.params).clone())
     }
 }
@@ -337,7 +337,7 @@ pub(crate) async fn run_rpc_server(
     manifest_db: Arc<SledAsmManifestDb>,
     asm_worker: Arc<AsmWorkerHandle>,
     bitcoin_client: Arc<RetryingBitcoinClient>,
-    params: AsmGenesisParams,
+    params: AsmParams,
     proof_deps: Option<AsmProofRpcDeps>,
     rpc_host: String,
     rpc_port: u16,

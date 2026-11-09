@@ -3,7 +3,7 @@ use std::sync::Arc;
 use anyhow::{Context, Result};
 use bitcoind_async_client::{Auth, Client};
 use strata_asm_moho_worker::MohoWorkerBuilder;
-use strata_asm_params::AsmGenesisParams;
+use strata_asm_params::AsmParams;
 use strata_asm_prover_worker::{
     ArtifactSource, AsmProofHost, InputBuilder, ProofBackend, ProofHost, ProverResult,
     ProverWorkerBuilder, load_spec_host,
@@ -31,7 +31,7 @@ use crate::{
 };
 pub(crate) async fn bootstrap(
     config: AsmRpcConfig,
-    params: AsmGenesisParams,
+    params: AsmParams,
     executor: TaskExecutor,
 ) -> Result<()> {
     let registry = build_execution_registry(
@@ -145,7 +145,7 @@ pub(crate) async fn bootstrap(
         let moho_worker = MohoWorkerBuilder::new()
             .with_context(moho_context)
             .with_subscription(asm_worker.subscribe_blocks())
-            .with_genesis_block(params.anchor.block)
+            .with_genesis_block(params.genesis.anchor.block)
             .with_asm_predicate(genesis_predicate)
             .launch(&executor)
             .await?;
@@ -163,7 +163,7 @@ pub(crate) async fn bootstrap(
             aux_db.clone(),
             bitcoin_client.clone(),
         );
-        let input_builder = InputBuilder::new(params.anchor.block, moho_predicate);
+        let input_builder = InputBuilder::new(params.genesis.anchor.block, moho_predicate);
 
         // Drive the prover from the *Moho* worker's commit stream, not the ASM
         // worker's: the Moho worker emits a block only after it has persisted
