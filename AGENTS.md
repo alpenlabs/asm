@@ -79,8 +79,9 @@ See [`docs/layout.md`](docs/layout.md) for every crate.
 - Follow [`.github/PULL_REQUEST_TEMPLATE.md`](.github/PULL_REQUEST_TEMPLATE.md).
 - Keep PRs focused. Put unrelated refactors, migrations, and cleanup in their own PR.
 - Run `just fmt`, `just lints`, and the tests for what you changed. Don't add new warnings.
-  CI fails on clippy and `cargo doc` warnings, but `just lints` only reports them. Say in
-  the PR what you could not run.
+  `just lints` fails on clippy warnings, as CI does. CI also fails on `cargo doc` warnings,
+  so run `cargo doc --no-deps` if you changed doc comments. Say in the PR what you could not
+  run.
 
 ## Notes
 

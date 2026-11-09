@@ -18,9 +18,9 @@ toml-fmt:
 check-fmt:
   cargo fmt --all --check
 
-# Rust `clippy` lints
+# Rust `clippy` lints, failing on warnings as CI does
 clippy:
-  cargo clippy --examples --tests --benches --all-features --all-targets --locked
+  cargo clippy --examples --tests --benches --all-features --all-targets --locked -- -D warnings
 
 # TOML lint with `taplo`
 toml-lint:
