@@ -8,7 +8,7 @@ A provable state machine that anchors Strata to Bitcoin.
 
 ## What is ASM?
 
-The Anchor State Machine anchors Strata to Bitcoin, which is where its name comes from. It reads every Bitcoin block and picks out the transactions tagged for Strata. With them it updates the anchor state: the verified Bitcoin header chain plus one section per subprotocol (admin, checkpoint, bridge). Strata's checkpoints, deposits, withdrawals, and admin actions all take effect this way, through Bitcoin transactions the ASM processes. Each block also produces a manifest of logs. The Orchestration Layer and the bridge read those logs, and proofs tie each one to the Bitcoin block it came from.
+The Anchor State Machine anchors Strata to Bitcoin, which is where its name comes from. It reads every Bitcoin block and picks out the transactions tagged for Strata. With them it updates the anchor state: the verified Bitcoin header chain plus one section per subprotocol (admin, checkpoint, bridge). Strata's checkpoints, deposits, withdrawals, and admin actions all take effect this way, through Bitcoin transactions the ASM processes. Each block also produces a manifest of logs. ASM consumers, like the Orchestration Layer and the bridge, read those logs, and proofs tie each one to the Bitcoin block it came from.
 
 ## Goals
 

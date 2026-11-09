@@ -1,7 +1,6 @@
 # Contributor docs
 
-Short notes on how the ASM is put together. The code is the source of truth. These pages
-point you to the right place in it, and explain what the code alone does not.
+These pages explain how the ASM is put together, and link to the code for the details.
 
 - [Architecture](architecture.md): the state transition, the services, and storage.
 - [Repository layout](layout.md): what each crate is for.
