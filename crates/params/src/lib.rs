@@ -11,9 +11,10 @@
 //! Deserializing [`AsmGenesisParams`] also checks what no single configuration can check on its
 //! own; see the `verification` module.
 //!
-//! The params file of each deployed environment lives in this crate's `envs/` directory, named
-//! after the environment. The crate's tests parse every one, so a change to the format has to
-//! convert them too.
+//! The params file of each environment lives in this crate's `envs/` directory, named after the
+//! environment. The crate's tests parse every one, so a change to the format has to convert them
+//! too. `dev.json` is not a deployed chain: it is the file local builds, CI and the functional
+//! tests bake into the guest, with short confirmation depths so tests run quickly.
 
 mod genesis;
 mod params;
