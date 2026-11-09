@@ -32,8 +32,12 @@ NATIVE_TEST_ASM_PREDICATE = (
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SP1_GENERATED_DIR = REPO_ROOT / "guest-builder" / "sp1" / "generated"
 
+ASM_RELEASES_URL = "https://github.com/alpenlabs/asm/releases/download"
+
 # The last ASM release whose guest compiles spec 0.
-ASM_V0_RELEASE_URL = "https://github.com/alpenlabs/asm/releases/download/v0.4.0"
+ASM_V0_RELEASE = "v0.4.0"
+# The last ASM release whose guest compiles spec 1.
+ASM_V1_RELEASE = "v0.5.0-rc.2"
 
 
 class ProverEnv(BasicEnv):
@@ -67,7 +71,7 @@ def _artifact_sources() -> tuple[ArtifactSource, ArtifactSource, str]:
     backend = os.environ.get("ASM_PROVER_BACKEND", "native")
     if backend == "sp1":
         # The local guest build compiles the newest spec, so spec 0 comes from its release.
-        asm_v0_elf, asm_v0_predicate = _fetch_asm_v0_artifacts()
+        asm_v0_elf, asm_v0_predicate = fetch_release_guest(ASM_V0_RELEASE)
         return (
             Sp1Artifact(elf_path=str(SP1_GENERATED_DIR / "moho.elf")),
             Sp1Artifact(elf_path=str(asm_v0_elf)),
@@ -83,13 +87,19 @@ def _artifact_sources() -> tuple[ArtifactSource, ArtifactSource, str]:
 
 
 @functools.cache
-def _fetch_asm_v0_artifacts() -> tuple[Path, str]:
-    """Download the spec 0 guest from its release, once per run.
+def fetch_release_guest(release: str) -> tuple[Path, str]:
+    """Download the ASM guest of `release`, once per run.
 
     Checks the ELF and the predicate against the release's `SHA256SUMS`, writes the ELF next to
     the local build, and returns its path together with the predicate.
     """
-    logging.info("Fetching the spec 0 ASM guest from %s", ASM_V0_RELEASE_URL)
+    logging.info("Fetching the ASM guest of release %s", release)
+
+    def _download_release_file(name: str) -> bytes:
+        response = requests.get(f"{ASM_RELEASES_URL}/{release}/{name}", timeout=60)
+        response.raise_for_status()
+        return response.content
+
     sums = _download_release_file("SHA256SUMS").decode()
     digests = {name: digest for digest, name in (line.split() for line in sums.splitlines())}
 
@@ -103,13 +113,7 @@ def _fetch_asm_v0_artifacts() -> tuple[Path, str]:
     elf = download_checked("asm.elf")
     predicate = download_checked("asm-predicate.txt").decode().strip()
 
-    elf_path = SP1_GENERATED_DIR / "asm-v0.elf"
+    elf_path = SP1_GENERATED_DIR / f"asm-{release}.elf"
     SP1_GENERATED_DIR.mkdir(parents=True, exist_ok=True)
     elf_path.write_bytes(elf)
     return elf_path, predicate
-
-
-def _download_release_file(name: str) -> bytes:
-    response = requests.get(f"{ASM_V0_RELEASE_URL}/{name}", timeout=60)
-    response.raise_for_status()
-    return response.content

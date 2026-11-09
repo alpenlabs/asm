@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
@@ -108,6 +109,18 @@ class AsmParams:
             "genesis": self.genesis.to_dict(),
             "runtime": self.runtime,
         }
+
+
+def load_runtime_params() -> dict[str, Any]:
+    """Read the runtime part of the params file at `ASM_PARAMS_PATH`.
+
+    The SP1 guest bakes in its spec's section of the same file (see `env.bash`), so the
+    runner has to execute with these values for native and guest execution to agree.
+    """
+    path = os.environ.get("ASM_PARAMS_PATH")
+    if path is None:
+        raise RuntimeError("ASM_PARAMS_PATH is unset; source env.bash first")
+    return json.loads(Path(path).read_text())["runtime"]
 
 
 # Bitcoin's difficulty-adjustment epoch length, in blocks. Same on every network.
@@ -235,6 +248,7 @@ def build_asm_params(
     block_hash: str,
     header: dict[str, Any],
     epoch_start_header: dict[str, Any],
+    runtime: dict[str, Any],
     magic: str = ASM_MAGIC_BYTES,
     denomination: str = "10 BTC",
     assignment_duration: int = 10_000,
@@ -264,6 +278,7 @@ def build_asm_params(
             anchor=anchor,
             subprotocols=subprotocols,
         ),
+        runtime=runtime,
     )
 
 

@@ -7,6 +7,7 @@ from factory.asm_rpc.config_cfg import ExecutionTargetConfig, OrchestratorConfig
 from factory.common.asm_params import (
     build_asm_params,
     epoch_start_height,
+    load_runtime_params,
     p2wpkh_address,
     write_asm_params_json,
 )
@@ -95,6 +96,7 @@ class BasicEnv(flexitest.EnvConfig):
             block_hash=genesis_hash,
             header=genesis_header,
             epoch_start_header=epoch_start_hdr,
+            runtime=load_runtime_params(),
             magic=ASM_MAGIC_BYTES,
             admin_confirmation_depth=self._admin_confirmation_depth(),
         )

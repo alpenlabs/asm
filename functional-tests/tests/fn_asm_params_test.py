@@ -3,7 +3,7 @@ import logging
 import flexitest
 
 from constants import ASM_MAGIC_BYTES
-from factory.common.asm_params import DEFAULT_SAFE_HARBOR_ADDRESS
+from factory.common.asm_params import DEFAULT_SAFE_HARBOR_ADDRESS, load_runtime_params
 from utils.utils import wait_until_asm_ready, wait_until_bitcoind_ready
 
 # Externally-tagged subprotocol variants, in the order `basic_env` writes them
@@ -37,8 +37,10 @@ class AsmGetParamsTest(flexitest.Test):
         params = asm_rpc.strata_asm_getParams()
         assert params is not None, "strata_asm_getParams returned None"
         assert set(params) == {"genesis", "runtime"}, f"unexpected sections: {list(params)!r}"
-        # The env configures no spec that reads runtime values.
-        assert params["runtime"] == {}, f"unexpected runtime params: {params['runtime']!r}"
+        # The runtime part round-trips as the env wrote it.
+        assert params["runtime"] == load_runtime_params(), (
+            f"unexpected runtime params: {params['runtime']!r}"
+        )
         genesis = params["genesis"]
 
         # SPS-50 magic bytes serialize as their ASCII string over JSON-RPC.
