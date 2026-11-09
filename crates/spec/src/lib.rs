@@ -12,10 +12,10 @@
 //! assembly in `host`. Guest builds use the default feature set without worker dependencies.
 
 mod genesis;
-mod spec;
+mod specs;
 
 pub use genesis::construct_genesis_state;
-pub use spec::{StrataAsmSpec, StrataAsmSpecV1};
+pub use specs::{StrataAsmSpec, StrataAsmSpecV1};
 
 #[cfg(feature = "host")]
 pub mod host;
