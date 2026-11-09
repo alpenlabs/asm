@@ -27,6 +27,8 @@ pub struct AsmParams {
 
 #[cfg(test)]
 mod tests {
+    use std::{fs, path::Path};
+
     use serde_json::{Value, json};
 
     use super::*;
@@ -38,6 +40,23 @@ mod tests {
 
     fn parse(file: &Value) -> Result<AsmParams, serde_json::Error> {
         serde_json::from_value(file.clone())
+    }
+
+    /// The files hold the params of deployed networks, so a format change has to convert them
+    /// in the same change.
+    #[test]
+    fn every_environment_file_parses() {
+        let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("envs");
+        let mut parsed = 0;
+        for entry in fs::read_dir(&dir).expect("envs directory exists") {
+            let path = entry.expect("envs directory is readable").path();
+            let json = fs::read_to_string(&path).expect("environment file is readable");
+            if let Err(error) = serde_json::from_str::<AsmParams>(&json) {
+                panic!("{} does not parse: {error}", path.display());
+            }
+            parsed += 1;
+        }
+        assert!(parsed > 0, "no environment files in {}", dir.display());
     }
 
     #[test]
