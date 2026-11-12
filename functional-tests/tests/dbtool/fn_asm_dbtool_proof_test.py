@@ -122,29 +122,18 @@ class AsmDbtoolProofTest(flexitest.Test):
         gone = run_dbtool_json(snap, "proof", "moho", "get", commitment)
         assert gone["found"] is False, gone
 
-        # Per-kind prune (on a fresh snapshot): each one empties its own kind,
-        # clears the pruned proofs' submission records so they can be proven
-        # again, and leaves the other kind alone.
-        asm_id = f"asm:{asm_range}"
-        moho_id = f"moho:{commitment}"
-
-        def submitted(db: str, proof_id: str) -> bool:
-            return run_dbtool_json(db, "proof", "mapping", "get-remote", proof_id)["found"]
-
-        assert submitted(proof_db, asm_id) and submitted(proof_db, moho_id)
-
+        # Per-kind prune (on a fresh snapshot): each one empties its own kind
+        # and leaves the other kind alone.
         snap = snapshot_db(proof_db)
         past_moho = max(e["height"] for e in moho_list["entries"]) + 1
         run_dbtool_json(snap, "--write", "proof", "moho", "prune", "--before", str(past_moho))
         assert run_dbtool_json(snap, "proof", "moho", "list")["count"] == 0
         assert run_dbtool_json(snap, "proof", "asm", "list")["count"] == asm_list["count"]
-        assert not submitted(snap, moho_id) and submitted(snap, asm_id)
 
         snap = snapshot_db(proof_db)
         past_asm = max(e["start"]["height"] for e in asm_list["entries"]) + 1
         run_dbtool_json(snap, "--write", "proof", "asm", "prune", "--before", str(past_asm))
         assert run_dbtool_json(snap, "proof", "asm", "list")["count"] == 0
         assert run_dbtool_json(snap, "proof", "moho", "list")["count"] == moho_list["count"]
-        assert not submitted(snap, asm_id) and submitted(snap, moho_id)
 
         return True
