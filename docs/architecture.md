@@ -27,10 +27,8 @@ data:
 | 5 | Transaction type within that subprotocol |
 | 6.. | The rest of the payload, which the subprotocol parses |
 
-The ASM drops every transaction without a valid tag. It also drops the coinbase, even when it
-is tagged. A miner writes the coinbase freely, with no UTXO and no signature, so reading it
-would let any miner feed the subprotocols unauthenticated input. The ASM groups the remaining
-transactions by subprotocol ID and gives each subprotocol only its own.
+The ASM drops every transaction without a valid tag. It groups the remaining transactions by
+subprotocol ID and gives each subprotocol only its own.
 
 ## Anchor state
 
