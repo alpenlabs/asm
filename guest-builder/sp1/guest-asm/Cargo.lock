@@ -755,6 +755,8 @@ dependencies = [
 name = "guest-sp1-asm"
 version = "0.1.0"
 dependencies = [
+ "ssz",
+ "strata-asm-params",
  "strata-asm-proof-impl",
  "strata-asm-spec",
  "zkaleido-sp1-guest-env",
@@ -2024,6 +2026,8 @@ name = "strata-asm-params"
 version = "0.1.0"
 dependencies = [
  "serde",
+ "ssz",
+ "ssz_derive",
  "strata-asm-admin-types",
  "strata-asm-bridge-types",
  "strata-asm-checkpoint-types",
@@ -2163,6 +2167,7 @@ dependencies = [
 name = "strata-asm-proto-checkpoint"
 version = "0.1.0"
 dependencies = [
+ "bitcoin",
  "strata-asm-checkpoint-types",
  "strata-asm-common",
  "strata-asm-logs",
@@ -2171,6 +2176,8 @@ dependencies = [
  "strata-asm-proto-checkpoint-txs",
  "strata-checkpoint-verification",
  "strata-identifiers",
+ "strata-l1-envelope-fmt",
+ "thiserror",
 ]
 
 [[package]]
@@ -2190,7 +2197,6 @@ dependencies = [
 name = "strata-asm-proto-checkpoint-txs"
 version = "0.1.0"
 dependencies = [
- "bitcoin",
  "strata-asm-checkpoint-types",
  "strata-asm-common",
  "strata-codec",

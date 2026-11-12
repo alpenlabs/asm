@@ -27,10 +27,10 @@ repository validation checks.
      explicit, and don't skip versions without a tested edge.
    - A spec that executes with per-network values gets its own optional section in
      `AsmRuntimeParams`, named after the spec (`spec_v2`), and takes the section as constructor
-     arguments. The native catalog and the runner's proof host build it from that section. A
-     network whose file has no section keeps the values already in state, so the spec takes the
-     section as an `Option`. Install the values into state in `prepare`, so no later spec reads
-     an earlier spec's section.
+     arguments. The native catalog, the runner's proof host, and the guest each build it from
+     that section. A network whose file has no section keeps the values already in state, so the
+     spec takes the section as an `Option`. Install the values into state in `prepare`, so no
+     later spec reads an earlier spec's section.
 2. **Register it in the native catalog.** Add a `CompiledSpec` variant in
    `crates/spec/src/host.rs`, and extend `CompiledSpec::resolve`, `construct_genesis_state`, and
    `register_execution`. Native callers (the runner and OL) get it through
@@ -42,13 +42,20 @@ repository validation checks.
    The local guest (`guest-builder/sp1/guest-asm/src/main.rs`) always compiles the newest spec,
    so point it at the new one. Older specs keep the guest from the release that shipped them, and
    tests download it with its predicate (`functional-tests/envs/prover_env.py` for spec 0). Retain
-   old guests while delayed jobs or reorgs may still need them. Record the source commit,
-   `Cargo.lock`, toolchain, ELF digest, derived predicate, and spec ID together.
+   old guests while delayed jobs or reorgs may still need them.
+
+   The build bakes in the guest spec's section of the runtime part of the params file named by
+   `ASM_PARAMS_PATH`, or the fact that it has none, so the ELF and its predicate belong to those
+   values. Build with the
+   network's file in `crates/params/envs/`, so the source commit and the network pin the values.
+   The build also writes them to `guest-builder/sp1/generated/asm-runtime-params.json` for local
+   native runs such as prover-perf. Record the source commit, `Cargo.lock`, toolchain, network,
+   ELF digest, derived predicate, and spec ID together.
 
    ```sh
    cargo metadata --locked --offline --manifest-path guest-builder/sp1/guest-asm/Cargo.toml --format-version 1 > /dev/null
    cargo clean -p strata-asm-sp1-guest-builder
-   BUILD_ELF=1 BUILD_VKEY=1 cargo build --locked --release -p strata-asm-sp1-guest-builder
+   ASM_PARAMS_PATH="$PWD/crates/params/envs/<env>.json" BUILD_ELF=1 BUILD_VKEY=1 cargo build --locked --release -p strata-asm-sp1-guest-builder
    ```
 
    The metadata preflight catches stale guest lockfiles before SP1's own metadata discovery
@@ -80,6 +87,10 @@ An ASM-only runner omits `[orchestrator]` but still needs a complete `[execution
   spec ID when changing an artifact's predicate, and retain the old binding for historical work.
 - **Native hosts attest a signing key.** The predicate identifies the key; it does not establish
   which code the signer executed.
+- **Runtime params must match the guest.** The runner builds each native spec from that spec's
+  section of the `runtime` part of its params file. It executes natively with those values and
+  proves with the ones baked into its guest. Nothing checks that the two agree. If they
+  differ, proofs of blocks under that spec stop matching native execution.
 - **Release owners establish native/guest equivalence.** Artifact loading checks the predicate,
   while the compiled catalog and release record associate that artifact with the native spec.
   Validate that association before distributing the release.
@@ -127,5 +138,5 @@ SP1_PROVER=light cargo run --locked -p strata-asm-prover-perf -- --programs asm-
 ```
 
 The harness runs the fixture under the newest spec on both sides and requires identical public
-bytes. `light` executes the guest without generating a proof. The fixture is one block, with no
-upgrade or recursion.
+bytes. The native side reads the runtime params the guest build recorded. `light` executes the
+guest without generating a proof. The fixture is one block, with no upgrade or recursion.

@@ -3,14 +3,15 @@ use std::{fs, path::Path};
 use moho_runtime_impl::RuntimeInput;
 use moho_types::MohoState;
 use ssz::Encode;
+use strata_asm_params::AsmRuntimeParams;
 use strata_asm_proof_impl::{
     program::AsmStfProofProgram,
     test_utils::{
         create_asm_step_input, create_deterministic_genesis_anchor_state, create_moho_state,
     },
 };
-use strata_asm_sp1_guest_builder::ASM_ELF_PATH;
-use strata_asm_spec::StrataAsmSpecV1;
+use strata_asm_sp1_guest_builder::{ASM_ELF_PATH, ASM_RUNTIME_PARAMS_PATH};
+use strata_asm_spec::StrataAsmSpecV2;
 use zkaleido::{ExecutionSummary, ProofReceiptWithMetadata, ZkVmExecutor, ZkVmProgram};
 use zkaleido_sp1_host::SP1Host;
 
@@ -21,9 +22,13 @@ pub(crate) async fn gen_execution_summary() -> ExecutionSummary {
     let (input, _) = create_runtime_input(&host);
     let summary = <AsmStfProofProgram as ZkVmProgram>::execute(&input, &host)
         .expect("failed to generate execution summary");
-    // The guest compiles spec 1, so the native side must run the same spec.
-    let native =
-        AsmStfProofProgram::execute(&input, StrataAsmSpecV1).expect("native ASM execution failed");
+    // The guest compiles spec 2 with the runtime params it was built with, so the native side
+    // must run the same spec with the same params.
+    let depths = load_runtime_params()
+        .spec_v2
+        .map(|section| section.confirmation_depths);
+    let spec = StrataAsmSpecV2::new(depths);
+    let native = AsmStfProofProgram::execute(&input, spec).expect("native ASM execution failed");
     // Compare the same witness and parent predicate to detect guest/native
     // semantic drift on this fixture, beyond merely checking successful execution.
     assert_eq!(
@@ -44,6 +49,15 @@ pub(crate) async fn gen_proof_and_initial_root() -> (ProofReceiptWithMetadata, [
         .try_into()
         .expect("inner-state commitment is 32 bytes");
     (proof, initial_asm_state_root)
+}
+
+fn load_runtime_params() -> AsmRuntimeParams {
+    let json = fs::read_to_string(ASM_RUNTIME_PARAMS_PATH).unwrap_or_else(|err| {
+        panic!("failed to read guest runtime params at {ASM_RUNTIME_PARAMS_PATH}: {err}")
+    });
+    serde_json::from_str(&json).unwrap_or_else(|err| {
+        panic!("failed to parse guest runtime params at {ASM_RUNTIME_PARAMS_PATH}: {err}")
+    })
 }
 
 async fn init_asm_host() -> SP1Host {
