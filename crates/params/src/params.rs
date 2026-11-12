@@ -77,12 +77,8 @@ mod tests {
 
     #[test]
     fn accepts_an_empty_runtime_part_and_writes_it_back_empty() {
-        let file = fixture();
-        assert_eq!(
-            file["runtime"],
-            json!({}),
-            "mainnet configures no later spec"
-        );
+        let mut file = fixture();
+        file["runtime"] = json!({});
 
         let params = parse(&file).expect("a network with no spec sections is valid");
 
