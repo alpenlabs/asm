@@ -1,18 +1,21 @@
 //! [`ProofDb`] implementation for [`SledProofDb`].
 
-use strata_asm_prover_types::{AsmProof, L1Range, MohoProof};
+use strata_asm_prover_types::{AsmProof, L1Range, MohoProof, ProofId};
 use strata_identifiers::L1BlockCommitment;
 use zkaleido::ProofReceiptWithMetadata;
 
-use super::{SledProofDb, decode_asm_key, decode_moho_key, encode_asm_key, encode_moho_key};
+use super::{
+    ENCODED_L1_RANGE_SIZE, SledProofDb, decode_asm_key, decode_moho_key, encode_asm_key,
+    encode_moho_key,
+};
 use crate::ProofDb;
 
 /// Synchronous proof accessors.
 ///
 /// The [`ProofDb`] async trait below delegates to these; the worker uses the
 /// trait, while offline tooling (the dbtool) drives them directly to stay
-/// synchronous. `list_*`/`delete_*` have no async-trait counterpart — they exist
-/// only for that tooling.
+/// synchronous. `list_*`, `delete_*`, and the per-kind `prune_*_before` have no
+/// async-trait counterpart — they exist only for that tooling.
 impl SledProofDb {
     /// Stores an ASM step proof for `range`.
     pub fn store_asm(&self, range: &L1Range, proof: &AsmProof) -> Result<(), sled::Error> {
@@ -60,22 +63,54 @@ impl SledProofDb {
             .transpose()
     }
 
-    /// Removes both ASM and Moho proofs for blocks below `before_height`.
+    /// Removes both ASM and Moho proofs for blocks below `before_height`, along
+    /// with their submission records.
     pub fn prune_before(&self, before_height: u32) -> Result<(), sled::Error> {
+        self.prune_moho_before(before_height)?;
+        self.prune_asm_before(before_height)
+    }
+
+    /// Removes the ASM proofs whose range starts below `before_height`, along
+    /// with their submission records.
+    pub fn prune_asm_before(&self, before_height: u32) -> Result<(), sled::Error> {
+        self.prune_tree_before(&self.asm_proofs, before_height, |key| {
+            ProofId::Asm(decode_asm_tree_key(key))
+        })
+    }
+
+    /// Removes the Moho proofs anchored below `before_height`, along with their
+    /// submission records.
+    pub fn prune_moho_before(&self, before_height: u32) -> Result<(), sled::Error> {
+        self.prune_tree_before(&self.moho_proofs, before_height, |key| {
+            ProofId::Moho(decode_moho_key(key))
+        })
+    }
+
+    /// Removes every proof in `tree` below `before_height`, clearing its
+    /// submission record first.
+    ///
+    /// The scheduler skips a proof that has a submission record, so a pruned
+    /// proof whose record stayed could never be proven again. Only the
+    /// proof → remote direction is cleared. The remote → proof entries stay so
+    /// replies from older jobs still resolve. Clearing before removing keeps an
+    /// interrupted prune safe to re-run: a proof still present is skipped as
+    /// existing, and the next run clears what is left.
+    ///
+    /// Both proof trees key on a big-endian height prefix (the Moho anchor
+    /// height, or the ASM range's start height), so a byte-range scan selects
+    /// by height.
+    fn prune_tree_before(
+        &self,
+        tree: &sled::Tree,
+        before_height: u32,
+        proof_id: impl Fn(&[u8]) -> ProofId,
+    ) -> Result<(), sled::Error> {
         let upper: &[u8] = &before_height.to_be_bytes();
-
-        // Remove all moho proofs with height < before_height.
-        for entry in self.moho_proofs.range(..upper) {
-            let (key, _) = entry?;
-            self.moho_proofs.remove(&key)?;
+        for key in tree.range(..upper).keys() {
+            let key = key?;
+            self.clear_remote_submission(proof_id(&key))?;
+            tree.remove(key)?;
         }
-
-        // Remove all ASM proofs with start_height < before_height.
-        for entry in self.asm_proofs.range(..upper) {
-            let (key, _) = entry?;
-            self.asm_proofs.remove(&key)?;
-        }
-
         Ok(())
     }
 
@@ -87,14 +122,7 @@ impl SledProofDb {
         self.asm_proofs
             .iter()
             .keys()
-            .map(|key| {
-                let key = key?;
-                let bytes: &[u8; super::ENCODED_L1_RANGE_SIZE] = key
-                    .as_ref()
-                    .try_into()
-                    .expect("asm proof key is a fixed-size range key");
-                Ok(decode_asm_key(bytes))
-            })
+            .map(|key| Ok(decode_asm_tree_key(&key?)))
             .collect()
     }
 
@@ -116,6 +144,14 @@ impl SledProofDb {
     pub fn delete_moho(&self, l1ref: &L1BlockCommitment) -> Result<bool, sled::Error> {
         Ok(self.moho_proofs.remove(encode_moho_key(l1ref))?.is_some())
     }
+}
+
+/// Decodes a key read from the `asm_proofs` tree.
+fn decode_asm_tree_key(key: &[u8]) -> L1Range {
+    let bytes: &[u8; ENCODED_L1_RANGE_SIZE] = key
+        .try_into()
+        .expect("asm proof key is a fixed-size range key");
+    decode_asm_key(bytes)
 }
 
 fn decode_proof(bytes: &[u8]) -> Result<ProofReceiptWithMetadata, sled::Error> {
@@ -164,12 +200,13 @@ impl ProofDb for SledProofDb {
 mod tests {
     use std::collections::BTreeSet;
 
-    use proptest::{collection::vec, prelude::*};
+    use proptest::{collection::vec, prelude::*, strategy::ValueTree, test_runner::TestRunner};
+    use strata_asm_prover_types::RemoteProofId;
     use strata_identifiers::{Buf32, L1BlockId};
     use tokio::runtime::Runtime;
 
     use super::*;
-    use crate::sled::test_util::*;
+    use crate::{RemoteProofMappingDb, sled::test_util::*};
 
     proptest! {
         #![proptest_config(ProptestConfig::with_cases(50))]
@@ -264,6 +301,67 @@ mod tests {
             }
             prop_assert!(db.list_moho().unwrap().is_empty());
             prop_assert!(!db.delete_moho(expected.iter().next().unwrap()).unwrap());
+        }
+    }
+
+    /// `prune_asm_before` and `prune_moho_before` each prune only their own
+    /// kind, keep entries at the threshold height, and clear the submission
+    /// record of exactly the proofs they remove.
+    #[test]
+    fn per_kind_prune_clears_only_its_own_kind() {
+        let (db, _dir) = temp_db();
+        let mut runner = TestRunner::deterministic();
+        let asm = arb_asm_proof().new_tree(&mut runner).unwrap().current();
+        let moho = arb_moho_proof().new_tree(&mut runner).unwrap().current();
+        let blkid = L1BlockId::from(Buf32::from([7u8; 32]));
+        let low = L1BlockCommitment::new(5, blkid);
+        let high = L1BlockCommitment::new(10, blkid);
+        for c in [low, high] {
+            db.store_asm(&L1Range::single(c), &asm).unwrap();
+            db.store_moho(&c, &moho).unwrap();
+        }
+        let [asm_low, asm_high, moho_low, moho_high] = [
+            ProofId::Asm(L1Range::single(low)),
+            ProofId::Asm(L1Range::single(high)),
+            ProofId::Moho(low),
+            ProofId::Moho(high),
+        ];
+        Runtime::new().unwrap().block_on(async {
+            for (i, id) in [asm_low, asm_high, moho_low, moho_high]
+                .into_iter()
+                .enumerate()
+            {
+                db.put_remote_proof_id(id, RemoteProofId(vec![i as u8]))
+                    .await
+                    .unwrap();
+            }
+        });
+
+        db.prune_asm_before(10).unwrap();
+        assert_eq!(db.list_asm().unwrap(), vec![L1Range::single(high)]);
+        assert_eq!(db.list_moho().unwrap(), vec![low, high]);
+        assert_eq!(db.get_remote(asm_low).unwrap(), None);
+        for id in [asm_high, moho_low, moho_high] {
+            assert!(
+                db.get_remote(id).unwrap().is_some(),
+                "{id:?} lost its record"
+            );
+        }
+        // The remote -> proof direction stays, so old job replies resolve.
+        assert_eq!(
+            db.get_local(&RemoteProofId(vec![0])).unwrap(),
+            Some(asm_low)
+        );
+
+        db.prune_moho_before(10).unwrap();
+        assert_eq!(db.list_moho().unwrap(), vec![high]);
+        assert_eq!(db.list_asm().unwrap(), vec![L1Range::single(high)]);
+        assert_eq!(db.get_remote(moho_low).unwrap(), None);
+        for id in [asm_high, moho_high] {
+            assert!(
+                db.get_remote(id).unwrap().is_some(),
+                "{id:?} lost its record"
+            );
         }
     }
 

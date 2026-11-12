@@ -109,9 +109,10 @@ class AsmDbtoolProofTest(flexitest.Test):
         status_missing = run_dbtool_json(proof_db, "proof", "status", "get", "deadbeef")
         assert status_missing["found"] is False, status_missing
 
-        # write gate: prune refuses without --write.
-        code, _out, err = run_dbtool(proof_db, "proof", "prune", "--before", "1")
-        assert code != 0 and "write" in err.lower(), (code, err)
+        # write gate: every prune refuses without --write.
+        for args in (("prune",), ("asm", "prune"), ("moho", "prune")):
+            code, _out, err = run_dbtool(proof_db, "proof", *args, "--before", "1")
+            assert code != 0 and "write" in err.lower(), (args, code, err)
 
         # write path (on a snapshot so the original is untouched): delete removes
         # the Moho proof and a subsequent get reports it gone.
@@ -120,5 +121,30 @@ class AsmDbtoolProofTest(flexitest.Test):
         assert deleted["deleted"] is True, deleted
         gone = run_dbtool_json(snap, "proof", "moho", "get", commitment)
         assert gone["found"] is False, gone
+
+        # Per-kind prune (on a fresh snapshot): each one empties its own kind,
+        # clears the pruned proofs' submission records so they can be proven
+        # again, and leaves the other kind alone.
+        asm_id = f"asm:{asm_range}"
+        moho_id = f"moho:{commitment}"
+
+        def submitted(db: str, proof_id: str) -> bool:
+            return run_dbtool_json(db, "proof", "mapping", "get-remote", proof_id)["found"]
+
+        assert submitted(proof_db, asm_id) and submitted(proof_db, moho_id)
+
+        snap = snapshot_db(proof_db)
+        past_moho = max(e["height"] for e in moho_list["entries"]) + 1
+        run_dbtool_json(snap, "--write", "proof", "moho", "prune", "--before", str(past_moho))
+        assert run_dbtool_json(snap, "proof", "moho", "list")["count"] == 0
+        assert run_dbtool_json(snap, "proof", "asm", "list")["count"] == asm_list["count"]
+        assert not submitted(snap, moho_id) and submitted(snap, asm_id)
+
+        snap = snapshot_db(proof_db)
+        past_asm = max(e["start"]["height"] for e in asm_list["entries"]) + 1
+        run_dbtool_json(snap, "--write", "proof", "asm", "prune", "--before", str(past_asm))
+        assert run_dbtool_json(snap, "proof", "asm", "list")["count"] == 0
+        assert run_dbtool_json(snap, "proof", "moho", "list")["count"] == moho_list["count"]
+        assert not submitted(snap, asm_id) and submitted(snap, moho_id)
 
         return True
