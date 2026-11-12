@@ -14,7 +14,8 @@ pub trait AsmSpec {
 
     /// Prepares working state for this ruleset before either STF entrypoint loads sections.
     ///
-    /// Use only source state and spec constants; preserve magic and chain view.
+    /// Use only source state and values the spec carries, which the guest fixes when it is
+    /// built; preserve magic and chain view.
     /// Set `spec_id` to [`Self::ID`] after migration and leave compatible state unchanged.
     /// Returns an owned working state while preserving the borrowed parent.
     ///

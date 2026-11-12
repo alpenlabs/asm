@@ -327,6 +327,23 @@ pub fn safe_harbor_address_update(address: SafeHarborAddress) -> MultisigAction 
 // Test Setup
 // ============================================================================
 
+/// Confirmation depths that hold every admin update type for `depth` blocks.
+pub fn uniform_confirmation_depths(depth: u16) -> ConfirmationDepths {
+    ConfirmationDepths {
+        strata_admin_multisig_update: depth,
+        strata_seq_manager_multisig_update: depth,
+        alpen_admin_multisig_update: depth,
+        strata_security_council_multisig_update: depth,
+        operator_update: depth,
+        sequencer_update: depth,
+        ol_stf_vk_update: depth,
+        asm_stf_vk_update: depth,
+        ee_stf_vk_update: depth,
+        defcon3: depth,
+        safe_harbor_address_update: depth,
+    }
+}
+
 /// Creates matching admin subprotocol params and signing context.
 ///
 /// Generates a distinct 1-of-1 signer keypair for each of the four roles
@@ -361,19 +378,7 @@ pub fn create_test_admin_setup(
         strata_sequencer_manager,
         alpen_administrator,
         strata_security_council,
-        confirmation_depths: ConfirmationDepths {
-            strata_admin_multisig_update: confirmation_depth,
-            strata_seq_manager_multisig_update: confirmation_depth,
-            alpen_admin_multisig_update: confirmation_depth,
-            strata_security_council_multisig_update: confirmation_depth,
-            operator_update: confirmation_depth,
-            sequencer_update: confirmation_depth,
-            ol_stf_vk_update: confirmation_depth,
-            asm_stf_vk_update: confirmation_depth,
-            ee_stf_vk_update: confirmation_depth,
-            defcon3: confirmation_depth,
-            safe_harbor_address_update: confirmation_depth,
-        },
+        confirmation_depths: uniform_confirmation_depths(confirmation_depth),
         max_seqno_gap: DEFAULT_MAX_SEQNO_GAP,
     };
 

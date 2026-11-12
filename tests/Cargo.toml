@@ -117,5 +117,9 @@ name = "asm_upgrade_recovery"
 path = "asm/upgrade_recovery.rs"
 
 [[test]]
+name = "asm_spec_v2"
+path = "asm/spec_v2.rs"
+
+[[test]]
 name = "asm_aux_data"
 path = "asm/aux_data.rs"

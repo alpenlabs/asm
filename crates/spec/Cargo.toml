@@ -22,6 +22,7 @@ strata-predicate = { workspace = true, optional = true }
 thiserror = { workspace = true, optional = true }
 
 [dev-dependencies]
+strata-asm-admin-types.workspace = true
 strata-asm-params = { workspace = true, features = ["arbitrary"] }
 
 arbitrary.workspace = true

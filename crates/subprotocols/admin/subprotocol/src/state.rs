@@ -72,6 +72,13 @@ impl AdministrationSubprotoState {
         self.confirmation_depths.get(tx_type)
     }
 
+    /// Replaces the confirmation depths that later updates are queued with.
+    ///
+    /// Updates already in the queue keep the activation height they were given.
+    pub fn set_confirmation_depths(&mut self, confirmation_depths: ConfirmationDepths) {
+        self.confirmation_depths = confirmation_depths;
+    }
+
     pub fn max_seqno_gap(&self) -> NonZero<u8> {
         self.max_seqno_gap
     }
