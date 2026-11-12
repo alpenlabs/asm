@@ -122,8 +122,8 @@ Nothing deduplicates entry hashes: a hash may appear as several leaves, and
 
 | Resource | Verbs |
 |---|---|
-| `proof asm` | `get <range>` · `list` · `delete <range>` (w) |
-| `proof moho` | `get <commitment>` · `latest` · `list` · `delete <commitment>` (w) |
+| `proof asm` | `get <range>` · `list` · `delete <range>` (w) · `prune --before <h>` (w) |
+| `proof moho` | `get <commitment>` · `latest` · `list` · `delete <commitment>` (w) · `prune --before <h>` (w) |
 | `proof mapping` | `get-remote <proof_id>` · `get-local <remote_id>` · `list` · `delete <proof_id>` (w) |
 | `proof status` | `get <remote_id>` · `list` · `in-progress` · `delete <remote_id>` (w) |
 | `proof prune` | `--before <h>` (w) |
@@ -131,15 +131,20 @@ Nothing deduplicates entry hashes: a hash may appear as several leaves, and
 A `<range>` is `<commitment>` (single block) or `<commitment>..<commitment>`
 (inclusive); a `<proof_id>` is `asm:<range>` or `moho:<commitment>`; a
 `<remote_id>` is the opaque remote id as hex. All three round-trip: the string
-each verb prints copies straight back into the next command. `proof prune`
-drops ASM and Moho proofs only — the mapping and status bookkeeping are left
-untouched.
+each verb prints copies straight back into the next command.
 
-`proof mapping delete` is the repair for a stuck block. A mapping records that
-a proof was submitted to the remote prover, and the scheduler skips any proof
-that has one. Nothing in the worker ever clears it, so deleting a proof on its
-own leaves a block that can never be proven again: the proof is gone, the
-scheduler still reads it as submitted, and a restart reaches the same
-conclusion. Deleting the mapping is what puts the proof back in the queue.
-`proof mapping list` keeps showing the remote ids that proof has already used —
-only the record of it being submitted goes.
+`proof prune` drops ASM and Moho proofs together. `proof asm prune` and
+`proof moho prune` drop only their own kind. An ASM proof is pruned by its
+range's start height. Every prune also clears the submission record of each
+proof it removes (see below), so the scheduler proves it again if it still
+needs it. Pruning past the latest Moho proof therefore re-proves every pruned
+step of the chain. Status rows are left alone.
+
+A mapping records that a proof was submitted to the remote prover, and the
+scheduler skips any proof that has one. Nothing in the worker ever clears it,
+so `delete` on a proof leaves a block that can never be proven again: the proof
+is gone, the scheduler still reads it as submitted, and a restart reaches the
+same conclusion. `proof mapping delete` is the repair: clearing the record puts
+the proof back in the queue. The prune verbs do this for every proof they
+remove. `proof mapping list` keeps showing the remote ids a proof has already
+used — only the record of it being submitted goes.

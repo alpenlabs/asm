@@ -61,6 +61,11 @@ fn asm(store: &SledProofDb, verb: ProofAsmVerb, write: bool) -> Result<Value> {
             let deleted = store.delete_asm(&range)?;
             Ok(json!({ "deleted": deleted, "range": range_json(&range) }))
         }
+        ProofAsmVerb::Prune { before } => {
+            ensure_write(write)?;
+            store.prune_asm_before(before)?;
+            Ok(json!({ "pruned": "before", "height": before }))
+        }
     }
 }
 
@@ -89,6 +94,11 @@ fn moho(store: &SledProofDb, verb: ProofMohoVerb, write: bool) -> Result<Value> 
             let commitment = parse_commitment(&commitment)?;
             let deleted = store.delete_moho(&commitment)?;
             Ok(json!({ "deleted": deleted, "block": commitment_json(&commitment) }))
+        }
+        ProofMohoVerb::Prune { before } => {
+            ensure_write(write)?;
+            store.prune_moho_before(before)?;
+            Ok(json!({ "pruned": "before", "height": before }))
         }
     }
 }
