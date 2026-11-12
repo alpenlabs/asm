@@ -144,7 +144,7 @@ mod tests {
     use std::{cell::RefCell, collections::HashMap};
 
     use strata_asm_common::{AnchorState, AsmLogEntry};
-    use strata_asm_params::AsmParams;
+    use strata_asm_params::AsmGenesisParams;
     use strata_asm_proof_impl::moho_program::program::compute_anchor_state_commitment;
     use strata_asm_spec::construct_genesis_state;
     use strata_identifiers::{Buf32, L1BlockCommitment, L1BlockId};
@@ -276,7 +276,7 @@ mod tests {
 
     /// Builds a genesis anchor state and its commitment from arbitrary params.
     fn genesis_anchor() -> (L1BlockCommitment, AnchorState) {
-        let params: AsmParams = ArbitraryGenerator::new().generate();
+        let params: AsmGenesisParams = ArbitraryGenerator::new().generate();
         let anchor = construct_genesis_state(&params);
         let commitment = anchor.chain_view.pow_state.last_verified_block;
         (commitment, anchor)

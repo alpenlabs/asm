@@ -1,17 +1,17 @@
-//! Genesis anchor state construction from [`AsmParams`].
+//! Genesis anchor state construction from [`AsmGenesisParams`].
 
 use strata_asm_common::{
     AnchorState, AsmHistoryAccumulatorState, AsmSpec, ChainViewState, HeaderVerificationState,
     SectionState, SectionStateExt,
 };
-use strata_asm_params::AsmParams;
+use strata_asm_params::AsmGenesisParams;
 use strata_asm_proto_admin::{AdministrationSubprotoState, AdministrationSubprotocol};
 use strata_asm_proto_bridge::{BridgeStateV1, BridgeSubprotoV1};
 use strata_asm_proto_checkpoint::{CheckpointState, CheckpointSubprotocol};
 
 use crate::StrataAsmSpec;
 
-/// Builds the genesis [`AnchorState`] from the given [`AsmParams`].
+/// Builds the genesis [`AnchorState`] from the given [`AsmGenesisParams`].
 ///
 /// Initialises every subprotocol's state from its config in `params` and
 /// assembles the chain view (PoW header verification + history accumulator).
@@ -19,10 +19,10 @@ use crate::StrataAsmSpec;
 /// # Panics
 ///
 /// Panics if `params` lacks a subprotocol config, or if the checkpoint genesis L1 height
-/// differs from the anchor height. Deserializing [`AsmParams`] rejects the latter, so it only
-/// fires for parameters assembled or modified in code; [`AsmParams::set_anchor`] keeps the
-/// two heights together.
-pub fn construct_genesis_state(params: &AsmParams) -> AnchorState {
+/// differs from the anchor height. Deserializing [`AsmGenesisParams`] rejects the latter, so it
+/// only fires for parameters assembled or modified in code; [`AsmGenesisParams::set_anchor`] keeps
+/// the two heights together.
+pub fn construct_genesis_state(params: &AsmGenesisParams) -> AnchorState {
     let checkpoint_config = params
         .checkpoint_config()
         .expect("asm: missing Checkpoint subprotocol config in params");
@@ -82,8 +82,9 @@ mod tests {
 
     use super::*;
 
-    fn arbitrary_params() -> AsmParams {
-        AsmParams::arbitrary(&mut Unstructured::new(&[42; 65_536])).expect("arbitrary params")
+    fn arbitrary_params() -> AsmGenesisParams {
+        AsmGenesisParams::arbitrary(&mut Unstructured::new(&[42; 65_536]))
+            .expect("arbitrary params")
     }
 
     #[test]

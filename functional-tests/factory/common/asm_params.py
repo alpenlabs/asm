@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -84,7 +84,7 @@ class BridgeSubprotocol:
 
 
 @dataclass
-class AsmParams:
+class AsmGenesisParams:
     magic: str
     anchor: L1Anchor
     subprotocols: list[dict[str, Any]]
@@ -94,6 +94,19 @@ class AsmParams:
             "magic": self.magic,
             "anchor": asdict(self.anchor),
             "subprotocols": self.subprotocols,
+        }
+
+
+@dataclass
+class AsmParams:
+    genesis: AsmGenesisParams
+    # One optional section per spec after genesis, keyed like `spec_v2`.
+    runtime: dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "genesis": self.genesis.to_dict(),
+            "runtime": self.runtime,
         }
 
 
@@ -246,9 +259,11 @@ def build_asm_params(
         admin_confirmation_depth=admin_confirmation_depth,
     )
     return AsmParams(
-        magic=magic,
-        anchor=anchor,
-        subprotocols=subprotocols,
+        genesis=AsmGenesisParams(
+            magic=magic,
+            anchor=anchor,
+            subprotocols=subprotocols,
+        ),
     )
 
 

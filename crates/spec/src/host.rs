@@ -73,8 +73,8 @@ impl CompiledSpec {
     /// Constructs the genesis anchor under this implementation's rules.
     pub fn construct_genesis_state(&self, params: &AsmParams) -> AnchorState {
         match self {
-            Self::V0 => StrataAsmSpec.construct_genesis_state(params),
-            Self::V1 => StrataAsmSpecV1.construct_genesis_state(params),
+            Self::V0 => StrataAsmSpec.construct_genesis_state(&params.genesis),
+            Self::V1 => StrataAsmSpecV1.construct_genesis_state(&params.genesis),
         }
     }
 

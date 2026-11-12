@@ -1,205 +1,129 @@
-#[cfg(feature = "arbitrary")]
-use arbitrary::{Arbitrary, Unstructured};
-use serde::{Deserialize, Deserializer, Serialize, de::Error as DeError};
-use strata_asm_admin_types::AdministrationInitConfig;
-use strata_asm_bridge_types::BridgeInitConfig;
-use strata_asm_checkpoint_types::CheckpointInitConfig;
-use strata_btc_verification::L1Anchor;
-use strata_l1_txfmt::MagicBytes;
+use serde::{Deserialize, Serialize};
 
-/// A configured subprotocol that can be registered in [`AsmParams`].
+use crate::{AsmGenesisParams, AsmRuntimeParams};
+
+/// Top-level ASM parameter file.
 ///
-/// Each variant carries the configuration for a single ASM subprotocol.
-/// The list of instances stored in `AsmParams` determines which subprotocols
-/// are active for a given network.
+/// Separates the inputs that build the genesis state from the per-spec values that specs after
+/// genesis read while they execute. The genesis part defines the chain, so it stays the same for
+/// the life of a network. Configuring a later spec only adds that spec's section to the runtime
+/// part.
+///
+/// # File layout
+///
+/// The file is `{"genesis": {..}, "runtime": {..}}`, and unknown top-level fields are
+/// rejected. Earlier releases wrote the genesis fields (`magic`, `anchor`, `subprotocols`) at
+/// the top level, so such a file fails to parse. Converting it moves those fields under
+/// `genesis` unchanged and adds `"runtime": {}`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub enum SubprotocolInstance {
-    /// Administration subprotocol for system upgrades.
-    Admin(AdministrationInitConfig),
-
-    /// Bridge V1 subprotocol for deposit/withdrawal management.
-    Bridge(BridgeInitConfig),
-
-    /// Checkpoint subprotocol for OL checkpoint verification.
-    Checkpoint(CheckpointInitConfig),
-}
-
-/// Top-level parameters for an ASM instance.
-///
-/// Combines the SPS-50 magic bytes used to tag L1 transactions, the genesis
-/// L1 view that bootstraps header verification, and the set of active
-/// subprotocol configurations.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct AsmParams {
-    /// SPS-50 magic bytes that identify protocol transactions on L1.
-    pub magic: MagicBytes,
+    /// Parameters used to build the genesis state.
+    pub genesis: AsmGenesisParams,
 
-    /// L1 anchor point after which L1 processing begins.
-    ///
-    /// Captures everything needed to initialize
-    /// [`HeaderVerificationState`](strata_btc_verification::HeaderVerificationState) and
-    /// begin validating subsequent L1 headers.
-    pub anchor: L1Anchor,
-
-    /// Ordered list of subprotocol configurations active in this ASM.
-    pub subprotocols: Vec<SubprotocolInstance>,
-}
-
-/// [`Deserialize`] is implemented by hand so that a parameter file is checked against the
-/// invariants spanning the whole parameter set as it is read.
-///
-/// Each subprotocol configuration already validates itself. What is left are the questions
-/// that need more than one field to answer, and a parameter file is the only place those
-/// fields come from, so deserialization is where they are asked.
-impl<'de> Deserialize<'de> for AsmParams {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        #[derive(Deserialize)]
-        struct Raw {
-            magic: MagicBytes,
-            anchor: L1Anchor,
-            subprotocols: Vec<SubprotocolInstance>,
-        }
-
-        let raw = Raw::deserialize(deserializer)?;
-        let params = Self {
-            magic: raw.magic,
-            anchor: raw.anchor,
-            subprotocols: raw.subprotocols,
-        };
-
-        params.check_invariants().map_err(DeError::custom)?;
-        Ok(params)
-    }
-}
-
-impl AsmParams {
-    pub fn admin_config(&self) -> Option<&AdministrationInitConfig> {
-        self.subprotocols.iter().find_map(|s| match s {
-            SubprotocolInstance::Admin(cfg) => Some(cfg),
-            _ => None,
-        })
-    }
-
-    pub fn bridge_config(&self) -> Option<&BridgeInitConfig> {
-        self.subprotocols.iter().find_map(|s| match s {
-            SubprotocolInstance::Bridge(cfg) => Some(cfg),
-            _ => None,
-        })
-    }
-
-    pub fn checkpoint_config(&self) -> Option<&CheckpointInitConfig> {
-        self.subprotocols.iter().find_map(|s| match s {
-            SubprotocolInstance::Checkpoint(cfg) => Some(cfg),
-            _ => None,
-        })
-    }
-
-    /// Replaces the L1 anchor and moves the checkpoint genesis L1 height to its height.
-    ///
-    /// The two heights must agree (see
-    /// [`CheckpointInitConfig::check_genesis_l1_height`]), so moving one without the other
-    /// leaves parameters that genesis construction rejects.
-    pub fn set_anchor(&mut self, anchor: L1Anchor) {
-        let height = anchor.block.height();
-        self.anchor = anchor;
-        for instance in &mut self.subprotocols {
-            if let SubprotocolInstance::Checkpoint(config) = instance {
-                config.genesis_l1_height = height;
-            }
-        }
-    }
-}
-
-#[cfg(feature = "arbitrary")]
-impl<'a> Arbitrary<'a> for AsmParams {
-    fn arbitrary(u: &mut Unstructured<'a>) -> arbitrary::Result<Self> {
-        use strata_identifiers::L1BlockCommitment;
-
-        let networks = [
-            bitcoin::Network::Bitcoin,
-            bitcoin::Network::Testnet,
-            bitcoin::Network::Signet,
-            bitcoin::Network::Regtest,
-        ];
-        let network = *u.choose(&networks)?;
-
-        let block = L1BlockCommitment::arbitrary(u)?;
-        let anchor = L1Anchor {
-            block,
-            next_target: u.arbitrary()?,
-            epoch_start_timestamp: u.arbitrary()?,
-            network,
-        };
-
-        // Draw in subprotocol order so seeded instances keep their other values.
-        let admin = AdministrationInitConfig::arbitrary_for_network(u, network)?;
-        // Deserialization requires the checkpoint genesis height to match the anchor.
-        let checkpoint = CheckpointInitConfig {
-            genesis_l1_height: anchor.block.height(),
-            ..CheckpointInitConfig::arbitrary(u)?
-        };
-        let bridge = BridgeInitConfig::arbitrary_for_network(u, network)?;
-
-        Ok(Self {
-            magic: MagicBytes::new(*b"ALPN"),
-            anchor,
-            subprotocols: vec![
-                SubprotocolInstance::Admin(admin),
-                SubprotocolInstance::Checkpoint(checkpoint),
-                SubprotocolInstance::Bridge(bridge),
-            ],
-        })
-    }
+    /// Per-spec values that specs after genesis read while they execute.
+    pub runtime: AsmRuntimeParams,
 }
 
 #[cfg(test)]
 mod tests {
-    use strata_asm_bridge_types::SafeHarborAddress;
+    use std::{fs, path::Path};
+
+    use serde_json::{Value, json};
 
     use super::*;
-    use crate::test_fixtures::regtest_params_json;
+    use crate::test_fixtures::mainnet_params_json;
+
+    fn fixture() -> Value {
+        serde_json::from_str(mainnet_params_json()).expect("fixture is JSON")
+    }
+
+    fn parse(file: &Value) -> Result<AsmParams, serde_json::Error> {
+        serde_json::from_value(file.clone())
+    }
+
+    /// The files hold the params of deployed networks, so a format change has to convert them
+    /// in the same change.
+    #[test]
+    fn every_environment_file_parses() {
+        let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("envs");
+        let mut parsed = 0;
+        for entry in fs::read_dir(&dir).expect("envs directory exists") {
+            let path = entry.expect("envs directory is readable").path();
+            let json = fs::read_to_string(&path).expect("environment file is readable");
+            if let Err(error) = serde_json::from_str::<AsmParams>(&json) {
+                panic!("{} does not parse: {error}", path.display());
+            }
+            parsed += 1;
+        }
+        assert!(parsed > 0, "no environment files in {}", dir.display());
+    }
 
     #[test]
-    fn test_asm_params_deserialize_from_raw_json() {
-        let raw_json = regtest_params_json();
+    fn deserializes_a_spec_v2_section() {
+        let mut file = fixture();
+        let depths = file["genesis"]["subprotocols"][0]["Admin"]["confirmation_depths"].clone();
+        file["runtime"] = json!({ "spec_v2": { "confirmation_depths": depths } });
 
-        // Signers and the safe harbor are written as addresses on the anchor's network, so
-        // resolving them is part of what the fixture pins: the anchor is on regtest and both
-        // are written as regtest addresses, which deserialization confirms.
-        let params: AsmParams =
-            serde_json::from_str(raw_json).expect("deserialization from raw JSON should succeed");
+        let params = parse(&file).expect("params file deserializes");
 
-        let admin = params.admin_config().expect("params carry an Admin config");
-        assert_eq!(admin.strata_sequencer_manager.signers().len(), 2);
+        let admin = params
+            .genesis
+            .admin_config()
+            .expect("params carry an Admin config");
+        let spec_v2 = params.runtime.spec_v2.expect("file has a spec 2 section");
+        assert_eq!(spec_v2.confirmation_depths, admin.confirmation_depths);
+    }
 
-        let bridge = params
-            .bridge_config()
-            .expect("params carry a Bridge config");
+    #[test]
+    fn accepts_an_empty_runtime_part_and_writes_it_back_empty() {
+        let file = fixture();
         assert_eq!(
-            SafeHarborAddress::from(&bridge.safe_harbor_address)
-                .as_descriptor()
-                .to_string(),
-            "0479be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"
+            file["runtime"],
+            json!({}),
+            "mainnet configures no later spec"
+        );
+
+        let params = parse(&file).expect("a network with no spec sections is valid");
+
+        assert_eq!(params.runtime.spec_v2, None);
+        assert_eq!(serde_json::to_value(&params).unwrap()["runtime"], json!({}));
+    }
+
+    /// A binary that predates a spec must still read a file that configures it.
+    #[test]
+    fn ignores_runtime_sections_it_does_not_know() {
+        let mut file = fixture();
+        file["runtime"]["spec_v9"] = json!({ "anything": 1 });
+
+        let params = parse(&file).expect("unknown spec sections are ignored");
+
+        assert_eq!(params, parse(&fixture()).unwrap());
+    }
+
+    #[test]
+    fn rejects_the_flat_layout_of_earlier_releases() {
+        let error = parse(&fixture()["genesis"])
+            .expect_err("genesis fields at the top level are not a params file");
+
+        assert!(
+            error
+                .to_string()
+                .contains("expected `genesis` or `runtime`"),
+            "unexpected error: {error}"
         );
     }
 
-    #[cfg(feature = "arbitrary")]
-    mod proptest_arbitrary {
-        use arbitrary::{Arbitrary, Unstructured};
-        use proptest::{collection, prelude::*};
+    #[test]
+    fn rejects_a_file_without_a_runtime_part() {
+        let mut file = fixture();
+        file.as_object_mut().unwrap().remove("runtime");
 
-        use super::*;
+        let error = parse(&file).expect_err("the runtime part is required, even if empty");
 
-        proptest! {
-            #[test]
-            fn test_arbitrary(seed in collection::vec(any::<u8>(), 0..4096)) {
-                let mut u = Unstructured::new(&seed);
-                let params = AsmParams::arbitrary(&mut u).expect("arbitrary params");
-                prop_assert_eq!(params.check_invariants(), Ok(()));
-            }
-        }
+        assert!(
+            error.to_string().contains("missing field `runtime`"),
+            "unexpected error: {error}"
+        );
     }
 }

@@ -21,7 +21,7 @@ use bitcoin::{
 use integration_tests::harness::spec::TestSuccessor;
 use rand::{rngs::StdRng, SeedableRng};
 use strata_asm_common::{AnchorState, AsmSpec, AuxData};
-use strata_asm_params::AsmParams;
+use strata_asm_params::AsmGenesisParams;
 use strata_asm_proto_bridge_txs::{
     deposit::DepositTxHeaderAux,
     test_utils::{create_dummy_tx, TEST_MAGIC_BYTES},
@@ -44,9 +44,9 @@ fn target() -> CompactTarget {
 
 /// Genesis parameters whose chain tip is `parent`, so a block built on
 /// `parent` is the next block the STF expects.
-fn genesis_params(parent: BlockHash) -> AsmParams {
+fn genesis_params(parent: BlockHash) -> AsmGenesisParams {
     let mut rng = StdRng::seed_from_u64(5);
-    let mut params: AsmParams = ArbitraryGenerator::new().generate_with_rng(&mut rng);
+    let mut params: AsmGenesisParams = ArbitraryGenerator::new().generate_with_rng(&mut rng);
     params.magic = TEST_MAGIC_BYTES;
     params.set_anchor(L1Anchor {
         block: L1BlockCommitment::new(GENESIS_HEIGHT, parent.to_l1_block_id()),
@@ -195,7 +195,7 @@ fn tagged_coinbase_is_ignored_by_the_stf() {
 /// subprotocol transactions produces the baseline result under either ruleset.
 fn assert_successor_preserves_baseline_semantics<S>(successor: S)
 where
-    S: AsmSpec<GenesisParams = AsmParams>,
+    S: AsmSpec<GenesisParams = AsmGenesisParams>,
 {
     let parent = BlockHash::all_zeros();
     let params = genesis_params(parent);

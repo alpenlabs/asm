@@ -145,7 +145,7 @@ pub(crate) async fn bootstrap(
         let moho_worker = MohoWorkerBuilder::new()
             .with_context(moho_context)
             .with_subscription(asm_worker.subscribe_blocks())
-            .with_genesis_block(params.anchor.block)
+            .with_genesis_block(params.genesis.anchor.block)
             .with_asm_predicate(genesis_predicate)
             .launch(&executor)
             .await?;
@@ -163,7 +163,7 @@ pub(crate) async fn bootstrap(
             aux_db.clone(),
             bitcoin_client.clone(),
         );
-        let input_builder = InputBuilder::new(params.anchor.block, moho_predicate);
+        let input_builder = InputBuilder::new(params.genesis.anchor.block, moho_predicate);
 
         // Drive the prover from the *Moho* worker's commit stream, not the ASM
         // worker's: the Moho worker emits a block only after it has persisted

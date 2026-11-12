@@ -36,16 +36,20 @@ class AsmGetParamsTest(flexitest.Test):
 
         params = asm_rpc.strata_asm_getParams()
         assert params is not None, "strata_asm_getParams returned None"
+        assert set(params) == {"genesis", "runtime"}, f"unexpected sections: {list(params)!r}"
+        # The env configures no spec that reads runtime values.
+        assert params["runtime"] == {}, f"unexpected runtime params: {params['runtime']!r}"
+        genesis = params["genesis"]
 
         # SPS-50 magic bytes serialize as their ASCII string over JSON-RPC.
-        assert params["magic"] == ASM_MAGIC_BYTES, f"unexpected magic: {params['magic']!r}"
+        assert genesis["magic"] == ASM_MAGIC_BYTES, f"unexpected magic: {genesis['magic']!r}"
 
         # Anchor pins the runner to the regtest chain the env pre-mined.
-        assert params["anchor"]["network"] == "regtest", (
-            f"unexpected anchor network: {params['anchor']!r}"
+        assert genesis["anchor"]["network"] == "regtest", (
+            f"unexpected anchor network: {genesis['anchor']!r}"
         )
 
-        subprotocols = params["subprotocols"]
+        subprotocols = genesis["subprotocols"]
         tags = [next(iter(sp)) for sp in subprotocols]
         assert tags == EXPECTED_SUBPROTOCOLS, f"unexpected subprotocols: {tags!r}"
 
@@ -60,5 +64,5 @@ class AsmGetParamsTest(flexitest.Test):
             f"unexpected safe harbor in bridge params: {bridge['safe_harbor_address']!r}"
         )
 
-        logging.info("getParams returned magic=%s, subprotocols=%s", params["magic"], tags)
+        logging.info("getParams returned magic=%s, subprotocols=%s", genesis["magic"], tags)
         return True

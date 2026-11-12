@@ -7,7 +7,7 @@ use arbitrary::{Arbitrary, Unstructured};
 use bitcoin::Block;
 use moho_types::{ExportState, MohoState};
 use strata_asm_common::{AnchorState, AuxData};
-use strata_asm_params::AsmParams;
+use strata_asm_params::AsmGenesisParams;
 use strata_asm_spec::construct_genesis_state;
 use strata_btc_types::BlockHashExt;
 use strata_btc_verification::{L1Anchor, TxidInclusionProof};
@@ -42,11 +42,11 @@ pub fn create_l1_anchor_to_process_block(block: &Block) -> L1Anchor {
     }
 }
 
-/// Note: the returned state is **non-deterministic** because `AsmParams` fields
+/// Note: the returned state is **non-deterministic** because `AsmGenesisParams` fields
 /// (magic, subprotocols) are generated randomly via [`ArbitraryGenerator`].
 /// Use [`create_deterministic_genesis_anchor_state`] when reproducibility matters.
 pub fn create_genesis_anchor_state(block: &Block) -> AnchorState {
-    let mut params: AsmParams = ArbitraryGenerator::new().generate();
+    let mut params: AsmGenesisParams = ArbitraryGenerator::new().generate();
     params.set_anchor(create_l1_anchor_to_process_block(block));
     construct_genesis_state(&params)
 }
@@ -58,7 +58,7 @@ pub fn create_genesis_anchor_state(block: &Block) -> AnchorState {
 pub fn create_deterministic_genesis_anchor_state(block: &Block) -> AnchorState {
     let buf = [42u8; 65_536];
     let mut u = Unstructured::new(&buf);
-    let mut params = AsmParams::arbitrary(&mut u).expect("deterministic AsmParams");
+    let mut params = AsmGenesisParams::arbitrary(&mut u).expect("deterministic AsmGenesisParams");
     params.set_anchor(create_l1_anchor_to_process_block(block));
     construct_genesis_state(&params)
 }

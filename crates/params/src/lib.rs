@@ -1,20 +1,31 @@
 //! Configuration parameters for the Anchor State Machine (ASM).
 //!
-//! Provides [`AsmParams`], which bundles the L1 magic bytes, genesis L1 view,
-//! and the list of active [`SubprotocolInstance`]s needed to initialize and
-//! run an ASM instance. The per-subprotocol configurations are defined in each
-//! subprotocol's own types crate and only aggregated (and re-exported) here.
+//! [`AsmParams`] is the parameter file. It has two parts:
 //!
-//! Deserializing [`AsmParams`] also checks what no single configuration can check on its
+//! - [`AsmGenesisParams`] bundles the L1 magic bytes, the genesis L1 view, and the list of active
+//!   [`SubprotocolInstance`]s needed to build the genesis state. The per-subprotocol configurations
+//!   are defined in each subprotocol's own types crate and only aggregated (and re-exported) here.
+//! - [`AsmRuntimeParams`] holds one optional section per spec after genesis, with the values that
+//!   spec reads while it executes.
+//!
+//! Deserializing [`AsmGenesisParams`] also checks what no single configuration can check on its
 //! own; see the `verification` module.
+//!
+//! The params file of each deployed environment lives in this crate's `envs/` directory, named
+//! after the environment. The crate's tests parse every one, so a change to the format has to
+//! convert them too.
 
+mod genesis;
 mod params;
+mod runtime;
 #[cfg(test)]
 mod test_fixtures;
 mod verification;
 
-pub use params::{AsmParams, SubprotocolInstance};
-pub use strata_asm_admin_types::AdministrationInitConfig;
+pub use genesis::{AsmGenesisParams, SubprotocolInstance};
+pub use params::AsmParams;
+pub use runtime::{AsmRuntimeParams, SpecV2Params};
+pub use strata_asm_admin_types::{AdministrationInitConfig, ConfirmationDepths};
 pub use strata_asm_bridge_types::BridgeInitConfig;
 pub use strata_asm_checkpoint_types::CheckpointInitConfig;
-pub use verification::InvalidAsmParams;
+pub use verification::InvalidAsmGenesisParams;
