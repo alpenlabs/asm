@@ -264,7 +264,7 @@ async fn load_asm_host(
     let host = match spec {
         CompiledSpec::V0 => load_spec_host(source, expected, StrataAsmSpec).await?,
         CompiledSpec::V1 => load_spec_host(source, expected, StrataAsmSpecV1).await?,
-        CompiledSpec::V2 => load_spec_host(source, expected, spec_v2(runtime)?).await?,
+        CompiledSpec::V2 => load_spec_host(source, expected, spec_v2(runtime)).await?,
     };
     Ok(host)
 }

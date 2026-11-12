@@ -5,14 +5,16 @@ use strata_asm_admin_types::ConfirmationDepths;
 ///
 /// A section belongs to the spec it is named after, and no other spec reads it. A spec that
 /// reads a section runs inside the proof guest too, so its guest has to bake that section in,
-/// and its predicate then commits to the values. Because each guest bakes only its own section,
-/// adding a section for a later spec leaves every earlier spec's guest unchanged.
+/// or its absence, and its predicate then commits to it. Because each guest bakes only its own
+/// section, adding a section for a later spec leaves every earlier spec's guest unchanged.
 ///
-/// Every section is optional, because a network only needs one for a spec it runs. Unknown
-/// sections are ignored, so a binary that predates a spec still reads a file that configures it.
+/// Every section is optional. A spec whose section is missing keeps the values the chain
+/// already has, so a network only needs one to change them. Unknown sections are ignored, so a
+/// binary that predates a spec still reads a file that configures it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AsmRuntimeParams {
-    /// Values for spec 2, which installs them when it takes over from an earlier spec.
+    /// Values for spec 2, which installs them when it takes over from an earlier spec. Without
+    /// them, spec 2 keeps the chain's confirmation depths.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub spec_v2: Option<SpecV2Params>,
 }

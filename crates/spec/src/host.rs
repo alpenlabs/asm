@@ -6,8 +6,8 @@
 //! mapping. Keep it immutable across restarts, as required by [`ExecutionRegistry`].
 //!
 //! Callers also supply the chain's [`AsmRuntimeParams`]. A spec that reads a section of them,
-//! such as [`StrataAsmSpecV2`], needs that section to be present, and its values must match the
-//! ones baked into the spec's proof guest, or native execution and proofs disagree.
+//! such as [`StrataAsmSpecV2`], must see the same section, or the same absence of one, as its
+//! proof guest baked in, or native execution and proofs disagree.
 //!
 //! The worker owns per-block selection, upgrade activation, and reorg recovery. An embedded
 //! caller configures it with the same native assembly as the runner:
@@ -50,9 +50,6 @@ pub enum NativeAssemblyError {
     /// The target mapping violates an execution-registry invariant.
     #[error(transparent)]
     Registry(#[from] WorkerError),
-    /// The spec reads a section of the runtime params that the params file does not have.
-    #[error("ASM spec {0} needs its section in the runtime params")]
-    MissingRuntimeParams(SpecId),
 }
 
 /// The native implementations compiled into this release.
@@ -66,7 +63,7 @@ pub enum CompiledSpec {
     /// Its successor, which commits `OperatorClaimUnlockV1` bridge export leaves.
     V1,
     /// The successor to both, which installs the admin confirmation depths from the
-    /// `spec_v2` section of [`AsmRuntimeParams`].
+    /// `spec_v2` section of [`AsmRuntimeParams`], if there is one.
     V2,
 }
 
@@ -89,7 +86,7 @@ impl CompiledSpec {
         Ok(match self {
             Self::V0 => StrataAsmSpec.construct_genesis_state(&params.genesis),
             Self::V1 => StrataAsmSpecV1.construct_genesis_state(&params.genesis),
-            Self::V2 => spec_v2(&params.runtime)?.construct_genesis_state(&params.genesis),
+            Self::V2 => spec_v2(&params.runtime).construct_genesis_state(&params.genesis),
         })
     }
 
@@ -102,21 +99,20 @@ impl CompiledSpec {
         match self {
             Self::V0 => registry.register(predicate, StrataAsmSpec)?,
             Self::V1 => registry.register(predicate, StrataAsmSpecV1)?,
-            Self::V2 => registry.register(predicate, spec_v2(runtime)?)?,
+            Self::V2 => registry.register(predicate, spec_v2(runtime))?,
         }
         Ok(())
     }
 }
 
-/// Builds spec 2 from the `spec_v2` section of the runtime params.
-pub fn spec_v2(runtime: &AsmRuntimeParams) -> Result<StrataAsmSpecV2, NativeAssemblyError> {
-    let section = runtime
-        .spec_v2
-        .as_ref()
-        .ok_or(NativeAssemblyError::MissingRuntimeParams(
-            StrataAsmSpecV2::ID,
-        ))?;
-    Ok(StrataAsmSpecV2::new(section.confirmation_depths.clone()))
+/// Builds spec 2 from the `spec_v2` section of the runtime params, if there is one.
+pub fn spec_v2(runtime: &AsmRuntimeParams) -> StrataAsmSpecV2 {
+    StrataAsmSpecV2::new(
+        runtime
+            .spec_v2
+            .as_ref()
+            .map(|section| section.confirmation_depths.clone()),
+    )
 }
 
 /// Builds the native registry from trusted `(predicate, spec_id)` associations.
@@ -198,19 +194,17 @@ mod tests {
     }
 
     #[test]
-    fn spec_v2_needs_its_runtime_section() {
-        let targets = [(PredicateKey::always_accept(), StrataAsmSpecV2::ID)];
+    fn spec_v2_registers_without_its_runtime_section() {
+        let predicate = PredicateKey::always_accept();
         let empty = AsmRuntimeParams { spec_v2: None };
 
-        assert!(matches!(
-            build_execution_registry(targets, &empty),
-            Err(NativeAssemblyError::MissingRuntimeParams(
-                StrataAsmSpecV2::ID
-            ))
-        ));
-        // Specs that read no runtime section do not need one.
-        build_execution_registry([(PredicateKey::always_accept(), StrataAsmSpec::ID)], &empty)
-            .expect("spec 0 reads no runtime section");
+        let registry = build_execution_registry([(predicate.clone(), StrataAsmSpecV2::ID)], &empty)
+            .expect("spec 2 keeps the chain's depths without a section");
+
+        assert_eq!(
+            registry.resolve(&predicate).unwrap().spec_id(),
+            StrataAsmSpecV2::ID
+        );
     }
 
     #[test]

@@ -1,4 +1,4 @@
-//! Spec 2, which installs new administration confirmation depths when it takes over.
+//! Spec 2, which can install new administration confirmation depths when it takes over.
 
 use strata_asm_common::{
     AnchorState, AsmSpec, SectionState, SectionStateExt, SpecId, Stage, Subprotocol,
@@ -12,20 +12,22 @@ use super::{StrataAsmSpec, StrataAsmSpecV1};
 
 /// Strata ASM specification, revision 2.
 ///
-/// Runs the same subprotocols as [`StrataAsmSpecV1`], under the administration confirmation
-/// depths it carries instead of the ones the chain started with. The depths come from the
-/// [`SpecV2Params`](strata_asm_params::SpecV2Params) section of the runtime params, so its guest
-/// has to bake them in, and its predicate then commits to them.
+/// Runs the same subprotocols as [`StrataAsmSpecV1`]. It may carry new administration
+/// confirmation depths from the [`SpecV2Params`](strata_asm_params::SpecV2Params) section of the
+/// runtime params. Its guest has to bake in that section, or its absence, so its predicate commits
+/// to which depths the chain runs under.
 ///
-/// [`prepare`](AsmSpec::prepare) writes the depths into the admin section when it takes over
-/// from spec 0 or spec 1, and every update queued after that waits for them. Updates already in
-/// the queue keep the activation height they were given.
+/// When it takes over from spec 0 or spec 1, [`prepare`](AsmSpec::prepare) writes any depths it
+/// carries into the admin section, and every update queued after that waits for them. Without
+/// depths, the chain keeps the ones it already has. Updates already in the queue keep the
+/// activation height they were given.
 #[derive(Debug)]
-pub struct StrataAsmSpecV2(ConfirmationDepths);
+pub struct StrataAsmSpecV2(Option<ConfirmationDepths>);
 
 impl StrataAsmSpecV2 {
-    /// Creates the ruleset that installs `confirmation_depths` in the admin section.
-    pub fn new(confirmation_depths: ConfirmationDepths) -> Self {
+    /// Creates the ruleset that installs `confirmation_depths` in the admin section, or keeps
+    /// the chain's depths if there are none.
+    pub fn new(confirmation_depths: Option<ConfirmationDepths>) -> Self {
         Self(confirmation_depths)
     }
 }
@@ -45,6 +47,10 @@ impl AsmSpec for StrataAsmSpecV2 {
         );
 
         let mut prepared = state.clone();
+        prepared.spec_id = Self::ID;
+        let Some(depths) = &self.0 else {
+            return prepared;
+        };
         let section = prepared
             .sections
             .iter_mut()
@@ -53,10 +59,9 @@ impl AsmSpec for StrataAsmSpecV2 {
         let mut admin = section
             .try_to_state::<AdministrationSubprotocol>()
             .expect("source admin section has the current schema");
-        admin.set_confirmation_depths(self.0.clone());
+        admin.set_confirmation_depths(depths.clone());
         *section = SectionState::from_state::<AdministrationSubprotocol>(&admin)
             .expect("depths are fixed size, so the admin state still fits its section");
-        prepared.spec_id = Self::ID;
         prepared
     }
 
@@ -68,7 +73,7 @@ impl AsmSpec for StrataAsmSpecV2 {
 
     fn construct_genesis_state(&self, params: &Self::GenesisParams) -> AnchorState {
         // A chain that starts under spec 2 holds the same state as one that upgrades to it at
-        // genesis, so the depths in the genesis admin config are replaced here too.
+        // genesis, so any depths it carries replace the genesis admin config's here too.
         self.prepare(&crate::construct_genesis_state(params))
     }
 
@@ -117,7 +122,7 @@ mod tests {
     #[test]
     fn prepare_installs_its_depths_when_taking_over_from_spec_0_or_spec_1() {
         let params = genesis_params();
-        let spec = StrataAsmSpecV2::new(spec_v2_depths());
+        let spec = StrataAsmSpecV2::new(Some(spec_v2_depths()));
 
         for source in [
             StrataAsmSpec.construct_genesis_state(&params),
@@ -153,8 +158,24 @@ mod tests {
     }
 
     #[test]
+    fn prepare_keeps_the_chain_depths_when_it_carries_none() {
+        let params = genesis_params();
+        let spec = StrataAsmSpecV2::new(None);
+
+        for source in [
+            StrataAsmSpec.construct_genesis_state(&params),
+            StrataAsmSpecV1.construct_genesis_state(&params),
+        ] {
+            let prepared = spec.prepare(&source);
+
+            assert_eq!(prepared.spec_id, StrataAsmSpecV2::ID);
+            assert_eq!(prepared.sections, source.sections);
+        }
+    }
+
+    #[test]
     fn genesis_starts_with_its_depths_and_prepare_leaves_it_unchanged() {
-        let spec = StrataAsmSpecV2::new(spec_v2_depths());
+        let spec = StrataAsmSpecV2::new(Some(spec_v2_depths()));
         let genesis = spec.construct_genesis_state(&genesis_params());
 
         assert_eq!(genesis.spec_id, StrataAsmSpecV2::ID);
@@ -171,6 +192,6 @@ mod tests {
         let mut state = StrataAsmSpec.construct_genesis_state(&genesis_params());
         state.spec_id = 3;
 
-        StrataAsmSpecV2::new(spec_v2_depths()).prepare(&state);
+        StrataAsmSpecV2::new(Some(spec_v2_depths())).prepare(&state);
     }
 }
