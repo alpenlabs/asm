@@ -132,19 +132,6 @@ impl AsmTestHarness {
             .take()
             .expect("test worker manager exists");
         manager.get_shutdown_signal().send();
-        // The synchronous worker checks shutdown when it receives an input.
-        // Wake its queue; the shutdown flag prevents this block being processed.
-        let (tip, _) = self
-            .get_latest_asm_state()?
-            .expect("worker has committed state");
-        let wake = BlockHash::from_byte_array(*tip.blkid().as_ref());
-        // A terminated worker rejects the wakeup. Bound this wait as well as the
-        // task-manager join so a lifecycle regression cannot hang the test.
-        let _ = timeout(
-            Duration::from_secs(30),
-            self.asm_handle.submit_block_async(wake),
-        )
-        .await?;
         timeout(
             Duration::from_secs(30),
             spawn_blocking(move || manager.monitor(None)),
