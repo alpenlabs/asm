@@ -27,9 +27,10 @@ repository validation checks.
      explicit, and don't skip versions without a tested edge.
    - A spec that executes with per-network values gets its own optional section in
      `AsmRuntimeParams`, named after the spec (`spec_v2`), and takes the section as constructor
-     arguments. The native catalog and the runner's proof host build it from that section and
-     reject a configured spec whose section is missing. Install the values into state in
-     `prepare`, so no later spec reads an earlier spec's section.
+     arguments. The native catalog and the runner's proof host build it from that section. A
+     network whose file has no section keeps the values already in state, so the spec takes the
+     section as an `Option`. Install the values into state in `prepare`, so no later spec reads
+     an earlier spec's section.
 2. **Register it in the native catalog.** Add a `CompiledSpec` variant in
    `crates/spec/src/host.rs`, and extend `CompiledSpec::resolve`, `construct_genesis_state`, and
    `register_execution`. Native callers (the runner and OL) get it through

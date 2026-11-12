@@ -5,7 +5,7 @@
 //! - [`StrataAsmSpec`] — declares which subprotocols are active and their invocation order.
 //! - [`StrataAsmSpecV1`] — its successor, which commits `OperatorClaimUnlockV1` export leaves.
 //! - [`StrataAsmSpecV2`] — the successor to both, which replaces the admin confirmation depths with
-//!   the ones in the `spec_v2` section of the runtime params.
+//!   the ones in the `spec_v2` section of the runtime params, if there is one.
 //! - [`construct_genesis_state`] — builds the genesis
 //!   [`AnchorState`](strata_asm_common::AnchorState) from
 //!   [`AsmGenesisParams`](strata_asm_params::AsmGenesisParams).

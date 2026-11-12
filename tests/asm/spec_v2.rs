@@ -30,7 +30,9 @@ fn execution_registry() -> ExecutionRegistry {
     registry
         .register(
             PredicateKey::never_accept(),
-            StrataAsmSpecV2::new(uniform_confirmation_depths(SPEC_V2_CONFIRMATION_DEPTH)),
+            StrataAsmSpecV2::new(Some(uniform_confirmation_depths(
+                SPEC_V2_CONFIRMATION_DEPTH,
+            ))),
         )
         .unwrap();
     registry
