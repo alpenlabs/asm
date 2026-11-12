@@ -11,8 +11,8 @@ These pages explain how the ASM is put together, and link to the code for the de
 Tool-specific guides live next to the code:
 
 - [Functional tests](../functional-tests/README.md)
-- [dbtool](../bin/dbtool/README.md)
-- [Prover perf](../bin/prover-perf/README.md)
+- [`dbtool`](../bin/dbtool/README.md)
+- [`prover-perf`](../bin/prover-perf/README.md)
 - [Docker image](../docker/README.md)
 
 If you change behavior a page describes, update the page in the same PR.
