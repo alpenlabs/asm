@@ -49,6 +49,8 @@ zkaleido-sp1-host = { workspace = true, optional = true }
 
 [dev-dependencies]
 strata-asm-spec.workspace = true
+
+sled.workspace = true
 tokio.workspace = true
 toml.workspace = true
 

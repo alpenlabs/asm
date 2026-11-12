@@ -5,8 +5,11 @@
 //! ([`schedule_with`]) is separated from the actual submission
 //! ([`ProofSubmitter`]) so it can be unit-tested with a fake submitter.
 
+use std::error::Error as StdError;
+
 use async_trait::async_trait;
 use moho_recursive_proof::MohoRecursiveProgram;
+use strata_asm_prover_storage::{RemoteProofMappingDb, RemoteProofStatusDb};
 use strata_asm_prover_types::{ProofId, RemoteProofId};
 use tracing::{debug, info, warn};
 use zkaleido::{RemoteProofStatus, ZkVmRemoteHost, ZkVmRemoteProgram};
@@ -73,7 +76,7 @@ enum SubmitOutcome {
 /// Why a proof required no submission.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum SkipReason {
-    /// Already submitted to the remote prover (a remote ID mapping exists).
+    /// A remote job for the proof is still in flight.
     AlreadySubmitted,
     /// A completed proof already exists in local storage.
     ProofExists,
@@ -183,14 +186,7 @@ where
             return Ok(SubmitOutcome::Skipped(SkipReason::ProofExists));
         }
 
-        // Skip if already submitted.
-        if self
-            .ctx
-            .get_remote_proof_id(proof_id)
-            .await
-            .map_err(|e| ProverError::storage("failed to check remote proof mapping", e))?
-            .is_some()
-        {
+        if submission_in_flight(self.ctx, proof_id).await? {
             return Ok(SubmitOutcome::Skipped(SkipReason::AlreadySubmitted));
         }
 
@@ -244,10 +240,45 @@ where
     }
 }
 
+/// Whether `proof_id` has a remote job still in flight.
+///
+/// In flight means the job's status is `Requested` or `InProgress`, the same
+/// set reconcile polls. A submission record alone does not mean that. The
+/// record outlives its job, while the job's status entry is dropped once the
+/// job completes. A record with no active status is stale. Either the proof was
+/// deleted after it landed, or the process stopped between the two writes at
+/// the end of [`StateSubmitter::try_submit`]. In the second case the first job
+/// may still be running, but nothing polls a job without a status entry, so
+/// its result would never be collected. Treating any of these as in flight
+/// would stall the prerequisite cascade on that proof for good, so the proof
+/// is submitted again instead.
+async fn submission_in_flight<C>(ctx: &C, proof_id: ProofId) -> ProverResult<bool>
+where
+    C: RemoteProofMappingDb<Error: StdError + Send + Sync + 'static>
+        + RemoteProofStatusDb<Error: StdError + Send + Sync + 'static>,
+{
+    let Some(remote_id) = ctx
+        .get_remote_proof_id(proof_id)
+        .await
+        .map_err(|e| ProverError::storage("failed to check remote proof mapping", e))?
+    else {
+        return Ok(false);
+    };
+    let status = ctx
+        .get_status(&remote_id)
+        .await
+        .map_err(|e| ProverError::storage("failed to check remote proof status", e))?;
+    Ok(matches!(
+        status,
+        Some(RemoteProofStatus::Requested | RemoteProofStatus::InProgress)
+    ))
+}
+
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
 
+    use strata_asm_prover_storage::SledProofDb;
     use strata_asm_prover_types::L1Range;
     use strata_identifiers::{L1BlockCommitment, L1BlockId};
     use strata_predicate::PredicateKey;
@@ -523,6 +554,36 @@ mod tests {
         assert_eq!(queue.len(), 2);
         assert_eq!(queue.dequeue_one(), Some(moho(2)));
         assert_eq!(queue.dequeue_one(), Some(moho(3)));
+    }
+
+    /// A submission record counts as in flight only while its job has an
+    /// active status entry. Once the entry is gone (the job completed and the
+    /// proof was later lost), the record is stale and the proof is free to
+    /// resubmit.
+    #[tokio::test]
+    async fn submission_in_flight_requires_an_active_status() {
+        let sled_db = sled::Config::new().temporary(true).open().unwrap();
+        let ctx = SledProofDb::open(&sled_db).unwrap();
+        let id = moho(7);
+        let remote_id = RemoteProofId(vec![0xab]);
+
+        assert!(!submission_in_flight(&ctx, id).await.unwrap());
+
+        ctx.put_remote_proof_id(id, remote_id.clone())
+            .await
+            .unwrap();
+        ctx.put_status(&remote_id, RemoteProofStatus::Requested)
+            .await
+            .unwrap();
+        assert!(submission_in_flight(&ctx, id).await.unwrap());
+
+        ctx.update_status(&remote_id, RemoteProofStatus::Completed)
+            .await
+            .unwrap();
+        assert!(!submission_in_flight(&ctx, id).await.unwrap());
+
+        ctx.remove_status(&remote_id).await.unwrap();
+        assert!(!submission_in_flight(&ctx, id).await.unwrap());
     }
 
     /// Two consecutive cycles: an item deferred in cycle one must be retried

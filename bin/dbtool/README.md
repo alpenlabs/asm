@@ -140,11 +140,10 @@ proof it removes (see below), so the scheduler proves it again if it still
 needs it. Pruning past the latest Moho proof therefore re-proves every pruned
 step of the chain. Status rows are left alone.
 
-A mapping records that a proof was submitted to the remote prover, and the
-scheduler skips any proof that has one. Nothing in the worker ever clears it,
-so `delete` on a proof leaves a block that can never be proven again: the proof
-is gone, the scheduler still reads it as submitted, and a restart reaches the
-same conclusion. `proof mapping delete` is the repair: clearing the record puts
-the proof back in the queue. The prune verbs do this for every proof they
-remove. `proof mapping list` keeps showing the remote ids a proof has already
-used — only the record of it being submitted goes.
+A mapping records that a proof was submitted to the remote prover. The
+scheduler skips a proof only while its remote job is still in flight, which is
+while that job has a status row. The record outlives the job, so after a
+`delete` the scheduler proves the block again if it still needs it. Nothing has
+to be cleared by hand. `proof mapping delete` forgets that a proof was
+submitted. `proof mapping list` keeps showing the remote ids a proof has
+already used. Only the record of it being submitted goes.

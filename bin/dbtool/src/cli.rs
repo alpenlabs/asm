@@ -167,7 +167,9 @@ pub(crate) enum ProofStatusVerb {
     /// List only the active (`Requested` / `InProgress`) jobs.
     #[command(name = "in-progress")]
     InProgress,
-    /// Delete the status entry for a remote proof.
+    /// Delete the status entry for a remote proof. The scheduler then stops
+    /// treating that job as in flight and submits its proof again if it is
+    /// still missing.
     Delete { remote_id: String },
 }
 
