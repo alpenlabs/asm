@@ -8561,6 +8561,7 @@ dependencies = [
  "moho-runtime-impl",
  "moho-types",
  "serde",
+ "sled",
  "sp1-sdk",
  "sp1-verifier",
  "ssz",

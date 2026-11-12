@@ -92,8 +92,8 @@ pub(crate) enum ProofResource {
         #[command(subcommand)]
         verb: ProofStatusVerb,
     },
-    /// Bulk-remove ASM and Moho proofs below a height, and clear their
-    /// submission records so they can be proven again.
+    /// Bulk-remove ASM and Moho proofs below a height. Leaves the mapping and
+    /// status bookkeeping untouched.
     Prune {
         /// Remove proofs with (start) height strictly below this.
         #[arg(long)]
@@ -111,8 +111,8 @@ pub(crate) enum ProofAsmVerb {
     List,
     /// Delete the ASM proof for a range.
     Delete { range: String },
-    /// Bulk-remove ASM proofs below a height, and clear their submission
-    /// records so they can be proven again. Moho proofs are left alone.
+    /// Bulk-remove ASM proofs below a height. Leaves Moho proofs and the
+    /// mapping and status bookkeeping untouched.
     Prune {
         /// Remove proofs whose range starts strictly below this height.
         #[arg(long)]
@@ -131,8 +131,8 @@ pub(crate) enum ProofMohoVerb {
     List,
     /// Delete the Moho proof for a commitment `<height>:<blkid_hex>`.
     Delete { commitment: String },
-    /// Bulk-remove Moho proofs below a height, and clear their submission
-    /// records so they can be proven again. ASM proofs are left alone.
+    /// Bulk-remove Moho proofs below a height. Leaves ASM proofs and the
+    /// mapping and status bookkeeping untouched.
     Prune {
         /// Remove proofs anchored strictly below this height.
         #[arg(long)]
@@ -167,7 +167,9 @@ pub(crate) enum ProofStatusVerb {
     /// List only the active (`Requested` / `InProgress`) jobs.
     #[command(name = "in-progress")]
     InProgress,
-    /// Delete the status entry for a remote proof.
+    /// Delete the status entry for a remote proof. The scheduler then stops
+    /// treating that job as in flight and submits its proof again if it is
+    /// still missing.
     Delete { remote_id: String },
 }
 

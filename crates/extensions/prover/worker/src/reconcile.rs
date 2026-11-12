@@ -139,10 +139,9 @@ where
 /// Forgets a remote job that will never yield a proof, so its proof can be
 /// submitted again.
 ///
-/// Dropping the status entry alone is not enough. The proof's mapping is what
-/// [`schedule`](crate::schedule) reads to decide the proof is already in
-/// flight, and it is durable — leaving it behind means the block is never
-/// proven again, not even after a restart.
+/// Dropping the status entry is what frees the proof:
+/// [`schedule`](crate::schedule) treats a submission record without one as
+/// stale. The record is cleared too, so it no longer names a dead job.
 async fn discard_submission<C: ProverContext>(
     ctx: &C,
     remote_id: &RemoteProofId,

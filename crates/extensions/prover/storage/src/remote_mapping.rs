@@ -8,8 +8,10 @@ use strata_asm_prover_types::{ProofId, RemoteProofId};
 /// Persistent bidirectional mapping between local [`ProofId`]s and
 /// [`RemoteProofId`]s assigned by the remote prover service.
 ///
-/// Used to prevent duplicate proof submissions and to recover the association
-/// between local and remote identifiers after restarts.
+/// Used to recover the association between local and remote identifiers
+/// after restarts. A forward entry outlives its remote job, so it does not by
+/// itself mean the proof is in flight. That takes an active entry in
+/// [`RemoteProofStatusDb`](crate::RemoteProofStatusDb) for the mapped id.
 pub trait RemoteProofMappingDb {
     /// The error type returned by database operations.
     type Error: Debug;
