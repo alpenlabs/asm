@@ -74,9 +74,32 @@ Examples of unacceptable behaviour:
 Please install the following tools in your development environment to make sure that
 you can run the basic CI checks in your local environment:
 
+- [`just`](https://github.com/casey/just):
+  runs the commands in `.justfile`. `just` lists them.
 - [`taplo`](https://taplo.tamasfe.dev/cli/installation/binary.html):
   used to lint and format `TOML` files.
 - [`cargo-nextest`](https://nexte.st):
   modern test runner for Rust.
 - [`cargo-audit`](https://docs.rs/cargo-audit/latest/cargo_audit/):
   tool to check `Cargo.lock` files for security vulnerabilities.
+- [`bitcoind`](https://bitcoincore.org/en/download/):
+  must be on `PATH` for the unit, integration, and functional tests.
+- [`uv`](https://docs.astral.sh/uv/):
+  runs the Python functional tests and their lints.
+- [`protoc`](https://protobuf.dev/installation/):
+  the SP1 crates compile protobuf files, so builds with `--all-features` need it. The
+  lints and unit tests use that flag. On Debian or Ubuntu, also install `libprotobuf-dev`
+  for the standard includes.
+
+## Linting and Testing
+
+```sh
+just lints            # format and lint checks
+just test             # unit, integration, and doc tests
+just functional-test  # functional tests against a regtest bitcoind
+```
+
+To run one functional test, use `cd functional-tests && ./run_test.sh fn_asm_block_test`.
+To run them with real SP1 proofs, see [`functional-tests/README.md`](functional-tests/README.md).
+
+For how the code is organized, see [`docs/`](docs/README.md).
