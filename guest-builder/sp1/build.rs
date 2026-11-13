@@ -9,6 +9,15 @@
 //! - `<crate>/generated/asm-vkey-hash.txt` holds SP1's program vkey hash as `0x<hex>`. It is the
 //!   same value `cargo prove vkey` prints, so anyone can check it against the ELF.
 //!
+//! The guest bakes in its spec's section of the runtime part of an ASM params file, or the fact
+//! that the file has none, so the ELF and its predicate are specific to those values. The build
+//! writes that section to `<crate>/generated/` twice:
+//!
+//! - `asm-spec-v2-params.ssz` holds it as an SSZ `Option`. The guest includes these bytes at
+//!   compile time.
+//! - `asm-runtime-params.json` holds it as a runtime part with only that section, for native
+//!   callers that must execute with the same values.
+//!
 //! The Moho recursive proof guest is built and released by the moho repo. Fetch its ELF
 //! into the same directory with `contrib/fetch_moho_artifacts.sh`.
 //!
@@ -23,13 +32,18 @@
 //!   clippy`, which only needs the crate to typecheck.
 //! - **`BUILD_VKEY`** — set to `1`/`true` to derive the guest's vk and write the predicate and vkey
 //!   hash files. Requires the ELF to exist, so it implies `BUILD_ELF`.
+//! - **`ASM_PARAMS_PATH`** — path to the ASM params file whose `spec_v2` section, or its absence,
+//!   the guest bakes in. Required whenever the guest is built, because the values are part of what
+//!   the ELF proves.
+//! - **`SP1_SKIP_PROGRAM_BUILD`** — sp1-build's own skip flag. When `true`, this script writes
+//!   nothing, even if `BUILD_ELF` or `BUILD_VKEY` is set.
 //!
 //! # Features
 //!
 //! - **`docker-build`** — when enabled, the guest program is compiled inside Docker via
 //!   `build_program_with_args` instead of locally. The output location is unchanged.
 
-use std::{fs, path::Path};
+use std::{env, fs, path::Path};
 
 use sp1_build::{build_program_with_args, BuildArgs};
 use sp1_sdk::{
@@ -37,6 +51,8 @@ use sp1_sdk::{
     HashableKey, ProvingKey, SP1VerifyingKey,
 };
 use sp1_verifier::{GROTH16_VK_BYTES, VK_ROOT_BYTES};
+use ssz::Encode;
+use strata_asm_params::{AsmParams, AsmRuntimeParams, SpecV2Params};
 use strata_predicate::{PredicateKey, PredicateTypeId};
 use zkaleido_sp1_groth16_verifier::SP1Groth16Verifier;
 
@@ -46,13 +62,27 @@ const GUEST_DIR: &str = "guest-asm";
 const ELF_NAME: &str = "asm.elf";
 const PREDICATE_NAME: &str = "asm-predicate.txt";
 const VKEY_HASH_NAME: &str = "asm-vkey-hash.txt";
+const SPEC_V2_PARAMS_NAME: &str = "asm-spec-v2-params.ssz";
+const RUNTIME_PARAMS_NAME: &str = "asm-runtime-params.json";
+
+const PARAMS_PATH_VAR: &str = "ASM_PARAMS_PATH";
+const SP1_SKIP_VAR: &str = "SP1_SKIP_PROGRAM_BUILD";
 
 fn main() {
     println!("cargo:rerun-if-env-changed=BUILD_ELF");
     println!("cargo:rerun-if-env-changed=BUILD_VKEY");
+    println!("cargo:rerun-if-env-changed={PARAMS_PATH_VAR}");
+    println!("cargo:rerun-if-env-changed={SP1_SKIP_VAR}");
 
     // clippy only needs the crate to typecheck, so it never builds the guest whatever is set.
     if is_clippy() {
+        return;
+    }
+
+    // sp1-build returns without compiling or copying an ELF under this flag. Stop here so the
+    // generated files keep describing the ELF that is already there.
+    if is_sp1_build_skipped() {
+        println!("cargo:warning={SP1_SKIP_VAR} set; skipping SP1 guest build");
         return;
     }
 
@@ -72,11 +102,51 @@ fn main() {
     #[cfg(target_os = "macos")]
     export_sp1_ar();
 
+    // The directory is gitignored, so a fresh checkout lacks it until something writes there.
+    fs::create_dir_all(GENERATED_DIR).unwrap_or_else(|e| panic!("create {GENERATED_DIR}: {e}"));
+
+    let section = read_spec_v2_params();
+    write_generated(SPEC_V2_PARAMS_NAME, section.as_ssz_bytes());
     build_guest(GUEST_DIR, ELF_NAME);
+    // Native callers trust the record to describe the ELF beside it, so a failed build must leave
+    // the previous record in place.
+    write_runtime_params_record(RUNTIME_PARAMS_NAME, section);
 
     if build_vkey {
         emit_vkey(ELF_NAME, PREDICATE_NAME, VKEY_HASH_NAME);
     }
+}
+
+/// Reads the `spec_v2` section of the params file at `ASM_PARAMS_PATH`, which the guest bakes in.
+/// Without one, spec 2 keeps the chain's depths, so the guest bakes in the absence instead.
+///
+/// Only that section is baked in, so sections for later specs never change this guest. The
+/// guest reads it from `<GENERATED_DIR>` rather than from the host path, because a
+/// `docker-build` compiles the guest where only the workspace is mounted.
+fn read_spec_v2_params() -> Option<SpecV2Params> {
+    let path = env::var_os(PARAMS_PATH_VAR)
+        .unwrap_or_else(|| panic!("{PARAMS_PATH_VAR} must be set to build the ASM guest ELF"));
+    let path = Path::new(&path);
+    println!("cargo:rerun-if-changed={}", path.display());
+
+    let json = fs::read_to_string(path)
+        .unwrap_or_else(|e| panic!("read {PARAMS_PATH_VAR} from {}: {e}", path.display()));
+    serde_json::from_str::<AsmParams>(&json)
+        .unwrap_or_else(|e| {
+            panic!(
+                "parse {PARAMS_PATH_VAR} at {} as ASM params: {e}",
+                path.display()
+            )
+        })
+        .runtime
+        .spec_v2
+}
+
+/// Records `section` as `<GENERATED_DIR>/<record_name>`, a runtime part holding only it.
+fn write_runtime_params_record(record_name: &str, section: Option<SpecV2Params>) {
+    let baked = AsmRuntimeParams { spec_v2: section };
+    let record = serde_json::to_string_pretty(&baked).expect("runtime params serialize");
+    write_generated(record_name, record);
 }
 
 fn build_guest(guest_dir: &str, elf_name: &str) {
@@ -102,8 +172,8 @@ fn emit_vkey(elf_name: &str, predicate_name: &str, vkey_hash_name: &str) {
     let vk = program_vkey(&elf);
     let predicate_key = sp1_groth16_predicate_key(vk.bytes32_raw());
 
-    write_generated(predicate_name, &predicate_key.to_string());
-    write_generated(vkey_hash_name, &vk.bytes32());
+    write_generated(predicate_name, predicate_key.to_string());
+    write_generated(vkey_hash_name, vk.bytes32());
 }
 
 fn program_vkey(elf: &[u8]) -> SP1VerifyingKey {
@@ -115,7 +185,7 @@ fn program_vkey(elf: &[u8]) -> SP1VerifyingKey {
 }
 
 /// Writes `contents` to `<GENERATED_DIR>/<name>`.
-fn write_generated(name: &str, contents: &str) {
+fn write_generated(name: &str, contents: impl AsRef<[u8]>) {
     let path = Path::new(GENERATED_DIR).join(name);
     fs::write(&path, contents).unwrap_or_else(|e| panic!("write {}: {e}", path.display()));
     println!("cargo:warning=wrote {}", path.display());
@@ -138,9 +208,9 @@ fn export_sp1_ar() {
         .expect("rustc +succinct -vV must report a `host:` line");
 
     let sp1_ar = format!("{sysroot}/lib/rustlib/{host}/bin/llvm-ar");
-    std::env::set_var("SP1_AR", &sp1_ar);
-    std::env::set_var("AR", &sp1_ar);
-    std::env::set_var("AR_riscv64im_unknown_none_elf", &sp1_ar);
+    env::set_var("SP1_AR", &sp1_ar);
+    env::set_var("AR", &sp1_ar);
+    env::set_var("AR_riscv64im_unknown_none_elf", &sp1_ar);
 }
 
 #[cfg(target_os = "macos")]
@@ -163,14 +233,21 @@ fn rustc_succinct(args: &[&str]) -> String {
 }
 
 fn is_clippy() -> bool {
-    std::env::var("RUSTC_WORKSPACE_WRAPPER")
+    env::var("RUSTC_WORKSPACE_WRAPPER")
         .map(|v| v.contains("clippy-driver"))
+        .unwrap_or(false)
+}
+
+/// Mirrors sp1-build's own check, which accepts only `true` (any case).
+fn is_sp1_build_skipped() -> bool {
+    env::var(SP1_SKIP_VAR)
+        .map(|v| v.eq_ignore_ascii_case("true"))
         .unwrap_or(false)
 }
 
 /// Reads an opt-in flag: set and equal to `1` or `true` (any case) enables it.
 fn is_enabled(var: &str) -> bool {
-    std::env::var(var)
+    env::var(var)
         .map(|v| v.eq_ignore_ascii_case("true") || v == "1")
         .unwrap_or(false)
 }

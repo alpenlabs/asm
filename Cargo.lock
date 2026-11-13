@@ -8277,6 +8277,8 @@ dependencies = [
  "proptest",
  "serde",
  "serde_json",
+ "ssz",
+ "ssz_derive",
  "strata-asm-admin-types",
  "strata-asm-bridge-types",
  "strata-asm-checkpoint-types",
@@ -8508,9 +8510,11 @@ dependencies = [
  "moho-recursive-proof",
  "moho-runtime-impl",
  "moho-types",
+ "serde_json",
  "sp1-sdk",
  "sp1-verifier",
  "ssz",
+ "strata-asm-params",
  "strata-asm-proof-impl",
  "strata-asm-sp1-guest-builder",
  "strata-asm-spec",
@@ -8664,9 +8668,12 @@ name = "strata-asm-sp1-guest-builder"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "serde_json",
  "sp1-build",
  "sp1-sdk",
  "sp1-verifier",
+ "ssz",
+ "strata-asm-params",
  "strata-predicate",
  "zkaleido-sp1-groth16-verifier",
 ]

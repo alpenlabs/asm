@@ -54,6 +54,7 @@ jobs:
           ZKVM_MOCK: "1"
           ZKVM_PROFILING: "1"
           BUILD_ELF: "1"
+          ASM_PARAMS_PATH: ${{ github.workspace }}/crates/params/envs/dev.json
           SP1_CORE_RUNNER_OVERRIDE_BINARY: ${{ steps.sp1-runner.outputs.override-binary }}
         run: |
           cargo run --release -p strata-asm-prover-perf -- \
@@ -66,6 +67,7 @@ jobs:
           ZKVM_MOCK: "1"
           ZKVM_PROFILING: "1"
           BUILD_ELF: "1"
+          ASM_PARAMS_PATH: ${{ github.workspace }}/crates/params/envs/dev.json
           SP1_CORE_RUNNER_OVERRIDE_BINARY: ${{ steps.sp1-runner.outputs.override-binary }}
         run: |
           cargo run --release -p strata-asm-prover-perf -- --programs asm-stf

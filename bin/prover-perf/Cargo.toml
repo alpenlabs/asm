@@ -17,6 +17,7 @@ doc = false
 moho-recursive-proof = { workspace = true, features = ["test-utils"] }
 moho-runtime-impl.workspace = true
 moho-types.workspace = true
+strata-asm-params.workspace = true
 strata-asm-proof-impl = { workspace = true, features = ["test-utils"] }
 strata-asm-sp1-guest-builder = { path = "../../guest-builder/sp1" }
 strata-asm-spec.workspace = true
@@ -24,6 +25,7 @@ strata-predicate.workspace = true
 
 anyhow.workspace = true
 clap.workspace = true
+serde_json.workspace = true
 sp1-sdk.workspace = true
 sp1-verifier.workspace = true
 ssz.workspace = true

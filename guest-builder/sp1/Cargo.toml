@@ -10,7 +10,10 @@ docker-build = []
 [build-dependencies]
 sp1-build = "6.10.0"
 anyhow = { workspace = true }
+serde_json = { workspace = true }
 sp1-sdk = { workspace = true, features = ["blocking"] }
 sp1-verifier = { workspace = true }
+ssz = { workspace = true }
+strata-asm-params = { workspace = true }
 strata-predicate = { workspace = true }
 zkaleido-sp1-groth16-verifier = { workspace = true }
