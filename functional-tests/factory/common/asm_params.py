@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
@@ -18,6 +19,12 @@ DEFAULT_SAFE_HARBOR_ADDRESS = "bcrt1ppuxgmd6n4j73wdp688p08a8rte97dkn5n70r2ym6kgs
 DEFAULT_SAFE_HARBOR_DESCRIPTOR = (
     "040f0c8db753acbd17343a39c2f3f4e35e4be6da749f9e35137ab220e7b238a667"
 )
+
+# P2TR address the rotation tests move the safe harbor to, written as a regtest wallet shows it.
+NEW_SAFE_HARBOR_ADDRESS = "bcrt1p0xlxvlhemja6c4dqv22uapctqupfhlxm9h8z3k2e72q4k9hcz7vqc8gma6"
+
+# BOSD descriptor of `NEW_SAFE_HARBOR_ADDRESS`, the form the RPC reports.
+NEW_SAFE_HARBOR_DESCRIPTOR = "0479be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"
 
 
 @dataclass
@@ -108,6 +115,18 @@ class AsmParams:
             "genesis": self.genesis.to_dict(),
             "runtime": self.runtime,
         }
+
+
+def load_runtime_params() -> dict[str, Any]:
+    """Read the runtime part of the params file at `ASM_PARAMS_PATH`.
+
+    The SP1 guest bakes in its spec's section of the same file (see `env.bash`), so the
+    runner has to execute with these values for native and guest execution to agree.
+    """
+    path = os.environ.get("ASM_PARAMS_PATH")
+    if path is None:
+        raise RuntimeError("ASM_PARAMS_PATH is unset; source env.bash first")
+    return json.loads(Path(path).read_text())["runtime"]
 
 
 # Bitcoin's difficulty-adjustment epoch length, in blocks. Same on every network.
@@ -235,6 +254,7 @@ def build_asm_params(
     block_hash: str,
     header: dict[str, Any],
     epoch_start_header: dict[str, Any],
+    runtime: dict[str, Any],
     magic: str = ASM_MAGIC_BYTES,
     denomination: str = "10 BTC",
     assignment_duration: int = 10_000,
@@ -264,6 +284,7 @@ def build_asm_params(
             anchor=anchor,
             subprotocols=subprotocols,
         ),
+        runtime=runtime,
     )
 
 

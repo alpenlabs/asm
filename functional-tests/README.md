@@ -45,6 +45,8 @@ ASM_PROVER_BACKEND=sp1 SP1_PROOF_STRATEGY="" NETWORK_PRIVATE_KEY="" ./run_test.s
 
 The local guest build compiles the newest spec. Spec 0 runs the guest from the v0.4.0 release instead. The prover envs download it, together with the release's `asm-predicate.txt`, and check both against the release's `SHA256SUMS`. `run_test.sh` derives the local guest's predicate when it builds it. Startup rejects a loaded artifact whose predicate differs from the one the test reads.
 
+The local guest bakes in the `spec_v2` section of the params file at `ASM_PARAMS_PATH`, which defaults to `crates/params/envs/dev.json` (see `env.bash`). A relative path is taken from the repo root. The envs write the same runtime part into the params they start the runner with, on both backends.
+
 - `SP1_PROOF_STRATEGY` — the SP1 proof fulfillment strategy. See
   [FulfillmentStrategy](https://docs.rs/sp1-sdk/5.2.1/sp1_sdk/network/enum.FulfillmentStrategy.html)
   for available options.

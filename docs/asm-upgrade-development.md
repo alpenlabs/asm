@@ -63,6 +63,11 @@ repository validation checks.
    successful host build does not prove that a new guest was built. Compare the actual ELF and
    verifying key with the release record. Deriving a key from arbitrary bytes does not show that
    the ELF implements the declared spec.
+
+   To publish a network's guest, run the `Publish ASM Guest` workflow from main with the ref to
+   build and the network. It builds with `crates/params/envs/<env>.json` at that ref and uploads
+   the guest files to S3 with a manifest that records the commit, the params file's path, and
+   every digest.
 5. **Configure execution.** Add an `[[execution.targets]]` entry `{ predicate, spec_id }`.
    `execution.genesis_spec_id` names the spec the chain starts under, and the runner takes the
    genesis predicate from its target entry. It stays fixed across upgrades. Each predicate and
@@ -119,15 +124,20 @@ Put `bitcoind` on `PATH` for integration tests. CI pins Bitcoin Core 30.2 in
 - `asm_coinbase` checks that the successor's direct genesis and `prepare` preserve the baseline
   semantics. The successor changes only its spec ID, so this is not a section migration.
 
-The functional test `fn_asm_upgrade_test` covers the proving side. It starts
+The functional test `fn_asm_upgrade_v0_v1_test` covers the proving side. It starts
 `strata-asm-runner` with spec 0 and spec 1 loaded and activates spec 1 with a signed admin update
 from `asm-test-cli`. It checks that the old spec executes the enacting block, and that ASM and
 Moho proofs continue across the switch. On the SP1 backend, spec 0 runs the v0.4.0 release guest
-and spec 1 runs the local build. See [the functional test README](../functional-tests/README.md)
-for the SP1 variables.
+and spec 1 runs the v0.5.0-rc.2 release guest. See
+[the functional test README](../functional-tests/README.md) for the SP1 variables.
+
+`fn_asm_upgrade_v1_v2_test` does the same for a chain that starts under spec 1 and activates
+spec 2. It then rotates the safe harbor and checks that the rotation waits for spec 2's
+confirmation depth, which comes from the `spec_v2` section of the runner's params file. On the
+SP1 backend, spec 1 runs the v0.5.0-rc.2 release guest and spec 2 runs the local build.
 
 ```sh
-cd functional-tests && ./run_test.sh fn_asm_upgrade_test
+cd functional-tests && ./run_test.sh fn_asm_upgrade_v0_v1_test fn_asm_upgrade_v1_v2_test
 ```
 
 After building the ASM ELF, compare real guest execution with native execution for the

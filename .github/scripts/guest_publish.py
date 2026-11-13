@@ -1,17 +1,16 @@
 #!/usr/bin/env python3
-"""guest_publish.py — Helpers for the "Publish ASM Guest to S3" workflow.
+"""guest_publish.py — Helpers for the "Publish ASM Guest" workflow.
 
 Bundles the concerns that the workflow chains together so each workflow step
 is one line. Pure-stdlib so it runs on every GitHub-hosted runner without an
 install step.
 
 Subcommands:
-    validate    Verify the tag input before any network work.
-    fetch       Download the ASM guest assets from the tag's GitHub Release into
-                $OUTPUT_DIR, verify them against SHA256SUMS, resolve the tag's
-                commit and write manifest.json.
-    upload      Copy the assets to s3://<bucket>/<prefix>/<commit>/, each with a
-                `<name>.sha256` sidecar in `sha256sum -c` format, then manifest.json
+    validate    Verify the env input before any build work.
+    bundle      Check the guest files the build produced in $OUTPUT_DIR, then write
+                SHA256SUMS and manifest.json next to them.
+    upload      Copy the bundle to s3://<bucket>/<prefix>/<env>/<commit>/, each file with
+                a `<name>.sha256` sidecar in `sha256sum -c` format, then manifest.json
                 last as the completion marker.
 
 Each subcommand reads its inputs from environment variables documented on the
@@ -53,6 +52,11 @@ def write_sha256_sidecar(digest: str, name: str, dest_dir: Path) -> Path:
     return sidecar
 
 
+def require_file(path: Path) -> None:
+    if not path.is_file() or path.stat().st_size == 0:
+        fail(f"expected file missing or empty: {path}")
+
+
 def aws(*args: str) -> str:
     """Run the AWS CLI, returning stdout. check=True so an AWS error fails the step
     instead of reading as an empty result; stderr stays in the job log."""
@@ -68,94 +72,76 @@ def write_summary(lines: list[str]) -> None:
 
 # ---- validate --------------------------------------------------------------
 
-TAG_RE = re.compile(r"^v[A-Za-z0-9._-]{1,200}$")
+ENVIRONMENTS = ("dev", "staging", "testnet", "mainnet")
+
+
+def validate_env(env: str) -> str:
+    if env not in ENVIRONMENTS:
+        fail(f"env must be one of {', '.join(ENVIRONMENTS)} (got {env!r})")
+    return env
+
+
+def params_path(env: str) -> str:
+    """Return the repo path of the params file the guest for `env` is built with."""
+    return f"crates/params/envs/{env}.json"
 
 
 def cmd_validate() -> None:
-    """Env: INPUT_TAG."""
-    if not TAG_RE.fullmatch(os.environ["INPUT_TAG"]):
-        fail("tag must match v[A-Za-z0-9._-]+")
+    """Env: INPUT_ENV."""
+    validate_env(os.environ["INPUT_ENV"])
 
 
-# ---- fetch -----------------------------------------------------------------
+# ---- bundle ----------------------------------------------------------------
 
-# Checksummed by SHA256SUMS, and published with a `.sha256` sidecar each.
+# The files the guest build writes to guest-builder/sp1/generated/. Each is
+# checksummed by SHA256SUMS and published with a `.sha256` sidecar.
 GUEST_FILES = ("asm.elf", "asm-predicate.txt", "asm-vkey-hash.txt")
-RELEASE_FILES = GUEST_FILES + ("SHA256SUMS",)
+BUNDLE_FILES = GUEST_FILES + ("SHA256SUMS",)
 SHA1_RE = re.compile(r"^[0-9a-f]{40}$")
-SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
+SP1_VERSION_RE = re.compile(r"^v\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$")
 
 
-def fetch_release_assets(repo: str, tag: str, output_dir: Path) -> None:
-    """Pull the guest assets from the tag's GitHub Release via `gh`."""
-    cmd = ["gh", "release", "download", tag, "--repo", repo, "--dir", str(output_dir)]
-    for name in RELEASE_FILES:
-        cmd += ["--pattern", name]
-    subprocess.run(cmd, check=True)
-    for name in RELEASE_FILES:
-        p = output_dir / name
-        if not p.is_file() or p.stat().st_size == 0:
-            fail(f"missing or empty {name} in {repo} release {tag}")
+def cmd_bundle() -> None:
+    """Env: OUTPUT_DIR, DEPLOY_ENV, GUEST_REF, COMMIT, SP1_VERSION, GITHUB_RUN_ID,
+    GITHUB_STEP_SUMMARY.
 
-
-def verify_sha256sums(output_dir: Path) -> None:
-    """Check every guest file against the release's SHA256SUMS, which must list
-    exactly GUEST_FILES."""
-    listed: dict[str, str] = {}
-    for line in (output_dir / "SHA256SUMS").read_text().splitlines():
-        digest, _, name = line.partition(" ")
-        # `sha256sum` marks binary-mode entries with a leading `*`.
-        name = name.lstrip(" *")
-        if not SHA256_RE.fullmatch(digest) or not name:
-            fail(f"malformed SHA256SUMS line: {line!r}")
-        listed[name] = digest
-    if set(listed) != set(GUEST_FILES):
-        fail(f"SHA256SUMS lists {sorted(listed)}, expected {sorted(GUEST_FILES)}")
-    for name in GUEST_FILES:
-        actual = sha256_hex(output_dir / name)
-        if actual != listed[name]:
-            fail(f"{name} sha256 {actual} does not match SHA256SUMS {listed[name]}")
-
-
-def resolve_commit(repo: str, tag: str) -> str:
-    """Resolve the tag to its full commit SHA via the GitHub API.
-
-    The commits endpoint dereferences both lightweight and annotated tags.
+    Runs in the credentialed job, so the digests come from a clean environment rather
+    than from the job that ran the untrusted build.
     """
-    sha = subprocess.run(
-        ["gh", "api", f"repos/{repo}/commits/{tag}", "--jq", ".sha"],
-        check=True,
-        stdout=subprocess.PIPE,
-        text=True,
-    ).stdout.strip()
-    if not SHA1_RE.fullmatch(sha):
-        fail(f"could not resolve {repo} tag {tag} to a commit sha (got {sha!r})")
-    return sha
-
-
-def cmd_fetch() -> None:
-    """Env: TAG, OUTPUT_DIR, GH_TOKEN, GITHUB_REPOSITORY, GITHUB_STEP_SUMMARY."""
-    tag = os.environ["TAG"]
-    repo = os.environ["GITHUB_REPOSITORY"]
     output_dir = Path(os.environ["OUTPUT_DIR"])
-    # `gh` reads GH_TOKEN itself; we only verify it's present so a missing token
-    # fails fast with a clear error instead of an interactive gh auth prompt.
-    if not os.environ.get("GH_TOKEN"):
-        fail("GH_TOKEN must be set")
+    env = validate_env(os.environ["DEPLOY_ENV"])
+    guest_ref = os.environ["GUEST_REF"]
+    commit = os.environ["COMMIT"]
+    if not SHA1_RE.fullmatch(commit):
+        fail(f"built commit is not a sha: {commit!r}")
+    sp1_version = os.environ["SP1_VERSION"]
+    if not SP1_VERSION_RE.fullmatch(sp1_version):
+        fail(f"SP1 version is not a release tag: {sp1_version!r}")
 
-    output_dir.mkdir(parents=True, exist_ok=True)
-    fetch_release_assets(repo, tag, output_dir)
-    verify_sha256sums(output_dir)
-    commit = resolve_commit(repo, tag)
+    for name in GUEST_FILES:
+        require_file(output_dir / name)
+
+    guest_digests = {name: sha256_hex(output_dir / name) for name in GUEST_FILES}
+    (output_dir / "SHA256SUMS").write_text(
+        "".join(f"{digest}  {name}\n" for name, digest in guest_digests.items()),
+        encoding="utf-8",
+    )
 
     vkey_hash = (output_dir / "asm-vkey-hash.txt").read_text().strip()
+    predicate = (output_dir / "asm-predicate.txt").read_text().strip()
+    # The params file is in the repo at `commit`, so the manifest names it instead of
+    # shipping the section the guest baked in.
     manifest = {
-        "tag": tag,
+        "schema": 1,
+        "env": env,
+        "run_id": os.environ.get("GITHUB_RUN_ID", ""),
+        "sp1_version": sp1_version,
+        "asm_params": params_path(env),
+        "ref": guest_ref,
         "commit": commit,
-        "release_url": f"https://github.com/{repo}/releases/tag/{tag}",
+        "predicate": predicate,
         "vkey_hash": vkey_hash,
-        "predicate": (output_dir / "asm-predicate.txt").read_text().strip(),
-        "sha256": {name: sha256_hex(output_dir / name) for name in RELEASE_FILES},
+        "sha256": {name: sha256_hex(output_dir / name) for name in BUNDLE_FILES},
     }
     (output_dir / "manifest.json").write_text(
         json.dumps(manifest, indent=2) + "\n", encoding="utf-8"
@@ -164,11 +150,14 @@ def cmd_fetch() -> None:
         [
             "## ASM guest publish",
             "",
-            f"- release: [`{tag}`]({manifest['release_url']}) @ `{commit}`",
+            f"- env: `{env}`",
+            f"- ref: `{guest_ref}` @ `{commit}`",
+            f"- SP1 toolchain: `{manifest['sp1_version']}`",
+            f"- params file: `{params_path(env)}` @ `{commit}`",
             "",
             "### Predicate",
             "",
-            f"`{manifest['predicate']}`",
+            f"`{predicate}`",
             "",
             "### Verifying key (vkey hash)",
             "",
@@ -192,8 +181,7 @@ NO_SIDECAR = frozenset({"SHA256SUMS", "manifest.json"})
 
 def s3_cp(src: Path, dst: str) -> None:
     """Copy a single non-empty file to S3, failing fast if it's missing/empty."""
-    if not src.is_file() or src.stat().st_size == 0:
-        fail(f"expected upload artifact missing or empty: {src}")
+    require_file(src)
     print(f"uploading {src} -> {dst}")
     aws("s3", "cp", "--no-progress", str(src), dst)
 
@@ -249,33 +237,31 @@ def published_manifest(bucket: str, key: str) -> dict | None:
 def cmd_upload() -> None:
     """Env: OUTPUT_DIR, S3_BUCKET, S3_PREFIX (default elfs/asm-runner), GITHUB_STEP_SUMMARY.
 
-    Uploads to <prefix>/<commit>/ with manifest.json written last. A present
-    manifest means a completed publish: matching digests are a no-op (an rc and
-    its final release tagged on one commit), differing digests fail. Objects
-    without a manifest are an interrupted publish and are re-uploaded.
+    Uploads to <prefix>/<env>/<commit>/ with manifest.json written last. A present
+    manifest means a completed publish: one with matching digests is a no-op, one
+    with different digests fails. Objects without a manifest are an interrupted
+    publish and are re-uploaded.
     """
     output_dir = Path(os.environ["OUTPUT_DIR"])
     bucket = os.environ["S3_BUCKET"]
     prefix = os.environ.get("S3_PREFIX", "elfs/asm-runner")
 
     manifest = json.loads((output_dir / "manifest.json").read_text())
+    env = validate_env(manifest["env"])
     commit = manifest["commit"]
     if not SHA1_RE.fullmatch(commit):
         fail(f"manifest commit is not a sha: {commit!r}")
-    key_base = f"{prefix}/{commit}"
+    key_base = f"{prefix}/{env}/{commit}"
     base = f"s3://{bucket}/{key_base}"
 
     existing = published_manifest(bucket, f"{key_base}/manifest.json")
     if existing is not None:
         if existing.get("sha256") != manifest["sha256"]:
             fail(
-                f"{base}/ was published from {existing.get('tag')!r} with different "
-                f"digests than {manifest['tag']!r}: two builds of {commit} differ"
+                f"{base}/ was published with different digests: two {env} builds of "
+                f"{commit} differ"
             )
-        note = (
-            f"`{base}/` already published from `{existing.get('tag')}`,"
-            " digests match, nothing uploaded"
-        )
+        note = f"`{base}/` already published, digests match, nothing uploaded"
         print(note)
         write_summary(["### S3 upload", "", f"- {note}", ""])
         return
@@ -285,7 +271,7 @@ def cmd_upload() -> None:
             f"::warning::{base}/ has objects but no manifest.json (interrupted publish), re-uploading"
         )
 
-    uris = upload_tree(RELEASE_FILES, output_dir, base, manifest["sha256"])
+    uris = upload_tree(BUNDLE_FILES, output_dir, base, manifest["sha256"])
     manifest_dst = f"{base}/manifest.json"
     s3_cp(output_dir / "manifest.json", manifest_dst)
     uris.append(manifest_dst)
@@ -306,15 +292,13 @@ def cmd_upload() -> None:
 
 COMMANDS = {
     "validate": cmd_validate,
-    "fetch": cmd_fetch,
+    "bundle": cmd_bundle,
     "upload": cmd_upload,
 }
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(
-        description="Helpers for the Publish ASM Guest to S3 workflow."
-    )
+    parser = argparse.ArgumentParser(description="Helpers for the Publish ASM Guest workflow.")
     parser.add_argument("command", choices=COMMANDS)
     COMMANDS[parser.parse_args().command]()
 

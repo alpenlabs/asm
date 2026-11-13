@@ -11,7 +11,7 @@ from factory.asm_rpc.config_cfg import (
     Sp1Artifact,
 )
 
-from .prover_env import SP1_GENERATED_DIR, ProverEnv
+from .prover_env import ASM_V1_RELEASE, ProverEnv, fetch_release_guest
 
 # Signing key of the native spec 1 host. Distinct from the spec 0 key so the
 # two programs have different predicates, as an upgrade requires.
@@ -35,7 +35,7 @@ class UpgradeEnv(ProverEnv):
         self, ectx: flexitest.EnvContext, service_name: str = "asm_rpc"
     ) -> OrchestratorConfig:
         config = super()._orchestrator_config(ectx, service_name)
-        source, _ = _asm_v1_artifact()
+        source, _ = asm_v1_artifact()
         config.asm_artifacts.append(AsmArtifact(spec_id=ASM_V1_SPEC_ID, source=source))
         return config
 
@@ -51,22 +51,18 @@ class UpgradeEnv(ProverEnv):
 
 def asm_v1_predicate() -> str:
     """Return the predicate the spec 1 ASM host must resolve to."""
-    _, predicate = _asm_v1_artifact()
+    _, predicate = asm_v1_artifact()
     return predicate
 
 
-def _asm_v1_artifact() -> tuple[ArtifactSource, str]:
+def asm_v1_artifact() -> tuple[ArtifactSource, str]:
     """Pick the spec 1 ASM source matching the binary built by run_test.sh, together with the
     predicate it must resolve to."""
     backend = os.environ.get("ASM_PROVER_BACKEND", "native")
     if backend == "sp1":
-        # The local guest build compiles the newest spec, which is spec 1. run_test.sh derives
-        # its predicate from that same build, so the startup predicate check only catches a
-        # mix-up between files, not a wrong guest.
-        return (
-            Sp1Artifact(elf_path=str(SP1_GENERATED_DIR / "asm.elf")),
-            (SP1_GENERATED_DIR / "asm-predicate.txt").read_text().strip(),
-        )
+        # The local guest build compiles a newer spec, so spec 1 comes from its release.
+        elf, predicate = fetch_release_guest(ASM_V1_RELEASE)
+        return Sp1Artifact(elf_path=str(elf)), predicate
     if backend == "native":
         return (
             NativeArtifact(signing_key=NATIVE_TEST_ASM_V1_SIGNING_KEY),

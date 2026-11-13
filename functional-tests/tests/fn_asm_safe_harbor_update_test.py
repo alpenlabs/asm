@@ -4,31 +4,18 @@ import flexitest
 
 from envs import BasicEnv
 from envs.basic_env import ADMIN_SECRET_KEY, DEFAULT_ADMIN_CONFIRMATION_DEPTH
-from factory.common.asm_params import DEFAULT_SAFE_HARBOR_DESCRIPTOR
+from factory.common.asm_params import (
+    DEFAULT_SAFE_HARBOR_DESCRIPTOR,
+    NEW_SAFE_HARBOR_ADDRESS,
+    NEW_SAFE_HARBOR_DESCRIPTOR,
+)
 from utils.test_cli import submit_safe_harbor_update
 from utils.utils import (
+    safe_harbor_descriptor,
     wait_until_asm_reaches_height,
     wait_until_asm_ready,
     wait_until_bitcoind_ready,
 )
-
-# P2TR address the test rotates the safe harbor to, written as a regtest wallet shows it.
-NEW_SAFE_HARBOR_ADDRESS = "bcrt1p0xlxvlhemja6c4dqv22uapctqupfhlxm9h8z3k2e72q4k9hcz7vqc8gma6"
-
-# BOSD descriptor of `NEW_SAFE_HARBOR_ADDRESS`, the form the RPC reports.
-NEW_SAFE_HARBOR_DESCRIPTOR = "0479be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"
-
-
-def safe_harbor_descriptor(asm_rpc, bitcoin_rpc, height: int) -> str:
-    """Return the safe harbor descriptor the ASM reports at `height`, checking that a
-    rotation left it deactivated."""
-    block_hash = bitcoin_rpc.proxy.getblockhash(height)
-    safe_harbor = asm_rpc.strata_asm_getSafeHarbor(block_hash)
-    assert safe_harbor is not None, f"no safe harbor at height {height}"
-    assert safe_harbor["activated"] is False, (
-        f"safe harbor should stay deactivated, got {safe_harbor!r} at height {height}"
-    )
-    return safe_harbor["address"].lower().removeprefix("0x")
 
 
 @flexitest.register
