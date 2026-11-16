@@ -2,7 +2,7 @@
 
 use std::{fmt::Display, sync::Arc, time::Instant};
 
-use anyhow::Result;
+use anyhow::{Result, ensure};
 use asm_storage::{SledAsmManifestDb, SledAsmStateDb};
 use async_trait::async_trait;
 use bitcoin::BlockHash;
@@ -18,7 +18,9 @@ use strata_asm_admin_types::Role;
 use strata_asm_bridge_types::SafeHarbor;
 use strata_asm_checkpoint_types::CheckpointTip;
 use strata_asm_common::{AnchorState, AsmManifest, SectionStateExt, Subprotocol};
-use strata_asm_moho_storage::{SledExportEntriesDb, SledMohoStateDb, build_export_entry_mmr_proof};
+use strata_asm_moho_storage::{
+    SledExportEntriesDb, SledMohoStateDb, build_export_entry_mmr_proof, find_export_entry_index,
+};
 use strata_asm_params::AsmParams;
 use strata_asm_proto_admin::AdministrationSubprotocol;
 use strata_asm_proto_bridge::{AssignmentEntry, BridgeStateV1, DepositEntry};
@@ -33,7 +35,8 @@ use strata_asm_rpc::traits::{
 };
 use strata_asm_worker::{AsmWorkerHandle, AsmWorkerStatus};
 use strata_btc_types::BlockHashExt;
-use strata_identifiers::L1BlockCommitment;
+use strata_identifiers::{Buf32, L1BlockCommitment};
+use strata_merkle::MerkleProof;
 use strata_tasks::ShutdownGuard;
 use tracing::{info, warn};
 
@@ -59,6 +62,28 @@ async fn to_block_commitment(
         .get_block_height(&block_hash)
         .await? as u32;
     Ok(L1BlockCommitment::new(height, block_id))
+}
+
+/// Resolves `block_hash` like [`to_block_commitment`], and errors unless the
+/// block is on bitcoind's canonical chain.
+///
+/// The export-entry index follows the canonical chain, while a reorged-out block
+/// keeps its stored Moho state. Answering for such a block would check one
+/// chain's index against the other chain's MMR.
+async fn to_canonical_block_commitment(
+    bitcoin_client: &RetryingBitcoinClient,
+    block_hash: BlockHash,
+) -> anyhow::Result<L1BlockCommitment> {
+    let commitment = to_block_commitment(bitcoin_client, block_hash).await?;
+    let canonical = bitcoin_client
+        .no_retry()
+        .get_block_hash(commitment.height() as u64)
+        .await?;
+    ensure!(
+        canonical == block_hash,
+        "block {block_hash} is not on the canonical chain"
+    );
+    Ok(commitment)
 }
 
 /// Always-on ASM RPC handlers backed by the ASM state DB and worker status.
@@ -309,7 +334,66 @@ impl AsmMohoApiServer for AsmMohoRpcServer {
         container_id: u8,
         leaf: [u8; 32],
     ) -> RpcResult<Vec<u8>> {
-        let commitment = to_block_commitment(&self.bitcoin_client, block_hash)
+        let commitment = to_canonical_block_commitment(&self.bitcoin_client, block_hash)
+            .await
+            .map_err(to_rpc_error)?;
+
+        let mmr_index = find_export_entry_index(
+            &self.moho_state_db,
+            &self.export_entries_db,
+            commitment,
+            container_id,
+            &leaf,
+        )
+        .await
+        .map_err(to_rpc_error)?
+        .ok_or_else(|| {
+            to_rpc_error(format!(
+                "leaf not found in container {container_id} at {block_hash}"
+            ))
+        })?;
+
+        let proof = build_export_entry_mmr_proof(
+            &self.moho_state_db,
+            &self.export_entries_db,
+            commitment,
+            container_id,
+            mmr_index,
+        )
+        .await
+        .map_err(to_rpc_error)?;
+
+        Ok(proof.as_ssz_bytes())
+    }
+
+    async fn get_export_entry_index(
+        &self,
+        block_hash: BlockHash,
+        container_id: u8,
+        leaf: Buf32,
+    ) -> RpcResult<Option<u64>> {
+        let commitment = to_canonical_block_commitment(&self.bitcoin_client, block_hash)
+            .await
+            .map_err(to_rpc_error)?;
+
+        find_export_entry_index(
+            &self.moho_state_db,
+            &self.export_entries_db,
+            commitment,
+            container_id,
+            &leaf.0,
+        )
+        .await
+        .map_err(to_rpc_error)
+    }
+
+    async fn get_export_entry_proof(
+        &self,
+        block_hash: BlockHash,
+        container_id: u8,
+        mmr_index: u64,
+    ) -> RpcResult<MerkleProof<[u8; 32]>> {
+        let commitment = to_canonical_block_commitment(&self.bitcoin_client, block_hash)
             .await
             .map_err(to_rpc_error)?;
 
@@ -318,12 +402,12 @@ impl AsmMohoApiServer for AsmMohoRpcServer {
             &self.export_entries_db,
             commitment,
             container_id,
-            &leaf,
+            mmr_index,
         )
         .await
         .map_err(to_rpc_error)?;
 
-        Ok(proof.as_ssz_bytes())
+        Ok(MerkleProof::from_cohashes(proof.cohashes(), proof.index()))
     }
 }
 

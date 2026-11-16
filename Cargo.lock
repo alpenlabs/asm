@@ -8633,6 +8633,8 @@ dependencies = [
  "strata-asm-proto-bridge",
  "strata-asm-prover-types",
  "strata-asm-worker",
+ "strata-identifiers",
+ "strata-merkle",
 ]
 
 [[package]]

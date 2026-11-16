@@ -13,8 +13,9 @@
 //! - [`ExportEntriesDb`] / [`SledExportEntriesDb`] — the per-container export-entry index mirroring
 //!   the `ExportState` MMR leaves.
 //!
-//! [`build_export_entry_mmr_proof`] reads across both stores to rebuild an
-//! inclusion proof for a single export entry.
+//! [`find_export_entry_index`] and [`build_export_entry_mmr_proof`] read across
+//! both stores to resolve an export entry's index and rebuild its inclusion
+//! proof.
 
 mod export_entries;
 mod export_proof;
@@ -23,7 +24,7 @@ mod sled;
 
 pub use self::{
     export_entries::ExportEntriesDb,
-    export_proof::{ExportProofError, build_export_entry_mmr_proof},
+    export_proof::{ExportProofError, build_export_entry_mmr_proof, find_export_entry_index},
     moho_state::MohoStateDb,
     sled::{SledExportEntriesDb, SledMohoStateDb},
 };
