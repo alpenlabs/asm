@@ -10,7 +10,7 @@
 #
 # Usage:
 #   ./contrib/fetch_moho_artifacts.sh
-#   MOHO_TAG=v0.5.0 ./contrib/fetch_moho_artifacts.sh
+#   MOHO_TAG=v0.4.0 ./contrib/fetch_moho_artifacts.sh
 
 set -euo pipefail
 
@@ -19,7 +19,7 @@ out_dir="$repo_root/guest-builder/sp1/generated"
 
 # The Moho guest this ASM release proves with. Change it only when deciding to upgrade the
 # deployed Moho guest, not when bumping the moho crates.
-MOHO_GUEST_TAG="v0.4.0"
+MOHO_GUEST_TAG="v0.5.1"
 
 tag="${MOHO_TAG:-$MOHO_GUEST_TAG}"
 
