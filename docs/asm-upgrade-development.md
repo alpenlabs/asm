@@ -126,7 +126,7 @@ Put `bitcoind` on `PATH` for integration tests. CI pins Bitcoin Core 30.2 in
 
 The functional test `fn_asm_upgrade_v0_v1_test` covers the proving side. It starts
 `strata-asm-runner` with spec 0 and spec 1 loaded and activates spec 1 with a signed admin update
-from `asm-test-cli`. It checks that the old spec executes the enacting block, and that ASM and
+from `asm-admin`. It checks that the old spec executes the enacting block, and that ASM and
 Moho proofs continue across the switch. On the SP1 backend, spec 0 runs the v0.4.0 release guest
 and spec 1 runs the v0.5.0-rc.2 release guest. See
 [the functional test README](../functional-tests/README.md) for the SP1 variables.

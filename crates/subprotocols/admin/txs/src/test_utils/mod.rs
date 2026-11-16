@@ -1,12 +1,15 @@
 use bitcoin::{
     Network, Transaction,
     secp256k1::{Message, SECP256K1, SecretKey},
-    sign_message::MessageSignature,
 };
 use strata_asm_admin_threshold_sig::{IndexedSignature, SignatureSet};
 use strata_asm_proto_txs_test_utils::create_reveal_transaction_stub;
 
-use crate::{actions::MultisigAction, parser::SignedPayload, signing_message::SigningMessage};
+use crate::{
+    actions::MultisigAction,
+    parser::SignedPayload,
+    signing_message::{SigningMessage, sign_bip137_digest},
+};
 
 /// Creates an ECDSA signature with recoverable public key for a message hash.
 ///
@@ -24,9 +27,7 @@ pub fn sign_ecdsa_recoverable(message_hash: &[u8; 32], secret_key: &SecretKey) -
 
 /// Creates a BIP-137-style recoverable signature for a Bitcoin `signMessage` digest.
 pub fn sign_ecdsa_bip137(message_hash: &[u8; 32], secret_key: &SecretKey) -> [u8; 65] {
-    let message = Message::from_digest(*message_hash);
-    let signature = SECP256K1.sign_ecdsa_recoverable(&message, secret_key);
-    MessageSignature::new(signature, true).serialize()
+    sign_bip137_digest(message_hash, secret_key)
 }
 
 /// Creates a SignatureSet for any MultisigAction.
@@ -52,13 +53,10 @@ pub fn create_signature_set(
     seqno: u64,
     network: Network,
 ) -> SignatureSet {
-    let message_hash = SigningMessage::for_action(action, seqno, network).compute_sighash();
+    let message = SigningMessage::for_action(action, seqno, network);
     let signatures: Vec<IndexedSignature> = signer_indices
         .iter()
-        .map(|&index| {
-            let sig = sign_ecdsa_bip137(&message_hash.0, &privkeys[index as usize]);
-            IndexedSignature::new(index, sig)
-        })
+        .map(|&index| IndexedSignature::new(index, message.sign(&privkeys[index as usize])))
         .collect();
 
     SignatureSet::new(signatures).expect("valid signature set")

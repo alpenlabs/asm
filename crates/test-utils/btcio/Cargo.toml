@@ -8,6 +8,8 @@ workspace = true
 
 [dependencies]
 strata-crypto = { workspace = true, features = ["test-utils"] }
+strata-l1-envelope-fmt.workspace = true
+strata-l1-txfmt.workspace = true
 tokio = { workspace = true, features = ["full", "test-util"] }
 
 anyhow.workspace = true
@@ -15,6 +17,5 @@ bitcoin = { workspace = true, features = ["rand"] }
 bitcoind-async-client.workspace = true
 corepc-node.workspace = true
 musig2.workspace = true
-
-[dev-dependencies]
 rand.workspace = true
+thiserror.workspace = true

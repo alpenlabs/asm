@@ -45,6 +45,7 @@ members = [
   "tests",
 
   # binaries listed separately
+  "bin/admin-cli",
   "bin/asm-runner",
   "bin/dbtool",
   "bin/prover-perf",

@@ -35,7 +35,6 @@ strata-codec.workspace = true
 strata-codec-utils.workspace = true
 strata-crypto.workspace = true
 strata-identifiers.workspace = true
-strata-l1-envelope-fmt.workspace = true
 strata-l1-txfmt.workspace = true
 strata-merkle.workspace = true
 strata-predicate.workspace = true
@@ -49,7 +48,6 @@ anyhow.workspace = true
 bitcoin.workspace = true
 bitcoin-bosd.workspace = true
 bitcoind-async-client.workspace = true
-clap.workspace = true
 corepc-node.workspace = true
 rand.workspace = true
 rand_chacha.workspace = true
@@ -63,10 +61,6 @@ tokio.workspace = true
 [lib]
 name = "integration_tests"
 path = "lib.rs"
-
-[[bin]]
-name = "asm-test-cli"
-path = "bin/asm_test_cli.rs"
 
 [[test]]
 name = "asm_core"

@@ -18,7 +18,7 @@ DEFAULT_MUSIG2_KEYS = [
     "becdf7aab195ab0a42ba2f2eca5b7fa5a246267d802c627010e1672f08657f70",
 ]
 
-# Sole signer of every admin role, so tests can sign admin actions with `asm-test-cli`.
+# Sole signer of every admin role, so tests can sign admin actions with `asm-admin`.
 ADMIN_SECRET_KEY = "04" * 32
 ADMIN_ADDRESS = p2wpkh_address(ADMIN_SECRET_KEY, "regtest")
 

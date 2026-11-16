@@ -34,8 +34,8 @@ cargo build --bin strata-asm-runner ${CARGO_ARGS[@]+"${CARGO_ARGS[@]}"}
 # dbtool inspects the runner's storage DB in fn_asm_dbtool_test; it does no
 # proving, so a debug build is enough regardless of the prover backend.
 cargo build --bin dbtool
-# asm-test-cli signs and broadcasts admin transactions for the tests that submit them.
-cargo build --bin asm-test-cli
+# asm-admin signs and broadcasts admin transactions for the tests that submit them.
+cargo build --bin asm-admin
 if [[ "$ASM_PROVER_BACKEND" == "sp1" ]]; then
   # Produces guest-builder/sp1/generated/{asm,moho}.elf and asm-predicate.txt, which the tests
   # read. The local ASM guest build is opt-in, so ask for it here; it compiles the newest spec
