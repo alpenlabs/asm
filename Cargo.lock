@@ -8102,17 +8102,21 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "bitcoin",
+ "bitcoind-async-client",
  "clap",
  "hex",
  "serde_json",
  "strata-asm-admin-threshold-sig",
  "strata-asm-admin-types",
  "strata-asm-bridge-types",
+ "strata-asm-common",
  "strata-asm-params",
  "strata-asm-proto-admin-txs",
  "strata-l1-txfmt",
  "strata-predicate",
+ "strata-test-utils-btcio",
  "tempfile",
+ "tokio",
 ]
 
 [[package]]

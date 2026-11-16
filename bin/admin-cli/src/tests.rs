@@ -1,15 +1,24 @@
 use std::fs;
 
-use bitcoin::{Address, Network, secp256k1::SecretKey};
-use clap::Parser;
+use bitcoin::{
+    Address, Amount, FeeRate, Network, OutPoint, ScriptBuf, Sequence, Transaction, TxIn, TxOut,
+    Witness, absolute::LockTime, secp256k1::SecretKey, transaction::Version,
+};
+use bitcoind_async_client::traits::Reader;
+use clap::{Parser, error::ErrorKind};
 use serde_json::{Value, json};
+use strata_asm_admin_threshold_sig::{IndexedSignature, SignatureSet};
 use strata_asm_proto_admin_txs::{
     actions::{CancelAction, MultisigAction, UpdateAction, updates::AsmStfVkUpdate},
     signing_message::SigningMessage,
 };
+use strata_l1_txfmt::MagicBytes;
 use strata_predicate::PredicateKey;
+use strata_test_utils_btcio::{get_bitcoind_and_client, mine_blocks};
 
 use super::*;
+
+const MAGIC: MagicBytes = MagicBytes::new(*b"ALPN");
 
 const TESTNET_PARAMS: &str = include_str!("../../../crates/params/envs/testnet.json");
 
@@ -258,4 +267,134 @@ fn params_file_excludes_explicit_signers() {
     args.extend(["asm-stf-vk", "--predicate", "AlwaysAccept"]);
 
     assert!(Cli::try_parse_from(args).is_err());
+}
+
+#[test]
+fn zero_fee_rate_is_rejected() {
+    let signature = format!("0:{}", encode_signature(&[0; 65]));
+    let mut args = vec![
+        "asm-admin",
+        "submit",
+        "--params",
+        "params.json",
+        "--seq-no",
+        "1",
+    ];
+    args.extend([
+        "--signature",
+        &signature,
+        "--btc-url",
+        "http://127.0.0.1:8332",
+    ]);
+    args.extend([
+        "--btc-user",
+        "user",
+        "--btc-password",
+        "password",
+        "--fee-rate",
+        "0",
+    ]);
+    args.extend(["asm-stf-vk", "--predicate", "AlwaysAccept"]);
+
+    let err = Cli::try_parse_from(args).unwrap_err();
+
+    assert_eq!(err.kind(), ErrorKind::ValueValidation);
+}
+
+fn signed_payload_for_tests(network: Network) -> SignedPayload {
+    let [k0, _, k2] = keys();
+    let action = asm_stf_vk_action();
+    let message = SigningMessage::for_action(&action, 4, network);
+    let signatures = [(0, &k0), (2, &k2)]
+        .map(|(index, key)| IndexedSignature::new(index, message.sign(key)))
+        .to_vec();
+    SignedPayload::new(4, action, SignatureSet::new(signatures).unwrap())
+}
+
+fn commit_paying(address: &Address, value: Amount) -> Transaction {
+    Transaction {
+        version: Version::TWO,
+        lock_time: LockTime::ZERO,
+        input: vec![TxIn {
+            previous_output: OutPoint::null(),
+            script_sig: ScriptBuf::new(),
+            sequence: Sequence::MAX,
+            witness: Witness::new(),
+        }],
+        output: vec![TxOut {
+            value,
+            script_pubkey: address.script_pubkey(),
+        }],
+    }
+}
+
+#[test]
+fn reveal_pays_the_fee_rate_and_returns_the_rest() {
+    let envelope = Envelope::new(
+        signed_payload_for_tests(Network::Signet),
+        MAGIC,
+        Network::Signet,
+    )
+    .unwrap();
+    let (key, _) = keys()[0].x_only_public_key(SECP256K1);
+    let change = Address::p2tr(SECP256K1, key, None, Network::Signet).script_pubkey();
+    let fee_rate = FeeRate::from_sat_per_vb(3).unwrap();
+    let value = envelope.commit_value(fee_rate, &change).unwrap();
+    let commit = commit_paying(envelope.address(), value + Amount::from_sat(1_000));
+
+    let reveal = envelope
+        .build_reveal(&commit, change.clone(), fee_rate)
+        .unwrap();
+
+    let fee = value + Amount::from_sat(1_000) - reveal.output[1].value;
+    assert_eq!(fee, fee_rate.fee_vb(reveal.vsize() as u64).unwrap());
+    assert_eq!(reveal.output[1].script_pubkey, change);
+}
+
+#[test]
+fn commit_below_the_reveal_cost_is_rejected() {
+    let envelope = Envelope::new(
+        signed_payload_for_tests(Network::Signet),
+        MAGIC,
+        Network::Signet,
+    )
+    .unwrap();
+    let change = envelope.address().script_pubkey();
+    let fee_rate = FeeRate::from_sat_per_vb(3).unwrap();
+    let value = envelope.commit_value(fee_rate, &change).unwrap();
+    let commit = commit_paying(envelope.address(), value - Amount::from_sat(1));
+
+    assert!(envelope.build_reveal(&commit, change, fee_rate).is_err());
+}
+
+/// The transactions a regtest node accepts and mines carry the payload the ASM decodes.
+#[tokio::test]
+async fn regtest_node_mines_the_admin_transactions() {
+    let (bitcoind, client) = get_bitcoind_and_client();
+    mine_blocks(&bitcoind, &client, 101, None).await.unwrap();
+    let envelope = Envelope::new(
+        signed_payload_for_tests(Network::Regtest),
+        MAGIC,
+        Network::Regtest,
+    )
+    .unwrap();
+    let fee_rate = FeeRate::from_sat_per_vb(2).unwrap();
+
+    let (commit, reveal) = wallet::build_transactions(&client, &envelope, fee_rate)
+        .await
+        .unwrap();
+    wallet::check_package(&client, &commit, &reveal)
+        .await
+        .unwrap();
+    wallet::broadcast(&client, &commit, &reveal).await.unwrap();
+    let [block_hash] = mine_blocks(&bitcoind, &client, 1, None)
+        .await
+        .unwrap()
+        .try_into()
+        .unwrap();
+
+    let block = client.get_block(&block_hash).await.unwrap();
+    let txids: Vec<_> = block.txdata.iter().map(Transaction::compute_txid).collect();
+    assert!(txids.contains(&commit.compute_txid()));
+    assert!(txids.contains(&reveal.compute_txid()));
 }
