@@ -8098,6 +8098,25 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f"
 
 [[package]]
+name = "strata-asm-admin-cli"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "bitcoin",
+ "clap",
+ "hex",
+ "serde_json",
+ "strata-asm-admin-threshold-sig",
+ "strata-asm-admin-types",
+ "strata-asm-bridge-types",
+ "strata-asm-params",
+ "strata-asm-proto-admin-txs",
+ "strata-l1-txfmt",
+ "strata-predicate",
+ "tempfile",
+]
+
+[[package]]
 name = "strata-asm-admin-threshold-sig"
 version = "0.1.0"
 dependencies = [

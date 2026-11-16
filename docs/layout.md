@@ -58,6 +58,8 @@ Under [`crates/subprotocols`](../crates/subprotocols). See
 
 - [`bin/asm-runner`](../bin/asm-runner) (`strata-asm-runner`): the node. Wires bitcoind, the
   workers, storage, and RPC.
+- [`bin/admin-cli`](../bin/admin-cli) (`strata-asm-admin-cli`, binary `asm-admin`): signs
+  admin actions and submits them from a bitcoind wallet.
 - [`bin/dbtool`](../bin/dbtool) (`asm-dbtool`, binary `dbtool`): offline database tool.
 - [`bin/prover-perf`](../bin/prover-perf) (`strata-asm-prover-perf`): SP1 guest performance
   reports, and a check that the guest and native STF agree.
