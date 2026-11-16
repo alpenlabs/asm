@@ -9,7 +9,7 @@ from factory.common.asm_params import (
     NEW_SAFE_HARBOR_ADDRESS,
     NEW_SAFE_HARBOR_DESCRIPTOR,
 )
-from utils.test_cli import submit_safe_harbor_update
+from utils.admin_cli import submit_safe_harbor_update
 from utils.utils import (
     safe_harbor_descriptor,
     wait_until_asm_reaches_height,

@@ -11,7 +11,7 @@ from factory.common.asm_params import (
     NEW_SAFE_HARBOR_DESCRIPTOR,
     load_runtime_params,
 )
-from utils.test_cli import submit_asm_stf_update, submit_safe_harbor_update
+from utils.admin_cli import submit_asm_stf_update, submit_safe_harbor_update
 from utils.utils import (
     safe_harbor_descriptor,
     wait_until_asm_proof_exists,

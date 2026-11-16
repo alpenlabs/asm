@@ -67,7 +67,7 @@ Under [`crates/subprotocols`](../crates/subprotocols). See
 ## Tests
 
 - [`tests`](../tests) (`integration-tests`): Rust tests that drive the workers against a
-  regtest `bitcoind`. Also builds `asm-test-cli`, which the functional tests use.
+  regtest `bitcoind`.
 - [`crates/test-utils`](../crates/test-utils): shared fixtures and generators.
 - [`functional-tests`](../functional-tests): Python tests that run `strata-asm-runner`
   against `bitcoind`.

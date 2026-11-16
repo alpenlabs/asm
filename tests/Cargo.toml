@@ -48,7 +48,6 @@ anyhow.workspace = true
 bitcoin.workspace = true
 bitcoin-bosd.workspace = true
 bitcoind-async-client.workspace = true
-clap.workspace = true
 corepc-node.workspace = true
 rand.workspace = true
 rand_chacha.workspace = true
@@ -62,10 +61,6 @@ tokio.workspace = true
 [lib]
 name = "integration_tests"
 path = "lib.rs"
-
-[[bin]]
-name = "asm-test-cli"
-path = "bin/asm_test_cli.rs"
 
 [[test]]
 name = "asm_core"

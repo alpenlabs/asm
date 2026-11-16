@@ -8,7 +8,7 @@ from envs.upgrade_env import (
     UPGRADE_ADMIN_CONFIRMATION_DEPTH,
     asm_v1_predicate,
 )
-from utils.test_cli import submit_asm_stf_update
+from utils.admin_cli import submit_asm_stf_update
 from utils.utils import (
     wait_until_asm_proof_exists,
     wait_until_asm_reaches_height,

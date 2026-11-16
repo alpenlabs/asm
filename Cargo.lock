@@ -3899,7 +3899,6 @@ dependencies = [
  "bitcoin",
  "bitcoin-bosd 0.12.0 (git+https://github.com/alpenlabs/bitcoin-bosd?tag=v0.13.0)",
  "bitcoind-async-client",
- "clap",
  "corepc-node",
  "moho-runtime-impl",
  "moho-runtime-interface",

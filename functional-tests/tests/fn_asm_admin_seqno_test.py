@@ -3,7 +3,7 @@ import flexitest
 from envs.basic_env import ADMIN_SECRET_KEY
 from envs.upgrade_env import NATIVE_TEST_ASM_V1_PREDICATE
 from rpc.client import RpcError
-from utils.test_cli import submit_asm_stf_update
+from utils.admin_cli import submit_asm_stf_update
 from utils.utils import (
     wait_until_asm_reaches_height,
     wait_until_asm_ready,
