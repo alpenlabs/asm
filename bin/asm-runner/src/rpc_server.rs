@@ -18,7 +18,9 @@ use strata_asm_admin_types::Role;
 use strata_asm_bridge_types::SafeHarbor;
 use strata_asm_checkpoint_types::CheckpointTip;
 use strata_asm_common::{AnchorState, AsmManifest, SectionStateExt, Subprotocol};
-use strata_asm_moho_storage::{SledExportEntriesDb, SledMohoStateDb, build_export_entry_mmr_proof};
+use strata_asm_moho_storage::{
+    SledExportEntriesDb, SledMohoStateDb, build_export_entry_mmr_proof, find_export_entry_index,
+};
 use strata_asm_params::AsmParams;
 use strata_asm_proto_admin::AdministrationSubprotocol;
 use strata_asm_proto_bridge::{AssignmentEntry, BridgeStateV1, DepositEntry};
@@ -313,12 +315,27 @@ impl AsmMohoApiServer for AsmMohoRpcServer {
             .await
             .map_err(to_rpc_error)?;
 
-        let proof = build_export_entry_mmr_proof(
+        let mmr_index = find_export_entry_index(
             &self.moho_state_db,
             &self.export_entries_db,
             commitment,
             container_id,
             &leaf,
+        )
+        .await
+        .map_err(to_rpc_error)?
+        .ok_or_else(|| {
+            to_rpc_error(format!(
+                "leaf not found in container {container_id} at {block_hash}"
+            ))
+        })?;
+
+        let proof = build_export_entry_mmr_proof(
+            &self.moho_state_db,
+            &self.export_entries_db,
+            commitment,
+            container_id,
+            mmr_index,
         )
         .await
         .map_err(to_rpc_error)?;
