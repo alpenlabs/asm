@@ -10,7 +10,7 @@
 
 use std::collections::HashMap;
 
-use bitcoin::{address::NetworkUnchecked, secp256k1::SecretKey, Address};
+use bitcoin::{address::NetworkUnchecked, secp256k1::SecretKey, Address, Network};
 use clap::{Args, Parser, Subcommand};
 use corepc_node::{client::client_sync::Auth, Client};
 use integration_tests::harness::{
@@ -96,7 +96,14 @@ fn submit_admin_action(args: AdminTxArgs, action: &MultisigAction) -> anyhow::Re
         (vec![args.admin_sk], vec![0]),
     )]));
     let payload = ctx.sign_with_seqno(action, args.seqno);
-    let tx = build_envelope_tx(&rpc, args.magic, action.tag(), payload, None)?;
+    let tx = build_envelope_tx(
+        &rpc,
+        args.magic,
+        Network::Regtest,
+        action.tag(),
+        payload,
+        None,
+    )?;
     let txid = rpc.send_raw_transaction(&tx)?.txid()?;
     println!("{txid}");
     Ok(())

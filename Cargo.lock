@@ -3933,7 +3933,6 @@ dependencies = [
  "strata-codec-utils",
  "strata-crypto",
  "strata-identifiers",
- "strata-l1-envelope-fmt",
  "strata-l1-txfmt",
  "strata-merkle",
  "strata-predicate",
@@ -9110,6 +9109,9 @@ dependencies = [
  "musig2",
  "rand 0.8.6",
  "strata-crypto",
+ "strata-l1-envelope-fmt",
+ "strata-l1-txfmt",
+ "thiserror 2.0.18",
  "tokio",
 ]
 
