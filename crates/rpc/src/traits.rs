@@ -11,6 +11,8 @@ use strata_asm_params::AsmParams;
 use strata_asm_proto_bridge::{AssignmentEntry, DepositEntry};
 use strata_asm_prover_types::{AsmProof, MohoProof, ProverStatus};
 use strata_asm_worker::AsmWorkerStatus;
+use strata_identifiers::Buf32;
+use strata_merkle::MerkleProof;
 
 /// Control-plane ASM RPCs: liveness and overall worker status.
 #[cfg_attr(not(feature = "client"), rpc(server, namespace = "strata_asm"))]
@@ -102,7 +104,10 @@ pub trait AsmMohoApi {
     /// container at `container_id`.
     ///
     /// Errors when no proof can be built, including when the leaf is simply not
-    /// part of that block's container. The error says which it was.
+    /// part of that block's container.
+    ///
+    /// Deprecated: use `getExportEntryIndex` and then `getExportEntryProof`.
+    #[deprecated(note = "use getExportEntryIndex and then getExportEntryProof")]
     #[method(name = "getExportEntryMMRProof")]
     async fn get_export_entry_mmr_proof(
         &self,
@@ -110,4 +115,38 @@ pub trait AsmMohoApi {
         container_id: u8,
         leaf: [u8; 32],
     ) -> RpcResult<Vec<u8>>;
+
+    /// Return the MMR index of `leaf` in the export container at
+    /// `container_id`, as of `block_hash`.
+    ///
+    /// Returns `None` when the leaf is not part of that block's container: the
+    /// container does not exist yet, the leaf is unknown, or it was added after
+    /// the block. Errors when the block is not on the canonical chain or has no
+    /// Moho state yet.
+    ///
+    /// The lookup resolves to the most recent occurrence of `leaf`. If the same
+    /// hash was added again after the block, this returns `None` even when an
+    /// earlier copy is in that block's container.
+    #[method(name = "getExportEntryIndex")]
+    async fn get_export_entry_index(
+        &self,
+        block_hash: BlockHash,
+        container_id: u8,
+        leaf: Buf32,
+    ) -> RpcResult<Option<u64>>;
+
+    /// Return the MMR inclusion proof for the leaf at `mmr_index` in the export
+    /// container at `container_id`, as of `block_hash`.
+    ///
+    /// The proof verifies against that container's MMR in the block's
+    /// [`MohoState`]. Errors when no proof can be built, including when the
+    /// block is not on the canonical chain, the container does not exist at that
+    /// block, or `mmr_index` is past its end.
+    #[method(name = "getExportEntryProof")]
+    async fn get_export_entry_proof(
+        &self,
+        block_hash: BlockHash,
+        container_id: u8,
+        mmr_index: u64,
+    ) -> RpcResult<MerkleProof<[u8; 32]>>;
 }
