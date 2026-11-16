@@ -42,7 +42,7 @@ pub fn advance_export_state_with_logs(prev: ExportState, logs: &[AsmLogEntry]) -
                 .update_extra_data(*update.extra_data());
         }
     }
-    ExportState::new(containers).expect("export container count stays within capacity")
+    ExportState::new(containers).expect("export containers stay unique and within capacity")
 }
 
 /// Returns a mutable reference to the container with `container_id`, creating
