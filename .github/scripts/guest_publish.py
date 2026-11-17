@@ -95,7 +95,7 @@ def cmd_validate() -> None:
 
 # The files the guest build writes to guest-builder/sp1/generated/. Each is
 # checksummed by SHA256SUMS and published with a `.sha256` sidecar.
-GUEST_FILES = ("asm.elf", "asm-predicate.txt", "asm-vkey-hash.txt")
+GUEST_FILES = ("asm.elf", "asm-predicate.txt")
 BUNDLE_FILES = GUEST_FILES + ("SHA256SUMS",)
 SHA1_RE = re.compile(r"^[0-9a-f]{40}$")
 SP1_VERSION_RE = re.compile(r"^v\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$")
@@ -127,7 +127,6 @@ def cmd_bundle() -> None:
         encoding="utf-8",
     )
 
-    vkey_hash = (output_dir / "asm-vkey-hash.txt").read_text().strip()
     predicate = (output_dir / "asm-predicate.txt").read_text().strip()
     # The params file is in the repo at `commit`, so the manifest names it instead of
     # shipping the section the guest baked in.
@@ -140,7 +139,6 @@ def cmd_bundle() -> None:
         "ref": guest_ref,
         "commit": commit,
         "predicate": predicate,
-        "vkey_hash": vkey_hash,
         "sha256": {name: sha256_hex(output_dir / name) for name in BUNDLE_FILES},
     }
     (output_dir / "manifest.json").write_text(
@@ -158,10 +156,6 @@ def cmd_bundle() -> None:
             "### Predicate",
             "",
             f"`{predicate}`",
-            "",
-            "### Verifying key (vkey hash)",
-            "",
-            f"`{vkey_hash}`",
             "",
             "### SHA-256",
             "",
@@ -256,6 +250,11 @@ def cmd_upload() -> None:
 
     existing = published_manifest(bucket, f"{key_base}/manifest.json")
     if existing is not None:
+        if set(existing.get("sha256", {})) != set(manifest["sha256"]):
+            fail(
+                f"{base}/ was published with a different set of files: "
+                f"{sorted(existing.get('sha256', {}))}"
+            )
         if existing.get("sha256") != manifest["sha256"]:
             fail(
                 f"{base}/ was published with different digests: two {env} builds of "
