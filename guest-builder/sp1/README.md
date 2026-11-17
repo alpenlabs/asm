@@ -38,7 +38,7 @@ All files land in `generated/`, which is gitignored.
 |---|---|
 | `asm.elf` | The compiled guest program. |
 | `asm-predicate.txt` | The SP1 Groth16 predicate, as `Sp1Groth16:<hex>`. The runner's `[[execution.targets]]` entries use it. |
-| `asm-vkey-hash.txt` | SP1's program vkey hash, as `0x<hex>`. It is the same value `cargo prove vkey` prints for the ELF. It is not published. |
+| `asm-vkey-hash.txt` | SP1's program vkey hash, as `0x<hex>`. It is the same value `cargo prove vkey` prints for the ELF. Release notes show it, but it is not a published file. |
 | `asm-spec-v2-params.ssz` | The baked-in section, as SSZ. The guest includes these bytes at compile time. |
 | `asm-runtime-params.json` | The same section as a runtime part. Native runs such as `prover-perf` read it so they use the same values as the guest. |
 
@@ -84,7 +84,26 @@ This is the command the `Publish ASM Guest` workflow runs. Only the guest compil
 
 ## Publishing
 
-Run the `Publish ASM Guest` workflow (`.github/workflows/publish-asm-guest.yml`) from main. It takes the ref to build and the network. It does a reproducible build with that network's params file at that ref, and uploads the result to:
+### Releases
+
+Pushing a `v*` tag runs `.github/workflows/release.yml`. It does a reproducible build of the guest for every network in `crates/params/envs/` except `dev`, with that network's params file at the tag. It then:
+
+1. Attaches `<env>-asm.elf` and `<env>-asm-predicate.txt` for each network to a draft GitHub release.
+2. Adds a section to the release notes. It names the commit and the SP1 version, and for each network its params file, vkey hash, and predicate.
+3. Publishes the release once it holds exactly the files this run built, byte for byte, and the tag still points at the commit they were built from. Releases are immutable after that.
+4. Copies the published files to S3, after checking each one against the release's attestation.
+
+A line's first rcs are tagged on `main`. Once `releases/vX.Y.x` exists, every tag of the line must point at a commit on it.
+
+`dev` gets no released guest, because it is only for local runs and CI.
+
+### By hand
+
+Run the `Publish ASM Guest` workflow (`.github/workflows/publish-asm-guest.yml`) from main with the ref to build and the network. Without `release_tag`, it uploads straight to S3. Use it for `dev`, or for a build that isn't a release.
+
+### S3 layout
+
+Both paths upload to the same place:
 
 ```
 s3://alpen-mosaic-artifacts/elfs/asm-runner/<env>/<commit>/
@@ -96,11 +115,17 @@ s3://alpen-mosaic-artifacts/elfs/asm-runner/<env>/<commit>/
 
 `manifest.json` is written last and marks a completed publish. It records the network, the ref and commit, the params file's path, the SP1 version, the predicate, and every file's SHA-256.
 
-A release covers several networks, so run the workflow once per network. Each run's summary ends with a release-note section for that network. Paste it into the GitHub release.
-
 ## Checking a published guest
 
-Get the bundle for your network and commit into one directory, then check the hashes:
+For a release, download the files and check them against the release's attestation:
+
+```bash
+gh release download <tag> --repo alpenlabs/asm --pattern '<env>-*'
+gh release verify-asset <tag> <env>-asm.elf --repo alpenlabs/asm
+gh release verify-asset <tag> <env>-asm-predicate.txt --repo alpenlabs/asm
+```
+
+For an S3 bundle, put it in one directory and check the hashes:
 
 ```bash
 sha256sum -c SHA256SUMS
@@ -108,19 +133,19 @@ sha256sum -c SHA256SUMS
 
 Older macOS versions don't ship `sha256sum`. Use `shasum -a 256 -c SHA256SUMS` there instead.
 
-Check that `asm-predicate.txt` matches the `predicate` in `manifest.json` and the one in your runner config. The runner also refuses to start when a loaded ELF's predicate differs from its config.
+Check that the predicate matches the one in your runner config. The runner also refuses to start when a loaded ELF's predicate differs from its config.
 
 To check that the ELF matches its source:
 
-1. Check out the `commit` from `manifest.json`. Follow that commit's copy of this page, since the build flags may differ. Commits from before this page existed may need other steps.
-2. Install the SP1 toolchain at its `sp1_version`.
+1. Check out the commit the release notes or `manifest.json` name. Follow that commit's copy of this page, since the build flags may differ. Commits from before this page existed may need other steps.
+2. Install the SP1 toolchain at the version the release notes or `manifest.json` name.
 3. Clear any earlier build, so cargo can't skip the build script and leave old files in `generated/`:
 
    ```bash
    cargo clean -p strata-asm-sp1-guest-builder
    ```
 
-4. Do a [reproducible build](#reproducible-builds) with the params file at its `asm_params`.
-5. Compare `generated/asm.elf` and `generated/asm-predicate.txt` with the published ones.
+4. Do a [reproducible build](#reproducible-builds) with the network's params file, `crates/params/envs/<env>.json`.
+5. Compare `generated/asm.elf` and `generated/asm-predicate.txt` with the published ones. `generated/asm-vkey-hash.txt` should match the vkey hash in the release notes.
 
 A match shows the ELF was built from that commit and params file. It does not show that the source implements the spec it claims. That is a code review question.
