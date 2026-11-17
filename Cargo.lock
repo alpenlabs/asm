@@ -847,7 +847,7 @@ checksum = "f02882884d3e1bc524fb12c79f107f6ad0e1cfd498c536ffb494301740995dfe"
 
 [[package]]
 name = "asm-dbtool"
-version = "0.1.0"
+version = "0.6.0"
 dependencies = [
  "anyhow",
  "asm-storage",
@@ -867,7 +867,7 @@ dependencies = [
 
 [[package]]
 name = "asm-storage"
-version = "0.1.0"
+version = "0.6.0"
 dependencies = [
  "anyhow",
  "sled",
@@ -3893,7 +3893,7 @@ dependencies = [
 
 [[package]]
 name = "integration-tests"
-version = "0.1.0"
+version = "0.6.0"
 dependencies = [
  "anyhow",
  "bitcoin",
@@ -8097,7 +8097,7 @@ checksum = "a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f"
 
 [[package]]
 name = "strata-asm-admin-cli"
-version = "0.1.0"
+version = "0.6.0"
 dependencies = [
  "anyhow",
  "bitcoin",
@@ -8121,7 +8121,7 @@ dependencies = [
 
 [[package]]
 name = "strata-asm-admin-threshold-sig"
-version = "0.1.0"
+version = "0.6.0"
 dependencies = [
  "arbitrary",
  "bitcoin",
@@ -8136,7 +8136,7 @@ dependencies = [
 
 [[package]]
 name = "strata-asm-admin-types"
-version = "0.1.0"
+version = "0.6.0"
 dependencies = [
  "arbitrary",
  "bitcoin",
@@ -8150,7 +8150,7 @@ dependencies = [
 
 [[package]]
 name = "strata-asm-bridge-types"
-version = "0.1.0"
+version = "0.6.0"
 dependencies = [
  "arbitrary",
  "bitcoin",
@@ -8172,7 +8172,7 @@ dependencies = [
 
 [[package]]
 name = "strata-asm-checkpoint-types"
-version = "0.1.0"
+version = "0.6.0"
 dependencies = [
  "arbitrary",
  "proptest",
@@ -8194,7 +8194,7 @@ dependencies = [
 
 [[package]]
 name = "strata-asm-common"
-version = "0.1.0"
+version = "0.6.0"
 dependencies = [
  "bitcoin",
  "ssz",
@@ -8216,7 +8216,7 @@ dependencies = [
 
 [[package]]
 name = "strata-asm-logs"
-version = "0.1.0"
+version = "0.6.0"
 dependencies = [
  "proptest",
  "strata-asm-checkpoint-types",
@@ -8230,7 +8230,7 @@ dependencies = [
 
 [[package]]
 name = "strata-asm-manifest-types"
-version = "0.1.0"
+version = "0.6.0"
 dependencies = [
  "arbitrary",
  "proptest",
@@ -8252,7 +8252,7 @@ dependencies = [
 
 [[package]]
 name = "strata-asm-moho-storage"
-version = "0.1.0"
+version = "0.6.0"
 dependencies = [
  "anyhow",
  "moho-types",
@@ -8270,7 +8270,7 @@ dependencies = [
 
 [[package]]
 name = "strata-asm-moho-worker"
-version = "0.1.0"
+version = "0.6.0"
 dependencies = [
  "anyhow",
  "moho-types",
@@ -8292,7 +8292,7 @@ dependencies = [
 
 [[package]]
 name = "strata-asm-params"
-version = "0.1.0"
+version = "0.6.0"
 dependencies = [
  "arbitrary",
  "bitcoin",
@@ -8312,7 +8312,7 @@ dependencies = [
 
 [[package]]
 name = "strata-asm-proof-impl"
-version = "0.1.0"
+version = "0.6.0"
 dependencies = [
  "arbitrary",
  "bitcoin",
@@ -8339,7 +8339,7 @@ dependencies = [
 
 [[package]]
 name = "strata-asm-proto-admin"
-version = "0.1.0"
+version = "0.6.0"
 dependencies = [
  "arbitrary",
  "bitcoin",
@@ -8364,7 +8364,7 @@ dependencies = [
 
 [[package]]
 name = "strata-asm-proto-admin-txs"
-version = "0.1.0"
+version = "0.6.0"
 dependencies = [
  "arbitrary",
  "bitcoin",
@@ -8389,7 +8389,7 @@ dependencies = [
 
 [[package]]
 name = "strata-asm-proto-bridge"
-version = "0.1.0"
+version = "0.6.0"
 dependencies = [
  "bitcoin",
  "bitcoin-bosd 0.14.0",
@@ -8409,7 +8409,7 @@ dependencies = [
 
 [[package]]
 name = "strata-asm-proto-bridge-msgs"
-version = "0.1.0"
+version = "0.6.0"
 dependencies = [
  "ssz",
  "ssz_derive",
@@ -8421,7 +8421,7 @@ dependencies = [
 
 [[package]]
 name = "strata-asm-proto-bridge-state"
-version = "0.1.0"
+version = "0.6.0"
 dependencies = [
  "arbitrary",
  "bitcoin",
@@ -8443,7 +8443,7 @@ dependencies = [
 
 [[package]]
 name = "strata-asm-proto-bridge-txs"
-version = "0.1.0"
+version = "0.6.0"
 dependencies = [
  "arbitrary",
  "bitcoin",
@@ -8464,7 +8464,7 @@ dependencies = [
 
 [[package]]
 name = "strata-asm-proto-checkpoint"
-version = "0.1.0"
+version = "0.6.0"
 dependencies = [
  "bitcoin",
  "strata-asm-checkpoint-types",
@@ -8486,7 +8486,7 @@ dependencies = [
 
 [[package]]
 name = "strata-asm-proto-checkpoint-msgs"
-version = "0.1.0"
+version = "0.6.0"
 dependencies = [
  "ssz",
  "ssz_derive",
@@ -8499,7 +8499,7 @@ dependencies = [
 
 [[package]]
 name = "strata-asm-proto-checkpoint-txs"
-version = "0.1.0"
+version = "0.6.0"
 dependencies = [
  "bitcoin",
  "strata-asm-checkpoint-types",
@@ -8514,7 +8514,7 @@ dependencies = [
 
 [[package]]
 name = "strata-asm-proto-txs-test-utils"
-version = "0.1.0"
+version = "0.6.0"
 dependencies = [
  "bitcoin",
  "rand 0.8.6",
@@ -8525,7 +8525,7 @@ dependencies = [
 
 [[package]]
 name = "strata-asm-prover-perf"
-version = "0.1.0"
+version = "0.6.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -8550,7 +8550,7 @@ dependencies = [
 
 [[package]]
 name = "strata-asm-prover-storage"
-version = "0.1.0"
+version = "0.6.0"
 dependencies = [
  "ciborium",
  "proptest",
@@ -8565,7 +8565,7 @@ dependencies = [
 
 [[package]]
 name = "strata-asm-prover-types"
-version = "0.1.0"
+version = "0.6.0"
 dependencies = [
  "serde",
  "strata-identifiers",
@@ -8574,7 +8574,7 @@ dependencies = [
 
 [[package]]
 name = "strata-asm-prover-worker"
-version = "0.1.0"
+version = "0.6.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -8621,7 +8621,7 @@ dependencies = [
 
 [[package]]
 name = "strata-asm-rpc"
-version = "0.1.0"
+version = "0.6.0"
 dependencies = [
  "bitcoin",
  "jsonrpsee",
@@ -8640,7 +8640,7 @@ dependencies = [
 
 [[package]]
 name = "strata-asm-runner"
-version = "0.1.0"
+version = "0.6.0"
 dependencies = [
  "anyhow",
  "asm-storage",
@@ -8689,7 +8689,7 @@ dependencies = [
 
 [[package]]
 name = "strata-asm-sp1-guest-builder"
-version = "0.1.0"
+version = "0.6.0"
 dependencies = [
  "anyhow",
  "serde_json",
@@ -8704,7 +8704,7 @@ dependencies = [
 
 [[package]]
 name = "strata-asm-spec"
-version = "0.1.0"
+version = "0.6.0"
 dependencies = [
  "arbitrary",
  "strata-asm-admin-types",
@@ -8720,7 +8720,7 @@ dependencies = [
 
 [[package]]
 name = "strata-asm-state"
-version = "0.1.0"
+version = "0.6.0"
 dependencies = [
  "bitcoin",
  "serde",
@@ -8741,7 +8741,7 @@ dependencies = [
 
 [[package]]
 name = "strata-asm-stf"
-version = "0.1.0"
+version = "0.6.0"
 dependencies = [
  "bitcoin",
  "ssz_types",
@@ -8753,7 +8753,7 @@ dependencies = [
 
 [[package]]
 name = "strata-asm-worker"
-version = "0.1.0"
+version = "0.6.0"
 dependencies = [
  "anyhow",
  "asm-storage",
@@ -8805,7 +8805,7 @@ dependencies = [
 
 [[package]]
 name = "strata-btc-verification"
-version = "0.1.0"
+version = "0.6.0"
 dependencies = [
  "arbitrary",
  "bitcoin",
@@ -8828,7 +8828,7 @@ dependencies = [
 
 [[package]]
 name = "strata-checkpoint-verification"
-version = "0.1.0"
+version = "0.6.0"
 dependencies = [
  "bitcoin-bosd 0.14.0",
  "ssz",
@@ -9090,7 +9090,7 @@ dependencies = [
 
 [[package]]
 name = "strata-test-utils-arb"
-version = "0.1.0"
+version = "0.6.0"
 dependencies = [
  "arbitrary",
  "rand_core 0.6.4",
@@ -9098,7 +9098,7 @@ dependencies = [
 
 [[package]]
 name = "strata-test-utils-btc"
-version = "0.1.0"
+version = "0.6.0"
 dependencies = [
  "bitcoin",
  "strata-identifiers",
@@ -9106,7 +9106,7 @@ dependencies = [
 
 [[package]]
 name = "strata-test-utils-btcio"
-version = "0.1.0"
+version = "0.6.0"
 dependencies = [
  "anyhow",
  "bitcoin",
@@ -9123,7 +9123,7 @@ dependencies = [
 
 [[package]]
 name = "strata-test-utils-checkpoint"
-version = "0.3.0-alpha.1"
+version = "0.6.0"
 dependencies = [
  "k256 0.14.0",
  "rand 0.8.6",
