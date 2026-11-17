@@ -292,9 +292,16 @@ where
     A: Encode + Decode + Into<UpdateAction>,
 {
     let wire = decode_wire::<A>(bytes, tx_type)?;
+    let update: UpdateAction = wire.action.into();
+
+    // Drop an update that could never take effect before it is authorized or queued.
+    update
+        .validate()
+        .map_err(|source| AdministrationTxParseError::InvalidUpdate { tx_type, source })?;
+
     Ok(EnvelopePayload {
         seqno: wire.seqno,
-        action: EnvelopeAction::Update(wire.action.into()),
+        action: EnvelopeAction::Update(update),
         signatures: wire.signatures,
     })
 }
@@ -319,10 +326,14 @@ mod tests {
     use strata_asm_proto_txs_test_utils::{create_dummy_tx, overwrite_aux_data, parse_sps50_tx};
     use strata_crypto::EvenPublicKey;
     use strata_identifiers::Buf32;
+    use strata_predicate::{PredicateKey, PredicateTypeId};
     use strata_test_utils_arb::ArbitraryGenerator;
 
     use super::*;
-    use crate::{actions::RenderSigningMessage, constants::ADMINISTRATION_SUBPROTOCOL_ID};
+    use crate::{
+        actions::RenderSigningMessage, constants::ADMINISTRATION_SUBPROTOCOL_ID,
+        errors::UpdateValidationError,
+    };
 
     fn dummy_signatures() -> SignatureSet {
         let sigs = vec![
@@ -333,20 +344,32 @@ mod tests {
     }
 
     /// Round-trips arbitrary actions through the discriminant-free wire format, keyed by
-    /// the same tx type the SPS-50 tag would carry.
+    /// the same tx type the SPS-50 tag would carry. An update that fails validation must be
+    /// dropped instead.
     #[test]
     fn envelope_bytes_roundtrip() {
         let mut arb = ArbitraryGenerator::new();
         for _ in 0..64 {
             let action: MultisigAction = arb.generate();
             let admin_tx_type = action.tx_type();
+            let is_valid = match &action {
+                MultisigAction::Update(update) => update.validate().is_ok(),
+                MultisigAction::Cancel(_) => true,
+            };
 
             let original = SignedPayload::new(7, action, dummy_signatures());
             let bytes = original.clone().into_envelope_bytes();
 
-            let decoded = decode_signed_payload(admin_tx_type, &bytes, admin_tx_type.into())
-                .expect("wire payload must decode under its own tx type");
-            assert_eq!(decoded, original.into());
+            let res = decode_signed_payload(admin_tx_type, &bytes, admin_tx_type.into());
+            if is_valid {
+                let decoded = res.expect("wire payload must decode under its own tx type");
+                assert_eq!(decoded, original.into());
+            } else {
+                assert!(matches!(
+                    res,
+                    Err(AdministrationTxParseError::InvalidUpdate { .. })
+                ));
+            }
         }
     }
 
@@ -394,6 +417,53 @@ mod tests {
         let decoded = decode_signed_payload(admin_tx_type, &valid_bytes, admin_tx_type.into())
             .expect("valid x-only key decodes with the same sequence number");
         assert_eq!(decoded, valid.into());
+    }
+
+    /// A verifying-key update decodes only if its condition parses for its predicate type.
+    #[test]
+    fn vk_update_with_malformed_condition_is_rejected() {
+        // `[7; 32]` is a valid x-only key; `[3; 32]` has no point on the curve.
+        let valid = PredicateKey::try_new(PredicateTypeId::Bip340Schnorr, vec![7u8; 32])
+            .expect("condition is within the length limit");
+        let malformed = [
+            PredicateKey::try_new(PredicateTypeId::Bip340Schnorr, vec![3u8; 32]),
+            PredicateKey::try_new(PredicateTypeId::Sp1Groth16, vec![0xde, 0xad, 0xbe, 0xef]),
+        ]
+        .map(|key| key.expect("condition is within the length limit"));
+
+        let updates: [fn(PredicateKey) -> UpdateAction; 3] = [
+            |key| OlStfVkUpdate::new(key).into(),
+            |key| AsmStfVkUpdate::new(key).into(),
+            |key| EeStfVkUpdate::new(key).into(),
+        ];
+        for make_update in updates {
+            let payload = |key: &PredicateKey| {
+                let action = MultisigAction::Update(make_update(key.clone()));
+                SignedPayload::new(7, action, dummy_signatures())
+            };
+            let admin_tx_type = payload(&valid).action.tx_type();
+
+            let valid_payload = payload(&valid);
+            let bytes = valid_payload.clone().into_envelope_bytes();
+            let decoded = decode_signed_payload(admin_tx_type, &bytes, admin_tx_type.into())
+                .expect("well-formed condition decodes");
+            assert_eq!(decoded, valid_payload.into());
+
+            for key in &malformed {
+                let bytes = payload(key).into_envelope_bytes();
+                let res = decode_signed_payload(admin_tx_type, &bytes, admin_tx_type.into());
+                assert!(
+                    matches!(
+                        res,
+                        Err(AdministrationTxParseError::InvalidUpdate {
+                            source: UpdateValidationError::MalformedPredicateCondition(_),
+                            ..
+                        })
+                    ),
+                    "{admin_tx_type}"
+                );
+            }
+        }
     }
 
     /// A cancel goes on chain as seqno, target id and signatures. The update it cancels stays

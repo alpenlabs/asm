@@ -441,8 +441,10 @@ mod tests {
         actions
     }
 
+    /// A predicate key that `tag` makes distinct. `AlwaysAccept` ignores its condition, so
+    /// the key passes the condition check the parser runs.
     fn test_predicate(tag: u8) -> PredicateKey {
-        PredicateKey::try_new(PredicateTypeId::Sp1Groth16, vec![tag])
+        PredicateKey::try_new(PredicateTypeId::AlwaysAccept, vec![tag])
             .expect("test predicate is within the condition limit")
     }
 

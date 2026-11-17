@@ -5,10 +5,12 @@ use strata_l1_txfmt::TagData;
 mod cancel;
 mod sighash;
 pub mod updates;
+mod validate;
 
 pub use cancel::CancelAction;
 pub(crate) use sighash::{IndentedDetails, RenderSigningMessage};
 pub use updates::UpdateAction;
+pub(crate) use validate::ValidateUpdate;
 
 use crate::constants::ADMINISTRATION_SUBPROTOCOL_ID;
 

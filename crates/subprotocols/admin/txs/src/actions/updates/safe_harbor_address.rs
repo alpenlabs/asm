@@ -3,7 +3,7 @@ use ssz_derive::{Decode, Encode};
 use strata_asm_admin_types::{AdminTxType, UpdateTxType};
 use strata_asm_bridge_types::SafeHarborAddress;
 
-use crate::actions::{IndentedDetails, RenderSigningMessage};
+use crate::actions::{IndentedDetails, RenderSigningMessage, ValidateUpdate};
 
 /// Rotate the bridge's safe harbor destination address.
 ///
@@ -35,6 +35,8 @@ impl SafeHarborAddressUpdate {
         self.address
     }
 }
+
+impl ValidateUpdate for SafeHarborAddressUpdate {}
 
 impl RenderSigningMessage for SafeHarborAddressUpdate {
     fn tx_type(&self) -> AdminTxType {

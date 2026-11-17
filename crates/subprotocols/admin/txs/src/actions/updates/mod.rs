@@ -29,7 +29,10 @@ pub use strata_security_council_multisig::StrataSecurityCouncilMultisigUpdate;
 pub use strata_seq_manager_multisig::StrataSeqManagerMultisigUpdate;
 pub use strata_sequencer::SequencerUpdate;
 
-use crate::actions::{IndentedDetails, RenderSigningMessage};
+use crate::{
+    actions::{IndentedDetails, RenderSigningMessage, ValidateUpdate},
+    errors::UpdateValidationError,
+};
 
 /// An action that updates some part of the ASM.
 ///
@@ -79,6 +82,31 @@ impl UpdateAction {
     /// The role authorized to enact this update.
     pub fn required_role(&self) -> Role {
         self.update_tx_type().authorized_role()
+    }
+
+    /// Checks the update's contents beyond what decoding enforces.
+    ///
+    /// The parser drops an update that fails this check, so sign only one that passes.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`UpdateValidationError::MalformedPredicateCondition`] if a verifying-key
+    /// update's predicate condition doesn't parse for its predicate type.
+    pub fn validate(&self) -> Result<(), UpdateValidationError> {
+        match self {
+            UpdateAction::StrataAdminMultisig(u) => u.validate(),
+            UpdateAction::StrataSeqManagerMultisig(u) => u.validate(),
+            UpdateAction::AlpenAdminMultisig(u) => u.validate(),
+            UpdateAction::StrataSecurityCouncilMultisig(u) => u.validate(),
+            UpdateAction::OperatorSet(u) => u.validate(),
+            UpdateAction::Sequencer(u) => u.validate(),
+            UpdateAction::OlStfVk(u) => u.validate(),
+            UpdateAction::AsmStfVk(u) => u.validate(),
+            UpdateAction::EeStfVk(u) => u.validate(),
+            UpdateAction::Defcon1(u) => u.validate(),
+            UpdateAction::Defcon3(u) => u.validate(),
+            UpdateAction::SafeHarborAddress(u) => u.validate(),
+        }
     }
 }
 

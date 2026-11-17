@@ -3,7 +3,7 @@ use ssz_derive::{Decode, Encode};
 use strata_asm_admin_threshold_sig::ThresholdConfigUpdate;
 use strata_asm_admin_types::{AdminTxType, UpdateTxType};
 
-use crate::actions::{IndentedDetails, RenderSigningMessage};
+use crate::actions::{IndentedDetails, RenderSigningMessage, ValidateUpdate};
 
 /// An update to the Strata security council multisig configuration.
 ///
@@ -26,6 +26,8 @@ impl StrataSecurityCouncilMultisigUpdate {
         self.0
     }
 }
+
+impl ValidateUpdate for StrataSecurityCouncilMultisigUpdate {}
 
 impl RenderSigningMessage for StrataSecurityCouncilMultisigUpdate {
     fn tx_type(&self) -> AdminTxType {

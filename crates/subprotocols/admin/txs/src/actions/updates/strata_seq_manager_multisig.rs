@@ -3,7 +3,7 @@ use ssz_derive::{Decode, Encode};
 use strata_asm_admin_threshold_sig::ThresholdConfigUpdate;
 use strata_asm_admin_types::{AdminTxType, UpdateTxType};
 
-use crate::actions::{IndentedDetails, RenderSigningMessage};
+use crate::actions::{IndentedDetails, RenderSigningMessage, ValidateUpdate};
 
 /// An update to the Strata sequencer-manager multisig configuration.
 #[derive(Clone, Debug, Eq, PartialEq, Arbitrary, Encode, Decode)]
@@ -22,6 +22,8 @@ impl StrataSeqManagerMultisigUpdate {
         self.0
     }
 }
+
+impl ValidateUpdate for StrataSeqManagerMultisigUpdate {}
 
 impl RenderSigningMessage for StrataSeqManagerMultisigUpdate {
     fn tx_type(&self) -> AdminTxType {
