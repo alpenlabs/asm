@@ -87,7 +87,7 @@ env:
 
 jobs:
   build:
-    name: Build the SP1 ASM guest (untrusted ref, no credentials)
+    name: Build the SP1 ASM guest (runs the ref's code, read-only token)
     runs-on: ubuntu-latest
     timeout-minutes: 90
     permissions:
@@ -163,7 +163,7 @@ jobs:
           retention-days: 30 # environment approval can wait up to 30 days (GitHub max)
 
   attach:
-    name: Attach the ASM guest to the release (no untrusted code)
+    name: Attach the ASM guest to the release (write token, reviewed scripts only)
     needs: build
     # As for publish: workflow_dispatch can run a feature branch's YAML, so only
     # main or a release tag's copy may hold a write token. A tag push calls this
@@ -210,7 +210,7 @@ jobs:
         run: gh release upload "$TAG" --clobber --repo "$GITHUB_REPOSITORY" "$DIST_DIR"/*
 
   publish:
-    name: Publish the ASM guest to S3 (credentialed, no untrusted code)
+    name: Publish the ASM guest to S3 (S3 role, reviewed scripts only)
     needs: build
     # Only the reviewed main copy of this workflow may publish. workflow_dispatch
     # can run a feature branch's YAML, so gate the OIDC-enabled job on the run ref.
