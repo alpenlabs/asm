@@ -93,17 +93,32 @@ def cmd_validate() -> None:
 
 # ---- bundle ----------------------------------------------------------------
 
+
+def bundle_location(env: str, commit: str) -> tuple[str, str]:
+    """Return the S3 bucket and key prefix a bundle for `env` at `commit` goes to.
+
+    Env: S3_BUCKET, S3_PREFIX (default elfs/asm-runner).
+    """
+    prefix = os.environ.get("S3_PREFIX", "elfs/asm-runner")
+    return os.environ["S3_BUCKET"], f"{prefix}/{env}/{commit}"
+
+
+def bundle_uri(env: str, commit: str) -> str:
+    bucket, key_base = bundle_location(env, commit)
+    return f"s3://{bucket}/{key_base}"
+
+
 # The files the guest build writes to guest-builder/sp1/generated/. Each is
 # checksummed by SHA256SUMS and published with a `.sha256` sidecar.
-GUEST_FILES = ("asm.elf", "asm-predicate.txt", "asm-vkey-hash.txt")
+GUEST_FILES = ("asm.elf", "asm-predicate.txt")
 BUNDLE_FILES = GUEST_FILES + ("SHA256SUMS",)
 SHA1_RE = re.compile(r"^[0-9a-f]{40}$")
 SP1_VERSION_RE = re.compile(r"^v\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$")
 
 
 def cmd_bundle() -> None:
-    """Env: OUTPUT_DIR, DEPLOY_ENV, GUEST_REF, COMMIT, SP1_VERSION, GITHUB_RUN_ID,
-    GITHUB_STEP_SUMMARY.
+    """Env: OUTPUT_DIR, DEPLOY_ENV, GUEST_REF, COMMIT, SP1_VERSION, S3_BUCKET, S3_PREFIX,
+    GITHUB_RUN_ID, GITHUB_SERVER_URL, GITHUB_REPOSITORY, GITHUB_STEP_SUMMARY.
 
     Runs in the credentialed job, so the digests come from a clean environment rather
     than from the job that ran the untrusted build.
@@ -127,7 +142,6 @@ def cmd_bundle() -> None:
         encoding="utf-8",
     )
 
-    vkey_hash = (output_dir / "asm-vkey-hash.txt").read_text().strip()
     predicate = (output_dir / "asm-predicate.txt").read_text().strip()
     # The params file is in the repo at `commit`, so the manifest names it instead of
     # shipping the section the guest baked in.
@@ -140,12 +154,15 @@ def cmd_bundle() -> None:
         "ref": guest_ref,
         "commit": commit,
         "predicate": predicate,
-        "vkey_hash": vkey_hash,
         "sha256": {name: sha256_hex(output_dir / name) for name in BUNDLE_FILES},
     }
     (output_dir / "manifest.json").write_text(
         json.dumps(manifest, indent=2) + "\n", encoding="utf-8"
     )
+    repo_url = f"{os.environ['GITHUB_SERVER_URL']}/{os.environ['GITHUB_REPOSITORY']}"
+    params_url = f"{repo_url}/blob/{commit}/{params_path(env)}"
+    # Main, not the built commit, which may predate the page.
+    rebuild_url = f"{repo_url}/blob/main/guest-builder/sp1/README.md#checking-a-published-guest"
     write_summary(
         [
             "## ASM guest publish",
@@ -153,21 +170,37 @@ def cmd_bundle() -> None:
             f"- env: `{env}`",
             f"- ref: `{guest_ref}` @ `{commit}`",
             f"- SP1 toolchain: `{manifest['sp1_version']}`",
-            f"- params file: `{params_path(env)}` @ `{commit}`",
+            f"- params file: [`{params_path(env)}`]({params_url}) @ `{commit}`",
             "",
             "### Predicate",
             "",
             f"`{predicate}`",
-            "",
-            "### Verifying key (vkey hash)",
-            "",
-            f"`{vkey_hash}`",
             "",
             "### SHA-256",
             "",
             "```",
             *(f"{digest}  {name}" for name, digest in manifest["sha256"].items()),
             "```",
+            "",
+            "### Release note",
+            "",
+            f"If `{guest_ref}` is a release tag, fill in the spec ID and paste this into "
+            "its GitHub release.",
+            "",
+            "````markdown",
+            f"### `{env}` guest",
+            "",
+            f"Built from [`{commit[:8]}`]({repo_url}/commit/{commit}) with "
+            f"[`{params_path(env)}`]({params_url}).",
+            "",
+            "- Spec ID: `<fill in>`",
+            f"- SP1 toolchain: `{sp1_version}`",
+            f"- Bundle: `{bundle_uri(env, commit)}/`",
+            f"- `asm.elf` SHA-256: `{manifest['sha256']['asm.elf']}`",
+            f"- Predicate: `{predicate}`",
+            "",
+            f"To rebuild it and compare, see [Checking a published guest]({rebuild_url}).",
+            "````",
             "",
         ]
     )
@@ -243,19 +276,22 @@ def cmd_upload() -> None:
     publish and are re-uploaded.
     """
     output_dir = Path(os.environ["OUTPUT_DIR"])
-    bucket = os.environ["S3_BUCKET"]
-    prefix = os.environ.get("S3_PREFIX", "elfs/asm-runner")
 
     manifest = json.loads((output_dir / "manifest.json").read_text())
     env = validate_env(manifest["env"])
     commit = manifest["commit"]
     if not SHA1_RE.fullmatch(commit):
         fail(f"manifest commit is not a sha: {commit!r}")
-    key_base = f"{prefix}/{env}/{commit}"
-    base = f"s3://{bucket}/{key_base}"
+    bucket, key_base = bundle_location(env, commit)
+    base = bundle_uri(env, commit)
 
     existing = published_manifest(bucket, f"{key_base}/manifest.json")
     if existing is not None:
+        if set(existing.get("sha256", {})) != set(manifest["sha256"]):
+            fail(
+                f"{base}/ was published with a different set of files: "
+                f"{sorted(existing.get('sha256', {}))}"
+            )
         if existing.get("sha256") != manifest["sha256"]:
             fail(
                 f"{base}/ was published with different digests: two {env} builds of "

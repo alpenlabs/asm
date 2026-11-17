@@ -21,7 +21,7 @@ name: Publish ASM Guest
 # Bundles are keyed by network and built commit, which together pin the params
 # file, so the bundle does not carry the params:
 #   s3://alpen-mosaic-artifacts/elfs/asm-runner/<env>/<commit>/
-#     asm.elf  asm-predicate.txt  asm-vkey-hash.txt
+#     asm.elf  asm-predicate.txt
 #     (+ a .sha256 sidecar each)  SHA256SUMS  manifest.json
 # manifest.json records the ref, the commit, and the params file's path. It is
 # written last, so it marks a completed publish. A rerun with the same digests is
@@ -107,8 +107,10 @@ jobs:
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build guest ELF and vk files
-        # The guest build and vk derivation are both opt-in (see the crate's build.rs).
+      - name: Build guest ELF and predicate
+        # The guest build and vk derivation are both opt-in (see the crate's build.rs). The
+        # predicate is derived from the vk, so BUILD_VKEY is needed even though the vkey hash
+        # file is not published.
         working-directory: guest-source
         env:
           BUILD_ELF: "1"
@@ -126,7 +128,6 @@ jobs:
           path: |
             guest-source/guest-builder/sp1/generated/asm.elf
             guest-source/guest-builder/sp1/generated/asm-predicate.txt
-            guest-source/guest-builder/sp1/generated/asm-vkey-hash.txt
           if-no-files-found: error
           retention-days: 30 # environment approval can wait up to 30 days (GitHub max)
 
