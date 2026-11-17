@@ -102,8 +102,8 @@ See [`docs/layout.md`](docs/layout.md) for every crate.
   [`docs/asm-upgrade-development.md`](docs/asm-upgrade-development.md).
 - **Guest**: `guest-builder/sp1/guest-asm` is its own workspace with its own `Cargo.lock`.
   Update that lockfile when you change a dependency the guest uses. Set `BUILD_ELF=1` to
-  build the guest. Output in `guest-builder/sp1/generated/` is not tracked and survives
-  `cargo clean`.
+  build the guest; [`guest-builder/sp1/README.md`](guest-builder/sp1/README.md) has the
+  details. Output in `guest-builder/sp1/generated/` is not tracked and survives `cargo clean`.
 - **TODOs**: every `TODO` or `FIXME` needs a ticket, for example `TODO(STR-1234): ...`.
   `just check-todos` runs the same check as CI.
 - **Dependencies**: declare versions in the root `Cargo.toml` and use `workspace = true`.

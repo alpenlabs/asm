@@ -46,28 +46,11 @@ repository validation checks.
 
    The build bakes in the guest spec's section of the runtime part of the params file named by
    `ASM_PARAMS_PATH`, or the fact that it has none, so the ELF and its predicate belong to those
-   values. Build with the
-   network's file in `crates/params/envs/`, so the source commit and the network pin the values.
-   The build also writes them to `guest-builder/sp1/generated/asm-runtime-params.json` for local
-   native runs such as prover-perf. Record the source commit, `Cargo.lock`, toolchain, network,
-   ELF digest, derived predicate, and spec ID together.
-
-   ```sh
-   cargo metadata --locked --offline --manifest-path guest-builder/sp1/guest-asm/Cargo.toml --format-version 1 > /dev/null
-   cargo clean -p strata-asm-sp1-guest-builder
-   ASM_PARAMS_PATH="$PWD/crates/params/envs/<env>.json" BUILD_ELF=1 BUILD_VKEY=1 cargo build --locked --release -p strata-asm-sp1-guest-builder
-   ```
-
-   The metadata preflight catches stale guest lockfiles before SP1's own metadata discovery
-   rewrites them. Existing files in `guest-builder/sp1/generated` survive `cargo clean`, so a
-   successful host build does not prove that a new guest was built. Compare the actual ELF and
-   verifying key with the release record. Deriving a key from arbitrary bytes does not show that
-   the ELF implements the declared spec.
-
-   To publish a network's guest, run the `Publish ASM Guest` workflow from main with the ref to
-   build and the network. It builds with `crates/params/envs/<env>.json` at that ref and uploads
-   the guest files to S3 with a manifest that records the commit, the params file's path, and
-   every digest.
+   values. Build with the network's file in `crates/params/envs/`, so the source commit and the
+   network pin the values. The [guest builder README](../guest-builder/sp1/README.md) covers
+   building, publishing a network's guest, and checking a published one. The publish manifest
+   does not record the spec ID, so name it in the release note. A matching rebuild shows which
+   source the ELF came from. It does not show that the source implements the declared spec.
 5. **Configure execution.** Add an `[[execution.targets]]` entry `{ predicate, spec_id }`.
    `execution.genesis_spec_id` names the spec the chain starts under, and the runner takes the
    genesis predicate from its target entry. It stays fixed across upgrades. Each predicate and

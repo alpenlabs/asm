@@ -52,7 +52,7 @@ Under [`crates/subprotocols`](../crates/subprotocols). See
   step proof, as a Moho program.
 - [`guest-builder/sp1`](../guest-builder/sp1) (`strata-asm-sp1-guest-builder`): builds the
   SP1 guest into `generated/`. The guest itself, `guest-asm/`, is a separate workspace with
-  its own `Cargo.lock`.
+  its own `Cargo.lock`. See [its README](../guest-builder/sp1/README.md).
 
 ## Binaries
 
