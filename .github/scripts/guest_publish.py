@@ -342,6 +342,9 @@ def cmd_notes() -> None:
     """Env: TAG, NETWORKS (a JSON list), SOURCE_SHA, ARTIFACTS_DIR, WORK_DIR, LOCKFILE,
     GH_TOKEN, GITHUB_REPOSITORY, GITHUB_SERVER_URL.
 
+    Links name the tag rather than the commit: publishing locks an immutable release's tag
+    to the commit `publish` checked, so the two point at the same files.
+
     The predicate comes from the draft release, so the notes show what is published.
     The vkey hash comes from each network's build artifact, at
     $ARTIFACTS_DIR/asm-guest-<env>-<sha>/, since it is not a release file.
@@ -374,9 +377,9 @@ def cmd_notes() -> None:
         "",
         (
             f"Built from [`{commit[:8]}`]({url}/commit/{commit}) with SP1 `{version}`."
-            " Each network's guest bakes in its params file at this commit. To rebuild one"
+            " Each network's guest bakes in its params file at this tag. To rebuild one"
             " and compare, see"
-            f" [Checking a published guest]({url}/blob/{commit}/{REBUILD_DOC})."
+            f" [Checking a published guest]({url}/blob/{tag}/{REBUILD_DOC})."
         ),
         "",
         (
@@ -394,7 +397,7 @@ def cmd_notes() -> None:
         lines += [
             f"### `{env}`",
             "",
-            f"- Params: [`{params_path(env)}`]({url}/blob/{commit}/{params_path(env)})",
+            f"- Params: [`{params_path(env)}`]({url}/blob/{tag}/{params_path(env)})",
             f"- vkey hash: `{vkey_hash}`",
             "",
             "Predicate:",
