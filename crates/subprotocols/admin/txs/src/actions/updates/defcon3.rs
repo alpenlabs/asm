@@ -2,7 +2,7 @@ use arbitrary::Arbitrary;
 use ssz_derive::{Decode, Encode};
 use strata_asm_admin_types::{AdminTxType, UpdateTxType};
 
-use crate::actions::{IndentedDetails, RenderSigningMessage};
+use crate::actions::{IndentedDetails, RenderSigningMessage, ValidateUpdate};
 
 /// Defcon 3 delayed sweep authorization.
 ///
@@ -13,6 +13,8 @@ use crate::actions::{IndentedDetails, RenderSigningMessage};
 /// payload.
 #[derive(Clone, Debug, Eq, PartialEq, Arbitrary, Encode, Decode)]
 pub struct Defcon3Update;
+
+impl ValidateUpdate for Defcon3Update {}
 
 impl RenderSigningMessage for Defcon3Update {
     fn tx_type(&self) -> AdminTxType {

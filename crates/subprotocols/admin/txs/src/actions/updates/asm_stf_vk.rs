@@ -3,7 +3,10 @@ use ssz_derive::{Decode, Encode};
 use strata_asm_admin_types::{AdminTxType, UpdateTxType};
 use strata_predicate::PredicateKey;
 
-use crate::actions::{IndentedDetails, RenderSigningMessage};
+use crate::{
+    actions::{IndentedDetails, RenderSigningMessage, ValidateUpdate},
+    errors::UpdateValidationError,
+};
 
 /// An update to the verifying key for the ASM STF.
 #[derive(Clone, Debug, Eq, PartialEq, Arbitrary, Encode, Decode)]
@@ -20,6 +23,14 @@ impl AsmStfVkUpdate {
 
     pub fn into_key(self) -> PredicateKey {
         self.0
+    }
+}
+
+impl ValidateUpdate for AsmStfVkUpdate {
+    fn validate(&self) -> Result<(), UpdateValidationError> {
+        self.0
+            .validate_condition()
+            .map_err(UpdateValidationError::MalformedPredicateCondition)
     }
 }
 

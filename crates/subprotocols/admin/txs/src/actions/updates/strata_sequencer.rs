@@ -4,7 +4,7 @@ use strata_asm_admin_types::{AdminTxType, UpdateTxType};
 use strata_crypto::EvenPublicKey;
 use strata_identifiers::Buf32;
 
-use crate::actions::{IndentedDetails, RenderSigningMessage};
+use crate::actions::{IndentedDetails, RenderSigningMessage, ValidateUpdate};
 
 /// An update to the public key of the sequencer.
 ///
@@ -31,6 +31,8 @@ impl SequencerUpdate {
         self.pub_key
     }
 }
+
+impl ValidateUpdate for SequencerUpdate {}
 
 impl RenderSigningMessage for SequencerUpdate {
     fn tx_type(&self) -> AdminTxType {

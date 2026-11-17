@@ -138,6 +138,34 @@ fn safe_harbor_from_another_network_is_rejected() {
     assert!(args.action.into_action(Network::Signet).is_err());
 }
 
+#[test]
+fn malformed_predicate_is_rejected() {
+    // A valid `Sp1Groth16` condition is a full verifying key, not four bytes.
+    for update in ["asm-stf-vk", "ol-stf-vk", "ee-stf-vk"] {
+        let cli = Cli::try_parse_from([
+            "asm-admin",
+            "message",
+            "--network",
+            "signet",
+            "--seq-no",
+            "1",
+            update,
+            "--predicate",
+            "Sp1Groth16:deadbeef",
+        ])
+        .unwrap();
+        let Command::Message(args) = cli.command else {
+            panic!("parsed a message command");
+        };
+
+        let err = args.action.into_action(Network::Signet).unwrap_err();
+        assert!(
+            format!("{err:#}").contains("malformed predicate condition"),
+            "{update}: {err:#}"
+        );
+    }
+}
+
 /// Parses a `message` command for `action_args` on signet.
 fn parse_action(action_args: &[&str]) -> Result<MultisigAction, clap::Error> {
     let mut args = vec![

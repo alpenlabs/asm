@@ -91,7 +91,14 @@ impl ActionCmd {
     /// Builds the action for a chain on `network`.
     pub(crate) fn into_action(self, network: Network) -> anyhow::Result<MultisigAction> {
         Ok(match self {
-            ActionCmd::Update(update) => MultisigAction::Update(update.into_update(network)?),
+            ActionCmd::Update(update) => {
+                // The chain drops an update that fails validation, so refuse to sign one. A
+                // cancel skips the check: it must still name an update queued before the
+                // check existed.
+                let update = update.into_update(network)?;
+                update.validate().context("invalid update")?;
+                MultisigAction::Update(update)
+            }
             ActionCmd::Cancel { id, update } => {
                 MultisigAction::Cancel(CancelAction::new(id, update.into_update(network)?))
             }

@@ -5,7 +5,7 @@ use strata_crypto::EvenPublicKey;
 use strata_identifiers::Buf32;
 
 use crate::actions::{
-    IndentedDetails, RenderSigningMessage, updates::render::append_indexed_fields,
+    IndentedDetails, RenderSigningMessage, ValidateUpdate, updates::render::append_indexed_fields,
 };
 
 /// An update to the Bridge Operator Set:
@@ -41,6 +41,8 @@ impl OperatorSetUpdate {
         (self.add_members, self.remove_members)
     }
 }
+
+impl ValidateUpdate for OperatorSetUpdate {}
 
 impl RenderSigningMessage for OperatorSetUpdate {
     fn tx_type(&self) -> AdminTxType {
