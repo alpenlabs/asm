@@ -48,9 +48,10 @@ repository validation checks.
    `ASM_PARAMS_PATH`, or the fact that it has none, so the ELF and its predicate belong to those
    values. Build with the network's file in `crates/params/envs/`, so the source commit and the
    network pin the values. The [guest builder README](../guest-builder/sp1/README.md) covers
-   building, publishing a network's guest, and checking a published one. The publish manifest
-   does not record the spec ID, so name it in the release note. A matching rebuild shows which
-   source the ELF came from. It does not show that the source implements the declared spec.
+   building, releasing a network's guest, and checking a published one. Neither the generated
+   release notes nor the S3 manifest record the spec ID, so add it to the release notes by hand.
+   A matching rebuild shows which source the ELF came from. It does not show that the source
+   implements the declared spec.
 5. **Configure execution.** Add an `[[execution.targets]]` entry `{ predicate, spec_id }`.
    `execution.genesis_spec_id` names the spec the chain starts under, and the runner takes the
    genesis predicate from its target entry. It stays fixed across upgrades. Each predicate and
