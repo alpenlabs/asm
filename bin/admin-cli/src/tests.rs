@@ -2,14 +2,17 @@ use std::fs;
 
 use bitcoin::{
     Address, Amount, FeeRate, Network, OutPoint, ScriptBuf, Sequence, Transaction, TxIn, TxOut,
-    Witness, absolute::LockTime, secp256k1::SecretKey, transaction::Version,
+    Witness, absolute::LockTime, key::Parity, secp256k1::SecretKey, transaction::Version,
 };
 use bitcoind_async_client::traits::Reader;
 use clap::{Parser, error::ErrorKind};
 use serde_json::{Value, json};
 use strata_asm_admin_threshold_sig::{IndexedSignature, SignatureSet};
 use strata_asm_proto_admin_txs::{
-    actions::{CancelAction, MultisigAction, UpdateAction, updates::AsmStfVkUpdate},
+    actions::{
+        CancelAction, MultisigAction, UpdateAction,
+        updates::{AsmStfVkUpdate, OperatorSetUpdate},
+    },
     signing_message::SigningMessage,
 };
 use strata_l1_txfmt::MagicBytes;
@@ -133,6 +136,78 @@ fn safe_harbor_from_another_network_is_rejected() {
     };
 
     assert!(args.action.into_action(Network::Signet).is_err());
+}
+
+/// Parses a `message` command for `action_args` on signet.
+fn parse_action(action_args: &[&str]) -> Result<MultisigAction, clap::Error> {
+    let mut args = vec![
+        "asm-admin",
+        "message",
+        "--network",
+        "signet",
+        "--seq-no",
+        "1",
+    ];
+    args.extend(action_args);
+    let Command::Message(args) = Cli::try_parse_from(args)?.command else {
+        panic!("parsed a message command");
+    };
+    Ok(args.action.into_action(Network::Signet).unwrap())
+}
+
+/// An operator key with even parity, as the params file writes it and as x-only hex.
+fn operator_key() -> (PublicKey, String, String) {
+    let key = PublicKey::from_secret_key(SECP256K1, &keys()[0]);
+    let key = if key.x_only_public_key().1 == Parity::Odd {
+        key.negate(SECP256K1)
+    } else {
+        key
+    };
+    let x_only = key.x_only_public_key().0.to_string();
+    (key, key.to_string(), x_only)
+}
+
+#[test]
+fn operator_set_takes_compressed_and_x_only_keys() {
+    let (key, compressed, x_only) = operator_key();
+
+    let action = parse_action(&[
+        "operator-set",
+        "--remove",
+        "2",
+        "--add",
+        &compressed,
+        "--add",
+        &x_only,
+    ])
+    .unwrap();
+
+    let update = OperatorSetUpdate::new(vec![key.into(), key.into()], vec![2]);
+    assert_eq!(
+        action,
+        MultisigAction::Update(UpdateAction::OperatorSet(update))
+    );
+}
+
+#[test]
+fn operator_set_takes_an_odd_key_as_its_even_twin() {
+    let (key, ..) = operator_key();
+    let odd = key.negate(SECP256K1).to_string();
+
+    let action = parse_action(&["operator-set", "--add", &odd]).unwrap();
+
+    let update = OperatorSetUpdate::new(vec![key.into()], vec![]);
+    assert_eq!(
+        action,
+        MultisigAction::Update(UpdateAction::OperatorSet(update))
+    );
+}
+
+#[test]
+fn operator_set_needs_a_change() {
+    let err = parse_action(&["operator-set"]).unwrap_err();
+
+    assert_eq!(err.kind(), ErrorKind::MissingRequiredArgument);
 }
 
 #[test]

@@ -1,13 +1,22 @@
 //! The admin actions the CLI can sign and submit.
 
+use std::str::FromStr;
+
 use anyhow::{Context, ensure};
-use bitcoin::{Address, Network, address::NetworkUnchecked};
+use bitcoin::{
+    Address, Network,
+    address::NetworkUnchecked,
+    secp256k1::{self, PublicKey, XOnlyPublicKey},
+};
 use clap::Subcommand;
 use strata_asm_bridge_types::SafeHarborAddress;
 use strata_asm_proto_admin_txs::actions::{
     CancelAction, MultisigAction, UpdateAction, UpdateId,
-    updates::{AsmStfVkUpdate, EeStfVkUpdate, OlStfVkUpdate, SafeHarborAddressUpdate},
+    updates::{
+        AsmStfVkUpdate, EeStfVkUpdate, OlStfVkUpdate, OperatorSetUpdate, SafeHarborAddressUpdate,
+    },
 };
+use strata_crypto::EvenPublicKey;
 use strata_predicate::PredicateKey;
 
 /// An admin action, given as the last subcommand of every command.
@@ -58,6 +67,24 @@ pub(crate) enum UpdateCmd {
         #[arg(long)]
         address: Address<NetworkUnchecked>,
     },
+    /// Add and remove bridge operators.
+    ///
+    /// To rotate an operator's key, remove its index and add the new key. The bridge ignores
+    /// a key it has ever held, so a removed key can't be added back.
+    OperatorSet {
+        /// MuSig2 key of an operator to add, as compressed hex like the params file or as
+        /// 32-byte x-only hex. Repeat for each operator.
+        #[arg(
+            long = "add",
+            value_name = "KEY",
+            value_parser = parse_operator_key,
+            required_unless_present = "remove"
+        )]
+        add: Vec<EvenPublicKey>,
+        /// Index of an operator to remove. Repeat for each operator.
+        #[arg(long = "remove", value_name = "INDEX")]
+        remove: Vec<u32>,
+    },
 }
 
 impl ActionCmd {
@@ -95,6 +122,20 @@ impl UpdateCmd {
                     .context("invalid safe harbor address")?;
                 UpdateAction::SafeHarborAddress(SafeHarborAddressUpdate::new(address))
             }
+            UpdateCmd::OperatorSet { add, remove } => {
+                UpdateAction::OperatorSet(OperatorSetUpdate::new(add, remove))
+            }
         })
+    }
+}
+
+/// Parses an operator key as compressed or x-only hex.
+///
+/// The chain keeps only the x coordinate, so an `03` key names the same operator as its `02`
+/// twin.
+fn parse_operator_key(s: &str) -> Result<EvenPublicKey, secp256k1::Error> {
+    match XOnlyPublicKey::from_str(s) {
+        Ok(key) => Ok(key.into()),
+        Err(_) => PublicKey::from_str(s).map(Into::into),
     }
 }

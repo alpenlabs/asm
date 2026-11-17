@@ -14,17 +14,31 @@ cargo install --locked --git https://github.com/alpenlabs/asm strata-asm-admin-c
 
 Every command ends with the action. Signers and the coordinator must give the same action and sequence number, or the signatures won't match.
 
+The chain applies an admin action as signed. A valid signature doesn't make an action safe. A wrong or badly timed action can stall the bridge or halt the chain, and some can't be undone. Before you sign, check what the action does to the running chain, not only that the message reads right. Prefer small steps over one large change. For example, rotate a few operator keys at a time, not all of them at once.
+
 | Action | Role |
 | --- | --- |
 | `asm-stf-vk --predicate <P>` | Strata Administrator |
 | `ol-stf-vk --predicate <P>` | Strata Administrator |
 | `ee-stf-vk --predicate <P>` | Alpen Administrator |
 | `safe-harbor --address <P2TR address>` | Strata Administrator |
+| `operator-set [--add <key>]... [--remove <index>]...` | Strata Administrator |
 | `cancel --id <ID> <update>` | the role of the cancelled update |
 
 A predicate is written as `<type>` or `<type>:<hex>`, for example `Sp1Groth16:<hex>`.
 
 Before an `asm-stf-vk` update, every ASM executor must already list the new predicate. An executor that doesn't halts at the first block after the update activates.
+
+An operator is removed by its index. The genesis operators take indices 0, 1, 2, ... in the order the params file lists them. Each operator added later takes the next unused index. Indices are never reused.
+
+An operator key is the operator's MuSig2 key. Give it as compressed hex, as the params file writes it, or as 32-byte x-only hex. The signing message shows the x-only form. To rotate a key, remove the old index and add the new key in one action:
+
+```bash
+asm-admin message --network bitcoin --seq-no 7 \
+  operator-set --remove 2 --add "$NEW_KEY" > message.txt
+```
+
+The bridge ignores a key it has ever held, so a removed key can't be added back. The tool can't see the chain's operator table, so it can't check the indices. An unknown index is skipped.
 
 The sequence number is counted per role. It must be above the role's last accepted one, by at most the `max_seqno_gap` in the params file. The tool can't check this offline. A transaction with a bad sequence number is mined, but the ASM skips it.
 
