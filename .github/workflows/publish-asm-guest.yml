@@ -1,9 +1,15 @@
 name: Publish ASM Guest
 
-# Builds the SP1 ASM guest from a chosen ref for one network and publishes it to
-# S3. The guest bakes in its spec's section of the runtime part of the network's
-# ASM params file, crates/params/envs/<env>.json at that ref, so its ELF and
-# predicate belong to those values.
+# Builds the SP1 ASM guest from a chosen ref for one network. The guest bakes in
+# its spec's section of the runtime part of the network's ASM params file,
+# crates/params/envs/<env>.json at that ref, so its ELF and predicate belong to
+# those values.
+#
+# Where the files go depends on release_tag:
+#   * empty   — straight to S3. Run it this way by hand, for example for dev.
+#   * a tag   — attached to that tag's draft GitHub release. release.yml calls
+#               this once per network on a tag push, and copies the files to S3
+#               only after the release is published.
 #
 # SECURITY MODEL
 # --------------
@@ -12,6 +18,9 @@ name: Publish ASM Guest
 # the AWS credentials:
 #   * build   — compiles the untrusted ref with no id-token, and emits the guest
 #               files as a workflow artifact.
+#   * attach  — attaches those files to the release. It has contents:write but
+#               runs only this workflow's own scripts, and only from main or a
+#               v* tag.
 #   * publish — checksums those files, writes the manifest, and uploads to S3.
 #               It has id-token:write but runs only this workflow's own scripts.
 #
@@ -43,6 +52,24 @@ on:
         description: Commit, tag, or branch to build. Run the workflow itself from main.
         required: true
         default: main
+        type: string
+      release_tag:
+        description: Attach the files to this tag's draft GitHub release instead of S3. ref must be the tag's commit.
+        required: false
+        type: string
+  workflow_call:
+    inputs:
+      env:
+        description: Deployment network (dev | staging | testnet | mainnet).
+        required: true
+        type: string
+      ref:
+        description: Commit to build.
+        required: true
+        type: string
+      release_tag:
+        description: Attach the files to this tag's draft GitHub release instead of S3.
+        required: false
         type: string
 
 # One publish per ref and network at a time; never cancel one mid-upload.
@@ -77,6 +104,7 @@ jobs:
       - name: Validate inputs
         env:
           INPUT_ENV: ${{ inputs.env }}
+          INPUT_RELEASE_TAG: ${{ inputs.release_tag }}
         run: python3 .github/scripts/guest_publish.py validate
 
       - name: Checkout guest source
@@ -120,30 +148,81 @@ jobs:
 
       # Upload only the declared files by explicit path. The untrusted build could
       # leave anything else in the workspace, and the publish job checksums what it
-      # receives itself.
+      # receives itself. The vkey hash is not published; release.yml puts it in the
+      # release notes. The name carries the network because release.yml builds every
+      # network in one run.
       - name: Upload guest files
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: asm-guest-${{ steps.rev.outputs.sha }}
+          name: asm-guest-${{ inputs.env }}-${{ steps.rev.outputs.sha }}
           path: |
             guest-source/guest-builder/sp1/generated/asm.elf
             guest-source/guest-builder/sp1/generated/asm-predicate.txt
+            guest-source/guest-builder/sp1/generated/asm-vkey-hash.txt
           if-no-files-found: error
           retention-days: 30 # environment approval can wait up to 30 days (GitHub max)
+
+  attach:
+    name: Attach the ASM guest to the release (no untrusted code)
+    needs: build
+    # As for publish: workflow_dispatch can run a feature branch's YAML, so only
+    # main or a release tag's copy may hold a write token. A tag push calls this
+    # with the tag as the run ref.
+    if: >-
+      ${{ inputs.release_tag != ''
+      && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write # attach files to the draft release
+    steps:
+      - name: Checkout publishing scripts
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Download guest files
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: asm-guest-${{ inputs.env }}-${{ needs.build.outputs.commit }}
+          path: ${{ runner.temp }}/asm-guest
+
+      # Here and not before the build: a read-only token can't see draft releases.
+      - name: Check the release is a draft of the built commit
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ inputs.release_tag }}
+          SOURCE_SHA: ${{ needs.build.outputs.commit }}
+        run: python3 .github/scripts/guest_publish.py tagged
+
+      - name: Stage release files
+        env:
+          OUTPUT_DIR: ${{ runner.temp }}/asm-guest
+          DEPLOY_ENV: ${{ inputs.env }}
+          DIST_DIR: ${{ runner.temp }}/dist
+        run: python3 .github/scripts/guest_publish.py stage
+
+      - name: Attach to the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ inputs.release_tag }}
+          DIST_DIR: ${{ runner.temp }}/dist
+        run: gh release upload "$TAG" --clobber --repo "$GITHUB_REPOSITORY" "$DIST_DIR"/*
 
   publish:
     name: Publish the ASM guest to S3 (credentialed, no untrusted code)
     needs: build
     # Only the reviewed main copy of this workflow may publish. workflow_dispatch
     # can run a feature branch's YAML, so gate the OIDC-enabled job on the run ref.
-    if: ${{ github.ref == 'refs/heads/main' }}
+    # A release build goes to S3 from release.yml once the release is published.
+    if: ${{ inputs.release_tag == '' && github.ref == 'refs/heads/main' }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     environment: baremetal-binaries
-    # Serialize by S3 destination, not by ref. Two refs at the same commit would
-    # otherwise both pass the manifest check and interleave their uploads.
+    # One S3 writer at a time, shared with release.yml's S3 copy. Two writers to one
+    # prefix would otherwise both pass the manifest check and interleave their uploads.
     concurrency:
-      group: publish-asm-guest-s3-${{ inputs.env }}-${{ needs.build.outputs.commit }}
+      group: publish-asm-guest-s3
       cancel-in-progress: false
     permissions:
       contents: read
@@ -157,7 +236,7 @@ jobs:
       - name: Download guest files
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          name: asm-guest-${{ needs.build.outputs.commit }}
+          name: asm-guest-${{ inputs.env }}-${{ needs.build.outputs.commit }}
           path: ${{ runner.temp }}/asm-guest
 
       - name: Checksum guest files and write the manifest

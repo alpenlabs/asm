@@ -1,0 +1,211 @@
+name: Release
+
+# On a version tag, builds the SP1 ASM guest for every network in
+# crates/params/envs/ except dev, attaches the files to the tag's GitHub release,
+# and then copies them to S3. dev is only for local runs and CI, so it gets no
+# released guest. Follows alpen-ee's release.yml.
+#
+# A line's first rcs, like v0.6.0-rc.1, are tagged on main. Once releases/v0.6.x
+# is cut, every tag of the line comes from it.
+#
+# Releases are immutable once published, so the release is created as a draft,
+# every network attaches its files, and it is only published once it holds
+# exactly those files and the tag still points at the commit they were built
+# from. S3 then gets the published bytes, checked against the release's
+# attestation, so S3 and the release can't drift apart. This relies on the repo's
+# immutable releases setting: without it, publishing makes no attestation and the
+# S3 copy fails.
+#
+# Release files: <env>-asm.elf and <env>-asm-predicate.txt per network.
+# S3, as for a guest published by hand (see publish-asm-guest.yml):
+#   s3://alpen-mosaic-artifacts/elfs/asm-runner/<env>/<commit>/
+
+on:
+  push:
+    tags:
+      - "v*"
+
+concurrency:
+  group: release-${{ github.ref_name }}
+  cancel-in-progress: false
+
+permissions: {}
+
+env:
+  AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
+  S3_BUCKET: alpen-mosaic-artifacts
+  S3_PREFIX: elfs/asm-runner
+
+jobs:
+  prepare:
+    name: Create the draft release and list networks
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write # create the draft release
+    outputs:
+      networks: ${{ steps.networks.outputs.networks }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          sparse-checkout: |
+            .github/scripts
+            crates/params/envs
+
+      # Before the draft exists, so a tag on the wrong branch publishes nothing.
+      - name: Check the tag's branch
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+          SOURCE_SHA: ${{ github.sha }}
+        run: python3 .github/scripts/guest_publish.py branch
+
+      - name: List networks
+        id: networks
+        run: |
+          set -euo pipefail
+          networks="$(find crates/params/envs -mindepth 1 -maxdepth 1 -name '*.json' ! -name dev.json \
+            | sed 's|^crates/params/envs/||; s|\.json$||' | sort | jq -R . | jq -cs .)"
+          if [ "$networks" = "[]" ]; then
+            echo "::error::no crates/params/envs/<network>.json found"
+            exit 1
+          fi
+          echo "networks=$networks" >> "$GITHUB_OUTPUT"
+
+      - name: Create the draft release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: python3 .github/scripts/guest_publish.py draft
+
+  guests:
+    name: Guests
+    needs: prepare
+    strategy:
+      fail-fast: true
+      matrix:
+        env: ${{ fromJSON(needs.prepare.outputs.networks) }}
+    uses: $/.github/workflows/publish-asm-guest.yml
+    permissions:
+      contents: write # the attach job adds files to the draft release
+      # The S3 job is skipped for a release, but a called workflow may not declare
+      # more than its caller grants, even in a skipped job.
+      id-token: write
+    with:
+      env: ${{ matrix.env }}
+      # The commit, not the tag name: checkout resolves a bare name to a branch
+      # first, so a branch named like the tag would be built instead.
+      ref: ${{ github.sha }}
+      release_tag: ${{ github.ref_name }}
+
+  publish:
+    name: Publish the release
+    needs: [prepare, guests]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write # edit and publish the draft release
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          sparse-checkout: |
+            .github/scripts
+            Cargo.lock
+          sparse-checkout-cone-mode: false
+
+      - name: Download guest builds
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: asm-guest-*-${{ github.sha }}
+          path: ${{ runner.temp }}/asm-guests
+
+      - name: Add the guests to the release notes
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+          NETWORKS: ${{ needs.prepare.outputs.networks }}
+          SOURCE_SHA: ${{ github.sha }}
+          ARTIFACTS_DIR: ${{ runner.temp }}/asm-guests
+          WORK_DIR: ${{ runner.temp }}/notes
+          LOCKFILE: Cargo.lock
+        run: python3 .github/scripts/guest_publish.py notes
+
+      - name: Check files and publish the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+          NETWORKS: ${{ needs.prepare.outputs.networks }}
+          SOURCE_SHA: ${{ github.sha }}
+          ARTIFACTS_DIR: ${{ runner.temp }}/asm-guests
+          WORK_DIR: ${{ runner.temp }}/publish
+        run: python3 .github/scripts/guest_publish.py publish
+
+  s3:
+    name: Copy the released guests to S3
+    needs: publish
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    # The S3 role trusts only this environment, which needs a reviewer and allows
+    # main and v* tags.
+    environment: baremetal-binaries
+    # Shared with publish-asm-guest.yml, so two writers to one S3 prefix never both
+    # pass the manifest check and interleave their uploads.
+    concurrency:
+      group: publish-asm-guest-s3
+      cancel-in-progress: false
+    permissions:
+      contents: read # download release files
+      attestations: read # check them against the release attestation
+      id-token: write # assume the S3 upload role via OIDC
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          sparse-checkout: |
+            .github/scripts
+            Cargo.lock
+          sparse-checkout-cone-mode: false
+
+      - name: Fetch and verify the release files
+        id: fetch
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+          SOURCE_SHA: ${{ github.sha }}
+          OUTPUT_DIR: ${{ runner.temp }}/asm-guests
+          LOCKFILE: Cargo.lock
+        run: python3 .github/scripts/guest_publish.py fetch
+
+      - name: Checksum each network's files and write its manifest
+        env:
+          OUTPUT_DIR: ${{ runner.temp }}/asm-guests
+          NETWORKS: ${{ steps.fetch.outputs.networks }}
+          GUEST_REF: ${{ github.ref_name }}
+          COMMIT: ${{ github.sha }}
+          SP1_VERSION: ${{ steps.fetch.outputs.sp1_version }}
+        run: |
+          set -euo pipefail
+          for env in $NETWORKS; do
+            OUTPUT_DIR="$OUTPUT_DIR/$env" DEPLOY_ENV="$env" python3 .github/scripts/guest_publish.py bundle
+          done
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: arn:aws:iam::496607027995:role/github-actions-asm-binary-s3
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Upload to S3
+        env:
+          OUTPUT_DIR: ${{ runner.temp }}/asm-guests
+          NETWORKS: ${{ steps.fetch.outputs.networks }}
+        run: |
+          set -euo pipefail
+          for env in $NETWORKS; do
+            OUTPUT_DIR="$OUTPUT_DIR/$env" python3 .github/scripts/guest_publish.py upload
+          done
