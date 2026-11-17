@@ -8111,6 +8111,7 @@ dependencies = [
  "strata-asm-common",
  "strata-asm-params",
  "strata-asm-proto-admin-txs",
+ "strata-crypto",
  "strata-l1-txfmt",
  "strata-predicate",
  "strata-test-utils-btcio",

@@ -16,17 +16,54 @@ Every command ends with the action. Signers and the coordinator must give the sa
 
 | Action | Role |
 | --- | --- |
-| `asm-stf-vk --predicate <P>` | Strata Administrator |
-| `ol-stf-vk --predicate <P>` | Strata Administrator |
-| `ee-stf-vk --predicate <P>` | Alpen Administrator |
-| `safe-harbor --address <P2TR address>` | Strata Administrator |
-| `cancel --id <ID> <update>` | the role of the cancelled update |
+| [`asm-stf-vk --predicate <P>`](#predicate-updates) | Strata Administrator |
+| [`ol-stf-vk --predicate <P>`](#predicate-updates) | Strata Administrator |
+| [`ee-stf-vk --predicate <P>`](#predicate-updates) | Alpen Administrator |
+| [`safe-harbor --address <P2TR address>`](#safe-harbor) | Strata Administrator |
+| [`operator-set [--add <key>]... [--remove <index>]...`](#operator-set) | Strata Administrator |
+| [`cancel --id <ID> <update>`](#cancel) | the role of the cancelled update |
 
-A predicate is written as `<type>` or `<type>:<hex>`, for example `Sp1Groth16:<hex>`.
+The chain applies an admin action as signed. A valid signature doesn't make an action safe. A wrong or badly timed action can stall the bridge or halt the chain, and some can't be undone. Before you sign, check what the action does to the running chain, not only that the message reads right. Prefer small steps over one large change.
+
+The sequence number is counted per role. It must be above the role's last accepted one, by at most the `max_seqno_gap` in the params file. The tool can't check this offline. A transaction with a bad sequence number is mined, but the ASM skips it.
+
+### Predicate updates
+
+`asm-stf-vk`, `ol-stf-vk` and `ee-stf-vk` set the predicate that verifies the ASM, OL and EE proofs. A predicate is written as `<type>` or `<type>:<hex>`, for example `Sp1Groth16:<hex>`.
 
 Before an `asm-stf-vk` update, every ASM executor must already list the new predicate. An executor that doesn't halts at the first block after the update activates.
 
-The sequence number is counted per role. It must be above the role's last accepted one, by at most the `max_seqno_gap` in the params file. The tool can't check this offline. A transaction with a bad sequence number is mined, but the ASM skips it.
+### Safe harbor
+
+`safe-harbor` sets the P2TR address the bridge's funds can be swept to. Give the address as a wallet shows it. The tool rejects an address for another network. Once the safe harbor is activated, the bridge ignores the update.
+
+### Operator set
+
+`operator-set` adds and removes bridge operators. Give at least one `--add` or `--remove`, and repeat either one as needed.
+
+An operator is removed by its index. The genesis operators take indices 0, 1, 2, ... in the order the params file lists them. Each operator added later takes the next unused index. Indices are never reused. The tool can't see the chain's operator table, so it can't check the indices. An unknown index is skipped.
+
+An operator key is the operator's MuSig2 key. Give it as compressed hex, as the params file writes it, or as 32-byte x-only hex. The signing message shows the x-only form. The bridge ignores a key it has ever held, so a removed key can't be added back.
+
+To rotate a key, remove the old index and add the new key in one action:
+
+```bash
+asm-admin message --network bitcoin --seq-no 7 \
+  operator-set --remove 2 --add "$NEW_KEY" > message.txt
+```
+
+Rotate a few operator keys at a time, not all of them at once.
+
+### Cancel
+
+A queued update can be cancelled until it activates. Give its ID, and the update exactly as it was queued:
+
+```bash
+asm-admin sign --network bitcoin --seq-no 8 \
+  cancel --id 3 asm-stf-vk --predicate "$PREDICATE"
+```
+
+Only the ID goes on chain. The chain rebuilds the signing message from the update it has queued, so signatures over any other update fail. A cancel needs a new sequence number from the same role.
 
 ## Sign
 
@@ -89,14 +126,3 @@ asm-admin verify --network bitcoin --magic STRA --threshold 2 \
 ```
 
 List the signers in index order.
-
-## Cancel
-
-A queued update can be cancelled until it activates. Give its ID, and the update exactly as it was queued:
-
-```bash
-asm-admin sign --network bitcoin --seq-no 8 \
-  cancel --id 3 asm-stf-vk --predicate "$PREDICATE"
-```
-
-Only the ID goes on chain. The chain rebuilds the signing message from the update it has queued, so signatures over any other update fail. A cancel needs a new sequence number from the same role.
