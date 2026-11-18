@@ -91,11 +91,23 @@ Pushing a `v*` tag runs `.github/workflows/release.yml`. It does a reproducible 
 1. Attaches `<env>-asm.elf` and `<env>-asm-predicate.txt` for each network to a draft GitHub release.
 2. Adds a section to the release notes. It names the commit and the SP1 version, and for each network its params file, vkey hash, and predicate.
 3. Publishes the release once it holds exactly the files this run built, byte for byte, and the tag still points at the commit they were built from. Releases are immutable after that.
-4. Copies the published files to S3, after checking each one against the release's attestation.
-
-A line's first rcs are tagged on `main`. Once `releases/vX.Y.x` exists, every tag of the line must point at a commit on it.
+4. Copies the published files to S3, after checking each one against the release's attestation. This job waits until a reviewer approves the `baremetal-binaries` environment.
 
 `dev` gets no released guest, because it is only for local runs and CI.
+
+### Which branch to tag
+
+Each release line has a branch, `releases/vX.Y.x`. Until it exists, you can tag the line's rcs (`vX.Y.0-rc.N`) on `main`. Every other tag needs the branch: `vX.Y.0` and each patch release must point at a commit on it. Once the branch exists, the rcs must come from it too.
+
+So cut the branch from `main` before you tag `vX.Y.0`:
+
+```bash
+git push origin <commit>:refs/heads/releases/vX.Y.x
+git tag -a vX.Y.0 <commit> -m vX.Y.0
+git push origin refs/tags/vX.Y.0
+```
+
+If the tag isn't on the right branch, the run stops at "Check the tag's branch", before it creates the release. Don't publish a release for that tag by hand. A published release is immutable, so it can never get the guest files. Cut the branch, then tag the next patch release from it.
 
 ### By hand
 
