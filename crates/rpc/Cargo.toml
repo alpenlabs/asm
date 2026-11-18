@@ -21,6 +21,10 @@ strata-merkle.workspace = true
 bitcoin.workspace = true
 jsonrpsee = { workspace = true, features = ["server", "macros"] }
 moho-types = { workspace = true, features = ["serde"] }
+serde.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true
 
 [features]
 default = []
