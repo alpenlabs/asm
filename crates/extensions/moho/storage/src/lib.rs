@@ -14,7 +14,7 @@
 //!   the `ExportState` MMR leaves.
 //!
 //! [`find_export_entry_index`] and [`build_export_entry_mmr_proof`] read across
-//! both stores to resolve an export entry's index and rebuild its inclusion
+//! both stores to resolve an export entry's index and return its hash and inclusion
 //! proof.
 
 mod export_entries;

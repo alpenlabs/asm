@@ -12,7 +12,8 @@ use strata_asm_proto_bridge::{AssignmentEntry, DepositEntry};
 use strata_asm_prover_types::{AsmProof, MohoProof, ProverStatus};
 use strata_asm_worker::AsmWorkerStatus;
 use strata_identifiers::Buf32;
-use strata_merkle::MerkleProof;
+
+use crate::types::ExportEntryWithProof;
 
 /// Control-plane ASM RPCs: liveness and overall worker status.
 #[cfg_attr(not(feature = "client"), rpc(server, namespace = "strata_asm"))]
@@ -135,18 +136,17 @@ pub trait AsmMohoApi {
         leaf: Buf32,
     ) -> RpcResult<Option<u64>>;
 
-    /// Return the MMR inclusion proof for the leaf at `mmr_index` in the export
-    /// container at `container_id`, as of `block_hash`.
+    /// Return the leaf hash and its MMR inclusion proof at `mmr_index`, as of `block_hash`.
     ///
-    /// The proof verifies against that container's MMR in the block's
-    /// [`MohoState`]. Errors when no proof can be built, including when the
-    /// block is not on the canonical chain, the container does not exist at that
-    /// block, or `mmr_index` is past its end.
+    /// The hash and proof are verified together against the container's MMR in that
+    /// block's [`MohoState`]. The hash is not the original export payload.
+    /// Errors when the block is not canonical, its Moho state or container is missing,
+    /// the index is out of range, or the indexed leaf and proof do not match the state.
     #[method(name = "getExportEntryProof")]
     async fn get_export_entry_proof(
         &self,
         block_hash: BlockHash,
         container_id: u8,
         mmr_index: u64,
-    ) -> RpcResult<MerkleProof<[u8; 32]>>;
+    ) -> RpcResult<ExportEntryWithProof>;
 }

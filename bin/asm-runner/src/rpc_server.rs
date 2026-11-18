@@ -30,8 +30,9 @@ use strata_asm_proto_checkpoint_txs::CHECKPOINT_SUBPROTOCOL_ID;
 use strata_asm_prover_storage::{ProofDb, SledProofDb};
 use strata_asm_prover_types::{AsmProof, L1Range, MohoProof, ProverStatus};
 use strata_asm_prover_worker::ProverWorkerHandle;
-use strata_asm_rpc::traits::{
-    AsmControlApiServer, AsmMohoApiServer, AsmProofApiServer, AsmStateApiServer,
+use strata_asm_rpc::{
+    traits::{AsmControlApiServer, AsmMohoApiServer, AsmProofApiServer, AsmStateApiServer},
+    types::ExportEntryWithProof,
 };
 use strata_asm_worker::{AsmWorkerHandle, AsmWorkerStatus};
 use strata_btc_types::BlockHashExt;
@@ -353,7 +354,7 @@ impl AsmMohoApiServer for AsmMohoRpcServer {
             ))
         })?;
 
-        let proof = build_export_entry_mmr_proof(
+        let (_, proof) = build_export_entry_mmr_proof(
             &self.moho_state_db,
             &self.export_entries_db,
             commitment,
@@ -392,12 +393,12 @@ impl AsmMohoApiServer for AsmMohoRpcServer {
         block_hash: BlockHash,
         container_id: u8,
         mmr_index: u64,
-    ) -> RpcResult<MerkleProof<[u8; 32]>> {
+    ) -> RpcResult<ExportEntryWithProof> {
         let commitment = to_canonical_block_commitment(&self.bitcoin_client, block_hash)
             .await
             .map_err(to_rpc_error)?;
 
-        let proof = build_export_entry_mmr_proof(
+        let (leaf_hash, proof) = build_export_entry_mmr_proof(
             &self.moho_state_db,
             &self.export_entries_db,
             commitment,
@@ -407,7 +408,10 @@ impl AsmMohoApiServer for AsmMohoRpcServer {
         .await
         .map_err(to_rpc_error)?;
 
-        Ok(MerkleProof::from_cohashes(proof.cohashes(), proof.index()))
+        Ok(ExportEntryWithProof {
+            leaf_hash: Buf32::from(leaf_hash),
+            proof: MerkleProof::from_cohashes(proof.cohashes(), proof.index()),
+        })
     }
 }
 

@@ -8626,6 +8626,8 @@ dependencies = [
  "bitcoin",
  "jsonrpsee",
  "moho-types",
+ "serde",
+ "serde_json",
  "strata-asm-admin-types",
  "strata-asm-bridge-types",
  "strata-asm-checkpoint-types",

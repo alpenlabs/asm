@@ -139,22 +139,18 @@ where
     Ok(mmr_index.filter(|&idx| idx < at_leaf_count))
 }
 
-/// Builds an MMR inclusion proof for the leaf at `mmr_index` in
-/// `container_id`, as of `commitment`.
+/// Returns the export leaf hash at `mmr_index` and its inclusion proof as of `commitment`.
 ///
-/// The proof verifies against the container's compact MMR in the [`MohoState`]
-/// stored at `commitment`, which fixes the MMR size. Encoding is left to the
-/// caller.
-///
-/// The proof is checked against that MMR before it is returned, so a caller
-/// never hands out a proof that would fail at the verifier.
+/// The returned hash and proof are verified together against the container's MMR in
+/// the stored [`MohoState`]. Returning the verified hash avoids a second leaf read
+/// that could observe a replacement chain after a reorg.
 pub async fn build_export_entry_mmr_proof<M, E>(
     moho_state_db: &M,
     export_entries_db: &E,
     commitment: L1BlockCommitment,
     container_id: u8,
     mmr_index: u64,
-) -> Result<MerkleProofB32, ExportProofError<M::Error, E::Error>>
+) -> Result<([u8; 32], MerkleProofB32), ExportProofError<M::Error, E::Error>>
 where
     M: MohoStateDb,
     E: ExportEntriesDb,
@@ -206,7 +202,7 @@ where
         });
     }
 
-    Ok(proof)
+    Ok((leaf, proof))
 }
 
 fn container_mmr(state: &MohoState, container_id: u8) -> Option<&Mmr64B32> {
@@ -347,10 +343,12 @@ mod tests {
                 .unwrap();
             assert_eq!(mmr_index, Some(2));
 
-            let proof = build_export_entry_mmr_proof(&moho, &idx, b2, CONTAINER_ID, 2)
-                .await
-                .expect("proof should be present");
+            let (returned_leaf, proof) =
+                build_export_entry_mmr_proof(&moho, &idx, b2, CONTAINER_ID, 2)
+                    .await
+                    .expect("proof should be present");
 
+            assert_eq!(returned_leaf, leaf);
             assert_eq!(proof.index(), 2);
             assert_eq!(container_mmr_len(&state_at_b2, CONTAINER_ID), 4);
             assert!(
@@ -389,9 +387,11 @@ mod tests {
 
             // A proof for index 0 at b1 must be valid against the size-1 MMR,
             // not the size-3 MMR at b2.
-            let proof = build_export_entry_mmr_proof(&moho, &idx, b1, CONTAINER_ID, 0)
+            let (leaf, proof) = build_export_entry_mmr_proof(&moho, &idx, b1, CONTAINER_ID, 0)
                 .await
                 .unwrap();
+
+            assert_eq!(leaf, entry_hash(0xa0));
 
             assert_eq!(container_mmr_len(&state_at_b1, CONTAINER_ID), 1);
             assert!(verify_against(
