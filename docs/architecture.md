@@ -13,6 +13,9 @@ in the manifests. The proofs tie each manifest to the Bitcoin block it came from
 consumer can check the result without running the STF again. This is how checkpoints,
 deposits, withdrawals, and admin actions posted to Bitcoin take effect in Strata.
 
+[security-model.md](security-model.md) covers what a proof shows, what the ASM guarantees, and
+whom it trusts.
+
 ## Tagged transactions
 
 The ASM only reads transactions in the SPS-50 format, which
@@ -71,7 +74,8 @@ transaction a deposit spends. The STF cannot fetch it, so the work splits in two
 2. The worker fetches the data
    ([`crates/worker/src/aux_resolver.rs`](../crates/worker/src/aux_resolver.rs)) and passes
    it to the STF. The STF verifies it before any subprotocol sees it, so the data needs no
-   trust.
+   trust. If the data is missing, the STF stops on purpose; see
+   [security-model.md](security-model.md#deliberate-halts).
 
 ## Subprotocols
 
