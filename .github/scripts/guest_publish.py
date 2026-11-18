@@ -345,7 +345,7 @@ def cmd_notes() -> None:
     Links name the tag rather than the commit: publishing locks an immutable release's tag
     to the commit `publish` checked, so the two point at the same files.
 
-    The predicate comes from the draft release, so the notes show what is published.
+    The ELF and predicate come from the draft release, so the notes show what is published.
     The vkey hash comes from each network's build artifact, at
     $ARTIFACTS_DIR/asm-guest-<env>-<sha>/, since it is not a release file.
     """
@@ -369,6 +369,8 @@ def cmd_notes() -> None:
         str(work_dir),
         "--pattern",
         "*-asm-predicate.txt",
+        "--pattern",
+        "*-asm.elf",
     )
 
     lines = [
@@ -390,6 +392,8 @@ def cmd_notes() -> None:
         "",
     ]
     for env in networks:
+        elf = work_dir / release_name(env, "asm.elf")
+        require_file(elf)
         predicate = read_checked(work_dir / release_name(env, "asm-predicate.txt"), PREDICATE_RE)
         vkey_hash = read_checked(
             build_dir(artifacts_dir, env, commit) / VKEY_HASH_FILE, VKEY_HASH_RE
@@ -399,6 +403,7 @@ def cmd_notes() -> None:
             "",
             f"- Params: [`{params_path(env)}`]({url}/blob/{tag}/{params_path(env)})",
             f"- vkey hash: `{vkey_hash}`",
+            f"- ELF SHA-256: `{sha256_hex(elf)}`",
             "",
             "Predicate:",
             "",
