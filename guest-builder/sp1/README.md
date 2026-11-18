@@ -149,3 +149,43 @@ To check that the ELF matches its source:
 5. Compare `generated/asm.elf` and `generated/asm-predicate.txt` with the published ones. `generated/asm-vkey-hash.txt` should match the vkey hash in the release notes.
 
 A match shows the ELF was built from that commit and params file. It does not show that the source implements the spec it claims. That is a code review question.
+
+## Differences from the native STF
+
+The STF runs twice: natively in the ASM worker, and in this guest for the step proof. Consumers check only the proof, so for them the ASM is whatever the guest computes. If the guest fails on a block the native STF accepts, that block cannot be proven. If it computes a different state, the proven state is not the one runners report. The [security model](../../docs/security-model.md) treats both as security failures.
+
+The two share almost all their code. They differ here:
+
+| Difference | Native | Guest |
+| --- | --- | --- |
+| Crypto crates | The crates.io versions, such as libsecp256k1 | SP1 versions, swapped in by `[patch.crates-io]` in [`guest-asm/Cargo.toml`](guest-asm/Cargo.toml). Today these are `secp256k1`, `k256`, `sha2`, and `substrate-bn`. |
+| Dependency versions | The root `Cargo.lock` | Its own `Cargo.lock`, which can resolve a shared dependency to another version |
+| Spec and params | Picked at runtime, with params read from the params file | The newest spec only, with its params baked in; see [One guest per network](#one-guest-per-network) |
+| Input | The block and aux data, passed in memory | The same data, decoded from SSZ |
+| Memory | The host's | SP1's limits; see [Memory limits](#memory-limits) |
+
+The crypto crates are the easiest to get wrong. A call to `secp256k1` runs libsecp256k1 natively and a `k256`-based port in the guest. The two can disagree on input that the native library rejects or treats specially, such as zero or out-of-range scalars, high-`s` signatures, and bad encodings. The source does not show this. The call reads like libsecp256k1, and the patch that swaps it is in another workspace.
+
+Tests do not show it either. Unit, integration, and functional tests all run the native STF. In CI the guest runs only in [`prover-perf`](../../bin/prover-perf/README.md), which compares its output with the native run on one honest fixture block.
+
+So when STF code passes untrusted input into one of these places:
+
+1. Check what the guest's version does with invalid and edge-case input, not only the native one.
+2. If the two can differ, decide the case in our own code before the call, so both builds apply the same rule.
+3. Pin that rule with fixed vectors.
+
+Check again when the SP1 patches, the guest lockfile, or the baked-in params change. Don't use `cfg(target_os = "zkvm")` in STF code. Today it only keeps host code out of the guest, and any other use makes the two builds differ.
+
+### Memory limits
+
+A transition that needs more memory than the guest has cannot be proven, even if it runs fine natively. These are the limits in SP1 6.10.0:
+
+| Limit | Value | Where it is set |
+| --- | --- | --- |
+| Guest address space | 2^37 bytes (128 GiB) | `SP1_ZKVM_MAX_MEMORY` default in `sp1-zkvm`'s `build.rs` |
+| Input region, part of that space | 2^34 bytes (16 GiB) | `SP1_ZKVM_INPUT_REGION_SIZE` default in `sp1-zkvm`'s `build.rs` |
+| Executor process memory | 24 GiB | `DEFAULT_MEMORY_LIMIT` in `sp1-core-executor`'s `opts.rs` |
+
+The guest panics with `Input region overflowed` or `Memory limit exceeded` when it passes the first two. We set none of the three ourselves, so the defaults apply.
+
+A Bitcoin block is a few megabytes, far below these limits. The aux data can be larger, since it holds whole previous transactions, and it has no size bound of its own. What can bring the limits closer is state that grows without bound, or code that allocates in proportion to something an attacker controls. Treat a change that does either as a change to what can be proven, and check the limits again when the SP1 version changes.
