@@ -88,7 +88,7 @@ A subprotocol owns one section of the state and the transactions tagged with its
 
 An `AsmSpec` ([`crates/common/src/spec.rs`](../crates/common/src/spec.rs)) lists the
 subprotocols and the order they run in. The concrete specs live in
-[`crates/spec/src/spec.rs`](../crates/spec/src/spec.rs).
+[`crates/spec/src/specs`](../crates/spec/src/specs).
 
 Each spec is bound to a predicate, which is the key that verifies its proofs. The worker
 tracks the predicate for the next block. An `AsmStfUpdate` log, emitted by the admin
