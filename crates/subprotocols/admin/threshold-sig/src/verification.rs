@@ -20,6 +20,7 @@ use crate::{
 /// Returns [`ThresholdSignatureError::DuplicateSignerIndex`] for a repeated index,
 /// [`ThresholdSignatureError::InsufficientSignatures`] when the threshold is not met,
 /// [`ThresholdSignatureError::SignerIndexOutOfBounds`] for an index outside the signer list,
+/// [`ThresholdSignatureError::NonCanonicalSignature`] for a zero `r` or `s` or a high `s`,
 /// and [`ThresholdSignatureError::InvalidSignature`] when a signature does not recover to the
 /// expected signer.
 pub fn verify_threshold_signatures(
@@ -44,7 +45,10 @@ mod tests {
     use std::num::NonZero;
 
     use bitcoin::hashes::{Hash as _, hash160};
-    use secp256k1::{PublicKey, SECP256K1, SecretKey};
+    use secp256k1::{
+        Message, PublicKey, SECP256K1, SecretKey,
+        ecdsa::{RecoverableSignature, RecoveryId},
+    };
 
     use super::*;
     use crate::address::P2wpkhAddress;
@@ -250,6 +254,62 @@ mod tests {
         assert_eq!(
             verify_threshold_signatures(&config, &signatures, &message_hash),
             Err(ThresholdSignatureError::InvalidSignatureFormat)
+        );
+    }
+
+    /// The SP1 guest panics on a zero `r` or `s`, so the verifier must reject one before
+    /// recovery. Native recovery fails on it too, so the variant is what shows the check ran.
+    #[test]
+    fn rejects_a_zero_r_or_s() {
+        let (sk1, s1) = generate_signer(1);
+
+        let config = ThresholdConfig::try_new(vec![s1], nonzero(1)).unwrap();
+        let message_hash = [0xAB; 32];
+        let sig = ecdsa::sign_ecdsa_recoverable(&message_hash, &sk1);
+
+        for range in [1..33, 33..65] {
+            let mut zeroed = sig;
+            zeroed[range].fill(0);
+            let signatures = vec![IndexedSignature::new(0, zeroed)];
+
+            assert_eq!(
+                verify_threshold_signatures(&config, &signatures, &message_hash),
+                Err(ThresholdSignatureError::NonCanonicalSignature { index: 0 })
+            );
+        }
+    }
+
+    /// Replacing `s` with `n - s` and flipping the recovery ID gives another signature that
+    /// recovers the same key. libsecp256k1 accepts it but the SP1 guest does not, so the
+    /// verifier must reject it to keep the two in step.
+    #[test]
+    fn rejects_a_high_s_copy_of_a_valid_signature() {
+        let (sk1, s1) = generate_signer(1);
+
+        let config = ThresholdConfig::try_new(vec![s1], nonzero(1)).unwrap();
+        let message_hash = [0xAB; 32];
+
+        let mut sig = ecdsa::sign_ecdsa_recoverable(&message_hash, &sk1);
+        let high_s = SecretKey::from_slice(&sig[33..65]).unwrap().negate();
+        sig[33..65].copy_from_slice(&high_s.secret_bytes());
+        sig[0] ^= 1;
+
+        // Without the check, libsecp256k1 recovers the signer's key from the copy.
+        let recoverable = RecoverableSignature::from_compact(
+            &sig[1..65],
+            RecoveryId::from_i32(sig[0] as i32).unwrap(),
+        )
+        .unwrap();
+        let recovered = SECP256K1
+            .recover_ecdsa(&Message::from_digest(message_hash), &recoverable)
+            .unwrap();
+        assert_eq!(recovered, PublicKey::from_secret_key(SECP256K1, &sk1));
+
+        let signatures = vec![IndexedSignature::new(0, sig)];
+
+        assert_eq!(
+            verify_threshold_signatures(&config, &signatures, &message_hash),
+            Err(ThresholdSignatureError::NonCanonicalSignature { index: 0 })
         );
     }
 

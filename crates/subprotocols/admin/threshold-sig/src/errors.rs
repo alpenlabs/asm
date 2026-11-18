@@ -30,6 +30,17 @@ pub enum ThresholdSignatureError {
         index: u8,
     },
 
+    /// The signature at the given signer index has a zero `r` or `s`, or a high `s`.
+    ///
+    /// Such a signature can parse and even recover the right key natively, but the SP1 guest
+    /// cannot verify it, so the chain refuses it. Signing again with a library that emits low-`s`
+    /// signatures, such as libsecp256k1, fixes it.
+    #[error("non-canonical signature at index {index}: zero r or s, or high s")]
+    NonCanonicalSignature {
+        /// Signer index whose signature is non-canonical.
+        index: u8,
+    },
+
     /// Invalid signature format.
     #[error("invalid signature format")]
     InvalidSignatureFormat,
