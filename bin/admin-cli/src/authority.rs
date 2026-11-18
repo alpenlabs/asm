@@ -6,7 +6,8 @@ use anyhow::{Context, anyhow, ensure};
 use bitcoin::{Address, Network, address::NetworkUnchecked};
 use clap::Args;
 use strata_asm_admin_threshold_sig::{
-    IndexedSignature, SignatureSet, ThresholdConfig, verify_threshold_signatures,
+    IndexedSignature, SignatureSet, ThresholdConfig, ThresholdSignatureError,
+    verify_threshold_signatures,
 };
 use strata_asm_admin_types::{AdministrationInitConfig, Role, UncheckedThresholdConfig};
 use strata_asm_params::AsmParams;
@@ -149,11 +150,15 @@ pub(crate) fn verify_signatures(
             )
         })?;
         verify_threshold_signatures(&any_one, slice::from_ref(signature), digest).map_err(
-            |_| {
-                anyhow!(
+            |err| match err {
+                ThresholdSignatureError::NonCanonicalSignature { .. } => anyhow!(
+                    "signature {index} has a zero r or s, or a high s, which the chain refuses; \
+                     sign again with a wallet that emits low-s signatures"
+                ),
+                _ => anyhow!(
                     "signature {index} is not from signer {} over this message",
                     signer.to_address(network)
-                )
+                ),
             },
         )?;
     }

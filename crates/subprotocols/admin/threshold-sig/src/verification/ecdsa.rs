@@ -45,6 +45,34 @@ fn normalize_recovery_id(header: u8) -> Result<i32, ThresholdSignatureError> {
     Ok(recid as i32)
 }
 
+/// Half the secp256k1 group order, `(n - 1) / 2`, big-endian. An `s` above it is high.
+const HALF_ORDER: [u8; 32] = [
+    0x7F, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+    0x5D, 0x57, 0x6E, 0x73, 0x57, 0xA4, 0x50, 0x1D, 0xDF, 0xE9, 0x2F, 0x46, 0x68, 0x1B, 0x20, 0xA0,
+];
+
+/// Returns whether `r` and `s` lie where both secp256k1 builds give the same answer.
+///
+/// The STF recovers keys with libsecp256k1 natively, and in the SP1 guest with a patched
+/// `secp256k1` that hands recovery to `k256`. The two disagree on two kinds of signature that
+/// still parse:
+///
+/// - A zero `r` or `s`. libsecp256k1 fails recovery, but the patch unwraps `k256`'s parse error and
+///   panics, so the block could never be proven.
+/// - A high `s`. libsecp256k1 recovers the signer's key, but `k256` rejects it, so the guest would
+///   skip an action the native STF applies. Anyone can make one from a real signature by replacing
+///   `s` with `n - s` and flipping the recovery ID.
+///
+/// Rejecting both before recovery keeps the two builds in step. Rejecting a high `s` refuses
+/// nothing the guest would accept, and libsecp256k1, which Bitcoin Core's `signmessage` uses,
+/// always signs with a low `s`. An `r` or `s` at or above the group order never gets here:
+/// `from_compact` rejects it first, on both builds, since the patch leaves parsing alone.
+///
+/// Comparing the big-endian bytes in order compares the numbers they encode.
+fn has_agreed_scalars(r: &[u8; 32], s: &[u8; 32]) -> bool {
+    *r != [0; 32] && *s != [0; 32] && *s <= HALF_ORDER
+}
+
 /// Verifies each ECDSA signature in the set against the corresponding signer address.
 ///
 /// This function recovers a public key from each ECDSA signature, derives its P2WPKH
@@ -88,6 +116,12 @@ pub(super) fn verify_ecdsa_signatures(
         let recoverable_sig =
             RecoverableSignature::from_compact(&indexed_sig.compact(), recovery_id)
                 .map_err(|_| ThresholdSignatureError::InvalidSignatureFormat)?;
+
+        if !has_agreed_scalars(indexed_sig.r(), indexed_sig.s()) {
+            return Err(ThresholdSignatureError::NonCanonicalSignature {
+                index: indexed_sig.index(),
+            });
+        }
 
         // Hardware wallets emit recoverable signatures with headers; recover the pubkey
         // (honoring the header) and compare its address to the configured signer.
@@ -139,6 +173,51 @@ pub(super) fn sign_ecdsa_bip137(
     // Convert raw recid (0-3) to BIP-137 compressed P2PKH format (31-34)
     sig[0] += 31;
     sig
+}
+
+#[cfg(test)]
+mod scalar_tests {
+    use secp256k1::constants::CURVE_ORDER;
+
+    use super::*;
+
+    /// Adds one to a big-endian number.
+    fn plus_one(mut bytes: [u8; 32]) -> [u8; 32] {
+        for byte in bytes.iter_mut().rev() {
+            let (sum, carry) = byte.overflowing_add(1);
+            *byte = sum;
+            if !carry {
+                break;
+            }
+        }
+        bytes
+    }
+
+    #[test]
+    fn half_order_is_half_the_curve_order() {
+        // n is odd, so (n - 1) / 2 is n shifted right by one bit.
+        let mut half = [0u8; 32];
+        let mut carry = 0;
+        for (out, byte) in half.iter_mut().zip(CURVE_ORDER) {
+            *out = (byte >> 1) | carry;
+            carry = byte << 7;
+        }
+        assert_eq!(half, HALF_ORDER);
+    }
+
+    #[test]
+    fn accepts_s_up_to_half_the_order() {
+        let r = [1; 32];
+        assert!(has_agreed_scalars(&r, &[1; 32]));
+        assert!(has_agreed_scalars(&r, &HALF_ORDER));
+        assert!(!has_agreed_scalars(&r, &plus_one(HALF_ORDER)));
+    }
+
+    #[test]
+    fn rejects_a_zero_scalar() {
+        assert!(!has_agreed_scalars(&[0; 32], &[1; 32]));
+        assert!(!has_agreed_scalars(&[1; 32], &[0; 32]));
+    }
 }
 
 #[cfg(test)]
