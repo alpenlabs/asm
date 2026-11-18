@@ -1,10 +1,16 @@
 # Contributor docs
 
-These pages explain how the ASM is put together, and link to the code for the details.
+These pages explain how the ASM is put together and what it guarantees. They link to the code
+for the details. Read them in this order:
 
 - [Architecture](architecture.md): the state transition, the services, and storage.
 - [Repository layout](layout.md): what each crate is for.
 - [Subprotocols](subprotocols.md): the subprotocol trait, messages, and crate split.
+- [Security model](security-model.md): what the ASM guarantees and assumes, and how to triage
+  security findings.
+
+Task guides:
+
 - [ASM upgrade development](asm-upgrade-development.md): adding a spec and its proof
   artifacts.
 
