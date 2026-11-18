@@ -19,7 +19,8 @@ Tool-specific guides live next to the code:
 - [Functional tests](../functional-tests/README.md)
 - [`dbtool`](../bin/dbtool/README.md)
 - [`prover-perf`](../bin/prover-perf/README.md)
-- [SP1 guest builder](../guest-builder/sp1/README.md): building and checking the ASM guest
+- [SP1 guest builder](../guest-builder/sp1/README.md): building and checking the ASM guest,
+  and where it differs from the native STF
 - [Docker image](../docker/README.md)
 
 If you change behavior a page describes, update the page in the same PR.
