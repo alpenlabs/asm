@@ -83,6 +83,12 @@ pub enum WorkerError {
     )]
     PartialManifestMmr { leaf_count: u64, expected: u64 },
 
+    /// The stored manifest MMR disagrees with the accumulator of the anchor at
+    /// this block even after every leaf above genesis was rewritten from the
+    /// stored manifests. The MMR is corrupt; wipe the datadir and resync.
+    #[error("manifest MMR does not match the anchor at {0}; wipe the datadir and resync")]
+    ManifestMmrMismatch(L1BlockCommitment),
+
     /// Upgrade recovery cannot proceed without a committed block's manifest.
     #[error("missing committed manifest for {0}")]
     MissingManifest(L1BlockCommitment),

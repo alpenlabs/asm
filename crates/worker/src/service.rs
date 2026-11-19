@@ -4,7 +4,7 @@ use std::marker;
 
 use anyhow::anyhow;
 use serde::{Deserialize, Serialize};
-use strata_asm_common::AnchorState;
+use strata_asm_common::{AnchorState, AsmHistoryAccumulatorState};
 use strata_btc_types::BlockHashExt;
 use strata_identifiers::{L1BlockCommitment, L1BlockId};
 use strata_service::{Response, Service, SyncService};
@@ -87,7 +87,7 @@ where
 ///
 /// `target` is a block submitted to the worker; it may extend the current chain
 /// or, on an L1 reorg, switch to a different branch (even one whose tip is at a
-/// lower height). Runs in two phases:
+/// lower height). Runs in three phases:
 ///
 /// 1. **Plan** (backward): from `target`, follow parent links via each block's `prev_blockhash`
 ///    back to the base — the most recent ancestor with a stored `AnchorState` — collecting the
@@ -96,7 +96,11 @@ where
 ///    here, so a deep reorg does not load every intervening block into memory at once. See
 ///    [`plan_block_processing`].
 ///
-/// 2. **Process** (forward): from the base forward (oldest first, so heights are contiguous and
+/// 2. **Repair**: make the stored manifest MMR match the base's accumulator. The MMR is keyed by
+///    height, so when the base is a block the worker left on an earlier reorg, the leaves at and
+///    below it may still hold the abandoned branch's hashes. See [`repair_manifest_mmr`].
+///
+/// 3. **Process** (forward): from the base forward (oldest first, so heights are contiguous and
 ///    strictly increasing), fetch each full block, run the STF, then persist its manifest into the
 ///    height-indexed MMR, its aux data, and its anchor state, advancing the in-memory anchor as it
 ///    goes. Processing a height already handled on the old branch overwrites that branch's leaf in
@@ -179,9 +183,15 @@ where
         );
     }
 
+    // Phase 2: repair the leaves the base's accumulator commits to. This also
+    // runs when the base is the in-memory tip. After a restart that tip is only
+    // the highest stored anchor, and another branch may have overwritten its
+    // leaves since.
+    repair_manifest_mmr(&state.context, &base_state, base_block, genesis_height)?;
+
     state.restore_anchor(base_state, base_block)?;
 
-    // Phase 2: process the pending blocks oldest first. Collect them in applied
+    // Phase 3: process the pending blocks oldest first. Collect them in applied
     // order so the caller can drive per-block follow-up work (e.g. proof
     // requests) over exactly the blocks the worker processed for this submit.
     let processed: Vec<L1BlockCommitment> = pending.into_iter().rev().collect();
@@ -225,13 +235,7 @@ fn plan_block_processing<W: WorkerContext>(
             Err(WorkerError::MissingAsmState(_)) => Ok(None),
             Err(e) => Err(e),
         },
-        |block| {
-            let header = ctx.get_l1_block_header(block.blkid())?;
-            Ok(L1BlockCommitment::new(
-                block.height() - 1,
-                header.prev_blockhash.to_l1_block_id(),
-            ))
-        },
+        |block| parent_block(ctx, block),
     )
     .map_err(|e| match e {
         SyncError::ReachedFloor { .. } => {
@@ -240,6 +244,111 @@ fn plan_block_processing<W: WorkerContext>(
         }
         SyncError::Provider(e) => e,
     })
+}
+
+/// Resolves the parent of `block` by reading only its header.
+fn parent_block<W: WorkerContext>(
+    ctx: &W,
+    block: &L1BlockCommitment,
+) -> crate::WorkerResult<L1BlockCommitment> {
+    let header = ctx.get_l1_block_header(block.blkid())?;
+    Ok(L1BlockCommitment::new(
+        block.height() - 1,
+        header.prev_blockhash.to_l1_block_id(),
+    ))
+}
+
+/// Makes the stored manifest MMR match `base_state`'s accumulator before any
+/// block is applied on top of `base_block`.
+///
+/// The MMR is keyed by height, so each branch the worker processes overwrites
+/// the leaves at its heights. Take a node that processes block A, then reorgs
+/// to B at the same height, then back to A's branch. The plan stops at A
+/// because its anchor is stored, but leaf `A.height` still holds B's hash. Aux
+/// resolution would then build manifest proofs that fail against A's
+/// accumulator, and the worker would halt on every restart.
+///
+/// Walks back from `base_block` and re-records each stale leaf from the
+/// block's stored manifest until the MMR matches. On forward progress and on
+/// most reorgs it already matches, so this only reads. Each rewrite is an
+/// idempotent overwrite, so a crash partway through is finished by the next
+/// sync.
+fn repair_manifest_mmr<W: WorkerContext>(
+    ctx: &W,
+    base_state: &AnchorState,
+    base_block: L1BlockCommitment,
+    genesis_height: u64,
+) -> crate::WorkerResult<()> {
+    let accumulator = &base_state.chain_view.history_accumulator;
+    let mut block = base_block;
+    let mut rewritten = 0u32;
+    while !manifest_mmr_matches(ctx, accumulator, genesis_height)? {
+        // Leaves at and below genesis are seeded peaks that no branch can
+        // overwrite, so a mismatch that survives down to genesis is not a
+        // stale branch.
+        if u64::from(block.height()) <= genesis_height {
+            return Err(WorkerError::ManifestMmrMismatch(base_block));
+        }
+        // Rewrite stale leaves down to the first one that already holds the
+        // right hash, then check the whole MMR again. A reorg to a shorter
+        // branch can leave more stale leaves below a correct one.
+        loop {
+            let height = u64::from(block.height());
+            let hash = ctx.get_manifest(&block)?.compute_hash();
+            let stale = ctx.get_manifest_hash(height)? != hash;
+            if stale {
+                ctx.put_manifest_hash(height, hash)?;
+                rewritten += 1;
+            }
+            block = parent_block(ctx, &block)?;
+            if !stale || u64::from(block.height()) <= genesis_height {
+                break;
+            }
+        }
+    }
+
+    if rewritten > 0 {
+        info!(
+            %base_block,
+            rewritten,
+            "rewrote manifest MMR leaves left by an abandoned branch"
+        );
+    }
+    Ok(())
+}
+
+/// Whether the stored manifest MMR, cut to the accumulator's size, has the
+/// accumulator's peaks.
+///
+/// Proves the last leaf of each mountain from storage and verifies it against
+/// the accumulator. The stored path hashes up to the stored peak, so this
+/// checks every leaf under it. Mountains that end at or below genesis are
+/// skipped: their peaks were seeded from the genesis accumulator, and nothing
+/// can overwrite them.
+fn manifest_mmr_matches<W: WorkerContext>(
+    ctx: &W,
+    accumulator: &AsmHistoryAccumulatorState,
+    genesis_height: u64,
+) -> crate::WorkerResult<bool> {
+    let leaf_count = accumulator.num_entries();
+    let mut mountain_start = 0u64;
+    for bit in (0..u64::BITS).rev() {
+        let size = 1u64 << bit;
+        if leaf_count & size == 0 {
+            continue;
+        }
+        let last_leaf = mountain_start + size - 1;
+        mountain_start += size;
+        if last_leaf <= genesis_height {
+            continue;
+        }
+        let hash = ctx.get_manifest_hash(last_leaf)?;
+        let proof = ctx.generate_mmr_proof_at(last_leaf, leaf_count)?;
+        if !accumulator.verify_manifest_leaf(&proof, &hash) {
+            return Ok(false);
+        }
+    }
+    Ok(true)
 }
 
 /// Runs the STF for `block_id`, then persists the results in a deliberate
@@ -580,6 +689,113 @@ mod tests {
             leaf_a_102,
             "the fork point is untouched",
         );
+    }
+
+    /// A reorg back onto a branch the worker already processed. A at 103 is
+    /// processed, then B overwrites leaf 103, then A's branch wins again. The
+    /// plan stops at A because its anchor is stored, so the forward pass never
+    /// touches leaf 103. The repair must rewrite it, or manifest proofs built
+    /// from storage fail against the anchor's accumulator.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn sync_reorg_back_to_processed_branch_rewrites_stale_leaves() {
+        let mut fx = fixtures::setup_state(101).await;
+
+        // Branch A: 102, 103.
+        let branch_a = fixtures::mine(&fx.node, &fx.client, 2).await;
+        let a_103 = branch_a[1];
+        sync_to_block(&mut fx.state, a_103.blkid()).expect("sync branch A");
+        let leaf_a_103 = fx
+            .state
+            .context
+            .get_manifest_hash(103)
+            .expect("leaf 103 on A");
+
+        // Branch B forks below 103 and overwrites leaf 103.
+        let branch_b = fixtures::reorg(&fx.node, &fx.client, 103, 2).await; // 103b, 104b
+        sync_to_block(&mut fx.state, branch_b[1].blkid()).expect("sync branch B");
+        assert_ne!(
+            fx.state
+                .context
+                .get_manifest_hash(103)
+                .expect("leaf 103 on B"),
+            leaf_a_103,
+        );
+
+        // Back to A: restore 103, drop B, and extend A to 105.
+        fx.node
+            .client
+            .reconsider_block(a_103.blkid().to_block_hash())
+            .expect("reconsider A");
+        fx.node
+            .client
+            .invalidate_block(branch_b[0].blkid().to_block_hash())
+            .expect("invalidate B");
+        let extension = fixtures::mine(&fx.node, &fx.client, 2).await; // 104, 105
+        let processed = sync_to_block(&mut fx.state, extension[1].blkid()).expect("sync back to A");
+        assert_eq!(
+            processed, extension,
+            "the plan starts from the stored A at 103"
+        );
+
+        assert_eq!(
+            fx.state.context.get_manifest_hash(103).expect("leaf 103"),
+            leaf_a_103,
+            "leaf 103 holds A's hash again",
+        );
+
+        assert_leaves_prove(&fx.state, 102, 105);
+    }
+
+    /// Like the test above, but the stale leaf sits below correct ones. A
+    /// reorg to the shorter branch B rewrites only leaf 103, so after the
+    /// return to A, leaves 104 and 105 already hold A's hashes and 103 does
+    /// not. The repair must not stop at the first correct leaf.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn sync_reorg_back_rewrites_stale_leaf_below_correct_ones() {
+        let mut fx = fixtures::setup_state(101).await;
+
+        // Branch A: 102..=105.
+        let branch_a = fixtures::mine(&fx.node, &fx.client, 4).await;
+        sync_to_block(&mut fx.state, branch_a[3].blkid()).expect("sync branch A");
+
+        // Shorter branch B: only 103b.
+        let branch_b = fixtures::reorg(&fx.node, &fx.client, 103, 1).await;
+        sync_to_block(&mut fx.state, branch_b[0].blkid()).expect("sync branch B");
+
+        // Back to A and extend it to 106.
+        fx.node
+            .client
+            .reconsider_block(branch_a[1].blkid().to_block_hash())
+            .expect("reconsider A");
+        fx.node
+            .client
+            .invalidate_block(branch_b[0].blkid().to_block_hash())
+            .expect("invalidate B");
+        let extension = fixtures::mine(&fx.node, &fx.client, 1).await; // 106
+        sync_to_block(&mut fx.state, extension[0].blkid()).expect("sync back to A");
+
+        assert_leaves_prove(&fx.state, 102, 106);
+    }
+
+    /// Asserts that every leaf in `start..=end` resolves from storage with a
+    /// proof that verifies against the current anchor's accumulator.
+    fn assert_leaves_prove(
+        state: &AsmWorkerServiceState<TestAsmWorkerContext>,
+        start: u64,
+        end: u64,
+    ) {
+        let leaf_count = anchor_leaf_count(state);
+        let resolver = AuxDataResolver::new(&state.context, leaf_count);
+        let mut req = AuxRequestCollector::new(leaf_count);
+        req.request_manifest_hashes(start, end);
+        let data = resolver
+            .resolve(&req.into_requests())
+            .expect("resolve manifest hashes");
+        assert_eq!(data.manifest_hashes().len() as u64, end - start + 1);
+        let accumulator = &state.anchor.chain_view.history_accumulator;
+        for item in data.manifest_hashes() {
+            assert!(accumulator.verify_manifest_leaf(item.proof(), item.hash()));
+        }
     }
 
     /// End-to-end at the resolver boundary: drive the real STF over a chain,
