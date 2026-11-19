@@ -10,13 +10,17 @@
 //!
 //! Appends are unconditional — the store does not deduplicate. A consumer that
 //! might reprocess a block (after a crash or an L1 reorg) prunes from the
-//! block's height first, so re-stored leaves always extend a clean prefix.
+//! block's height or a lower one first, so re-stored leaves always extend a
+//! clean prefix.
 
 use std::ops::Range;
 
 use anyhow::{Context, Result};
-use strata_merkle::{MerkleProofB32, Sha256Hasher};
-use strata_merkle_node_store::{LeafPos, MmrNodeStore, NodePos, StoredMmr, StoredMmrExt};
+use moho_types::ExportState;
+use strata_merkle::{MerkleProofB32, Mmr64B32, MmrState, Sha256Hasher};
+use strata_merkle_node_store::{
+    LeafPos, MmrNodeStore, NodePos, StoredMmr, StoredMmrExt, peak_positions,
+};
 
 use crate::ExportEntriesDb;
 
@@ -286,6 +290,32 @@ impl ContainerView<'_> {
         Ok(())
     }
 
+    /// The number of leaves this container gained at heights up to and
+    /// including `height`.
+    fn count_through(&self, height: u32) -> Result<u64> {
+        let first_above = match height.checked_add(1) {
+            Some(next) => self.first_dropped_index(next)?,
+            None => None,
+        };
+        match first_above {
+            Some(index) => Ok(index),
+            None => self.num_entries(),
+        }
+    }
+
+    /// Whether the first `mmr.num_entries()` leaves have `mmr`'s peaks.
+    ///
+    /// A peak is the root of a perfect subtree, so it stays stored whatever
+    /// leaves follow it.
+    fn peaks_match(&self, mmr: &Mmr64B32) -> Result<bool> {
+        for pos in peak_positions(mmr.num_entries()) {
+            if self.get_node(pos)?.as_ref() != mmr.get_peak(pos.height()) {
+                return Ok(false);
+            }
+        }
+        Ok(true)
+    }
+
     /// See [`SledExportEntriesDb::leaf_range_at_height`].
     fn leaf_range_at_height(&self, height: u32) -> Result<Option<Range<u64>>> {
         let start_key = self.height_key(height);
@@ -454,6 +484,30 @@ impl SledExportEntriesDb {
             self.container(container_id).prune(height)?;
         }
         Ok(())
+    }
+
+    /// Whether the leaves stored at heights up to and including `height` are
+    /// exactly the leaves `export` commits to, in every container.
+    ///
+    /// A container `export` does not hold must have no leaves at those heights.
+    /// Like [`Self::prune_from`], this checks every possible container id
+    /// rather than scanning for the ones that exist.
+    pub fn matches_through(&self, height: u32, export: &ExportState) -> Result<bool> {
+        let empty = Mmr64B32::new_empty();
+        for container_id in 0..=u8::MAX {
+            let expected = export
+                .containers()
+                .iter()
+                .find(|container| container.container_id() == container_id)
+                .map_or(&empty, |container| container.entries_mmr());
+            let view = self.container(container_id);
+            if view.count_through(height)? != expected.num_entries()
+                || !view.peaks_match(expected)?
+            {
+                return Ok(false);
+            }
+        }
+        Ok(true)
     }
 
     /// Synchronous variant of [`ExportEntriesDb::find_entry_index`].
@@ -902,6 +956,43 @@ mod tests {
     // composes, in isolation, so a regression in one is attributable on its own.
     // Driving a single step leaves the container's other indexes intentionally
     // out of sync with the MMR — that is the point of the isolation.
+
+    /// The leaves at heights up to `height` must equal what the export state
+    /// commits to. Leaves above `height` don't count. A leaf from another
+    /// branch at or below `height` does, even in a container the state lacks.
+    #[test]
+    fn matches_through_compares_leaves_up_to_height() {
+        let db = test_db();
+        let store = SledExportEntriesDb::open(&db).unwrap();
+        let mut export = ExportState::new(vec![]).unwrap();
+
+        assert!(store.matches_through(10, &export).unwrap());
+
+        store.append(1, 10, vec![hash(0xa1), hash(0xa2)]).unwrap();
+        export.add_entry(1, hash(0xa1)).unwrap();
+        assert!(
+            !store.matches_through(10, &export).unwrap(),
+            "the state commits to one of the two leaves",
+        );
+        export.add_entry(1, hash(0xa2)).unwrap();
+        assert!(store.matches_through(10, &export).unwrap());
+
+        // A later height's leaves are outside the check.
+        store.append(1, 11, vec![hash(0xa3)]).unwrap();
+        assert!(store.matches_through(10, &export).unwrap());
+        assert!(!store.matches_through(11, &export).unwrap());
+
+        // Same count, different leaf.
+        store.prune_from(11).unwrap();
+        let mut other = ExportState::new(vec![]).unwrap();
+        other.add_entry(1, hash(0xa1)).unwrap();
+        other.add_entry(1, hash(0xff)).unwrap();
+        assert!(!store.matches_through(10, &other).unwrap());
+
+        // A leaf in a container the state does not hold.
+        store.append(2, 9, vec![hash(0xb1)]).unwrap();
+        assert!(!store.matches_through(10, &export).unwrap());
+    }
 
     #[test]
     fn first_dropped_index_finds_first_run_at_or_above_height() {

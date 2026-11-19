@@ -143,7 +143,9 @@ impl<W: MohoWorkerContext + Send + Sync + 'static> ServiceState for MohoWorkerSe
 mod tests {
     use std::{cell::RefCell, collections::HashMap};
 
+    use moho_types::ExportState;
     use strata_asm_common::{AnchorState, AsmLogEntry};
+    use strata_asm_logs::NewExportEntry;
     use strata_asm_params::AsmGenesisParams;
     use strata_asm_proof_impl::moho_program::program::compute_anchor_state_commitment;
     use strata_asm_spec::construct_genesis_state;
@@ -271,6 +273,30 @@ mod tests {
                 .borrow_mut()
                 .retain(|(_, h, _)| *h < height);
             Ok(())
+        }
+
+        fn export_entries_match(
+            &self,
+            height: u32,
+            export: &ExportState,
+        ) -> MohoWorkerResult<bool> {
+            let mut stored = ExportState::new(vec![]).expect("empty export state is valid");
+            for (container_id, _, entry) in self
+                .export_entries
+                .borrow()
+                .iter()
+                .filter(|(_, h, _)| *h <= height)
+            {
+                stored.add_entry(*container_id, *entry).expect("add entry");
+            }
+            let mmr = |state: &ExportState, id: u8| {
+                state
+                    .containers()
+                    .iter()
+                    .find(|container| container.container_id() == id)
+                    .map(|container| container.entries_mmr().clone())
+            };
+            Ok((0..=u8::MAX).all(|id| mmr(&stored, id) == mmr(export, id)))
         }
     }
 
@@ -471,6 +497,58 @@ mod tests {
         let inner = compute_anchor_state_commitment(&anchor);
         assert_eq!(moho.get(&blk_a).unwrap().inner_state(), inner);
         assert_eq!(moho.get(&blk_b).unwrap().inner_state(), inner);
+    }
+
+    /// A reorg back onto a branch the worker already folded. A's leaf is
+    /// stored, then B replaces it at the same height, then A's branch wins
+    /// again. Folding A's child must restore A's leaf, not keep B's.
+    #[test]
+    fn reorg_back_to_folded_branch_restores_its_export_entries() {
+        let (genesis_blk, anchor) = genesis_anchor();
+        let ctx = MockContext::default();
+        ctx.insert_anchor(genesis_blk, anchor.clone());
+
+        let export_log =
+            |data: u8| vec![AsmLogEntry::from_log(&NewExportEntry::new(1, [data; 32])).unwrap()];
+        let blk_a = commitment_after_with_id(genesis_blk, 0xaa);
+        let blk_b = commitment_after_with_id(genesis_blk, 0xbb);
+        let blk_b2 = commitment_after_with_id(blk_b, 0xbc);
+        let blk_a2 = commitment_after_with_id(blk_a, 0xab);
+        for (blk, parent, logs) in [
+            (blk_a, genesis_blk, export_log(0xa1)),
+            (blk_b, genesis_blk, export_log(0xb1)),
+            (blk_b2, blk_b, vec![]),
+            (blk_a2, blk_a, export_log(0xa2)),
+        ] {
+            ctx.insert_anchor(blk, child(&anchor));
+            ctx.link_parent(blk, parent);
+            ctx.logs.borrow_mut().insert(blk, logs);
+        }
+
+        let mut state = MohoWorkerServiceState::new(
+            ctx,
+            genesis_blk,
+            PredicateKey::always_accept(),
+            Subscribers::default(),
+        )
+        .unwrap();
+        for blk in [blk_a, blk_b, blk_b2, blk_a2] {
+            process_block(&mut state, blk).unwrap();
+        }
+
+        assert_eq!(
+            *state.context.export_entries.borrow(),
+            vec![
+                (1, blk_a.height(), [0xa1; 32]),
+                (1, blk_a2.height(), [0xa2; 32]),
+            ],
+        );
+        assert!(
+            state
+                .context
+                .export_entries_match(blk_a2.height(), state.cur_moho().export_state())
+                .unwrap()
+        );
     }
 
     #[test]

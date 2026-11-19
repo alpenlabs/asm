@@ -123,12 +123,15 @@ bitcoind ─────────────────▶ block watcher �
   the current tip.
 - **ASM worker** ([`crates/worker`](../crates/worker)) walks back from the new block to the
   last block it has a state for, then runs the STF forward over every block in between. This
-  also handles reorgs. For each block it stores the manifest, the aux data, and the anchor
-  state, in that order. The anchor state write is the commit point. It then tells its
-  subscribers.
+  also handles reorgs. The manifest hash MMR is keyed by height, so before it runs forward it
+  rewrites any leaf that an abandoned branch left at or below that block. For each block it
+  stores the manifest, the aux data, and the anchor state, in that order. The anchor state
+  write is the commit point. It then tells its subscribers.
 - **Moho worker** ([`crates/extensions/moho/worker`](../crates/extensions/moho/worker))
   folds each committed block into a `MohoState`. A `MohoState` commits to the ASM state, the
-  next predicate, and an export state that the bridge proves against.
+  next predicate, and an export state that the bridge proves against. Export entries are also
+  keyed by height, so before each fold it makes the stored entries match the parent's export
+  state.
 - **Prover worker** ([`crates/extensions/prover/worker`](../crates/extensions/prover/worker))
   follows the Moho worker. It requests an ASM step proof and a Moho recursive proof per
   block from a remote or native prover, and stores the results.

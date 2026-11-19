@@ -21,8 +21,8 @@ pub trait ExportEntriesDb {
     /// contribute several leaves to one container, handed over in one call.
     /// Appends unconditionally and does not deduplicate; a consumer that may
     /// reprocess a block (after a crash or reorg) prunes from the block's height
-    /// via [`prune_entries_from`] first, so the leaves it then stores extend a
-    /// clean prefix.
+    /// or a lower one via [`prune_entries_from`] first, so the leaves it then
+    /// stores extend a clean prefix.
     ///
     /// [`prune_entries_from`]: Self::prune_entries_from
     fn append_entries(
