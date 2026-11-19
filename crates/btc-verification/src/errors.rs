@@ -53,7 +53,8 @@ pub enum L1BodyError {
     #[error("witness commitment mismatch")]
     WitnessCommitmentMismatch,
 
-    /// The coinbase inclusion proof does not verify against the header's merkle root.
+    /// The coinbase inclusion proof is not for leaf 0 or does not verify against the header's
+    /// merkle root.
     #[error("invalid coinbase inclusion proof")]
     InvalidInclusionProof,
 
