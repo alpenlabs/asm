@@ -129,7 +129,9 @@ bitcoind ─────────────────▶ block watcher �
   write is the commit point. It then tells its subscribers.
 - **Moho worker** ([`crates/extensions/moho/worker`](../crates/extensions/moho/worker))
   folds each committed block into a `MohoState`. A `MohoState` commits to the ASM state, the
-  next predicate, and an export state that the bridge proves against.
+  next predicate, and an export state that the bridge proves against. Export entries are also
+  keyed by height, so before each fold it makes the stored entries match the parent's export
+  state.
 - **Prover worker** ([`crates/extensions/prover/worker`](../crates/extensions/prover/worker))
   follows the Moho worker. It requests an ASM step proof and a Moho recursive proof per
   block from a remote or native prover, and stores the results.

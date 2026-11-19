@@ -34,6 +34,12 @@ pub enum MohoWorkerError {
     #[error("could not resolve parent of L1 block {0:?}")]
     MissingParentBlock(L1BlockCommitment),
 
+    /// The stored export entries disagree with the Moho state at genesis, so
+    /// replaying logs cannot repair them before folding the child of this
+    /// block. The store is corrupt; wipe the datadir and resync.
+    #[error("export entries do not match Moho state below {0:?}; wipe the datadir and resync")]
+    ExportEntriesMismatch(L1BlockCommitment),
+
     /// A backend the worker reads from or persists to failed. Carries the
     /// concrete backend error as a boxed [`source`](std::error::Error::source)
     /// so its full chain stays reachable. The Display string embeds the cause
