@@ -10,13 +10,17 @@
 //!
 //! Appends are unconditional — the store does not deduplicate. A consumer that
 //! might reprocess a block (after a crash or an L1 reorg) prunes from the
-//! block's height first, so re-stored leaves always extend a clean prefix.
+//! block's height or a lower one first, so re-stored leaves always extend a
+//! clean prefix.
 
 use std::ops::Range;
 
 use anyhow::{Context, Result};
-use strata_merkle::{MerkleProofB32, Sha256Hasher};
-use strata_merkle_node_store::{LeafPos, MmrNodeStore, NodePos, StoredMmr, StoredMmrExt};
+use moho_types::ExportState;
+use strata_merkle::{MerkleProofB32, Mmr64B32, MmrState, Sha256Hasher};
+use strata_merkle_node_store::{
+    LeafPos, MmrNodeStore, NodePos, StoredMmr, StoredMmrExt, peak_positions,
+};
 
 use crate::ExportEntriesDb;
 
@@ -118,13 +122,26 @@ impl ContainerView<'_> {
 
         // The first leaf of this height lands at the current count; record the
         // run's start so `leaf_range_at_height` can bracket it.
+        let start = self.num_entries()?;
         self.index_by_height
-            .insert(self.height_key(height), &encode_idx(self.num_entries()?))?;
+            .insert(self.height_key(height), &encode_idx(start))?;
 
-        for entry in entries {
-            let index = StoredMmrExt::append_leaf::<Sha256Hasher>(self, entry)?;
-            self.index_by_hash
-                .insert(self.hash_key(&entry), &encode_idx(index))?;
+        // Write each reverse-index row before its leaf. `matches_through` checks
+        // only the leaves, so a leaf's hash must never be stored without a row. A
+        // crash before the first leaf leaves an empty run, which
+        // `matches_through` rejects, so the repair prunes it.
+        //
+        // A row stays only while it points at a stored copy of its hash, so a
+        // duplicate keeps its first copy's row. Every later copy sits above that
+        // one, so a prune that drops the row has dropped every copy. A row a crash
+        // left behind points past the leaves or at another hash, and is replaced.
+        for (index, entry) in (start..).zip(entries) {
+            if self.find_index(&entry)?.is_none() {
+                self.index_by_hash
+                    .insert(self.hash_key(&entry), &encode_idx(index))?;
+            }
+            let appended = StoredMmrExt::append_leaf::<Sha256Hasher>(self, entry)?;
+            debug_assert_eq!(appended, index);
         }
         Ok(())
     }
@@ -146,11 +163,17 @@ impl ContainerView<'_> {
     }
 
     /// See [`SledExportEntriesDb::find_index`].
+    ///
+    /// A row only counts if its leaf holds `hash`. A crash inside `append` can
+    /// leave a row whose leaf was never stored, and a later append can put
+    /// another hash at that index.
     fn find_index(&self, hash: &[u8; 32]) -> Result<Option<u64>> {
         let Some(idx_bytes) = self.index_by_hash.get(self.hash_key(hash))? else {
             return Ok(None);
         };
-        Ok(Some(decode_idx(idx_bytes.as_ref())))
+        let idx = decode_idx(idx_bytes.as_ref());
+        let stored = StoredMmr::get_leaf(self, idx)?;
+        Ok((stored.as_ref() == Some(hash)).then_some(idx))
     }
 
     /// See [`SledExportEntriesDb::entry_height`].
@@ -284,6 +307,47 @@ impl ContainerView<'_> {
             self.index_by_height.remove(key)?;
         }
         Ok(())
+    }
+
+    /// The number of leaves this container gained at heights up to and
+    /// including `height`.
+    fn count_through(&self, height: u32) -> Result<u64> {
+        let first_above = match height.checked_add(1) {
+            Some(next) => self.first_dropped_index(next)?,
+            None => None,
+        };
+        match first_above {
+            Some(index) => Ok(index),
+            None => self.num_entries(),
+        }
+    }
+
+    /// Whether the last run at or below `height` has no leaves.
+    ///
+    /// Every run `append` completes holds at least one leaf. An empty one is left
+    /// by a crash before its first leaf was stored.
+    fn last_run_is_empty(&self, height: u32) -> Result<bool> {
+        let mut runs = self
+            .index_by_height
+            .range(self.height_key(0)..=self.height_key(height));
+        let Some(run) = runs.next_back() else {
+            return Ok(false);
+        };
+        let (_, start_bytes) = run?;
+        Ok(decode_idx(start_bytes.as_ref()) >= self.num_entries()?)
+    }
+
+    /// Whether the first `mmr.num_entries()` leaves have `mmr`'s peaks.
+    ///
+    /// A peak is the root of a perfect subtree, so it stays stored whatever
+    /// leaves follow it.
+    fn peaks_match(&self, mmr: &Mmr64B32) -> Result<bool> {
+        for pos in peak_positions(mmr.num_entries()) {
+            if self.get_node(pos)?.as_ref() != mmr.get_peak(pos.height()) {
+                return Ok(false);
+            }
+        }
+        Ok(true)
     }
 
     /// See [`SledExportEntriesDb::leaf_range_at_height`].
@@ -454,6 +518,32 @@ impl SledExportEntriesDb {
             self.container(container_id).prune(height)?;
         }
         Ok(())
+    }
+
+    /// Whether the leaves stored at heights up to and including `height` are
+    /// exactly the leaves `export` commits to, in every container.
+    ///
+    /// A container `export` does not hold must have no leaves at those heights.
+    /// A run with no leaves, left by a crash inside an append, never matches.
+    /// Like [`Self::prune_from`], this checks every possible container id
+    /// rather than scanning for the ones that exist.
+    pub fn matches_through(&self, height: u32, export: &ExportState) -> Result<bool> {
+        let empty = Mmr64B32::new_empty();
+        for container_id in 0..=u8::MAX {
+            let expected = export
+                .containers()
+                .iter()
+                .find(|container| container.container_id() == container_id)
+                .map_or(&empty, |container| container.entries_mmr());
+            let view = self.container(container_id);
+            if view.count_through(height)? != expected.num_entries()
+                || !view.peaks_match(expected)?
+                || view.last_run_is_empty(height)?
+            {
+                return Ok(false);
+            }
+        }
+        Ok(true)
     }
 
     /// Synchronous variant of [`ExportEntriesDb::find_entry_index`].
@@ -902,6 +992,119 @@ mod tests {
     // composes, in isolation, so a regression in one is attributable on its own.
     // Driving a single step leaves the container's other indexes intentionally
     // out of sync with the MMR — that is the point of the isolation.
+
+    /// The leaves at heights up to `height` must equal what the export state
+    /// commits to. Leaves above `height` don't count. A leaf from another
+    /// branch at or below `height` does, even in a container the state lacks.
+    #[test]
+    fn matches_through_compares_leaves_up_to_height() {
+        let db = test_db();
+        let store = SledExportEntriesDb::open(&db).unwrap();
+        let mut export = ExportState::new(vec![]).unwrap();
+
+        assert!(store.matches_through(10, &export).unwrap());
+
+        store.append(1, 10, vec![hash(0xa1), hash(0xa2)]).unwrap();
+        export.add_entry(1, hash(0xa1)).unwrap();
+        assert!(
+            !store.matches_through(10, &export).unwrap(),
+            "the state commits to one of the two leaves",
+        );
+        export.add_entry(1, hash(0xa2)).unwrap();
+        assert!(store.matches_through(10, &export).unwrap());
+
+        // A later height's leaves are outside the check.
+        store.append(1, 11, vec![hash(0xa3)]).unwrap();
+        assert!(store.matches_through(10, &export).unwrap());
+        assert!(!store.matches_through(11, &export).unwrap());
+
+        // Same count, different leaf.
+        store.prune_from(11).unwrap();
+        let mut other = ExportState::new(vec![]).unwrap();
+        other.add_entry(1, hash(0xa1)).unwrap();
+        other.add_entry(1, hash(0xff)).unwrap();
+        assert!(!store.matches_through(10, &other).unwrap());
+
+        // A leaf in a container the state does not hold.
+        store.append(2, 9, vec![hash(0xb1)]).unwrap();
+        assert!(!store.matches_through(10, &export).unwrap());
+    }
+
+    /// A crash inside `append` can leave a reverse-index row and a height row
+    /// with no leaf. The torn height must not match, even for a state with no
+    /// entries there, and a prune from it must remove both rows.
+    #[test]
+    fn torn_append_is_unmatched_and_pruned() {
+        let db = test_db();
+        let store = SledExportEntriesDb::open(&db).unwrap();
+        store.append(1, 10, vec![hash(0xa1)]).unwrap();
+        let mut export = ExportState::new(vec![]).unwrap();
+        export.add_entry(1, hash(0xa1)).unwrap();
+
+        // What `append(1, 11, [0xa2])` writes before its leaf.
+        let c = store.container(1);
+        c.index_by_height
+            .insert(c.height_key(11), &encode_idx(1))
+            .unwrap();
+        c.index_by_hash
+            .insert(c.hash_key(&hash(0xa2)), &encode_idx(1))
+            .unwrap();
+
+        let mut through_11 = export.clone();
+        through_11.add_entry(1, hash(0xa2)).unwrap();
+        assert!(!store.matches_through(11, &through_11).unwrap());
+        assert!(!store.matches_through(12, &export).unwrap());
+        assert!(store.matches_through(10, &export).unwrap());
+        assert_eq!(store.find_index(1, &hash(0xa2)).unwrap(), None);
+
+        store.prune_from(11).unwrap();
+        assert!(store.matches_through(12, &export).unwrap());
+        assert_eq!(store.leaf_range_at_height(1, 11).unwrap(), None);
+        store.append(1, 11, vec![hash(0xa2)]).unwrap();
+        assert!(store.matches_through(11, &through_11).unwrap());
+        assert_eq!(store.find_index(1, &hash(0xa2)).unwrap(), Some(1));
+    }
+
+    /// A row a crash left behind must not resolve once another hash takes its
+    /// index, and must not block the hash's real row later.
+    #[test]
+    fn stale_row_is_ignored_and_replaced() {
+        let db = test_db();
+        let store = SledExportEntriesDb::open(&db).unwrap();
+        let c = store.container(1);
+        c.index_by_hash
+            .insert(c.hash_key(&hash(0xa2)), &encode_idx(0))
+            .unwrap();
+
+        store.append(1, 12, vec![hash(0xb0)]).unwrap();
+        assert_eq!(store.find_index(1, &hash(0xa2)).unwrap(), None);
+
+        store.append(1, 13, vec![hash(0xa2)]).unwrap();
+        assert_eq!(store.find_index(1, &hash(0xa2)).unwrap(), Some(1));
+    }
+
+    /// Pruning a later copy of a hash, after a full append or a torn one, must
+    /// leave the earlier copy findable.
+    #[test]
+    fn prune_of_later_duplicate_keeps_earlier_copy() {
+        let db = test_db();
+        let store = SledExportEntriesDb::open(&db).unwrap();
+        store.append(1, 10, vec![hash(0xa1)]).unwrap();
+
+        store.append(1, 11, vec![hash(0xa1)]).unwrap();
+        assert_eq!(store.find_index(1, &hash(0xa1)).unwrap(), Some(0));
+        store.prune_from(11).unwrap();
+        assert_eq!(store.find_index(1, &hash(0xa1)).unwrap(), Some(0));
+
+        // What `append(1, 11, [0xa1])` writes before its leaf. The hash already
+        // has a row, so it writes only the height row.
+        let c = store.container(1);
+        c.index_by_height
+            .insert(c.height_key(11), &encode_idx(1))
+            .unwrap();
+        store.prune_from(11).unwrap();
+        assert_eq!(store.find_index(1, &hash(0xa1)).unwrap(), Some(0));
+    }
 
     #[test]
     fn first_dropped_index_finds_first_run_at_or_above_height() {

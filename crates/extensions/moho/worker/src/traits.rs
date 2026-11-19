@@ -17,7 +17,7 @@
 //! `strata-asm-worker`'s [`WorkerContext`](strata_asm_worker::WorkerContext):
 //! implement the concern traits and get the context for free.
 
-use moho_types::MohoState;
+use moho_types::{ExportState, MohoState};
 use strata_asm_common::{AnchorState, AsmLogEntry};
 use strata_identifiers::L1BlockCommitment;
 
@@ -97,9 +97,9 @@ pub trait ExportEntryStore {
     /// a time.
     ///
     /// Appends unconditionally — the store does not deduplicate. Before
-    /// reprocessing a block (after a crash or an L1 reorg) the worker first
-    /// prunes its height via [`Self::prune_export_entries_from`], so the leaves it
-    /// then stores always extend a clean prefix.
+    /// storing a block's leaves the worker prunes, via
+    /// [`Self::prune_export_entries_from`], from that height or a lower one, so
+    /// the leaves it then stores always extend a clean prefix.
     fn store_export_entries(
         &self,
         container_id: u8,
@@ -111,18 +111,28 @@ pub trait ExportEntryStore {
     /// containers, rolling each container's MMR back to the leaves contributed
     /// by blocks below `height`.
     ///
-    /// Called when an L1 reorg replaces the block at `height`: the replacement
-    /// can append a different set of leaves than the block it evicts, so the
-    /// stale leaves — and everything appended after them — must be cleared
-    /// before the new block is folded and re-appends its own. The worker folds
-    /// blocks in ascending height, so the leaves at or above `height` are always
-    /// a contiguous suffix of each container's MMR.
+    /// The worker calls this before every fold, from one above the newest
+    /// ancestor whose stored leaves match its Moho state. On forward progress
+    /// that is the new block's own height, and nothing sits there yet. After an
+    /// L1 reorg it can be lower: the replaced blocks' leaves, and everything
+    /// appended after them, must go before the new branch appends its own.
+    /// Leaves are stored in ascending height, so the leaves at or above
+    /// `height` are always a contiguous suffix of each container's MMR.
     ///
     /// Must be idempotent in `height`: like [`Self::store_export_entries`], this runs
     /// before the block's commit point, so a crash mid-reorg has the worker
     /// reprocess the block and prune again. Pruning an already-pruned range must
     /// be a no-op.
     fn prune_export_entries_from(&self, height: u32) -> MohoWorkerResult<()>;
+
+    /// Whether the leaves stored at heights up to and including `height` are
+    /// exactly the leaves `export` commits to, in every container.
+    ///
+    /// The worker checks this against a parent's [`MohoState`] before folding
+    /// its child. Leaves are stored by height, so a reorg back onto a branch
+    /// the worker already folded can leave another branch's leaves at or below
+    /// the parent.
+    fn export_entries_match(&self, height: u32, export: &ExportState) -> MohoWorkerResult<bool>;
 }
 
 /// Context the Moho worker interacts with the outside world through.

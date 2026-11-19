@@ -125,9 +125,8 @@ pub trait AsmMohoApi {
     /// the block. Errors when the block is not on the canonical chain or has no
     /// Moho state yet.
     ///
-    /// The lookup resolves to the most recent occurrence of `leaf`. If the same
-    /// hash was added again after the block, this returns `None` even when an
-    /// earlier copy is in that block's container.
+    /// If `leaf` was added more than once, this returns the index of its first
+    /// copy.
     #[method(name = "getExportEntryIndex")]
     async fn get_export_entry_index(
         &self,

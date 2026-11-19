@@ -102,9 +102,8 @@ pub enum ExportProofError<M: Debug, E: Debug> {
 /// block: the container does not exist yet, the leaf was never indexed, or it
 /// was appended after the block.
 ///
-/// The lookup resolves to the most recent occurrence of `leaf`. If the same
-/// hash was appended again after `commitment`, this returns `None` even when an
-/// earlier copy is covered by the block's MMR.
+/// If `leaf` was appended more than once, this returns the index of its first
+/// copy.
 ///
 /// # Errors
 ///
@@ -510,10 +509,10 @@ mod tests {
         });
     }
 
-    /// The lookup resolves to the latest copy of a hash, so a copy appended
-    /// after the queried block hides an earlier one that block does cover.
+    /// The lookup resolves to the first copy of a hash, so a later copy does not
+    /// hide it from a block that covers only the first.
     #[test]
-    fn later_duplicate_hides_earlier_copy() {
+    fn later_duplicate_keeps_earlier_copy_visible() {
         Runtime::new().unwrap().block_on(async {
             let (moho, idx, _tmp) = temp_dbs();
 
@@ -543,8 +542,8 @@ mod tests {
             let at_b2 = find_export_entry_index(&moho, &idx, b2, CONTAINER_ID, &leaf)
                 .await
                 .unwrap();
-            assert_eq!(at_b1, None);
-            assert_eq!(at_b2, Some(1));
+            assert_eq!(at_b1, Some(0));
+            assert_eq!(at_b2, Some(0));
         });
     }
 
