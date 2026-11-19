@@ -87,8 +87,10 @@ pub trait AnchorStateStore {
 
 /// Persists L1 manifests and maintains the manifest-hash MMR.
 pub trait ManifestMmrStore {
-    /// Loads the selected anchor's manifest to recover the predicate for the next block
-    /// to be executed.
+    /// Loads the manifest committed for `block`.
+    ///
+    /// Used to recover the predicate for the next block, and to rewrite MMR
+    /// leaves a reorg left stale.
     fn get_manifest(&self, block: &L1BlockCommitment) -> WorkerResult<AsmManifest>;
 
     /// Persists the full [`AsmManifest`] struct.
@@ -109,13 +111,11 @@ pub trait ManifestMmrStore {
     /// leave a gap in the height-to-index mapping, and so is a `height` at or
     /// below genesis.
     ///
-    /// The worker only ever calls this in forward order: `sync_to_block`
-    /// processes from the base (the most recent ancestor with a stored anchor
-    /// state, i.e. the reorg fork point) through the target block, oldest
-    /// first, so `height` arrives contiguously and never skips ahead. On a
-    /// reorg this overwrites each superseded leaf from the fork point forward
-    /// before any later height is written, so a stale leaf never outlives the
-    /// chain it belonged to.
+    /// `sync_to_block` calls this in two places. It first walks back from the
+    /// base (the most recent ancestor with a stored anchor state) to rewrite
+    /// any leaf a previously processed branch left at or below it. It then
+    /// processes the blocks above the base oldest first, so `height` arrives
+    /// contiguously and never skips ahead.
     fn put_manifest_hash(&self, height: u64, hash: AsmManifestHash) -> WorkerResult<()>;
 
     /// Seeds an empty manifest MMR from the genesis accumulator, so that real
