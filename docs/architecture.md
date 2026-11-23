@@ -123,12 +123,15 @@ bitcoind ─────────────────▶ block watcher �
   the current tip.
 - **ASM worker** ([`crates/worker`](../crates/worker)) walks back from the new block to the
   last block it has a state for, then runs the STF forward over every block in between. This
-  also handles reorgs. For each block it stores the manifest, the aux data, and the anchor
-  state, in that order. The anchor state write is the commit point. It then tells its
-  subscribers.
+  also handles reorgs. The manifest hash MMR is keyed by height, so before it runs forward it
+  rewrites any leaf that an abandoned branch left at or below that block. For each block it
+  stores the manifest, the aux data, and the anchor state, in that order. The anchor state
+  write is the commit point. It then tells its subscribers.
 - **Moho worker** ([`crates/extensions/moho/worker`](../crates/extensions/moho/worker))
   folds each committed block into a `MohoState`. A `MohoState` commits to the ASM state, the
-  next predicate, and an export state that the bridge proves against.
+  next predicate, and an export state that the bridge proves against. Export entries are also
+  keyed by height, so before each fold it makes the stored entries match the parent's export
+  state.
 - **Prover worker** ([`crates/extensions/prover/worker`](../crates/extensions/prover/worker))
   follows the Moho worker. It requests an ASM step proof and a Moho recursive proof per
   block from a remote or native prover, and stores the results.
@@ -152,6 +155,17 @@ The runner uses three sled databases:
   states and export entries.
 - **Proof DB** ([`crates/extensions/prover/storage`](../crates/extensions/prover/storage)):
   proofs and remote prover bookkeeping. Only opened with an orchestrator.
+
+Nothing deletes what an abandoned reorg branch wrote. The workers repair the height-keyed
+data, the manifest hash MMR and the export entries, before each step, as described above.
+Anchor states and Moho states are keyed by height and block id, and each store's latest
+state is its highest key. After a reorg onto a shorter branch, that is the taller orphan
+until the canonical branch out-heights it, so a restart in that window resumes on the
+orphan. The ASM worker re-anchors on the next canonical block. If the Moho worker stopped
+before folding the first canonical block, each new block makes it fail, and the runner
+exits. The runner does not restart itself. Each restart resumes on the orphan again until a
+canonical block is the latest state. The next restart then folds the canonical branch, and
+the runner stays up. We accept this window rather than prune orphans.
 
 [`bin/dbtool`](../bin/dbtool/README.md) reads and repairs these offline.
 

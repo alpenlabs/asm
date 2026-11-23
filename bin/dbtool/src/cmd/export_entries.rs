@@ -4,8 +4,8 @@
 //! hashes; a leaf's `<index>` is its `mmr_index` within that container.
 //!
 //! Nothing deduplicates entry hashes — the store allows a hash to appear as
-//! several leaves, and its reverse index resolves `find` to the most recently
-//! appended one (see `ExportEntriesDb::find_index`). `append` therefore
+//! several leaves, and its reverse index resolves `find` to the first one
+//! appended (see `ExportEntriesDb::find_index`). `append` therefore
 //! accepts duplicates rather than rejecting them.
 
 use std::{fs, path::Path};

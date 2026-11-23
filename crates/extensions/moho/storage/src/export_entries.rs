@@ -21,8 +21,8 @@ pub trait ExportEntriesDb {
     /// contribute several leaves to one container, handed over in one call.
     /// Appends unconditionally and does not deduplicate; a consumer that may
     /// reprocess a block (after a crash or reorg) prunes from the block's height
-    /// via [`prune_entries_from`] first, so the leaves it then stores extend a
-    /// clean prefix.
+    /// or a lower one via [`prune_entries_from`] first, so the leaves it then
+    /// stores extend a clean prefix.
     ///
     /// [`prune_entries_from`]: Self::prune_entries_from
     fn append_entries(
@@ -35,10 +35,11 @@ pub trait ExportEntriesDb {
     /// Reverse lookup: resolves to the `mmr_index` of `hash` under
     /// `container_id`, or `None` if absent.
     ///
-    /// If multiple entries share the same `hash`, only one is returned: the most
-    /// recently appended one (the highest `mmr_index`). Consumers for which
-    /// duplicate hashes are meaningful must not rely on this and should handle
-    /// the ambiguity themselves.
+    /// If multiple entries share the same `hash`, only one is returned: the first
+    /// one appended (the lowest `mmr_index`). Any copy proves the same leaf, and
+    /// the first one is covered by every export state that holds a copy.
+    /// Consumers for which duplicate hashes are meaningful must not rely on this
+    /// and should handle the ambiguity themselves.
     fn find_entry_index(
         &self,
         container_id: u8,

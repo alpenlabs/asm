@@ -23,7 +23,7 @@
 
 use std::sync::Arc;
 
-use moho_types::MohoState;
+use moho_types::{ExportState, MohoState};
 use strata_asm_common::{AnchorState, AsmLogEntry};
 use strata_asm_moho_storage::{SledExportEntriesDb, SledMohoStateDb};
 use strata_asm_moho_worker::{
@@ -192,6 +192,13 @@ impl ExportEntryStore for TestMohoWorkerContext {
         self.stores
             .export_entries_db
             .prune_from(height)
+            .map_err(|e| MohoWorkerError::Storage(e.into()))
+    }
+
+    fn export_entries_match(&self, height: u32, export: &ExportState) -> MohoWorkerResult<bool> {
+        self.stores
+            .export_entries_db
+            .matches_through(height, export)
             .map_err(|e| MohoWorkerError::Storage(e.into()))
     }
 }

@@ -11,6 +11,7 @@ use std::marker::PhantomData;
 
 use moho_types::MohoState;
 use serde::{Deserialize, Serialize};
+use strata_asm_common::AsmLogEntry;
 use strata_asm_worker::{SyncError, plan_sync};
 use strata_identifiers::L1BlockCommitment;
 use strata_service::{AsyncService, Response, Service};
@@ -93,12 +94,10 @@ pub(crate) fn process_block<W: MohoWorkerContext>(
     let logs = state.context.get_anchor_logs(&block)?;
     let moho = compute::construct_next_moho_state(&parent_moho, &anchor_state, &logs);
 
-    // Prune this block's height first so a reprocess (crash-replay or reorg)
-    // re-stores onto a clean prefix: `store_export_entries` does not dedup, and a
-    // single block can contribute several leaves per container, so the suffix is
-    // cleared by height rather than popped per block. On forward progress nothing
-    // sits at this height yet, so the prune is a no-op.
-    state.context.prune_export_entries_from(block.height())?;
+    // Leave the store holding exactly the parent's leaves, so this block's
+    // leaves extend a clean prefix. This also clears what a crashed attempt at
+    // this block or an abandoned branch left at or above this height.
+    repair_export_entries(&state.context, parent, &parent_moho, state.genesis_height())?;
 
     // Persist the export-entry leaves before the Moho state. The worker tracks
     // progress via the Moho store (`get_latest_moho_state`), so `store_moho_state`
@@ -106,16 +105,79 @@ pub(crate) fn process_block<W: MohoWorkerContext>(
     // and the block is reprocessed on restart. Writing the leaves after the
     // commit point would risk a gap between them and the `ExportState` MMR that
     // commits to them.
-    for (container_id, entries) in compute::export_entries_from_logs(&logs) {
-        state
-            .context
-            .store_export_entries(container_id, block.height(), entries)?;
-    }
+    persist_export_entries(&state.context, block.height(), &logs)?;
     state.context.store_moho_state(&block, &moho)?;
 
     state.update_moho_state(moho, block);
 
     info!(%block, %parent, "committed Moho state");
+    Ok(())
+}
+
+/// Makes the stored export entries hold exactly the leaves `parent_moho`
+/// commits to, before the child of `parent` is folded.
+///
+/// Entries are stored by height. Take a node that folds A, then reorgs to B at
+/// the same height, then back onto A's branch. The fold chains from A's stored
+/// Moho state, but the entries at A's height still belong to B. The RPC would
+/// then serve export proofs that fail against the Moho state.
+///
+/// Walks back from `parent` to the newest ancestor whose stored entries match
+/// its Moho state, drops every entry above it, and replays the logs of the
+/// blocks between it and `parent`. On forward progress the parent matches, so
+/// this only drops entries above it, if any. A crash partway through leaves
+/// the parent unmatched, so the next attempt walks back and replays again.
+fn repair_export_entries<W: MohoWorkerContext>(
+    ctx: &W,
+    parent: L1BlockCommitment,
+    parent_moho: &MohoState,
+    genesis_height: u64,
+) -> MohoWorkerResult<()> {
+    let plan = plan_sync(
+        parent,
+        genesis_height,
+        |block| {
+            let matches = if *block == parent {
+                ctx.export_entries_match(block.height(), parent_moho.export_state())?
+            } else {
+                let moho = ctx.get_moho_state(block)?;
+                ctx.export_entries_match(block.height(), moho.export_state())?
+            };
+            Ok(matches.then_some(()))
+        },
+        |block| ctx.get_parent_block(block),
+    )
+    .map_err(|e| match e {
+        // Genesis has no entries, so a mismatch there is not a stale branch.
+        SyncError::ReachedFloor { .. } => MohoWorkerError::ExportEntriesMismatch(parent),
+        SyncError::Provider(e) => e,
+    })?;
+    let replay = plan.pending;
+
+    ctx.prune_export_entries_from(plan.base_block.height() + 1)?;
+    for block in replay.iter().rev() {
+        persist_export_entries(ctx, block.height(), &ctx.get_anchor_logs(block)?)?;
+    }
+
+    if !replay.is_empty() {
+        info!(
+            %parent,
+            replayed = replay.len(),
+            "rewrote export entries left by an abandoned branch"
+        );
+    }
+    Ok(())
+}
+
+/// Stores the export-entry leaves a block's logs carry, tagged with `height`.
+fn persist_export_entries<W: MohoWorkerContext>(
+    ctx: &W,
+    height: u32,
+    logs: &[AsmLogEntry],
+) -> MohoWorkerResult<()> {
+    for (container_id, entries) in compute::export_entries_from_logs(logs) {
+        ctx.store_export_entries(container_id, height, entries)?;
+    }
     Ok(())
 }
 
