@@ -144,6 +144,7 @@ mod tests {
     use std::{cell::RefCell, collections::HashMap};
 
     use strata_asm_common::{AnchorState, AsmLogEntry};
+    use strata_asm_logs::NewExportEntry;
     use strata_asm_params::AsmGenesisParams;
     use strata_asm_proof_impl::moho_program::program::compute_anchor_state_commitment;
     use strata_asm_spec::construct_genesis_state;
@@ -172,18 +173,38 @@ mod tests {
     impl MockContext {
         fn insert_anchor(&self, blk: L1BlockCommitment, state: AnchorState) {
             self.anchors.borrow_mut().insert(blk, state);
-            // Track the highest-height anchor as the ASM tip, mirroring the ASM
-            // store's `latest` pointer.
             let mut latest = self.asm_latest.borrow_mut();
-            if latest.is_none_or(|b| blk.height() >= b.height()) {
+            if latest.is_none_or(|b| store_key(&blk) >= store_key(&b)) {
                 *latest = Some(blk);
             }
+        }
+
+        /// Records `logs` as the ASM logs `blk` emitted.
+        fn insert_logs(&self, blk: L1BlockCommitment, logs: Vec<AsmLogEntry>) {
+            self.logs.borrow_mut().insert(blk, logs);
+        }
+
+        /// The export leaves stored for `container_id`, in append order.
+        fn stored_export_leaves(&self, container_id: u8) -> Vec<[u8; 32]> {
+            self.export_entries
+                .borrow()
+                .iter()
+                .filter(|(id, _, _)| *id == container_id)
+                .map(|(_, _, leaf)| *leaf)
+                .collect()
         }
 
         /// Registers `parent` as the parent of `blk` for parent resolution.
         fn link_parent(&self, blk: L1BlockCommitment, parent: L1BlockCommitment) {
             self.parents.borrow_mut().insert(blk, parent);
         }
+    }
+
+    /// The sort order of the sled ASM and Moho stores, whose keys are
+    /// `[height][blkid]`. Each store's `latest` is its last key: the highest
+    /// height, with ties going to the larger block id.
+    fn store_key(blk: &L1BlockCommitment) -> (u32, &[u8]) {
+        (blk.height(), blk.blkid().as_ref())
     }
 
     impl AsmStateProvider for MockContext {
@@ -244,7 +265,7 @@ mod tests {
             let mut latest = self.latest.borrow_mut();
             if latest
                 .as_ref()
-                .is_none_or(|(b, _)| blockid.height() >= b.height())
+                .is_none_or(|(b, _)| store_key(blockid) >= store_key(b))
             {
                 *latest = Some((*blockid, state.clone()));
             }
@@ -643,6 +664,117 @@ mod tests {
 
         assert_eq!(state.cur_block(), blk_b);
         assert!(state.context.moho.borrow().contains_key(&blk_b));
+    }
+
+    #[test]
+    fn short_reorg_wedges_until_canonical_out_heights_orphan() {
+        // Pins the Moho leg of STR-3819, which we accepted rather than fixed.
+        // Moho folds the taller branch A, then ASM reorgs onto the shorter
+        // branch B and stores b1, but Moho stops before folding it. While A is
+        // the ASM store's `latest`, a restart resumes on A and never folds b1,
+        // so every live B block fails on its missing parent and the runner
+        // exits. Once a B block is the store's `latest`, a restart folds all of B.
+        const CONTAINER: u8 = 1;
+        let leaf = |id: u8| [id; 32];
+        let export_log = |id: u8| {
+            AsmLogEntry::from_log(&NewExportEntry::new(CONTAINER, leaf(id)))
+                .expect("export entry log encodes")
+        };
+        let restart = |ctx: MockContext, genesis| {
+            let mut state = MohoWorkerServiceState::new(
+                ctx,
+                genesis,
+                PredicateKey::always_accept(),
+                Subscribers::default(),
+            )
+            .unwrap();
+            sync_to_tip(&mut state).unwrap();
+            state
+        };
+
+        let (genesis_blk, anchor) = genesis_anchor();
+        let ctx = MockContext::default();
+        ctx.insert_anchor(genesis_blk, anchor.clone());
+
+        // A's ids sort above B's, so A wins the height tie at a2/b2. That is the
+        // worst case for how long the wedge lasts.
+        let a1 = commitment_after_with_id(genesis_blk, 0xa1);
+        let a2 = commitment_after_with_id(a1, 0xa2);
+        let b1 = commitment_after_with_id(genesis_blk, 0x01);
+        let b2 = commitment_after_with_id(b1, 0x02);
+        let b3 = commitment_after_with_id(b2, 0x03);
+        for (blk, parent) in [
+            (a1, genesis_blk),
+            (a2, a1),
+            (b1, genesis_blk),
+            (b2, b1),
+            (b3, b2),
+        ] {
+            ctx.link_parent(blk, parent);
+            ctx.insert_logs(blk, vec![export_log(blk.blkid().as_ref()[0])]);
+        }
+
+        // Moho follows branch A live.
+        ctx.insert_anchor(a1, child(&anchor));
+        ctx.insert_anchor(a2, child(&anchor));
+        let mut state = restart(ctx, genesis_blk);
+        process_block(&mut state, a1).unwrap();
+        process_block(&mut state, a2).unwrap();
+
+        // ASM reorgs onto B and stores b1. Moho stops before folding it.
+        state.context.insert_anchor(b1, child(&anchor));
+        let state = restart(state.context, genesis_blk);
+        assert_eq!(state.cur_block(), a2, "restart resumes on the orphan tip");
+        let ctx = &state.context;
+        assert!(matches!(
+            ctx.get_moho_state(&b1),
+            Err(MohoWorkerError::MissingMohoState(_))
+        ));
+        // The export store still holds A's leaves above the fork. The export RPC
+        // takes only canonical blocks and reads their Moho state, and B has none
+        // yet. So B's export proofs are unavailable for now, not wrong.
+        assert_eq!(
+            ctx.stored_export_leaves(CONTAINER),
+            vec![leaf(0xa1), leaf(0xa2)]
+        );
+
+        // b2 ties a2 and loses, so a restart still resumes on A. Each live B
+        // block fails on its unfolded parent.
+        state.context.insert_anchor(b2, child(&anchor));
+        let mut state = restart(state.context, genesis_blk);
+        assert_eq!(state.cur_block(), a2);
+        assert!(matches!(
+            process_block(&mut state, b2),
+            Err(MohoWorkerError::MissingMohoState(blk)) if blk == b1
+        ));
+
+        // b3 out-heights A. The restart walks b3's parents to genesis and folds
+        // all of B, and the first fold prunes A's leaves from the fork height.
+        state.context.insert_anchor(b3, child(&anchor));
+        let state = restart(state.context, genesis_blk);
+        assert_eq!(state.cur_block(), b3);
+        let ctx = &state.context;
+        for blk in [b1, b2, b3] {
+            assert!(ctx.moho.borrow().contains_key(&blk));
+        }
+        assert_eq!(
+            ctx.stored_export_leaves(CONTAINER),
+            vec![leaf(0x01), leaf(0x02), leaf(0x03)]
+        );
+        let b3_container = ctx
+            .get_moho_state(&b3)
+            .unwrap()
+            .export_state()
+            .containers()
+            .iter()
+            .find(|c| c.container_id() == CONTAINER)
+            .expect("B's leaves create the container")
+            .entries_mmr()
+            .num_entries();
+        assert_eq!(
+            b3_container, 3,
+            "b3's Moho state commits to B's three leaves"
+        );
     }
 
     #[test]
