@@ -14,14 +14,15 @@
 //!   (CVE-2012-2459). See [`calculate_root_no_dups`].
 //! - No witness data unless the coinbase commits to it, since the txid merkle root does not cover
 //!   witness data (BIP141). See [`L1BodyError::UncommittedWitnessData`].
-//! - No internal merkle node passed off as a leaf, excluded by pinning proof length to the tree
-//!   depth in [`TxidInclusionProof::verify`].
+//! - No fake coinbase proven through a real 64-byte transaction, which hashes like an inner merkle
+//!   node (CVE-2017-12842). The coinbase inclusion proof must be for leaf 0. See
+//!   [`check_block_integrity`].
 //!
 //! Rules outside that set are left to Bitcoin: breaking one means mining a block the network then
-//! orphans, so it reaches the ASM only as part of a chain that out-mines the honest one. Duplicate
-//! transactions are the exception, and the reason they appear above — a body mutated that way
-//! reuses the header it came with, so it carries the same accumulated work as the honest body and
-//! no comparison of chains separates them.
+//! orphans, so it reaches the ASM only as part of a chain that out-mines the honest one. The rules
+//! above are the exceptions. A body that breaks one reuses the header of a block Bitcoin accepts,
+//! so it carries the same accumulated work as the honest body and no comparison of chains separates
+//! them.
 
 use bitcoin::{
     Block, Transaction, TxMerkleNode, WitnessCommitment, WitnessMerkleNode, consensus::Encodable,
@@ -50,7 +51,7 @@ use crate::{
 ///    - Verifies that the witness commitment in the coinbase transaction matches the aggregated
 ///      witness data of the block’s segwit transactions.
 ///    - Checks the coinbase transaction’s inclusion in the block’s Merkle tree using the provided
-///      `inclusion_proof`.
+///      `inclusion_proof`, which must be for leaf 0.
 ///
 /// 2. **Blocks without segwit transactions**
 ///    - Validates the Merkle root by comparing the block header’s Merkle root with the Merkle root
@@ -110,8 +111,11 @@ pub fn check_block_integrity(
             return Err(L1BodyError::WitnessCommitmentMismatch);
         }
 
-        // Check the coinbase inclusion proof. The transaction count comes from the block body,
-        // binding the proof to the block's actual Merkle tree.
+        // A 64-byte transaction hashes like an inner merkle node, so a proof could treat one as
+        // the parent of a fake coinbase (CVE-2017-12842). The real coinbase is always leaf 0.
+        if proof.position() != 0 {
+            return Err(L1BodyError::InvalidInclusionProof);
+        }
         if !proof.verify(
             coinbase,
             header.merkle_root.to_byte_array().into(),
@@ -509,5 +513,33 @@ mod tests {
 
         let err = check_block_integrity(&mutated, Some(&proof)).unwrap_err();
         assert!(matches!(err, L1BodyError::DuplicateTransaction), "{err}");
+    }
+
+    /// A coinbase proof for any leaf but 0 is rejected, even when it verifies against the header.
+    ///
+    /// The real attack (CVE-2017-12842) needs a grind to build such a proof. This test skips the
+    /// grind: the header commits to the honest transactions with the coinbase moved to leaf 1.
+    #[test]
+    fn test_coinbase_proof_at_nonzero_position_rejected() {
+        let mut block = BtcMainnetSegment::load_full_block();
+
+        let mut reordered = block.txdata.clone();
+        reordered.swap(0, 1);
+        let reordered_root = {
+            let hashes = reordered
+                .iter()
+                .map(|tx| Buf32::from(compute_txid(tx).to_byte_array()));
+            calculate_root(hashes).unwrap()
+        };
+        block.header.merkle_root = TxMerkleNode::from_byte_array(reordered_root.0);
+
+        let proof = TxidInclusionProof::generate(&reordered, 1).expect("valid index");
+        assert!(
+            proof.verify(&block.txdata[0], reordered_root, block.txdata.len()),
+            "the proof must verify against the header, or this test proves nothing"
+        );
+
+        let err = check_block_integrity(&block, Some(&proof)).unwrap_err();
+        assert!(matches!(err, L1BodyError::InvalidInclusionProof), "{err}");
     }
 }

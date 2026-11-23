@@ -126,9 +126,8 @@ impl TxidInclusionProof {
 
     /// Verifies the inclusion proof of the given `transaction` against the provided Merkle `root`.
     ///
-    /// `tx_count` is the number of transactions in the block the `root` commits to. It binds the
-    /// proof to the block's actual Merkle tree and must be sourced independently of the proof
-    /// (e.g. from the block body), never from the proof itself.
+    /// `tx_count` is the number of transactions in the block the `root` commits to. It must come
+    /// from a source the `root` authenticates, never from the proof itself.
     ///
     /// The proof is rejected unless:
     ///
@@ -136,9 +135,9 @@ impl TxidInclusionProof {
     /// - [`position`](Self::position) is a valid leaf index (`< tx_count`); and
     /// - the number of siblings equals the tree depth `ceil(log2(tx_count))`.
     ///
-    /// The depth check is Bitcoin Core's standard mitigation against the 64-byte node/transaction
-    /// ambiguity: an internal Merkle node presented as a leaf yields a proof shorter than the true
-    /// tree depth, so pinning the sibling count to the depth makes such forgeries unverifiable.
+    /// The depth check stops a 64-byte transaction from being used as an inner node
+    /// (CVE-2017-12842) only when `tx_count` is the real count. A count taken from an unverified
+    /// body can be chosen to fit a forged proof.
     pub fn verify(&self, transaction: &Transaction, root: Buf32, tx_count: usize) -> bool {
         if tx_count == 0 || self.position as usize >= tx_count {
             return false;
