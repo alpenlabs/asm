@@ -531,6 +531,59 @@ mod tests {
         );
     }
 
+    /// Pins the ASM leg of STR-3819, which we accepted rather than fixed. After
+    /// a reorg onto a shorter branch, the taller orphan is still the store's
+    /// `latest`, so a restart resumes on it. The startup submit of the canonical
+    /// tip is a no-op because that anchor is already stored. Each new canonical
+    /// block re-anchors on its real parent, so the orphan never feeds a
+    /// transition. Restarts keep resuming on the orphan until the canonical
+    /// branch out-heights it.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn restart_after_short_reorg_resumes_on_orphan() {
+        let mut fx = fixtures::setup_state(101).await;
+        let client = fx.client.clone();
+        let restart = async |context: &TestAsmWorkerContext| {
+            let params = fixtures::genesis_params(&client, 101).await;
+            fixtures::new_state(context.clone(), params).unwrap()
+        };
+
+        // Branch A: 102, 103a, 104a, 105a.
+        let branch_a = fixtures::mine(&fx.node, &fx.client, 4).await;
+        let orphan_tip = *branch_a.last().unwrap();
+        sync_to_block(&mut fx.state, orphan_tip.blkid()).expect("sync branch A");
+
+        // Reorg onto the shorter branch B: 103b.
+        let canonical_tip = fixtures::reorg(&fx.node, &fx.client, 103, 1).await[0];
+        sync_to_block(&mut fx.state, canonical_tip.blkid()).expect("sync branch B");
+        assert_eq!(fx.state.blkid, canonical_tip);
+
+        let mut state = restart(&fx.state.context).await;
+        assert_eq!(state.blkid, orphan_tip, "restart resumes on the orphan");
+
+        let processed = sync_to_block(&mut state, canonical_tip.blkid()).expect("startup submit");
+        assert!(processed.is_empty(), "the canonical tip is already stored");
+        assert_eq!(state.blkid, orphan_tip, "the tip stays on the orphan");
+
+        // 104b is still below the orphan, but it re-anchors on its real parent.
+        let next = fixtures::mine(&fx.node, &fx.client, 1).await[0];
+        let processed = sync_to_block(&mut state, next.blkid()).expect("sync 104b");
+        assert_eq!(processed, vec![next]);
+        assert_eq!(state.blkid, next);
+
+        // The orphan still out-heights B, so the next restart resumes on it too.
+        let mut state = restart(&state.context).await;
+        assert_eq!(state.blkid, orphan_tip);
+
+        // 106b out-heights the orphan, so a restart finally resumes on B.
+        let grown = *fixtures::mine(&fx.node, &fx.client, 2)
+            .await
+            .last()
+            .unwrap();
+        sync_to_block(&mut state, grown.blkid()).expect("sync 106b");
+        let state = restart(&state.context).await;
+        assert_eq!(state.blkid, grown);
+    }
+
     /// On a reorg, the heights shared with the old branch have their manifest
     /// leaves overwritten in place (not appended), while the common fork point
     /// below the divergence is left untouched.
