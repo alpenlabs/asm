@@ -16,6 +16,27 @@ repository validation checks.
 - Historical proof jobs resolve their own parent's predicate, not the current tip's.
 - The Moho recursive program is fixed per node. Only the ASM step program changes across upgrades.
 
+## What a spec ID pins
+
+A spec ID pins a guest, through its predicate. It does not pin native code. Every spec in
+`crates/spec/src/specs/` calls the subprotocol code at HEAD and gates only its own change. So
+native spec N runs HEAD code plus spec N's change, and it can drift from the guest that shipped
+spec N.
+
+The drift is safe while a node that syncs from genesis still reaches the same state. A change
+to shared code moves consensus only if some block folds differently under it. Before you change
+shared code that a running chain uses:
+
+- Check the chain's history for a block that takes the changed path. If there is none, replay is
+  unchanged and the old behavior needs no spec gate. If there is one, keep the old behavior for
+  the old spec and put the new behavior behind a new spec.
+- The chain's active guest still runs the old rules. Until an upgrade activates a guest with the
+  change, native execution and proofs disagree on any new block that takes the changed path.
+
+Hardening fixes reject input that honest software never produces, so they usually pass the
+history check. Run the check anyway, because an attacker may already have put such input on
+chain.
+
 ## Adding a concrete spec and release
 
 1. **Implement the spec.** Implement `AsmSpec` with a unique `SpecId`, a deterministic `prepare`,

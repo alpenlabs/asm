@@ -98,8 +98,9 @@ See [`docs/layout.md`](docs/layout.md) for every crate.
   derive their encoding in Rust.
 - **Consensus changes**: changing an encoded field, its order, a tag, a hash input, or a
   section's `State` is a consensus change. Mark it breaking with `!`. Once a chain runs the
-  old rules, the change has to ship as a new spec; see
-  [`docs/asm-upgrade-development.md`](docs/asm-upgrade-development.md).
+  old rules, a change that folds one of its past blocks differently has to ship as a new spec.
+  Specs share subprotocol code, so check the chain's history before you change that code; see
+  [`docs/asm-upgrade-development.md`](docs/asm-upgrade-development.md#what-a-spec-id-pins).
 - **Guest**: `guest-builder/sp1/guest-asm` is its own workspace with its own `Cargo.lock`.
   Update that lockfile when you change a dependency the guest uses. Set `BUILD_ELF=1` to
   build the guest; [`guest-builder/sp1/README.md`](guest-builder/sp1/README.md) has the
