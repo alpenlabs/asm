@@ -174,10 +174,9 @@ mod tests {
     impl MockContext {
         fn insert_anchor(&self, blk: L1BlockCommitment, state: AnchorState) {
             self.anchors.borrow_mut().insert(blk, state);
-            // Track the highest-height anchor as the ASM tip, mirroring the ASM
-            // store's `latest` pointer.
+            // Mirror the ASM store's `latest` pointer.
             let mut latest = self.asm_latest.borrow_mut();
-            if latest.is_none_or(|b| blk.height() >= b.height()) {
+            if latest.is_none_or(|b| store_key(&blk) >= store_key(&b)) {
                 *latest = Some(blk);
             }
         }
@@ -186,6 +185,13 @@ mod tests {
         fn link_parent(&self, blk: L1BlockCommitment, parent: L1BlockCommitment) {
             self.parents.borrow_mut().insert(blk, parent);
         }
+    }
+
+    /// The sort order of the sled ASM and Moho stores, whose keys are
+    /// `[height][blkid]`. Each store's `latest` is its last key: the highest
+    /// height, with ties going to the larger block id.
+    fn store_key(blk: &L1BlockCommitment) -> (u32, &[u8]) {
+        (blk.height(), blk.blkid().as_ref())
     }
 
     impl AsmStateProvider for MockContext {
@@ -246,7 +252,7 @@ mod tests {
             let mut latest = self.latest.borrow_mut();
             if latest
                 .as_ref()
-                .is_none_or(|(b, _)| blockid.height() >= b.height())
+                .is_none_or(|(b, _)| store_key(blockid) >= store_key(b))
             {
                 *latest = Some((*blockid, state.clone()));
             }
@@ -730,6 +736,111 @@ mod tests {
 
         assert_eq!(state.cur_block(), blk_b);
         assert!(state.context.moho.borrow().contains_key(&blk_b));
+    }
+
+    /// A restart after a reorg onto a shorter branch, which we accept rather
+    /// than fix (STR-3819). Moho folds the taller branch A. ASM then reorgs
+    /// onto B and stores b1, but Moho stops before folding it. While A is the
+    /// ASM store's `latest`, a restart resumes on A and never folds b1, so
+    /// every live B block fails on its missing parent. Once a B block is
+    /// `latest`, a restart folds all of B.
+    #[test]
+    fn restart_after_short_reorg_wedges_until_canonical_is_latest() {
+        let restart = |ctx: MockContext, genesis| {
+            let mut state = MohoWorkerServiceState::new(
+                ctx,
+                genesis,
+                PredicateKey::always_accept(),
+                Subscribers::default(),
+            )
+            .unwrap();
+            sync_to_tip(&mut state).unwrap();
+            state
+        };
+
+        let (genesis_blk, anchor) = genesis_anchor();
+        let ctx = MockContext::default();
+        ctx.insert_anchor(genesis_blk, anchor.clone());
+
+        // A's ids sort above B's, so A wins the height tie at a2 and b2. That
+        // is the worst case for how long the wedge lasts. Each block's export
+        // leaf is its id byte.
+        let a1 = commitment_after_with_id(genesis_blk, 0xa1);
+        let a2 = commitment_after_with_id(a1, 0xa2);
+        let b1 = commitment_after_with_id(genesis_blk, 0x01);
+        let b2 = commitment_after_with_id(b1, 0x02);
+        let b3 = commitment_after_with_id(b2, 0x03);
+        for (blk, parent) in [
+            (a1, genesis_blk),
+            (a2, a1),
+            (b1, genesis_blk),
+            (b2, b1),
+            (b3, b2),
+        ] {
+            ctx.link_parent(blk, parent);
+            ctx.logs
+                .borrow_mut()
+                .insert(blk, export_logs(blk.blkid().as_ref()[0]));
+        }
+
+        // Moho follows A live.
+        ctx.insert_anchor(a1, child(&anchor));
+        ctx.insert_anchor(a2, child(&anchor));
+        let mut state = restart(ctx, genesis_blk);
+        process_block(&mut state, a1).unwrap();
+        process_block(&mut state, a2).unwrap();
+
+        // ASM reorgs onto B and stores b1. Moho stops before folding it.
+        state.context.insert_anchor(b1, child(&anchor));
+        let state = restart(state.context, genesis_blk);
+        assert_eq!(state.cur_block(), a2, "restart resumes on the orphan");
+        assert!(matches!(
+            state.context.get_moho_state(&b1),
+            Err(MohoWorkerError::MissingMohoState(_))
+        ));
+        // The export store still holds A's leaves. The export RPC reads the
+        // Moho state of the canonical block it is asked about, and B has none
+        // yet, so B's export proofs are unavailable for now, not wrong.
+        assert_eq!(
+            *state.context.export_entries.borrow(),
+            vec![
+                (EXPORT_CONTAINER, a1.height(), [0xa1; 32]),
+                (EXPORT_CONTAINER, a2.height(), [0xa2; 32]),
+            ],
+        );
+
+        // b2 ties a2 and loses, so a restart still resumes on A, and the live
+        // fold of b2 fails on its unfolded parent.
+        state.context.insert_anchor(b2, child(&anchor));
+        let mut state = restart(state.context, genesis_blk);
+        assert_eq!(state.cur_block(), a2);
+        assert!(matches!(
+            process_block(&mut state, b2),
+            Err(MohoWorkerError::MissingMohoState(blk)) if blk == b1
+        ));
+
+        // b3 out-heights A, so a restart walks b3's parents to genesis and
+        // folds all of B. The first fold drops A's leaves.
+        state.context.insert_anchor(b3, child(&anchor));
+        let state = restart(state.context, genesis_blk);
+        assert_eq!(state.cur_block(), b3);
+        for blk in [b1, b2, b3] {
+            assert!(state.context.moho.borrow().contains_key(&blk));
+        }
+        assert_eq!(
+            *state.context.export_entries.borrow(),
+            vec![
+                (EXPORT_CONTAINER, b1.height(), [0x01; 32]),
+                (EXPORT_CONTAINER, b2.height(), [0x02; 32]),
+                (EXPORT_CONTAINER, b3.height(), [0x03; 32]),
+            ],
+        );
+        assert!(
+            state
+                .context
+                .export_entries_match(b3.height(), state.cur_moho().export_state())
+                .unwrap()
+        );
     }
 
     #[test]

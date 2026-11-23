@@ -364,11 +364,11 @@ async fn test_proven_and_external_mmr_index_alignment() {
 /// 3. Grow B with empty blocks until it out-heights A. `latest` now tracks B and the stale deposits
 ///    are gone.
 ///
-/// This pins the current (pre-fix) behavior. STR-3819 tracks closing the
-/// divergence window — the worker never prunes orphaned anchors on reorg, so the
-/// max-height `latest` pointer can outrank the canonical tip; pruning them (or
-/// making the pointer canonical-aware) would collapse it. Update this test when
-/// that lands.
+/// We accept this window rather than prune orphans (STR-3819). See the Storage
+/// section of `docs/architecture.md` for what it costs a restart. The ASM
+/// worker's `restart_after_short_reorg_resumes_on_orphan` and the Moho worker's
+/// `restart_after_short_reorg_wedges_until_canonical_is_latest` pin the restart
+/// cases.
 #[tokio::test(flavor = "multi_thread")]
 async fn test_short_reorg_latest_pointer_diverges_then_converges() {
     let Setup {

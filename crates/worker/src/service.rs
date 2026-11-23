@@ -777,6 +777,55 @@ mod tests {
         assert_leaves_prove(&fx.state, 102, 106);
     }
 
+    /// A restart after a reorg onto a shorter branch, which we accept rather
+    /// than fix (STR-3819). The taller orphan is still the store's `latest`,
+    /// so a restart resumes on it, and the startup submit of the stored
+    /// canonical tip does nothing. Each new canonical block re-anchors on its
+    /// real parent, so the orphan never feeds a transition. Restarts keep
+    /// resuming on the orphan until the canonical branch out-heights it.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn restart_after_short_reorg_resumes_on_orphan() {
+        let mut fx = fixtures::setup_state(101).await;
+        let client = fx.client.clone();
+        let restart = async |context: &TestAsmWorkerContext| {
+            let params = fixtures::genesis_params(&client, 101).await;
+            fixtures::new_state(context.clone(), params).unwrap()
+        };
+
+        // Branch A: 102..=105.
+        let branch_a = fixtures::mine(&fx.node, &fx.client, 4).await;
+        let orphan_tip = branch_a[3];
+        sync_to_block(&mut fx.state, orphan_tip.blkid()).expect("sync branch A");
+
+        // Shorter branch B: only 103b.
+        let b_103 = fixtures::reorg(&fx.node, &fx.client, 103, 1).await[0];
+        sync_to_block(&mut fx.state, b_103.blkid()).expect("sync branch B");
+
+        let mut state = restart(&fx.state.context).await;
+        assert_eq!(state.blkid, orphan_tip, "restart resumes on the orphan");
+        let processed = sync_to_block(&mut state, b_103.blkid()).expect("startup submit");
+        assert!(processed.is_empty(), "103b is already stored");
+        assert_eq!(state.blkid, orphan_tip);
+
+        // 104b is still below the orphan, but it re-anchors on its real parent.
+        let b_104 = fixtures::mine(&fx.node, &fx.client, 1).await[0];
+        let processed = sync_to_block(&mut state, b_104.blkid()).expect("sync 104b");
+        assert_eq!(processed, vec![b_104]);
+        assert_eq!(state.blkid, b_104);
+        assert_leaves_prove(&state, 102, 104);
+
+        // The orphan still out-heights B, so the next restart resumes on it too.
+        let mut state = restart(&state.context).await;
+        assert_eq!(state.blkid, orphan_tip);
+
+        // 106b out-heights the orphan, so a restart finally resumes on B.
+        let b_106 = fixtures::mine(&fx.node, &fx.client, 2).await[1];
+        sync_to_block(&mut state, b_106.blkid()).expect("sync 106b");
+        let state = restart(&state.context).await;
+        assert_eq!(state.blkid, b_106);
+        assert_leaves_prove(&state, 102, 106);
+    }
+
     /// Asserts that every leaf in `start..=end` resolves from storage with a
     /// proof that verifies against the current anchor's accumulator.
     fn assert_leaves_prove(

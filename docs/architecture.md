@@ -156,6 +156,17 @@ The runner uses three sled databases:
 - **Proof DB** ([`crates/extensions/prover/storage`](../crates/extensions/prover/storage)):
   proofs and remote prover bookkeeping. Only opened with an orchestrator.
 
+Nothing deletes what an abandoned reorg branch wrote. The workers repair the height-keyed
+data, the manifest hash MMR and the export entries, before each step, as described above.
+Anchor states and Moho states are keyed by height and block id, and each store's latest
+state is its highest key. After a reorg onto a shorter branch, that is the taller orphan
+until the canonical branch out-heights it, so a restart in that window resumes on the
+orphan. The ASM worker re-anchors on the next canonical block. If the Moho worker stopped
+before folding the first canonical block, each new block makes it fail, and the runner
+exits. The runner does not restart itself. Each restart resumes on the orphan again until a
+canonical block is the latest state. The next restart then folds the canonical branch, and
+the runner stays up. We accept this window rather than prune orphans.
+
 [`bin/dbtool`](../bin/dbtool/README.md) reads and repairs these offline.
 
 ## Proofs
