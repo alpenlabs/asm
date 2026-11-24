@@ -2,9 +2,11 @@
 
 The ASM has no sequencer and no consensus protocol of its own. Its only inputs are the Bitcoin
 chain and the public params file, which holds the genesis params and each spec's runtime params.
-Anyone can run it, and every honest runner computes the same state. However, a runner convinces
-only whoever runs it. Everyone else, such as the bridge, relies on the Moho proof
-([architecture.md](architecture.md#moho)).
+Anyone can run it, and every honest runner computes the same state. However, a runner's result
+convinces only the party that runs it. A party that needs the ASM state but does not run the
+ASM relies on the Moho proof instead ([architecture.md](architecture.md#moho)). The bridge
+does both. Each bridge node runs its own runner and reads withdrawal assignments from it. The
+bridge proof, which an operator uses to back its claim, checks the Moho proof.
 
 This page lists what the ASM guarantees, what it assumes, and whom it trusts, and gives the
 rules for judging a security finding. To report a vulnerability, follow
@@ -16,11 +18,12 @@ A Moho proof shows that some chain of Bitcoin headers, starting at the ASM genes
 since genesis and folds to state S. The genesis state, including its anchor block, is trusted.
 The proof covers only what comes after it, so a consumer must pin the genesis state.
 
-It does not show that Bitcoin follows that chain. The STF checks each header, and checks that
-the block body belongs to it ([`crates/btc-verification`](../crates/btc-verification)). It does
-not validate transactions, because that would need the UTXO set and script execution inside
-the proof. Anyone who mines a fork can prove the fork's state, even if the fork breaks
-Bitcoin's rules.
+It does not show that Bitcoin nodes accept this chain. The chain may not be the heaviest one,
+and its blocks may break Bitcoin's rules. The STF checks each header, and checks that the block
+body belongs to it ([`crates/btc-verification`](../crates/btc-verification)). It does not
+validate transactions, because that would need the UTXO set and script execution inside the
+proof. Anyone who mines a fork can prove the fork's state, even if the fork breaks Bitcoin's
+rules.
 
 Choosing between Moho proofs is the consumer's job. The bridge compares their total work, and
 waits for anyone to challenge a proof with a heavier one.
