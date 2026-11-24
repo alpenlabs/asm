@@ -204,15 +204,18 @@ Where the two conflict, these win.
    spend" or "an invalid script" is therefore not a finding. Neither is a halt that only such a
    block can cause: the block never reaches a runner, and in the guest it only stops the
    fork's own step proof. A bug in a check the ASM does make is a finding, even though it only
-   shows up on a fork. Those checks are the header checks, the work total, and the match
-   between body and header.
+   shows up on a fork. Those are the checks behind guarantees 3 to 5: the header checks, the
+   work total, the match between body and header, aux-data verification, and the authorization
+   checks.
 6. **Breaking a guarantee has Severe impact**, on the shared rules' scale. If an ordinary
    Bitcoin transaction can trigger it, the risk is Critical. This includes halts. The shared
    rules cap availability-only findings at High, but here a halt is a safety failure
    (guarantee 1).
 7. **Don't suggest a fix that fails the block.** The ASM cannot reject a block, so such a
-   check can only halt it. A check that skips one transaction is fine. For the same reason,
-   don't suggest turning a [deliberate halt](#deliberate-halts) into an error.
+   check can only halt it. A check that skips one transaction is fine. The same goes for a
+   [deliberate halt](#deliberate-halts): don't turn it into an error, but skipping the
+   transaction or update that would trigger it is fine. `add_deposit` does this for a deposit
+   index that is already assigned.
 8. **Secrets are always in scope**, such as bitcoind credentials, `NETWORK_PRIVATE_KEY`, and CI
    tokens.
 
