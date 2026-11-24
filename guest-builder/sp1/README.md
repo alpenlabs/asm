@@ -168,7 +168,7 @@ The crypto crates are the easiest to get wrong. A call to `secp256k1` runs libse
 
 Tests do not show it either. Unit, integration, and functional tests all run the native STF. In CI the guest runs only in [`prover-perf`](../../bin/prover-perf/README.md), which compares its output with the native run on one honest fixture block.
 
-So when STF code passes untrusted input into one of these places:
+When STF code passes untrusted input into one of these places:
 
 1. Check what the guest's version does with invalid and edge-case input, not only the native one.
 2. If the two can differ, decide the case in our own code before the call, so both builds apply the same rule.

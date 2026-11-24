@@ -1,9 +1,9 @@
 # Security model
 
-The ASM has no sequencer and no consensus of its own. Its only inputs are the Bitcoin chain and
-the public params file, which holds the genesis params and each spec's runtime params. So anyone
-can run it, and every honest runner computes the same state. But a runner convinces only whoever
-runs it. Everyone else, such as the bridge, relies on the Moho proof
+The ASM has no sequencer and no consensus protocol of its own. Its only inputs are the Bitcoin
+chain and the public params file, which holds the genesis params and each spec's runtime params.
+Anyone can run it, and every honest runner computes the same state. However, a runner convinces
+only whoever runs it. Everyone else, such as the bridge, relies on the Moho proof
 ([architecture.md](architecture.md#moho)).
 
 This page lists what the ASM guarantees, what it assumes, and whom it trusts, and gives the
@@ -19,7 +19,7 @@ The proof covers only what comes after it, so a consumer must pin the genesis st
 It does not show that Bitcoin follows that chain. The STF checks each header, and checks that
 the block body belongs to it ([`crates/btc-verification`](../crates/btc-verification)). It does
 not validate transactions, because that would need the UTXO set and script execution inside
-the proof. So anyone who mines a fork can prove the fork's state, even if the fork breaks
+the proof. Anyone who mines a fork can prove the fork's state, even if the fork breaks
 Bitcoin's rules.
 
 Choosing between Moho proofs is the consumer's job. The bridge compares their total work, and
@@ -29,7 +29,7 @@ waits for anyone to challenge a proof with a heavier one.
 
 1. **No block that Bitcoin accepts halts the ASM.** The ASM cannot reject a block that Bitcoin
    accepted. The native STF processes it and the guest proves it, well inside the time a
-   consumer such as the bridge waits. A malformed or invalid transaction is skipped. It never
+   consumer, such as the bridge, waits. A malformed or invalid transaction is skipped. It never
    fails the block. A halt stops every runner and every prover at the same height, and only an
    upgrade gets them past it. It is a safety failure and not only downtime: with no newer Moho
    proof, a consumer cannot answer a proof made on a fork.
@@ -94,7 +94,7 @@ transactions, so it can be larger than the block. The guest's memory is what lim
 see the [guest builder README](../guest-builder/sp1/README.md#memory-limits). Going past it
 fails only in the guest, so the block runs natively but cannot be proven.
 
-So every bound, the guest's memory included, must be one of these:
+Every bound, the guest's memory included, must be one of these:
 
 - Out of reach of any chain Bitcoin accepts, given Bitcoin's block size and the protocol's own
   rules.
@@ -117,7 +117,7 @@ a new spec. It is cheaper to size a bound right the first time.
 
 ## What the ASM assumes
 
-- **Bitcoin.** Honest miners hold most of the hash power. So in the long run the chain that
+- **Bitcoin.** Honest miners hold most of the hash power. In the long run, the chain that
   follows Bitcoin's rules has the most work, and an attacker cannot keep a fork ahead of it.
 - **The proof system.** Proofs are made with SP1. SP1 is sound, and the Moho recursive guest
   checks and links step proofs correctly. Both come from outside this repo. A native prover
@@ -132,7 +132,7 @@ a new spec. It is cheaper to size a bound right the first time.
 - **OL sequencer.** Trusted for liveness only. It can stop posting checkpoints, and the ASM
   carries on without them. Every checkpoint still needs a valid checkpoint proof.
 - **Bridge operators.** A deposit needs a signature from all N operators, and at least one of
-  them is honest. So no deposit is accepted unless an honest operator signed it.
+  them is honest. No deposit is accepted without an honest operator's signature.
 - **Remote prover.** Trusted for liveness only. The prover worker verifies every step proof and
   Moho proof it receives. If a prover withholds them, the runner can use another one.
 
@@ -177,8 +177,8 @@ Where the two conflict, these win.
    role is not. A governance action that halts the ASM is out of scope, unless the signing
    message hides what the action does.
 5. **The ASM accepts blocks that break Bitcoin's rules, by design**
-   ([What a Moho proof shows](#what-a-moho-proof-shows)). So "the ASM accepted a
-   double spend" or "an invalid script" is not a finding. Neither is a halt that only such a
+   ([What a Moho proof shows](#what-a-moho-proof-shows)). "The ASM accepted a double
+   spend" or "an invalid script" is therefore not a finding. Neither is a halt that only such a
    block can cause: the block never reaches a runner, and in the guest it only stops the
    fork's own step proof. A bug in a check the ASM does make is a finding, even though it only
    shows up on a fork. Those checks are the header checks, the work total, and the match
