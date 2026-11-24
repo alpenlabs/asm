@@ -64,14 +64,15 @@ waits for anyone to challenge a proof with a heavier one.
      signed the spend.
    - An admin action needs a signature threshold from its role and a fresh sequence number. An
      update takes effect after the confirmation depth the params file sets for its type. A
-     depth of zero means at once. `Defcon1` and cancels always apply at once.
+     depth of zero means at once, with no window to cancel. `Defcon1` and cancels always
+     apply at once.
 
 ### Deliberate halts
 
 In these cases the STF stops on purpose, and guarantee 1 does not apply.
 
 - **Governance halts the ASM**, for example by removing every operator or by switching to a
-  guest that cannot run. Governance is trusted; see
+  guest that cannot run. Governance is assumed honest; see
   [What the ASM assumes](#what-the-asm-assumes).
 - **The bridge runs out of deposits or operators.** The STF panics when it dispatches a
   withdrawal and no deposit is left to back it, or no operator can take it. It also panics when
@@ -125,22 +126,38 @@ a new spec. It is cheaper to size a bound right the first time.
 
 - **Bitcoin.** Honest miners hold most of the hash power. In the long run, the chain that
   follows Bitcoin's rules has the most work, and an attacker cannot keep a fork ahead of it.
-- **The proof system.** Proofs are made with SP1. SP1 is sound, and the Moho recursive guest
-  checks and links step proofs correctly. Both come from outside this repo. A native prover
-  only signs its output, so it shows nothing about what code ran. It is for tests.
+- **The proof system.** SP1 is sound, and the Moho recursive guest checks and links step
+  proofs correctly. Both come from outside this repo. A native prover only signs its output,
+  so it shows nothing about what code ran. It is for tests.
 - **bitcoind.** Each runner trusts its own bitcoind to serve the real chain, with `txindex` on.
   A lying bitcoind misleads only that runner.
-- **Governance.** The admin multisigs are trusted. They can change the operator set, the
-  sequencer key, the verifying keys, and their own members. Changing the ASM verifying key
-  swaps the ASM guest itself. The security council can also sweep the bridge's deposits to the
-  safe harbor address (`Defcon1`, `Defcon3`), and governance sets that address. So governance
-  can move funds and can halt the ASM.
+- **Governance.** For each admin multisig, at least a threshold of its signers is honest and
+  keeps its keys safe. Governance can move funds, make Moho proofs show any state, and halt the
+  ASM; see [Governance powers](#governance-powers).
 - **OL sequencer.** Trusted for liveness only. It can stop posting checkpoints, and the ASM
   carries on without them. Every checkpoint still needs a valid checkpoint proof.
 - **Bridge operators.** A deposit needs a signature from all N operators, and at least one of
   them is honest. No deposit is accepted without an honest operator's signature.
 - **Remote prover.** Trusted for liveness only. The prover worker verifies every step proof and
   Moho proof it receives. If a prover withholds them, the runner can use another one.
+
+### Governance powers
+
+| Role | Can change |
+| --- | --- |
+| Strata administrator | Its own members, the security council's members, the operator set, the ASM verifying key, the checkpoint verifying key, the safe harbor address |
+| Strata sequencer manager | Its own members, the sequencer key |
+| Alpen administrator | Its own members, the EE verifying key |
+| Strata security council | Whether the safe harbor is active (`Defcon1`, `Defcon3`) |
+
+The ASM verifying key is the predicate that Moho checks every later step proof against. A key
+that accepts any proof lets later Moho proofs show any state. The checkpoint verifying key
+decides which checkpoints are valid, and a valid checkpoint can dispatch any withdrawal.
+
+`Defcon1` and `Defcon3` only mark the safe harbor active in the bridge state. Bridge nodes then
+sweep the deposits to the safe harbor address, outside the ASM. The council triggers the sweep
+and the administrator picks the address, so no single role does both. The address cannot change
+once the safe harbor is active.
 
 ## Trust boundaries
 
