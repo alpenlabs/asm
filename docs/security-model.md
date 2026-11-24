@@ -52,14 +52,16 @@ waits for anyone to challenge a proof with a heavier one.
    chain's total. Consumers such as the bridge read that total from the export state and do not
    check headers themselves.
 5. **Subprotocol state changes only with the right authorization.**
-   - A deposit is accepted once, and only if it is locked to the current N/N key and carries
-     the right amount.
+   - A deposit is accepted once, and only if it is locked to the N/N key in effect at that
+     block and carries the right amount.
    - A withdrawal fulfillment is accepted only if it matches its assignment. Only an accepted
      fulfillment adds a bridge export entry, which is the operator's claim record.
    - A withdrawal is dispatched only from a checkpoint that was posted under the sequencer key
      and has a valid checkpoint proof.
-   - Slash and unstake remove an operator only if the operator's stake connector was really
-     spent.
+   - A slash or unstake transaction removes an operator only if it spends a stake connector,
+     the output that holds an operator's stake. The ASM fetches the spent output as aux data
+     and checks that it is locked to an N/N key the operator set has used, so the N/N set
+     signed the spend.
    - An admin action needs a signature threshold from its role and a fresh sequence number. An
      update takes effect after the confirmation depth the params file sets for its type. A
      depth of zero means at once. `Defcon1` and cancels always apply at once.
@@ -71,12 +73,13 @@ In these cases the STF stops on purpose, and guarantee 1 does not apply.
 - **Governance halts the ASM**, for example by removing every operator or by switching to a
   guest that cannot run. Governance is trusted; see
   [What the ASM assumes](#what-the-asm-assumes).
-- **The bridge cannot serve a withdrawal.** The STF panics when a withdrawal has no unassigned
-  deposit or no eligible operator to take it, and when a removal would leave no active operator.
-  This is a [known accepted risk](#known-accepted-risks).
-- **Aux data is missing.** The block does not cause this. The worker supplies aux data and will
-  not run the STF until it has all of it. In the guest the panic means no step proof, which is
-  the only sound result when data is withheld.
+- **The bridge runs out of deposits or operators.** The STF panics when it dispatches a
+  withdrawal and no deposit is left to back it, or no operator can take it. It also panics when
+  a slash or unstake would remove the last active operator. This is a
+  [known accepted risk](#known-accepted-risks).
+- **Aux data is missing.** The block does not cause this. An honest runner never reaches the
+  panic: if it cannot fetch aux data, it fails and stops first. Only input that withholds aux
+  data reaches it. In the guest that means no step proof, which is the only sound result.
 - **A subprotocol section is missing or has the wrong version.** The state and the spec
   disagree; see [subprotocols.md](subprotocols.md#state-and-schema-versions).
 
@@ -200,7 +203,7 @@ Where the two conflict, these win.
 
 - The `strata_asm` RPC has no authentication or rate limit. Each consumer runs its own runner.
   Bind the RPC to loopback or a private interface.
-- The STF halts when the bridge cannot serve a withdrawal; see
+- The STF halts when the bridge runs out of deposits or operators; see
   [Deliberate halts](#deliberate-halts). With no operator the funds are already stuck on
   Bitcoin. Preventing this is an operational task.
 - The guest input has no size bound. A deposit, slash, or unstake tag makes the ASM fetch the
