@@ -8484,6 +8484,7 @@ dependencies = [
  "strata-test-utils-arb",
  "strata-test-utils-checkpoint",
  "thiserror 2.0.18",
+ "tracing",
 ]
 
 [[package]]

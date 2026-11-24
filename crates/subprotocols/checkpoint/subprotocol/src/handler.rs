@@ -31,10 +31,7 @@ pub(crate) fn handle_checkpoint_tx(
     let spend = match parse_checkpoint_envelope(tx) {
         Ok(spend) => spend,
         Err(e) => {
-            // `compute_txid` stays inside the macro: in zkVM the logging shim is a no-op
-            // that discards its args, so the hash is never computed there.
             logging::warn!(
-                txid = %tx.tx().compute_txid(),
                 error = %e,
                 "failed to parse checkpoint envelope, ignoring"
             );
@@ -51,7 +48,6 @@ pub(crate) fn handle_checkpoint_tx(
             // lookup, so its absence means the runtime did not honor the request.
             Err(CheckpointEnvelopeError::MissingSpentOutput { outpoint, source }) => {
                 logging::error!(
-                    txid = %tx.tx().compute_txid(),
                     %outpoint,
                     error = %source,
                     "envelope spent output missing from verified aux data"
@@ -62,7 +58,6 @@ pub(crate) fn handle_checkpoint_tx(
             }
             Err(e) => {
                 logging::warn!(
-                    txid = %tx.tx().compute_txid(),
                     error = %e,
                     "checkpoint envelope not authenticated, ignoring"
                 );
@@ -75,7 +70,6 @@ pub(crate) fn handle_checkpoint_tx(
         Ok(payload) => payload,
         Err(e) => {
             logging::warn!(
-                txid = %tx.tx().compute_txid(),
                 error = %e,
                 "failed to decode checkpoint payload, ignoring"
             );
@@ -84,7 +78,7 @@ pub(crate) fn handle_checkpoint_tx(
     };
     let epoch = payload.new_tip().epoch;
 
-    logging::debug!(txid = %tx.tx().compute_txid(), epoch, "processing checkpoint transaction");
+    logging::debug!(epoch, "processing checkpoint transaction");
 
     // Validate epoch / L1 / L2 progression and confirm the covered territory lies wholly
     // inside the active predicate's range. Yields the L1 coverage whose ASM manifests we
@@ -97,7 +91,7 @@ pub(crate) fn handle_checkpoint_tx(
     ) {
         Ok(c) => c,
         Err(e) => {
-            logging::warn!(txid = %tx.tx().compute_txid(), epoch, error = %e, "checkpoint progression verification failed");
+            logging::warn!(epoch, error = %e, "checkpoint progression verification failed");
             return;
         }
     };
@@ -117,7 +111,6 @@ pub(crate) fn handle_checkpoint_tx(
                 .get_manifest_hashes(*start_height as u64, *end_height as u64)
                 .unwrap_or_else(|e| {
                     logging::error!(
-                        txid = %tx.tx().compute_txid(),
                         epoch,
                         start_height,
                         end_height,
@@ -138,7 +131,7 @@ pub(crate) fn handle_checkpoint_tx(
     let withdrawal_intents = match state.advance(&payload, asm_manifests_hash) {
         Ok(v) => v,
         Err(e) => {
-            logging::warn!(txid = %tx.tx().compute_txid(), epoch, error = %e, "checkpoint rejected");
+            logging::warn!(epoch, error = %e, "checkpoint rejected");
             return;
         }
     };
@@ -146,7 +139,6 @@ pub(crate) fn handle_checkpoint_tx(
     let new_tip = payload.new_tip;
 
     logging::info!(
-        txid = %tx.tx().compute_txid(),
         new_tip = ?new_tip,
         withdrawals = withdrawal_intents.len(),
         "checkpoint validated"

@@ -12,6 +12,7 @@ use strata_asm_proto_checkpoint_txs::{
 };
 use strata_checkpoint_verification::CheckpointState;
 use strata_identifiers::L1BlockCommitment;
+use tracing::info_span;
 
 use crate::{auth::verify_envelope_key, handler::handle_checkpoint_tx};
 
@@ -62,6 +63,9 @@ impl Subprotocol for CheckpointSubprotocol {
 
         for tx in txs {
             if tx.tag().tx_type() == OL_STF_CHECKPOINT_TX_TYPE {
+                // Disabled in the guest (no subscriber), so the txid is never computed there.
+                let _span =
+                    info_span!("asm.checkpoint.tx", txid = %tx.tx().compute_txid()).entered();
                 handle_checkpoint_tx(state, tx, current_l1_height, verified_aux_data, relayer)
             }
         }

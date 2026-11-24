@@ -2174,6 +2174,7 @@ dependencies = [
  "strata-identifiers",
  "strata-l1-envelope-fmt",
  "thiserror",
+ "tracing",
 ]
 
 [[package]]
