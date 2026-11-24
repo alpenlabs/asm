@@ -8406,6 +8406,7 @@ dependencies = [
  "strata-identifiers",
  "strata-test-utils-arb",
  "thiserror 2.0.18",
+ "tracing",
 ]
 
 [[package]]
