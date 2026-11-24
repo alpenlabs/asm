@@ -3,6 +3,7 @@ use std::collections::BTreeMap;
 use bitcoin::Block;
 use strata_asm_common::{SubprotocolId, TxInputRef};
 use strata_l1_txfmt::{MagicBytes, ParseConfig};
+use tracing::info_span;
 
 /// Groups the SPS-50 tagged transactions in `block` by the subprotocol they
 /// target.
@@ -31,6 +32,9 @@ pub fn group_txs_by_subprotocol(
     let mut map: BTreeMap<SubprotocolId, Vec<TxInputRef<'_>>> = BTreeMap::new();
 
     for tx in block.txdata.iter().skip(1) {
+        // Experiment: if span fields were evaluated in the guest, every tx in the block would be
+        // hashed here and the cycle count would jump.
+        let _span = info_span!("asm.tx", txid = %tx.compute_txid()).entered();
         if let Ok(payload) = parser.try_parse_tx(tx) {
             map.entry(payload.subproto_id())
                 .or_default()

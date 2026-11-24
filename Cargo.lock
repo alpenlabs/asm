@@ -8751,6 +8751,7 @@ dependencies = [
  "strata-btc-verification",
  "strata-identifiers",
  "strata-l1-txfmt",
+ "tracing",
 ]
 
 [[package]]
