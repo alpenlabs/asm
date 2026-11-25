@@ -100,6 +100,18 @@ subprotocol, changes it. The `ExecutionRegistry`
 ([`crates/worker/src/registry.rs`](../crates/worker/src/registry.rs)) maps a predicate to the
 compiled spec that runs the block.
 
+The parent's Moho state authorizes the predicate for the next block. The runner's config only
+lists the predicates it supports. So:
+
+- The block that enacts an upgrade still runs under its parent's predicate, so the old spec
+  executes it. Its manifest carries the `AsmStfUpdate` log, and the next block runs under the
+  new predicate.
+- An unknown predicate stops native execution with `UnsupportedExecutionPredicate` before the
+  block is processed. A known predicate with no loaded proof artifact stops proving, but keeps
+  the queued work.
+- A proof job uses its own parent's predicate, not the tip's.
+- The Moho program is fixed per node. Only the ASM step program changes in an upgrade.
+
 To add a spec, see [asm-upgrade-development.md](asm-upgrade-development.md).
 
 ## Moho

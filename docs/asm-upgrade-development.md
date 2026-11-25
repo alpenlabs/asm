@@ -1,20 +1,8 @@
 # ASM upgrade development
 
 Use this guide to add an ASM spec, register its execution and proof artifacts, and run the
-repository validation checks.
-
-## Authority model
-
-- The parent Moho state's `next_predicate` authorizes the program for the next block. Local
-  configuration only declares which authorized programs this node supports.
-- The block that enacts an upgrade still runs under its parent's predicate, so the old spec
-  executes it. Its manifest carries the `AsmStfUpdate` log, and the next block runs under the new
-  predicate.
-- An unknown predicate stops native execution with `UnsupportedExecutionPredicate` before the
-  child block is processed. An authorized predicate with no loaded proof artifact stops proving
-  without dropping queued work.
-- Historical proof jobs resolve their own parent's predicate, not the current tip's.
-- The Moho recursive program is fixed per node. Only the ASM step program changes across upgrades.
+repository validation checks. [Architecture](architecture.md#specs-and-upgrades) explains how an
+upgrade switches the predicate and which spec runs which block.
 
 ## What a spec ID pins
 
