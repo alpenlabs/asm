@@ -44,8 +44,11 @@ waits for anyone to challenge a proof with a heavier one.
    failure even when every runner agrees. The
    [guest builder README](../guest-builder/sp1/README.md#differences-from-the-native-stf) lists
    where they can differ.
-3. **A step proof exists only for a transition the STF allows.** A step proof made from a
-   made-up pre-state does not link to the previous Moho proof, so it leads to no Moho proof.
+3. **A step proof exists only for a transition the STF allows.** It does not show that its
+   pre-state is real. A step proof made from a made-up pre-state cannot extend the existing Moho
+   proof. With no previous proof, Moho takes the step's pre-state as genesis, and a consumer that
+   pins the genesis state rejects the result
+   ([What a Moho proof shows](#what-a-moho-proof-shows)).
    The STF checks aux data by txid or by MMR proof before any subprotocol reads it. If data the
    transition needs is missing, the guest panics and there is no step proof.
 4. **The work a Moho proof reports is real.** Every header is checked and its work added to the
@@ -180,7 +183,7 @@ Each input to the ASM falls into one of five groups:
 | Aux data | Verified | Its content is checked. Whether it is present is not; see [Deliberate halts](#deliberate-halts). |
 | Remote prover, and the peer runner in follower mode (`peer_url`) | Trusted for liveness | Every step proof and Moho proof is verified on receipt. |
 | bitcoind | Trusted, per runner | See [What the ASM assumes](#what-the-asm-assumes). |
-| Sled databases, `dbtool`, params file, config, guest ELFs | Trusted, per runner | The worker is the only writer of state. A step proof made from a forged local state does not link to the previous Moho proof, so it leads to no Moho proof. |
+| Sled databases, `dbtool`, params file, config, guest ELFs | Trusted, per runner | In normal operation the worker is the only writer of state. A forged local state cannot extend the existing Moho proof, and a new Moho proof started from it has the wrong genesis. |
 | Callers of the `strata_asm` RPC | Trusted, per runner | The RPC is read-only. It serves callers that whoever runs the runner chooses, such as their bridge node or a follower runner. |
 
 ## Triaging findings
