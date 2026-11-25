@@ -85,5 +85,21 @@
       }
     ]
   },
-  "runtime": {}
+  "runtime": {
+    "spec_v2": {
+      "confirmation_depths": {
+        "strata_admin_multisig_update": 432,
+        "strata_seq_manager_multisig_update": 0,
+        "alpen_admin_multisig_update": 432,
+        "strata_security_council_multisig_update": 432,
+        "operator_update": 432,
+        "sequencer_update": 0,
+        "ol_stf_vk_update": 432,
+        "asm_stf_vk_update": 432,
+        "ee_stf_vk_update": 432,
+        "defcon3": 432,
+        "safe_harbor_address_update": 432
+      }
+    }
+  }
 }

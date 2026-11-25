@@ -80,11 +80,11 @@
     "spec_v2": {
       "confirmation_depths": {
         "strata_admin_multisig_update": 3,
-        "strata_seq_manager_multisig_update": 3,
+        "strata_seq_manager_multisig_update": 0,
         "alpen_admin_multisig_update": 3,
         "strata_security_council_multisig_update": 3,
         "operator_update": 3,
-        "sequencer_update": 3,
+        "sequencer_update": 0,
         "ol_stf_vk_update": 3,
         "asm_stf_vk_update": 3,
         "ee_stf_vk_update": 3,
