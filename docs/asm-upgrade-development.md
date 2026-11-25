@@ -1,8 +1,8 @@
 # ASM upgrade development
 
-Use this guide to add an ASM spec, register its execution and proof artifacts, and run the
-repository validation checks. [Architecture](architecture.md#specs-and-upgrades) explains how an
-upgrade switches the predicate and which spec runs which block.
+Use this guide to add an ASM spec, register its execution and proof artifacts, and test the
+upgrade. [Architecture](architecture.md#specs-and-upgrades) explains how an upgrade switches the
+predicate and which spec runs which block.
 
 ## What a spec ID pins
 
@@ -53,14 +53,10 @@ chain.
    tests download it with its predicate (`functional-tests/envs/prover_env.py` for spec 0). Retain
    old guests while delayed jobs or reorgs may still need them.
 
-   The build bakes in the guest spec's section of the runtime part of the params file named by
-   `ASM_PARAMS_PATH`, or the fact that it has none, so the ELF and its predicate belong to those
-   values. Build with the network's file in `crates/params/envs/`, so the source commit and the
-   network pin the values. The [guest builder README](../guest-builder/sp1/README.md) covers
-   building, releasing a network's guest, and checking a published one. Neither the generated
-   release notes nor the S3 manifest record the spec ID, so add it to the release notes by hand.
-   A matching rebuild shows which source the ELF came from. It does not show that the source
-   implements the declared spec.
+   Each network gets [its own guest](../guest-builder/sp1/README.md#one-guest-per-network), with
+   its params baked in. The guest builder README covers building one and checking a published
+   one. Neither the generated release notes nor the S3 manifest record the spec ID, so add it to
+   the release notes by hand.
 5. **Configure execution.** Add an `[[execution.targets]]` entry `{ predicate, spec_id }`.
    `execution.genesis_spec_id` names the spec the chain starts under, and the runner takes the
    genesis predicate from its target entry. It stays fixed across upgrades. Each predicate and
@@ -77,12 +73,9 @@ An ASM-only runner omits `[orchestrator]` but still needs a complete `[execution
 
 ## Configuration and artifact contracts
 
-- **Keep spec-to-predicate mappings immutable across restarts.** When a stored manifest has
-  no upgrade log, `ExecutionRegistry::recover_predicate` resolves the anchor's `spec_id` through
-  the configured registry. Registration rejects duplicate bindings within one registry, but
-  recovery does not compare the configuration with a persisted binding from the previous run.
-  Changing that mapping can resume native execution under a different predicate. Assign a new
-  spec ID when changing an artifact's predicate, and retain the old binding for historical work.
+- **Keep spec-to-predicate mappings fixed across restarts.** Recovery resolves the anchor's
+  `spec_id` through the configured `ExecutionRegistry`, and nothing compares it with the
+  previous run's mapping. Changing it can resume native execution under a different predicate.
 - **Native hosts attest a signing key.** The predicate identifies the key; it does not establish
   which code the signer executed.
 - **Runtime params must match the guest.** The runner builds each native spec from that spec's
@@ -95,53 +88,28 @@ An ASM-only runner omits `[orchestrator]` but still needs a complete `[execution
   while the compiled catalog and release record associate that artifact with the native spec.
   Validate that association before distributing the release.
 
-## Repository validation
+## Testing an upgrade
 
-```sh
-cargo fmt --all --check
-cargo clippy --locked --workspace --all-features --all-targets -- -D warnings
-cargo nextest run --locked --workspace --all-features
-cargo test --locked -p integration-tests --test asm_upgrade_recovery --test asm_coinbase
-```
+Add tests for the new spec next to the ones for earlier specs:
 
-Put `bitcoind` on `PATH` for integration tests. CI pins Bitcoin Core 30.2 in
-[the unit-test workflow](../.github/workflows/unit.yml). Match that version when reproducing CI.
+- An integration test for what the spec changes, like
+  [`tests/asm/spec_v2.rs`](../tests/asm/spec_v2.rs).
+- A functional test for the upgrade from the previous spec, like
+  [`fn_asm_upgrade_v1_v2_test.py`](../functional-tests/tests/upgrades/fn_asm_upgrade_v1_v2_test.py).
+  On the SP1 backend the older spec runs its release guest; see the
+  [functional test README](../functional-tests/README.md#proof-backend).
+- If the spec keeps the subprotocol schemas, a call to
+  `assert_successor_preserves_baseline_semantics` in
+  [`tests/asm/coinbase.rs`](../tests/asm/coinbase.rs). It checks that genesis and `prepare`
+  keep the baseline rules.
 
-- `asm_upgrade_recovery` drives an authenticated admin activation of test spec 17 through real
-  ASM and Moho services with Sled stores:
-  - the old spec executes the enacting block;
-  - workers are recreated at activation and again after an ordinary successor block;
-  - a reorg across the activation restores the initial spec and keeps the orphaned states
-    queryable.
-
-  This is native service recovery over existing database handles. It is not a process crash,
-  and it runs no prover.
-- `asm_coinbase` checks that the successor's direct genesis and `prepare` preserve the baseline
-  semantics. The successor changes only its spec ID, so this is not a section migration.
-
-The functional test `fn_asm_upgrade_v0_v1_test` covers the proving side. It starts
-`strata-asm-runner` with spec 0 and spec 1 loaded and activates spec 1 with a signed admin update
-from `asm-admin`. It checks that the old spec executes the enacting block, and that ASM and
-Moho proofs continue across the switch. On the SP1 backend, spec 0 runs the v0.4.0 release guest
-and spec 1 runs the v0.5.0-rc.2 release guest. See
-[the functional test README](../functional-tests/README.md) for the SP1 variables.
-
-`fn_asm_upgrade_v1_v2_test` does the same for a chain that starts under spec 1 and activates
-spec 2. It then rotates the safe harbor and checks that the rotation waits for spec 2's
-confirmation depth, which comes from the `spec_v2` section of the runner's params file. On the
-SP1 backend, spec 1 runs the v0.5.0-rc.2 release guest and spec 2 runs the local build.
-
-```sh
-cd functional-tests && ./run_test.sh fn_asm_upgrade_v0_v1_test fn_asm_upgrade_v1_v2_test
-```
-
-After building the ASM ELF, compare real guest execution with native execution for the
-deterministic block fixture:
+Two checks need no changes for a new spec.
+[`tests/asm/upgrade_recovery.rs`](../tests/asm/upgrade_recovery.rs) activates a test spec through
+the ASM and Moho services, across worker restarts and a reorg. It reuses the open databases, so
+it does not test a process crash, and it runs no prover. [`prover-perf`](../bin/prover-perf)
+runs the newest spec natively and in the guest on one fixture block, and requires identical
+public bytes. Build the ASM ELF first, then run it without making a proof:
 
 ```sh
 SP1_PROVER=light cargo run --locked -p strata-asm-prover-perf -- --programs asm-stf
 ```
-
-The harness runs the fixture under the newest spec on both sides and requires identical public
-bytes. The native side reads the runtime params the guest build recorded. `light` executes the
-guest without generating a proof. The fixture is one block, with no upgrade or recursion.
