@@ -78,8 +78,9 @@ In these cases the STF stops on purpose, and guarantee 1 does not apply.
   guest that cannot run. Governance is assumed honest; see
   [What the ASM assumes](#what-the-asm-assumes).
 - **The bridge runs out of deposits or operators.** The STF panics when it dispatches a
-  withdrawal and no deposit is left to back it, or no operator can take it. It also panics when
-  a slash or unstake would remove the last active operator. This is a
+  withdrawal and no deposit is left to back it. It panics when no operator can take a
+  withdrawal, either at dispatch or when an expired assignment is reassigned. It also panics
+  when a slash or unstake would remove the last active operator. This is a
   [known accepted risk](#known-accepted-risks).
 - **Aux data is missing.** The block does not cause this. An honest runner never reaches the
   panic: if it cannot fetch aux data, it fails and stops first. Only input that withholds aux
