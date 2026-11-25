@@ -10,6 +10,7 @@ use strata_asm_common::{
 };
 use strata_asm_proto_admin_txs::{constants::ADMINISTRATION_SUBPROTOCOL_ID, parser::parse_tx};
 use strata_identifiers::L1BlockCommitment;
+use tracing::info_span;
 
 use crate::{
     handler::{BlockUpdateGuard, handle_action, handle_pending_updates},
@@ -65,6 +66,8 @@ impl Subprotocol for AdministrationSubprotocol {
             let Some(payload) = parse_tx(tx) else {
                 continue;
             };
+            // Disabled in the guest (no subscriber), so the txid is never computed there.
+            let _span = info_span!("asm.admin.tx", txid = %tx.tx().compute_txid()).entered();
             if let Err(e) = handle_action(
                 state,
                 payload,
@@ -73,7 +76,7 @@ impl Subprotocol for AdministrationSubprotocol {
                 relayer,
                 &mut block_updates,
             ) {
-                warn!(tx_id = %tx.tx().compute_txid(), error = %e, "Failed to handle admin action");
+                warn!(error = %e, "Failed to handle admin action");
             }
         }
     }

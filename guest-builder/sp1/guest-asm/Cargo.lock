@@ -2070,6 +2070,7 @@ dependencies = [
  "strata-identifiers",
  "strata-predicate",
  "thiserror",
+ "tracing",
 ]
 
 [[package]]
@@ -2108,6 +2109,7 @@ dependencies = [
  "strata-btc-types",
  "strata-identifiers",
  "thiserror",
+ "tracing",
 ]
 
 [[package]]
@@ -2172,6 +2174,7 @@ dependencies = [
  "strata-identifiers",
  "strata-l1-envelope-fmt",
  "thiserror",
+ "tracing",
 ]
 
 [[package]]

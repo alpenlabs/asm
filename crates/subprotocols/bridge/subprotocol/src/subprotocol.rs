@@ -16,6 +16,7 @@ use strata_asm_proto_bridge_msgs::BridgeIncomingMsg;
 use strata_asm_proto_bridge_state::BridgeStateV1;
 use strata_asm_proto_bridge_txs::{BRIDGE_SUBPROTOCOL_ID, errors::Mismatch, parser::parse_tx};
 use strata_identifiers::L1BlockCommitment;
+use tracing::info_span;
 
 use crate::{
     claim::{ClaimV0, ClaimV1, ClaimVersion},
@@ -120,14 +121,13 @@ impl<C: ClaimVersion> Subprotocol for BridgeSubproto<C> {
             let Some(parsed_tx) = parse_tx(tx) else {
                 continue;
             };
+            // Disabled in the guest (no subscriber), so the txid is never computed there.
+            let _span = info_span!("asm.bridge.tx", txid = %tx.tx().compute_txid()).entered();
             match handle_parsed_tx::<C>(state, parsed_tx, verified_aux_data, relayer) {
                 // `handle_parsed_tx` already emits a type-specific info log on success, so this
-                // is only a coarse trace marker. `txid` is computed inside the macro, because
-                // logging is compiled to noop in ZkVM.
-                Ok(()) => debug!(txid = %tx.tx().compute_txid(), "Processed bridge tx"),
-                Err(e) => {
-                    error!(txid = %tx.tx().compute_txid(), error = %e, "Failed to process bridge tx")
-                }
+                // is only a coarse trace marker.
+                Ok(()) => debug!("Processed bridge tx"),
+                Err(e) => error!(error = %e, "Failed to process bridge tx"),
             }
         }
 
