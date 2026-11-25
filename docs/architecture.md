@@ -88,27 +88,39 @@ A subprotocol owns one section of the state and the transactions tagged with its
 | 1 | Checkpoint | Verifies OL checkpoints and tracks the verified tip |
 | 2 | Bridge | Deposits, operators, withdrawal assignments |
 
+## Moho
+
+[Moho](https://github.com/alpenlabs/moho) is Strata's recursive proof framework. Each Moho
+proof checks the previous Moho proof and one ASM step proof, so a single proof covers the
+chain from genesis up to a given block. The Moho state also carries the predicate for the
+next block, the key that verifies that block's ASM step proof. An upgrade switches to a new ASM
+program by changing it. The ASM plugs into Moho by implementing its `MohoProgram` trait (see
+[Proofs](#proofs)).
+
 ## Specs and upgrades
 
 An `AsmSpec` ([`crates/common/src/spec.rs`](../crates/common/src/spec.rs)) lists the
 subprotocols and the order they run in. The concrete specs live in
 [`crates/spec/src/specs`](../crates/spec/src/specs).
 
-Each spec is bound to a predicate, which is the key that verifies its proofs. The worker
-tracks the predicate for the next block. An `AsmStfUpdate` log, emitted by the admin
-subprotocol, changes it. The `ExecutionRegistry`
+Each spec is bound to its own predicate. The worker tracks the predicate for the next block.
+An `AsmStfUpdate` log, emitted by the admin subprotocol, changes it. The `ExecutionRegistry`
 ([`crates/worker/src/registry.rs`](../crates/worker/src/registry.rs)) maps a predicate to the
 compiled spec that runs the block.
 
+The parent's Moho state authorizes the predicate for the next block. The runner's config only
+lists the predicates it supports. As a result:
+
+- The block that enacts an upgrade still runs under its parent's predicate, so the old spec
+  executes it. Its manifest carries the `AsmStfUpdate` log, and the next block runs under the
+  new predicate.
+- An unknown predicate stops native execution with `UnsupportedExecutionPredicate` before the
+  block is processed. A known predicate with no loaded proof artifact stops proving, but keeps
+  the queued work.
+- A proof job uses its own parent's predicate, not the tip's.
+- The Moho program is fixed per node. Only the ASM step program changes in an upgrade.
+
 To add a spec, see [asm-upgrade-development.md](asm-upgrade-development.md).
-
-## Moho
-
-[Moho](https://github.com/alpenlabs/moho) is Strata's recursive proof framework. Each Moho
-proof checks the previous Moho proof and one ASM step proof, so a single proof covers the
-chain from genesis up to a given block. The Moho state also carries the predicate for the
-next block, which is how an upgrade switches to a new ASM program. The ASM plugs into Moho by
-implementing its `MohoProgram` trait (see [Proofs](#proofs)).
 
 ## Runtime
 
