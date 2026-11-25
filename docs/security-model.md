@@ -61,10 +61,10 @@ waits for anyone to challenge a proof with a heavier one.
      fulfillment adds a bridge export entry, which is the operator's claim record.
    - A withdrawal is dispatched only from a checkpoint that was posted under the sequencer key
      and has a valid checkpoint proof.
-   - A slash or unstake transaction removes an operator only if it spends a stake connector,
-     the output that holds an operator's stake. The ASM fetches the spent output as aux data
-     and checks that it is locked to an N/N key the operator set has used, so the N/N set
-     signed the spend.
+   - A slash or unstake transaction removes an operator only if the N/N set signed it. The ASM
+     fetches the spent output as aux data, and checks that it is locked to an N/N key the
+     operator set has used and that the operator was in that set. Unstake also checks that the
+     output is a stake connector, the output that holds an operator's stake.
    - An admin action needs a signature threshold from its role and a fresh sequence number. An
      update takes effect after the confirmation depth the params file sets for its type. A
      depth of zero means at once, with no window to cancel. `Defcon1` and cancels always
