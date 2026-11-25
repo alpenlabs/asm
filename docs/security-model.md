@@ -51,9 +51,11 @@ waits for anyone to challenge a proof with a heavier one.
    ([What a Moho proof shows](#what-a-moho-proof-shows)).
    The STF checks aux data by txid or by MMR proof before any subprotocol reads it. If data the
    transition needs is missing, the guest panics and there is no step proof.
-4. **The work a Moho proof reports is real.** Every header is checked and its work added to the
-   chain's total. Consumers such as the bridge read that total from the export state and do not
-   check headers themselves.
+4. **The work a Moho proof reports is real.** Every header is checked, and its work is added to
+   the chain's total. A header adds the expected work for the difficulty target that its
+   [`nBits`](https://developer.bitcoin.org/reference/block_chain.html#target-nbits) field
+   encodes. The hash only has to meet that target. Consumers such as the bridge read that total
+   from the export state and do not check headers themselves.
 5. **Subprotocol state changes only with the right authorization.**
    - A deposit is accepted once, and only if it is locked to the N/N key in effect at that
      block and carries the right amount.
