@@ -84,48 +84,7 @@ This is the command the `Publish ASM Guest` workflow runs. Only the guest compil
 
 ## Publishing
 
-### Releases
-
-Pushing a `v*` tag runs `.github/workflows/release.yml`. It does a reproducible build of the guest for every network in `crates/params/envs/` except `dev`, with that network's params file at the tag. It then:
-
-1. Attaches `<env>-asm.elf` and `<env>-asm-predicate.txt` for each network to a draft GitHub release.
-2. Adds a section to the release notes. It names the commit and the SP1 version, and for each network its params file, vkey hash, and predicate.
-3. Publishes the release once it holds exactly the files this run built, byte for byte, and the tag still points at the commit they were built from. Releases are immutable after that.
-4. Copies the published files to S3, after checking each one against the release's attestation. This job waits until a reviewer approves the `baremetal-binaries` environment.
-
-`dev` gets no released guest, because it is only for local runs and CI.
-
-### Which branch to tag
-
-Each release line has a branch, `releases/vX.Y.x`. Until it exists, you can tag the line's rcs (`vX.Y.0-rc.N`) on `main`. Every other tag needs the branch: `vX.Y.0` and each patch release must point at a commit on it. Once the branch exists, the rcs must come from it too.
-
-So cut the branch from `main` before you tag `vX.Y.0`:
-
-```bash
-git push origin <commit>:refs/heads/releases/vX.Y.x
-git tag -a vX.Y.0 <commit> -m vX.Y.0
-git push origin refs/tags/vX.Y.0
-```
-
-If the tag isn't on the right branch, the run stops at "Check the tag's branch", before it creates the release. Don't publish a release for that tag by hand. A published release is immutable, so it can never get the guest files. Cut the branch, then tag the next patch release from it.
-
-### By hand
-
-Run the `Publish ASM Guest` workflow (`.github/workflows/publish-asm-guest.yml`) from main with the ref to build and the network. Without `release_tag`, it uploads straight to S3. Use it for `dev`, or for a build that isn't a release.
-
-### S3 layout
-
-Both paths upload to the same place:
-
-```
-s3://alpen-mosaic-artifacts/elfs/asm-runner/<env>/<commit>/
-  asm.elf  asm.elf.sha256
-  asm-predicate.txt  asm-predicate.txt.sha256
-  SHA256SUMS
-  manifest.json
-```
-
-`manifest.json` is written last and marks a completed publish. It records the network, the ref and commit, the params file's path, the SP1 version, the predicate, and every file's SHA-256.
+A `v*` tag publishes a reproducible build of the guest for every network except `dev`, in a GitHub release and in S3. [Releasing](../../docs/releasing.md) covers which branch to tag, what a release publishes, and how to publish a guest by hand.
 
 ## Checking a published guest
 
@@ -137,7 +96,7 @@ gh release verify-asset <tag> <env>-asm.elf --repo alpenlabs/asm
 gh release verify-asset <tag> <env>-asm-predicate.txt --repo alpenlabs/asm
 ```
 
-For an S3 bundle, put it in one directory and check the hashes:
+For an S3 bundle ([layout](../../docs/releasing.md#what-a-release-publishes)), put it in one directory and check the hashes:
 
 ```bash
 sha256sum -c SHA256SUMS

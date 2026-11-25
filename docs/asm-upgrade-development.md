@@ -49,14 +49,14 @@ chain.
    take no prover dependency.
 4. **Build its guest.** Each guest compiles one concrete spec; the witness cannot select rules.
    The local guest (`guest-builder/sp1/guest-asm/src/main.rs`) always compiles the newest spec,
-   so point it at the new one. Older specs keep the guest from the release that shipped them, and
-   tests download it with its predicate (`functional-tests/envs/prover_env.py` for spec 0). Retain
-   old guests while delayed jobs or reorgs may still need them.
+   so point it at the new one. Older specs keep the guest from the
+   [release](releasing.md#what-a-release-publishes) that shipped them, and tests download it with
+   its predicate (`functional-tests/envs/prover_env.py` for spec 0). Retain old guests while
+   delayed jobs or reorgs may still need them.
 
    Each network gets [its own guest](../guest-builder/sp1/README.md#one-guest-per-network), with
    its params baked in. The guest builder README covers building one and checking a published
-   one. Neither the generated release notes nor the S3 manifest record the spec ID, so add it to
-   the release notes by hand.
+   one, and [Releasing](releasing.md) covers publishing it and recording its spec ID.
 5. **Configure execution.** Add an `[[execution.targets]]` entry `{ predicate, spec_id }`.
    `execution.genesis_spec_id` names the spec the chain starts under, and the runner takes the
    genesis predicate from its target entry. It stays fixed across upgrades. Each predicate and
@@ -85,8 +85,8 @@ An ASM-only runner omits `[orchestrator]` but still needs a complete `[execution
   The [guest builder README](../guest-builder/sp1/README.md#differences-from-the-native-stf)
   lists the other places where the two can differ.
 - **Release owners establish native/guest equivalence.** Artifact loading checks the predicate,
-  while the compiled catalog and release record associate that artifact with the native spec.
-  Validate that association before distributing the release.
+  while the compiled catalog and the [release notes](releasing.md#cutting-a-release) associate
+  that artifact with the native spec. Validate that association before distributing the release.
 
 ## Testing an upgrade
 
