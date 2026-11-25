@@ -45,6 +45,17 @@ Logs go out with `MsgRelayer::emit_log` and end up in the block's manifest. The 
 payloads live in [`crates/logs`](../crates/logs). Downstream systems decode them, so a log
 format is a public interface.
 
+## Invalid transactions
+
+Anyone can post a tagged transaction, so a subprotocol must expect bad ones. When a
+transaction fails to parse or fails a check, the subprotocol skips it and moves on. It never
+fails the block and never panics on it. The ASM cannot reject a block that Bitcoin accepted,
+and a block the STF cannot process stops the chain for everyone; see
+[security-model.md](security-model.md#what-the-asm-guarantees).
+
+A panic is only for a broken invariant, where going on would be worse than stopping.
+[security-model.md](security-model.md#deliberate-halts) lists the ones that exist today.
+
 ## Crate layout
 
 Each subprotocol under [`crates/subprotocols`](../crates/subprotocols) is split so other
@@ -79,4 +90,8 @@ the change needs a new `STATE_VERSION`, a new spec, and a migration in that spec
    [`crates/spec/src/genesis.rs`](../crates/spec/src/genesis.rs).
 4. Add it to a spec's `call_subprotocols`. On a live chain this means a new spec that adds
    the section in `prepare`.
-5. Cover it with unit tests in its crates and an integration test in [`tests/asm`](../tests/asm).
+5. Size the list bounds in its `State` so that no chain can fill them; see
+   [security-model.md](security-model.md#size-bounds). If it checks signatures or hashes, check
+   what the SP1 guest's version of that code does; see the
+   [guest builder README](../guest-builder/sp1/README.md#differences-from-the-native-stf).
+6. Cover it with unit tests in its crates and an integration test in [`tests/asm`](../tests/asm).

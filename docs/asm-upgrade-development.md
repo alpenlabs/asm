@@ -101,6 +101,8 @@ An ASM-only runner omits `[orchestrator]` but still needs a complete `[execution
   section of the `runtime` part of its params file. It executes natively with those values and
   proves with the ones baked into its guest. Nothing checks that the two agree. If they
   differ, proofs of blocks under that spec stop matching native execution.
+  The [guest builder README](../guest-builder/sp1/README.md#differences-from-the-native-stf)
+  lists the other places where the two can differ.
 - **Release owners establish native/guest equivalence.** Artifact loading checks the predicate,
   while the compiled catalog and release record associate that artifact with the native spec.
   Validate that association before distributing the release.

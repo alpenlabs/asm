@@ -15,7 +15,9 @@ runs `strata-asm-runner` and calls its RPC. Changes to public types, logs, RPC, 
 params file are breaking for them.
 
 Contributor docs are in [`docs/`](docs/README.md). Read
-[`docs/architecture.md`](docs/architecture.md) before changing the STF or the workers.
+[`docs/architecture.md`](docs/architecture.md) before changing the STF or the workers. Read
+[`docs/security-model.md`](docs/security-model.md) before changing the STF, a subprotocol, the
+guest, or an SSZ schema, and before reporting a security finding.
 
 ## Commands
 
@@ -105,6 +107,12 @@ See [`docs/layout.md`](docs/layout.md) for every crate.
   Update that lockfile when you change a dependency the guest uses. Set `BUILD_ELF=1` to
   build the guest; [`guest-builder/sp1/README.md`](guest-builder/sp1/README.md) has the
   details. Output in `guest-builder/sp1/generated/` is not tracked and survives `cargo clean`.
+- **Native and guest**: consumers rely on the proof, so the guest's result is the one that
+  matters. The guest swaps in SP1 versions of `secp256k1`, `k256`, `sha2`, and `substrate-bn`,
+  and has its own lockfile. When STF code passes untrusted input to one of them, check what the
+  guest's version does with invalid and edge-case input. If it can differ from the native one,
+  decide the case in our own code before the call and pin it with fixed vectors. See
+  [`guest-builder/sp1/README.md`](guest-builder/sp1/README.md#differences-from-the-native-stf).
 - **TODOs**: every `TODO` or `FIXME` needs a ticket, for example `TODO(STR-1234): ...`.
   `just check-todos` runs the same check as CI.
 - **Dependencies**: declare versions in the root `Cargo.toml` and use `workspace = true`.
