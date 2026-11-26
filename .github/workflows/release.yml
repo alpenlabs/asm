@@ -5,8 +5,9 @@ name: Release
 # and then copies them to S3. dev is only for local runs and CI, so it gets no
 # released guest. Follows alpen-ee's release.yml.
 #
-# A line's first rcs, like v0.6.0-rc.1, are tagged on main. Once releases/v0.6.x
-# is cut, every tag of the line comes from it.
+# A line's first rcs, like v0.6.0-rc.1, can be tagged on main. v0.6.0 and its
+# patch releases need releases/v0.6.x, so cut it before tagging v0.6.0. Once it
+# exists, every tag of the line comes from it. docs/releasing.md has the steps.
 #
 # Releases are immutable once published, so the release is created as a draft,
 # every network attaches its files, and it is only published once it holds

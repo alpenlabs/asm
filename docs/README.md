@@ -13,6 +13,7 @@ Task guides:
 
 - [ASM upgrade development](asm-upgrade-development.md): adding a spec and its proof
   artifacts.
+- [Releasing](releasing.md): release branches, tags, and the guests a release publishes.
 
 Tool-specific guides live next to the code:
 
