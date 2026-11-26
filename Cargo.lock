@@ -1611,7 +1611,7 @@ checksum = "8acbfa6508d9a844a8194f38e40b56fb72e5085d57a6990ddaa1e576747f9745"
 dependencies = [
  "base64 0.22.1",
  "bitcoin",
- "bitreq 0.3.7",
+ "bitreq 0.3.8",
  "corepc-types 0.13.0",
  "hex-conservative",
  "secp256k1 0.29.1",
@@ -1646,9 +1646,9 @@ dependencies = [
 
 [[package]]
 name = "bitreq"
-version = "0.3.7"
+version = "0.3.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b65c2e1ab98050c93cc9ada070d5070e014329c65196d03f6f8f1f75c2666f37"
+checksum = "2118ef89c7d94696800407a4b0e555da52d36a791f522c3b98d7cceff9b45f51"
 dependencies = [
  "rustls",
  "rustls-webpki",
